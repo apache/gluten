@@ -17,7 +17,7 @@
 package org.apache.gluten.backendsapi.velox
 
 import org.apache.gluten.backendsapi.MetricsApi
-import org.apache.gluten.config.{GpuHashShuffleWriterType, HashShuffleWriterType, RssSortShuffleWriterType, ShuffleWriterType, SortShuffleWriterType}
+import org.apache.gluten.config.{HashShuffleWriterType, RssSortShuffleWriterType, ShuffleWriterType, SortShuffleWriterType}
 import org.apache.gluten.metrics._
 import org.apache.gluten.substrait.{AggregationParams, JoinParams}
 
@@ -99,6 +99,12 @@ class VeloxMetricsApi extends MetricsApi with Logging {
   }
 
   override def genBatchScanTransformerMetrics(sparkContext: SparkContext): Map[String, SQLMetric] =
+    ScanMetricsUtil.filterScanMetrics(
+      genBatchScanTransformerMetricsFull(sparkContext),
+      ScanMetricsUtil.VELOX_BATCH_SCAN_MINIMAL_METRICS)
+
+  private def genBatchScanTransformerMetricsFull(
+      sparkContext: SparkContext): Map[String, SQLMetric] =
     Map(
       "numInputRows" -> SQLMetrics.createMetric(sparkContext, "number of input rows"),
       "inputVectors" -> SQLMetrics.createMetric(sparkContext, "number of input vectors"),
@@ -147,6 +153,12 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       metrics: Map[String, SQLMetric]): MetricsUpdater = new BatchScanMetricsUpdater(metrics)
 
   override def genHiveTableScanTransformerMetrics(
+      sparkContext: SparkContext): Map[String, SQLMetric] =
+    ScanMetricsUtil.filterScanMetrics(
+      genHiveTableScanTransformerMetricsFull(sparkContext),
+      ScanMetricsUtil.VELOX_HIVE_SCAN_MINIMAL_METRICS)
+
+  private def genHiveTableScanTransformerMetricsFull(
       sparkContext: SparkContext): Map[String, SQLMetric] =
     Map(
       "rawInputRows" -> SQLMetrics.createMetric(sparkContext, "number of raw input rows"),
@@ -199,6 +211,12 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       metrics: Map[String, SQLMetric]): MetricsUpdater = new HiveTableScanMetricsUpdater(metrics)
 
   override def genFileSourceScanTransformerMetrics(
+      sparkContext: SparkContext): Map[String, SQLMetric] =
+    ScanMetricsUtil.filterScanMetrics(
+      genFileSourceScanTransformerMetricsFull(sparkContext),
+      ScanMetricsUtil.VELOX_FILE_SCAN_MINIMAL_METRICS)
+
+  private def genFileSourceScanTransformerMetricsFull(
       sparkContext: SparkContext): Map[String, SQLMetric] =
     Map(
       "rawInputRows" -> SQLMetrics.createMetric(sparkContext, "number of raw input rows"),
@@ -311,6 +329,12 @@ class VeloxMetricsApi extends MetricsApi with Logging {
         "number of spilled partitions"),
       "aggSpilledFiles" -> SQLMetrics.createMetric(sparkContext, "number of spilled files"),
       "flushRowCount" -> SQLMetrics.createMetric(sparkContext, "number of flushed rows"),
+      "abandonedPartialAggregationRows" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of rows after partial aggregation abandonment"),
+      "toIntermediateFastPathCalls" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of toIntermediate fast path calls"),
       "loadedToValueHook" -> SQLMetrics.createMetric(
         sparkContext,
         "number of pushdown aggregations"),
@@ -409,7 +433,7 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "peakBytes" -> SQLMetrics.createSizeMetric(sparkContext, "peak bytes allocated")
     )
     shuffleWriterType match {
-      case HashShuffleWriterType | GpuHashShuffleWriterType =>
+      case HashShuffleWriterType =>
         baseMetrics ++ Map(
           "splitTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "time to split"),
           "avgDictionaryFields" -> SQLMetrics
@@ -533,6 +557,22 @@ class VeloxMetricsApi extends MetricsApi with Logging {
   override def genSortTransformerMetricsUpdater(metrics: Map[String, SQLMetric]): MetricsUpdater =
     new SortMetricsUpdater(metrics)
 
+  override def genTopNTransformerMetrics(sparkContext: SparkContext): Map[String, SQLMetric] =
+    Map(
+      "numOutputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"),
+      "outputVectors" -> SQLMetrics.createMetric(sparkContext, "number of output vectors"),
+      "outputBytes" -> SQLMetrics.createSizeMetric(sparkContext, "number of output bytes"),
+      "wallNanos" -> SQLMetrics.createNanoTimingMetric(sparkContext, "time of top-n"),
+      "cpuCount" -> SQLMetrics.createMetric(sparkContext, "cpu wall time count"),
+      "peakMemoryBytes" -> SQLMetrics.createSizeMetric(sparkContext, "peak memory bytes"),
+      "numMemoryAllocations" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of memory allocations")
+    )
+
+  override def genTopNTransformerMetricsUpdater(metrics: Map[String, SQLMetric]): MetricsUpdater =
+    new TopNMetricsUpdater(metrics)
+
   override def genSortMergeJoinTransformerMetrics(
       sparkContext: SparkContext): Map[String, SQLMetric] =
     Map(
@@ -578,7 +618,16 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "numOutputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"),
       "collectTime" -> SQLMetrics.createTimingMetric(sparkContext, "time to collect"),
       "broadcastTime" -> SQLMetrics.createTimingMetric(sparkContext, "time to broadcast"),
-      "buildThreads" -> SQLMetrics.createMetric(sparkContext, "build threads")
+      "buildThreads" -> SQLMetrics.createMetric(sparkContext, "build threads"),
+      "driverBuildHashTableTime" -> SQLMetrics.createTimingMetric(
+        sparkContext,
+        "time to build hash table on driver"),
+      "driverSerializeHashTableTime" -> SQLMetrics.createTimingMetric(
+        sparkContext,
+        "time to serialize hash table on driver"),
+      "serializedHashTableSize" -> SQLMetrics.createSizeMetric(
+        sparkContext,
+        "serialized hash table size")
     )
 
   override def genColumnarSubqueryBroadcastMetrics(
@@ -665,6 +714,15 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "hashProbeDynamicFiltersProduced" -> SQLMetrics.createMetric(
         sparkContext,
         "number of hash probe dynamic filters produced"),
+      "hashProbeBloomFilterTestedRows" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of rows tested by the hash probe bloom filter"),
+      "hashProbeBloomFilterAcceptedRows" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of rows accepted by the hash probe bloom filter"),
+      "hashProbeBloomFilterBypassed" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of hash probe bloom filter bypass decisions"),
       "bloomFilterBlocksByteSize" -> SQLMetrics.createSizeMetric(
         sparkContext,
         "bloom filter blocks byte size"),
@@ -694,7 +752,13 @@ class VeloxMetricsApi extends MetricsApi with Logging {
         "time of loading lazy vectors"),
       "buildHashTableTime" -> SQLMetrics.createTimingMetric(
         sparkContext,
-        "time to build hash table")
+        "time to build hash table"),
+      "deserializeHashTableTime" -> SQLMetrics.createTimingMetric(
+        sparkContext,
+        "time to deserialize hash table"),
+      "hashTableMemorySize" -> SQLMetrics.createSizeMetric(
+        sparkContext,
+        "hash table memory size")
     )
 
   override def genHashJoinTransformerMetricsUpdater(

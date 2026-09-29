@@ -16,7 +16,7 @@
  */
 package org.apache.spark.sql.delta
 
-import org.apache.spark.internal.{LoggingShims, MDC}
+import org.apache.spark.internal.{Logging, MDC => SparkMDC}
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.delta.GlutenDeltaParquetFileFormat._
@@ -62,7 +62,7 @@ case class GlutenDeltaParquetFileFormat(
                                    tablePath: Option[String] = None,
                                    isCDCRead: Boolean = false)
   extends GlutenParquetFileFormat
-    with LoggingShims {
+    with Logging {
   // Validate either we have all arguments for DV enabled read or none of them.
   if (hasTablePath) {
     SparkSession.getActiveSession.map { session =>
@@ -528,7 +528,7 @@ case class GlutenDeltaParquetFileFormat(
       case AlwaysTrue() => Some(AlwaysTrue())
       case AlwaysFalse() => Some(AlwaysFalse())
       case _ =>
-        logError(log"Failed to translate filter ${MDC(DeltaLogKeys.FILTER, filter)}")
+        logError(log"Failed to translate filter ${SparkMDC.of(DeltaLogKeys.FILTER, filter)}")
         None
     }
   }

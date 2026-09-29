@@ -207,7 +207,6 @@ Arguments: false
 
 (37) VeloxResizeBatches
 Input [7]: [hash_partition_key#24, ss_ticket_number#5, ss_customer_sk#1, ss_addr_sk#3, ca_city#17, sum#22, sum#23]
-Arguments: 1024, 2147483647, 10485760
 
 (38) ColumnarExchange
 Input [7]: [hash_partition_key#24, ss_ticket_number#5, ss_customer_sk#1, ss_addr_sk#3, ca_city#17, sum#22, sum#23]

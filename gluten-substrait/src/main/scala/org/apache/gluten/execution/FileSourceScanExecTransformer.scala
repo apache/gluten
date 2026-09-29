@@ -29,6 +29,7 @@ import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.util.truncatedString
 import org.apache.spark.sql.connector.read.streaming.SparkDataStream
 import org.apache.spark.sql.execution.FileSourceScanExecShim
+import org.apache.spark.sql.execution.adaptive.InputStats
 import org.apache.spark.sql.execution.datasources.HadoopFsRelation
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.types.StructType
@@ -48,7 +49,8 @@ case class FileSourceScanExecTransformer(
     override val dataFilters: Seq[Expression],
     override val tableIdentifier: Option[TableIdentifier],
     override val disableBucketedScan: Boolean = false,
-    override val pushDownFilters: Option[Seq[Expression]] = None)
+    override val pushDownFilters: Option[Seq[Expression]] = None,
+    inputStats: Option[InputStats] = None)
   extends FileSourceScanExecTransformerBase(
     relation,
     stream,
@@ -61,6 +63,10 @@ case class FileSourceScanExecTransformer(
     tableIdentifier,
     disableBucketedScan
   ) {
+
+  override def getInputStats: Option[InputStats] = {
+    inputStats
+  }
 
   override def doCanonicalize(): FileSourceScanExecTransformer = {
     FileSourceScanExecTransformer(
@@ -78,7 +84,8 @@ case class FileSourceScanExecTransformer(
       QueryPlan.normalizePredicates(dataFilters, output),
       None,
       disableBucketedScan,
-      pushDownFilters.map(QueryPlan.normalizePredicates(_, output))
+      pushDownFilters.map(QueryPlan.normalizePredicates(_, output)),
+      inputStats
     )
   }
 
@@ -109,11 +116,19 @@ abstract class FileSourceScanExecTransformerBase(
     disableBucketedScan)
   with DatasourceScanTransformer {
 
-  // Note: "metrics" is made transient to avoid sending driver-side metrics to tasks.
-  @transient override lazy val metrics: Map[String, SQLMetric] =
+  /** Format-specific metrics that should be displayed with the native file scan. */
+  protected def additionalScanMetrics: Map[String, SQLMetric] = Map.empty
+
+  // Metrics attached to the native file scan. Format-specific additions may be updated on the
+  // driver or executors; driver-only aliases are excluded.
+  @transient private lazy val nativeScanMetrics: Map[String, SQLMetric] =
     BackendsApiManager.getMetricsApiInstance
       .genFileSourceScanTransformerMetrics(sparkContext)
-      .filter(m => !driverMetricsAlias.contains(m._1)) ++ driverMetricsAlias
+      .filter(m => !driverMetricsAlias.contains(m._1)) ++ additionalScanMetrics
+
+  // Note: "metrics" is made transient to avoid sending driver-side metrics to tasks.
+  @transient override lazy val metrics: Map[String, SQLMetric] =
+    nativeScanMetrics ++ driverMetricsAlias
 
   override def scanFilters: Seq[Expression] = dataFilters
 
@@ -177,7 +192,8 @@ abstract class FileSourceScanExecTransformerBase(
   }
 
   override def metricsUpdater(): MetricsUpdater =
-    BackendsApiManager.getMetricsApiInstance.genFileSourceScanTransformerMetricsUpdater(metrics)
+    BackendsApiManager.getMetricsApiInstance
+      .genFileSourceScanTransformerMetricsUpdater(nativeScanMetrics)
 
   override val nodeName: String = {
     s"${getClass.getSimpleName} $relation ${tableIdentifier.map(_.unquotedString).getOrElse("")}"

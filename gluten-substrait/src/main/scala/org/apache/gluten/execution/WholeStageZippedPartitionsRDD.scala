@@ -17,6 +17,8 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.extension.ApplyStageInputStatsRule
 import org.apache.gluten.metrics.{GlutenTimeMetric, IMetrics}
 
 import org.apache.spark.{Partition, SparkConf, SparkContext, TaskContext}
@@ -36,12 +38,19 @@ class WholeStageZippedPartitionsRDD(
     resCtx: WholeStageTransformContext,
     pipelineTime: SQLMetric,
     updateNativeMetrics: IMetrics => Unit,
-    materializeInput: Boolean)
+    materializeInput: Boolean,
+    partitionLength: Int = 0)
   extends RDD[ColumnarBatch](sc, rdds.getDependencies) {
 
   override def compute(split: Partition, context: TaskContext): Iterator[ColumnarBatch] = {
     GlutenTimeMetric.millis(pipelineTime) {
       _ =>
+        if (GlutenConfig.get.enablePassStageInputStats) {
+          ApplyStageInputStatsRule.setStageInputStatsToInputNode(
+            resCtx,
+            split.index,
+            partitionLength)
+        }
         val partitions = split.asInstanceOf[ZippedPartitionsPartition].inputColumnarRDDPartitions
         val inputIterators: Seq[Iterator[ColumnarBatch]] = rdds.getIterators(partitions, context)
         BackendsApiManager.getIteratorApiInstance

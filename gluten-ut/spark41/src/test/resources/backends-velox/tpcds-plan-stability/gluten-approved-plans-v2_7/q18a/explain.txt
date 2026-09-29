@@ -420,7 +420,6 @@ Arguments: false
 
 (53) VeloxResizeBatches
 Input [19]: [hash_partition_key#63, i_item_id#27, ca_country#24, ca_state#23, ca_county#22, sum#49, count#50, sum#51, count#52, sum#53, count#54, sum#55, count#56, sum#57, count#58, sum#59, count#60, sum#61, count#62]
-Arguments: 1024, 2147483647, 10485760
 
 (54) ColumnarExchange
 Input [19]: [hash_partition_key#63, i_item_id#27, ca_country#24, ca_state#23, ca_county#22, sum#49, count#50, sum#51, count#52, sum#53, count#54, sum#55, count#56, sum#57, count#58, sum#59, count#60, sum#61, count#62]
@@ -602,7 +601,6 @@ Arguments: false
 
 (97) VeloxResizeBatches
 Input [18]: [hash_partition_key#135, i_item_id#99, ca_country#96, ca_state#95, sum#121, count#122, sum#123, count#124, sum#125, count#126, sum#127, count#128, sum#129, count#130, sum#131, count#132, sum#133, count#134]
-Arguments: 1024, 2147483647, 10485760
 
 (98) ColumnarExchange
 Input [18]: [hash_partition_key#135, i_item_id#99, ca_country#96, ca_state#95, sum#121, count#122, sum#123, count#124, sum#125, count#126, sum#127, count#128, sum#129, count#130, sum#131, count#132, sum#133, count#134]
@@ -792,7 +790,6 @@ Arguments: false
 
 (143) VeloxResizeBatches
 Input [17]: [hash_partition_key#208, i_item_id#172, ca_country#169, sum#194, count#195, sum#196, count#197, sum#198, count#199, sum#200, count#201, sum#202, count#203, sum#204, count#205, sum#206, count#207]
-Arguments: 1024, 2147483647, 10485760
 
 (144) ColumnarExchange
 Input [17]: [hash_partition_key#208, i_item_id#172, ca_country#169, sum#194, count#195, sum#196, count#197, sum#198, count#199, sum#200, count#201, sum#202, count#203, sum#204, count#205, sum#206, count#207]
@@ -982,7 +979,6 @@ Arguments: false
 
 (189) VeloxResizeBatches
 Input [16]: [hash_partition_key#281, i_item_id#245, sum#267, count#268, sum#269, count#270, sum#271, count#272, sum#273, count#274, sum#275, count#276, sum#277, count#278, sum#279, count#280]
-Arguments: 1024, 2147483647, 10485760
 
 (190) ColumnarExchange
 Input [16]: [hash_partition_key#281, i_item_id#245, sum#267, count#268, sum#269, count#270, sum#271, count#272, sum#273, count#274, sum#275, count#276, sum#277, count#278, sum#279, count#280]
@@ -1164,7 +1160,6 @@ Arguments: false
 
 (233) VeloxResizeBatches
 Input [14]: [sum#339, count#340, sum#341, count#342, sum#343, count#344, sum#345, count#346, sum#347, count#348, sum#349, count#350, sum#351, count#352]
-Arguments: 1024, 2147483647, 10485760
 
 (234) ColumnarExchange
 Input [14]: [sum#339, count#340, sum#341, count#342, sum#343, count#344, sum#345, count#346, sum#347, count#348, sum#349, count#350, sum#351, count#352]

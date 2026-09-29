@@ -81,6 +81,10 @@ public class TypeBuilder {
     return new TimestampTypeNode(nullable);
   }
 
+  public static TypeNode makeTimestampNTZ(Boolean nullable) {
+    return new TimestampNTZTypeNode(nullable);
+  }
+
   public static TypeNode makeStruct(Boolean nullable, List<TypeNode> types, List<String> names) {
     return new StructNode(nullable, types, names);
   }

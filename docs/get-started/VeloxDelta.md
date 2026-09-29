@@ -28,6 +28,20 @@ Native Delta write is controlled by:
   - Default: `false`
   - Type: experimental
 
+Native change data feed scan offload is controlled by:
+
+- `spark.gluten.sql.columnar.backend.velox.delta.enableChangeDataFeedScan`
+  - Default: `true`
+  - Type: experimental
+
+The native DELETE/UPDATE/MERGE deletion-vector target scan is controlled by:
+
+- `spark.gluten.sql.columnar.backend.velox.delta.enableNativeDmlRowIndexScan`
+  - Default: `true`
+  - Type: experimental
+  - When disabled, the DML target scan that produces file paths and row indexes for
+    deletion-vector writes stays on Spark; other scans are unaffected.
+
 | Feature | Delta minWriterVersion | Delta minReaderVersion | Iceberg format-version | Feature type | Supported by Gluten (Velox) |
 |---|---:|---:|---:|---|---|
 | Basic functionality | 2 | 1 | 1 | Writer | Yes |

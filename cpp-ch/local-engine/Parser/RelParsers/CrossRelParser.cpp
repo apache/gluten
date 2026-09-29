@@ -22,11 +22,12 @@
 #include <Interpreters/GraceHashJoin.h>
 #include <Interpreters/HashJoin/HashJoin.h>
 #include <Interpreters/TableJoin.h>
-#include <Join/BroadCastJoinBuilder.h>
+#include <Join/BroadcastJoinBuilder.h>
 #include <Join/StorageJoinFromReadBuffer.h>
 #include <Parser/AdvancedParametersParseUtil.h>
 #include <Parser/ExpressionParser.h>
 #include <Parser/SerializedPlanParser.h>
+#include <Parser/SubstraitParserUtils.h>
 #include <Parsers/ASTIdentifier.h>
 #include <Processors/QueryPlan/ExpressionStep.h>
 #include <Processors/QueryPlan/FilterStep.h>
@@ -57,7 +58,7 @@ namespace local_engine
 {
 using namespace DB;
 
-std::shared_ptr<DB::TableJoin> createCrossTableJoin(substrait::CrossRel_JoinType join_type)
+std::shared_ptr<DB::TableJoin> createCrossTableJoin(substrait::NestedLoopJoinRel_JoinType join_type)
 {
     auto global_context = QueryContext::globalContext();
     auto table_join = std::make_shared<TableJoin>(
@@ -81,7 +82,7 @@ CrossRelParser::parse(DB::QueryPlanPtr /*query_plan*/, const substrait::Rel & /*
 
 std::vector<const substrait::Rel *> CrossRelParser::getInputs(const substrait::Rel & rel)
 {
-    const auto & join = rel.cross();
+    const auto & join = rel.nested_loop_join();
     if (!join.has_left() || !join.has_right())
     {
         throw Exception(ErrorCodes::BAD_ARGUMENTS, "left table or right table is missing.");
@@ -123,7 +124,7 @@ DB::QueryPlanPtr
 CrossRelParser::parse(std::vector<DB::QueryPlanPtr> & input_plans_, const substrait::Rel & rel, std::list<const substrait::Rel *> &)
 {
     assert(input_plans_.size() == 2);
-    const auto & join = rel.cross();
+    const auto & join = rel.nested_loop_join();
     std::pair<DB::JoinKind, DB::JoinStrictness> kind_and_strictness = JoinUtil::getCrossJoinKindAndStrictness(join.type());
     if (kind_and_strictness.first != JoinKind::Cross)
         addConstJoinKeys(*input_plans_[0], *input_plans_[1]);
@@ -165,13 +166,13 @@ void CrossRelParser::renamePlanColumns(DB::QueryPlan & left, DB::QueryPlan & rig
     left.addStep(std::move(project_step));
 }
 
-DB::QueryPlanPtr CrossRelParser::parseJoin(const substrait::CrossRel & join, DB::QueryPlanPtr left, DB::QueryPlanPtr right)
+DB::QueryPlanPtr CrossRelParser::parseJoin(const substrait::NestedLoopJoinRel & join, DB::QueryPlanPtr left, DB::QueryPlanPtr right)
 {
     google::protobuf::StringValue optimization_info;
-    optimization_info.ParseFromString(join.advanced_extension().optimization().value());
+    optimization_info.ParseFromString(firstOptimizationOrDefault(join.advanced_extension()).value());
     auto join_opt_info = JoinOptimizationInfo::parse(optimization_info.value());
     const auto & storage_join_key = join_opt_info.storage_join_key;
-    auto storage_join = join_opt_info.is_broadcast ? BroadCastJoinBuilder::getJoin(storage_join_key) : nullptr;
+    auto storage_join = !storage_join_key.empty() ? BroadcastJoinBuilder::getJoin(storage_join_key) : nullptr;
     if (storage_join)
         renamePlanColumns(*left, *right, *storage_join);
     auto table_join = createCrossTableJoin(join.type());
@@ -179,7 +180,7 @@ DB::QueryPlanPtr CrossRelParser::parseJoin(const substrait::CrossRel & join, DB:
     addConvertStep(*table_join, *left, *right);
 
     // Add a check to find error easily.
-    if (!blocksHaveEqualStructure(right_header_before_convert_step, *right->getCurrentHeader()))
+    if (storage_join && !blocksHaveEqualStructure(right_header_before_convert_step, *right->getCurrentHeader()))
     {
         throw DB::Exception(
             DB::ErrorCodes::LOGICAL_ERROR,
@@ -246,7 +247,7 @@ DB::QueryPlanPtr CrossRelParser::parseJoin(const substrait::CrossRel & join, DB:
 }
 
 
-void CrossRelParser::addPostFilter(DB::QueryPlan & query_plan, const substrait::CrossRel & join_rel)
+void CrossRelParser::addPostFilter(DB::QueryPlan & query_plan, const substrait::NestedLoopJoinRel & join_rel)
 {
     if (!join_rel.has_expression())
         return;
@@ -365,7 +366,7 @@ DB::Names CrossRelParser::collectOutputColumnsName(const DB::QueryPlan & left, c
 void registerCrossRelParser(RelParserFactory & factory)
 {
     auto builder = [](ParserContextPtr parser_context) { return std::make_shared<CrossRelParser>(parser_context); };
-    factory.registerBuilder(substrait::Rel::RelTypeCase::kCross, builder);
+    factory.registerBuilder(substrait::Rel::RelTypeCase::kNestedLoopJoin, builder);
 }
 
 }

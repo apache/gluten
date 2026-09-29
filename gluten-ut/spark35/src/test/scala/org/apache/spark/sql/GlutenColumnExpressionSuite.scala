@@ -97,4 +97,19 @@ class GlutenColumnExpressionSuite extends ColumnExpressionSuite with GlutenSQLTe
       }
     }
   }
+
+  test("scan filter references input_file_name but project does not select it") {
+    withTempPath {
+      dir =>
+        val data = sparkContext.parallelize(0 to 10).toDF("id")
+        data.write.parquet(dir.getCanonicalPath)
+
+        // Filter references input_file_name(), but the project only selects `id`.
+        val q = spark.read
+          .parquet(dir.getCanonicalPath)
+          .filter(input_file_name().contains("parquet"))
+          .select($"id")
+        checkAnswer(q, (0 to 10).map(Row(_)))
+    }
+  }
 }

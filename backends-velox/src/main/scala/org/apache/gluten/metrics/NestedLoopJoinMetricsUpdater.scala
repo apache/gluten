@@ -74,6 +74,6 @@ class NestedLoopJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
     nestedLoopJoinBuildPeakMemoryBytes += nestedLoopJoinBuildMetrics.peakMemoryBytes
     nestedLoopJoinBuildNumMemoryAllocations += nestedLoopJoinBuildMetrics.numMemoryAllocations
 
-    loadLazyVectorTime += joinMetrics.asScala.last.loadLazyVectorTime
+    loadLazyVectorTime += joinMetrics.asScala.map(_.loadLazyVectorTime).sum
   }
 }

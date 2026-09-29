@@ -187,7 +187,6 @@ Arguments: false
 
 (35) VeloxResizeBatches
 Input [16]: [hash_partition_key#39, s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21, sum#34, sum#35, sum#36, sum#37, sum#38]
-Arguments: 1024, 2147483647, 10485760
 
 (36) ColumnarExchange
 Input [16]: [hash_partition_key#39, s_store_name#12, s_company_id#13, s_street_number#14, s_street_name#15, s_street_type#16, s_suite_number#17, s_city#18, s_county#19, s_state#20, s_zip#21, sum#34, sum#35, sum#36, sum#37, sum#38]

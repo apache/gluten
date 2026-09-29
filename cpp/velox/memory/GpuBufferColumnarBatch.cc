@@ -28,7 +28,7 @@
 
 namespace gluten {
 namespace {
-enum class BufferType { kNull, kLength, kValue };
+enum class BufferType { kNull, kLength, kValue, kBooleanValue, kTimestampValue };
 }
 
 using namespace facebook;
@@ -67,16 +67,20 @@ std::shared_ptr<GpuBufferColumnarBatch> GpuBufferColumnarBatch::compose(
   GLUTEN_CHECK(!batches.empty(), "No batches to compose");
   // Compute the returned GpuBufferColumnarBatch buffers.
   auto& type = batches[0]->getRowType();
-  const auto bufferSize = batches[0]->buffers().size();
+  const auto numBuffers = batches[0]->buffers().size();
   std::vector<size_t> bufferSizes;
-  bufferSizes.resize(bufferSize);
+  bufferSizes.resize(numBuffers);
   std::vector<BufferType> bufferTypes;
-  bufferTypes.reserve(bufferSize);
+  bufferTypes.reserve(numBuffers);
 
   for (const auto& colType : type->children()) {
     bufferSizes[bufferTypes.size()] = arrow::bit_util::BytesForBits(numRows);
     bufferTypes.push_back(BufferType::kNull);
-    if (colType->isFixedWidth()) {
+    if (colType->isTimestamp()) {
+      bufferTypes.push_back(BufferType::kTimestampValue);
+    } else if (colType->isBoolean()) {
+      bufferTypes.push_back(BufferType::kBooleanValue);
+    } else if (colType->isFixedWidth()) {
       bufferTypes.push_back(BufferType::kValue);
     } else {
       // Add the first offset 0.
@@ -86,27 +90,37 @@ std::shared_ptr<GpuBufferColumnarBatch> GpuBufferColumnarBatch::compose(
       bufferTypes.push_back(BufferType::kValue);
     }
   }
-  VELOX_CHECK_EQ(bufferTypes.size(), bufferSize);
+  VELOX_CHECK_EQ(bufferTypes.size(), numBuffers);
   // This buffer may be more than the actual reauired buffer for null buffer.
   for (const auto& batch : batches) {
     if (batch->numRows() == 0) {
       continue;
     }
-    for (auto i = 0; i < bufferSize; ++i) {
+    for (auto i = 0; i < numBuffers; ++i) {
       // The null buffer may be null or length = 0.
       // Maybe optimize later, detect if the null buffer is all true. And set the return null buffer to 0.
       if (bufferTypes[i] == BufferType::kNull || bufferTypes[i] == BufferType::kLength) {
         continue;
       }
+
       auto& buffer = batch->bufferAt(i);
       VELOX_CHECK_NOT_NULL(buffer);
-      bufferSizes[i] += buffer->size();
+
+      if (bufferTypes[i] == BufferType::kTimestampValue) {
+        // Velox Timestamp value is 16 bytes. CUDF Timestamp value is 8 bytes.
+        bufferSizes[i] += static_cast<size_t>(batch->numRows()) * sizeof(int64_t);
+      } else if (bufferTypes[i] == BufferType::kBooleanValue) {
+        // Velox Boolean value is 1 bit. CUDF Boolean value is 1 byte.
+        bufferSizes[i] += batch->numRows();
+      } else {
+        bufferSizes[i] += buffer->size();
+      }
     }
   }
 
   std::vector<std::shared_ptr<arrow::Buffer>> returnBuffers;
-  returnBuffers.reserve(bufferSize);
-  for (auto i = 0; i < bufferSize; ++i) {
+  returnBuffers.reserve(numBuffers);
+  for (auto i = 0; i < numBuffers; ++i) {
     // Defer the null buffer to really contains null.
     if (bufferTypes[i] == BufferType::kNull) {
       returnBuffers.emplace_back(nullptr);
@@ -121,8 +135,8 @@ std::shared_ptr<GpuBufferColumnarBatch> GpuBufferColumnarBatch::compose(
   int32_t bufferIdx = 0;
   for (const auto& colType : type->children()) {
     size_t rowNumber = 0;
-    // Also records the value buffer offset.
-    size_t stringOffset = 0;
+    // Also records the length buffer offset for strings.
+    size_t valueBufferOffset = 0;
     for (auto i = 0; i < batches.size(); ++i) {
       const auto& batch = batches[i];
       if (batch->numRows() == 0) {
@@ -147,28 +161,47 @@ std::shared_ptr<GpuBufferColumnarBatch> GpuBufferColumnarBatch::compose(
         arrow::internal::CopyBitmap(batch->bufferAt(bufferIdx)->data(), 0, batch->numRows(), dst, rowNumber);
       }
 
-      if (colType->isFixedWidth()) {
+      if (colType->isTimestamp()) {
+        const auto bufferSize = batch->numRows() * sizeof(int64_t);
+        VELOX_CHECK_LE(valueBufferOffset + bufferSize, returnBuffers[bufferIdx + 1]->size());
+        const auto* src = reinterpret_cast<const int64_t*>(batch->bufferAt(bufferIdx + 1)->data());
+        auto* dst = reinterpret_cast<int64_t*>(returnBuffers[bufferIdx + 1]->mutable_data() + valueBufferOffset);
+        for (auto j = 0; j < batch->numRows(); ++j) {
+          // src[0] is seconds, src[1] is nanoseconds in Timestamp.
+          dst[j] = src[j << 1] * 1'000'000'000L + src[j << 1 | 1];
+        }
+        valueBufferOffset += bufferSize;
+      } else if (colType->isBoolean()) {
+        const auto bufferSize = batch->numRows();
+        VELOX_CHECK_LE(valueBufferOffset + bufferSize, returnBuffers[bufferIdx + 1]->size());
+        const auto* src = batch->bufferAt(bufferIdx + 1)->data();
+        auto* dst = returnBuffers[bufferIdx + 1]->mutable_data() + valueBufferOffset;
+        for (auto j = 0; j < batch->numRows(); ++j) {
+          dst[j] = (src[j >> 3] >> (j & 7)) & 1;
+        }
+        valueBufferOffset += bufferSize;
+      } else if (colType->isFixedWidth()) {
         // The buffer is values.
         const auto bufferSize = batch->bufferAt(bufferIdx + 1)->size();
-        VELOX_CHECK_LE(stringOffset + bufferSize, returnBuffers[bufferIdx + 1]->size());
+        VELOX_CHECK_LE(valueBufferOffset + bufferSize, returnBuffers[bufferIdx + 1]->size());
         memcpy(
-            returnBuffers[bufferIdx + 1]->mutable_data() + stringOffset,
+            returnBuffers[bufferIdx + 1]->mutable_data() + valueBufferOffset,
             batch->bufferAt(bufferIdx + 1)->data(),
             bufferSize);
-        stringOffset += bufferSize;
+        valueBufferOffset += bufferSize;
       } else {
         // String, lengths, values
         memcpy(
-            returnBuffers[bufferIdx + 2]->mutable_data() + stringOffset,
+            returnBuffers[bufferIdx + 2]->mutable_data() + valueBufferOffset,
             batch->bufferAt(bufferIdx + 2)->data(),
             batch->bufferAt(bufferIdx + 2)->size());
         const auto* lengths = reinterpret_cast<const int32_t*>(batch->bufferAt(bufferIdx + 1)->data());
         auto* offsetBuffer = reinterpret_cast<int32_t*>(returnBuffers[bufferIdx + 1]->mutable_data());
         for (auto j = 0; j < batch->numRows(); ++j) {
-          offsetBuffer[rowNumber + j] = stringOffset;
-          stringOffset += lengths[j];
+          offsetBuffer[rowNumber + j] = valueBufferOffset;
+          valueBufferOffset += lengths[j];
         }
-        offsetBuffer[rowNumber + batch->numRows()] = stringOffset;
+        offsetBuffer[rowNumber + batch->numRows()] = valueBufferOffset;
       }
       rowNumber += batch->numRows();
     }

@@ -121,8 +121,10 @@ arrow::Status VeloxSortShuffleWriter::init() {
 
 void VeloxSortShuffleWriter::initRowType(const facebook::velox::RowVectorPtr& rv) {
   if (UNLIKELY(!rowType_)) {
-    rowType_ = facebook::velox::asRowType(rv->type());
+    rowType_ = rv->rowType();
     fixedRowSize_ = facebook::velox::row::CompactRow::fixedRowSize(rowType_);
+  } else {
+    VELOX_CHECK(rowType_->equivalent(*rv->rowType()));
   }
 }
 

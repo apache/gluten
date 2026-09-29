@@ -17,11 +17,19 @@
 package org.apache.gluten.substrait.rel;
 
 import org.apache.gluten.expression.ConverterUtils;
+import org.apache.gluten.substrait.extensions.AdvancedExtensionNode;
+import org.apache.gluten.substrait.extensions.ExtensionBuilder;
 import org.apache.gluten.substrait.type.TypeNode;
 
+import com.google.protobuf.Any;
+import com.google.protobuf.StringValue;
 import io.substrait.proto.*;
+import org.apache.spark.sql.execution.adaptive.InputStats;
 
+import java.util.ArrayList;
 import java.util.List;
+
+import scala.math.BigInt;
 
 /**
  * The relation for input iterator, e.g., the input is ColumnarShuffleExchange or RowToColumnarExec.
@@ -32,11 +40,30 @@ public class InputIteratorRelNode implements RelNode {
   private final List<TypeNode> types;
   private final List<String> names;
   private final Long iteratorIndex;
+  private BigInt rowCount;
+
+  private InputStats inputStats;
 
   public InputIteratorRelNode(List<TypeNode> types, List<String> names, Long iteratorIndex) {
     this.types = types;
     this.names = names;
     this.iteratorIndex = iteratorIndex;
+  }
+
+  public BigInt getRowCount() {
+    return rowCount;
+  }
+
+  public void setRowCount(BigInt rowCount) {
+    this.rowCount = rowCount;
+  }
+
+  public InputStats getInputStats() {
+    return inputStats;
+  }
+
+  public void setInputStats(InputStats inputStats) {
+    this.inputStats = inputStats;
   }
 
   @Override
@@ -59,8 +86,22 @@ public class InputIteratorRelNode implements RelNode {
         LocalFilesBuilder.makeLocalFiles(ConverterUtils.ITERATOR_PREFIX() + iteratorIndex);
     readBuilder.setLocalFiles(iteratorIndexNode.toProtobuf());
 
+    if (null != rowCount) {
+      Any inputRowCount =
+          Any.pack(
+              StringValue.newBuilder().setValue("rowSize=" + rowCount.toLong() + "\n").build());
+      AdvancedExtensionNode advancedExtension =
+          ExtensionBuilder.makeAdvancedExtension(inputRowCount, null);
+      readBuilder.setAdvancedExtension(advancedExtension.toProtobuf());
+    }
+
     Rel.Builder builder = Rel.newBuilder();
     builder.setRead(readBuilder.build());
     return builder.build();
+  }
+
+  @Override
+  public List<RelNode> childNodes() {
+    return new ArrayList<>();
   }
 }

@@ -59,7 +59,8 @@ public class FuzzerSourceSinkFactory implements VeloxSourceSinkFactory {
           (SinkTransformation<RowData, RowData>) transformation;
       Transformation<?> inputTransformation = sinkTransformation.getInputs().get(0);
       if (sinkTransformation.getSink() instanceof DiscardingSink
-          && !inputTransformation.getName().equals("PartitionCommitter")) {
+          && !inputTransformation.getName().equals("PartitionCommitter")
+          && transformation.getOutputType() instanceof InternalTypeInfo) {
         return true;
       }
     } else if (transformation instanceof LegacySourceTransformation) {
@@ -138,8 +139,7 @@ public class FuzzerSourceSinkFactory implements VeloxSourceSinkFactory {
                 RowData.class,
                 "FuzzerSink"));
     DataStream<RowData> newInputStream =
-        sinkTransformation
-            .getInputStream()
+        GlutenRowtimeInserterHelper.process(sinkTransformation.getInputStream(), false)
             .transform("Writer", CommittableMessageTypeInfo.noOutput(), operatorFactory);
     return new SinkTransformation<RowData, RowData>(
         newInputStream,

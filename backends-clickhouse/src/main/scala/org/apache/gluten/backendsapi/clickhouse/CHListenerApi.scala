@@ -31,7 +31,6 @@ import org.apache.spark.api.plugin.PluginContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.listener.CHGlutenSQLAppStatusListener
 import org.apache.spark.rpc.{GlutenDriverEndpoint, GlutenExecutorEndpoint}
-import org.apache.spark.sql.execution.datasources.GlutenWriterColumnarRules
 import org.apache.spark.sql.execution.datasources.v1._
 import org.apache.spark.sql.internal.SparkConfigUtil._
 import org.apache.spark.sql.utils.ExpressionUtil
@@ -122,8 +121,6 @@ class CHListenerApi extends ListenerApi with Logging {
       new CHParquetWriterInjects,
       new CHOrcWriterInjects,
       new CHMergeTreeWriterInjects)
-    GlutenFormatFactory.injectPostRuleFactory(
-      session => GlutenWriterColumnarRules.NativeWritePostRule(session))
     GlutenFormatFactory.register(new CHRowSplitter())
   }
 

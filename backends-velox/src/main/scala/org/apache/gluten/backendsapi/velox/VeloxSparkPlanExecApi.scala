@@ -22,10 +22,12 @@ import org.apache.gluten.exception.{GlutenExceptionUtil, GlutenNotSupportExcepti
 import org.apache.gluten.execution._
 import org.apache.gluten.expression._
 import org.apache.gluten.expression.aggregate.{HLLAdapter, VeloxBloomFilterAggregate, VeloxCollectList, VeloxCollectSet}
-import org.apache.gluten.extension.JoinKeysTag
+import org.apache.gluten.extension.{BroadcastJoinContextInfo, BroadcastJoinContextTag}
 import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.shuffle.NeedCustomColumnarBatchSerializer
 import org.apache.gluten.sql.shims.SparkShimLoader
+import org.apache.gluten.substrait.SubstraitContext
+import org.apache.gluten.substrait.expression.{ExpressionBuilder, ExpressionNode, WindowFunctionNode}
 import org.apache.gluten.vectorized.{ColumnarBatchSerializer, ColumnarBatchSerializeResult}
 
 import org.apache.spark.{ShuffleDependency, SparkEnv, SparkException}
@@ -34,15 +36,15 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.memory.SparkMemoryUtil
 import org.apache.spark.rdd.RDD
 import org.apache.spark.serializer.Serializer
-import org.apache.spark.shuffle.{GenShuffleReaderParameters, GenShuffleWriterParameters, GlutenShuffleReaderWrapper, GlutenShuffleWriterWrapper}
-import org.apache.spark.shuffle.utils.ShuffleUtil
+import org.apache.spark.shuffle.{GenShuffleReaderParameters, GenShuffleWriterParameters, GlutenShuffleReaderWrapper, GlutenShuffleWriterWrapper, VeloxShuffleUtils}
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, CollectList, CollectSet}
 import org.apache.spark.sql.catalyst.expressions.objects.{AssertNotNull, StaticInvoke}
 import org.apache.spark.sql.catalyst.optimizer.BuildSide
-import org.apache.spark.sql.catalyst.plans.JoinType
+import org.apache.spark.sql.catalyst.plans.{ExistenceJoin, FullOuter, InnerLike, JoinType, LeftAnti, LeftOuter, LeftSemi, RightOuter}
 import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.adaptive.AQEShuffleReadExec
@@ -53,17 +55,20 @@ import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.execution.python.ArrowEvalPythonExec
 import org.apache.spark.sql.execution.unsafe.UnsafeColumnarBuildSideRelation
 import org.apache.spark.sql.execution.utils.ExecUtil
-import org.apache.spark.sql.expression.{UDFExpression, UserDefinedAggregateFunction}
+import org.apache.spark.sql.expression.{UDFExpression, UDFResolver, UserDefinedAggregateFunction}
+import org.apache.spark.sql.hive.HiveUDAFInspector
 import org.apache.spark.sql.hive.VeloxHiveUDFTransformer
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.task.TaskResources
 
+import io.substrait.proto.JoinRel
 import org.apache.commons.lang3.ClassUtils
 
 import javax.ws.rs.core.UriBuilder
 
+import java.util.{ArrayList => JArrayList, List => JList}
 import java.util.Locale
 
 import scala.collection.JavaConverters._
@@ -144,7 +149,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       right: ExpressionTransformer,
       original: Expression,
       checkArithmeticExprName: String): ExpressionTransformer = {
-    if (SparkShimLoader.getSparkShims.withTryEvalMode(original)) {
+    if (ExpressionUtils.withTryEvalMode(original)) {
       original.dataType match {
         case LongType | IntegerType | ShortType | ByteType =>
         case _ =>
@@ -155,15 +160,15 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         ExpressionMappings.expressionsMap(classOf[TryEval]),
         Seq(GenericExpressionTransformer(checkArithmeticExprName, Seq(left, right), original)),
         original)
-    } else if (SparkShimLoader.getSparkShims.withAnsiEvalMode(original)) {
+    } else if (ExpressionUtils.withAnsiEvalMode(original)) {
       GenericExpressionTransformer(checkArithmeticExprName, Seq(left, right), original)
     } else {
       GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
     }
   }
 
-  override def getDecimalArithmeticExprName(exprName: String): String =
-    if (!SQLConf.get.decimalOperationsAllowPrecisionLoss) { exprName + "_deny_precision_loss" }
+  override def getDecimalArithmeticExprName(exprName: String, allowPrecisionLoss: Boolean): String =
+    if (!allowPrecisionLoss) { exprName + "_deny_precision_loss" }
     else { exprName }
 
   /** Transform map_entries to Substrait. */
@@ -263,10 +268,15 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       left: ExpressionTransformer,
       right: ExpressionTransformer,
       original: Like): ExpressionTransformer = {
-    GenericExpressionTransformer(
-      substraitExprName,
-      Seq(left, right, LiteralTransformer(original.escapeChar)),
-      original)
+    original match {
+      case Like(_, r: Literal, '\\') if !r.value.toString.contains('\\') =>
+        GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
+      case _ =>
+        GenericExpressionTransformer(
+          substraitExprName,
+          Seq(left, right, LiteralTransformer(original.escapeChar)),
+          original)
+    }
   }
 
   /** Transform make_timestamp to Substrait. */
@@ -461,6 +471,12 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
             }
           }
         }
+      case p if SparkShimLoader.getSparkShims.isKeyGroupedPartitioning(p) =>
+        FallbackTags.add(
+          shuffle,
+          ValidationResult.failed(
+            "KeyGroupedPartitioning is not supported by Gluten native shuffle"))
+        shuffle.withNewChildren(child :: Nil)
       case _ =>
         ColumnarShuffleExchangeExec(shuffle, child, null)
     }
@@ -592,7 +608,12 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
   /** Determine whether to use sort-based shuffle based on shuffle partitioning and output. */
   override def getShuffleWriterType(
       partitioning: Partitioning,
-      output: Seq[Attribute]): ShuffleWriterType = {
+      output: Seq[Attribute],
+      executionMode: Option[StageExecutionMode] = None): ShuffleWriterType = {
+    if (executionMode.contains(GPUStageMode)) {
+      return HashShuffleWriterType
+    }
+
     val conf = GlutenConfig.get
     // todo: remove isUseCelebornShuffleManager here
     if (conf.isUseCelebornShuffleManager) {
@@ -628,12 +649,12 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
    */
   override def genColumnarShuffleWriter[K, V](
       parameters: GenShuffleWriterParameters[K, V]): GlutenShuffleWriterWrapper[K, V] = {
-    ShuffleUtil.genColumnarShuffleWriter(parameters)
+    VeloxShuffleUtils.genColumnarShuffleWriter(parameters)
   }
 
   override def genColumnarShuffleReader[K, C](
       parameters: GenShuffleReaderParameters[K, C]): GlutenShuffleReaderWrapper[K, C] = {
-    ShuffleUtil.genColumnarShuffleReader(parameters)
+    VeloxShuffleUtils.genColumnarShuffleReader(parameters)
   }
 
   override def createColumnarWriteFilesExec(
@@ -706,7 +727,23 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       child: SparkPlan,
       numOutputRows: SQLMetric,
       dataSize: SQLMetric,
-      buildThreads: SQLMetric): BuildSideRelation = {
+      buildThreads: SQLMetric,
+      buildHashTableTimeMetric: SQLMetric,
+      serializeHashTableTimeMetric: SQLMetric,
+      serializedHashTableSizeMetric: SQLMetric): BuildSideRelation = {
+
+    @scala.annotation.tailrec
+    def findLogicalLink(
+        plan: SparkPlan): Option[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan] = {
+      plan.logicalLink match {
+        case some @ Some(_) => some
+        case None =>
+          plan.children match {
+            case Seq(child) => findLogicalLink(child)
+            case _ => None
+          }
+      }
+    }
 
     val buildKeys = mode match {
       case mode1: HashedRelationBroadcastMode =>
@@ -720,22 +757,29 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       if (VeloxConfig.get.enableBroadcastBuildOncePerExecutor) {
 
         // Try to lookup from TreeNodeTag using child's logical plan
-        // Need to recursively find logicalLink in case of AQE or other wrappers
-        @scala.annotation.tailrec
-        def findLogicalLink(
-            plan: SparkPlan): Option[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan] = {
-          plan.logicalLink match {
-            case some @ Some(_) => some
-            case None =>
-              plan.children match {
-                case Seq(child) => findLogicalLink(child)
-                case _ => None
-              }
-          }
-        }
-
         val newBuildKeys = findLogicalLink(child)
-          .flatMap(_.getTagValue(JoinKeysTag.ORIGINAL_JOIN_KEYS))
+          .flatMap {
+            logicalPlan =>
+              logicalPlan
+                .getTagValue(BroadcastJoinContextTag.BROADCAST_JOIN_CONTEXT)
+                .flatMap {
+                  contexts =>
+                    val childOutputSet = child.outputSet
+                    contexts.find {
+                      ctx =>
+                        val buildOutputSet = ctx.buildOutputSet
+                        childOutputSet.subsetOf(buildOutputSet) && buildOutputSet.subsetOf(
+                          childOutputSet)
+                    }
+                }.map {
+                  ctx =>
+                    if (ctx.buildRight) {
+                      ctx.originalRightKeys
+                    } else {
+                      ctx.originalLeftKeys
+                    }
+                }
+          }
           .getOrElse {
             if (SparkHashJoinUtils.canRewriteAsLongType(buildKeys) && buildKeys.nonEmpty) {
               SparkHashJoinUtils.getOriginalKeysFromPacked(buildKeys.head)
@@ -841,6 +885,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       .mapPartitions(itr => Iterator(BroadcastUtils.serializeStream(itr)))
       .filter(_.numRows != 0)
       .collect
+    val buildSideRowCount = serialized.map(_.numRows).sum
     val rawSize = serialized.map(_.sizeInBytes()).sum
     if (rawSize >= GlutenConfig.get.maxBroadcastTableSize) {
       throw new SparkException(
@@ -848,7 +893,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
           s"${SparkMemoryUtil.bytesToString(GlutenConfig.get.maxBroadcastTableSize)}: " +
           s"${SparkMemoryUtil.bytesToString(rawSize)}")
     }
-    numOutputRows += serialized.map(_.numRows).sum
+    numOutputRows += buildSideRowCount
     dataSize += rawSize
 
     val rawThreads =
@@ -858,7 +903,8 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     val buildThreadsValue = if (rawThreads < 1) 1 else rawThreads
     buildThreads += buildThreadsValue
 
-    if (useOffheapBroadcastBuildRelation) {
+    // Create the base ColumnarBuildSideRelation first
+    val columnarRelation = if (useOffheapBroadcastBuildRelation) {
       TaskResources.runUnsafe {
         UnsafeColumnarBuildSideRelation(
           newOutput,
@@ -877,12 +923,178 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         offload,
         buildThreadsValue)
     }
+
+    // Check if we should build hash table on driver (Spark-native approach)
+    // Only do this for HashedRelationBroadcastMode and when offload is enabled
+    val shouldBuildOnDriver = VeloxConfig.get.enableDriverSideBroadcastHashTableBuild &&
+      mode.isInstanceOf[HashedRelationBroadcastMode] &&
+      offload
+
+    if (shouldBuildOnDriver) {
+      // Try to get broadcast join context from logical plan tag
+      // In multi-join scenarios, there may be multiple contexts. Find the one that matches
+      // the current broadcast child's output.
+      val joinContextOpt: Option[BroadcastJoinContextInfo] =
+        findLogicalLink(child).flatMap {
+          logicalPlan =>
+            logicalPlan.getTagValue(
+              BroadcastJoinContextTag.BROADCAST_JOIN_CONTEXT
+            ).flatMap {
+              contexts =>
+                val childOutputSet = AttributeSet(newOutput)
+                // Find the context whose build output matches the child's output
+                contexts.find {
+                  ctx =>
+                    val buildOutputMatches = childOutputSet.subsetOf(ctx.buildOutputSet) &&
+                      ctx.buildOutputSet.subsetOf(childOutputSet)
+                    buildOutputMatches
+                }
+            }
+        }
+
+      joinContextOpt match {
+        case Some(joinContext) =>
+          // We have join context information - build hash table on driver
+          logInfo(
+            s"Building hash table on driver in BroadcastExchangeExec " +
+              s"with join context: $joinContext")
+
+          // Create a broadcast ID for this hash table
+          val broadcastId = s"broadcast_exchange_${child.id}_${System.identityHashCode(mode)}"
+
+          // Convert Spark JoinType to Substrait JoinType
+          val substraitJoinType = joinContext.joinType match {
+            case _: InnerLike =>
+              JoinRel.JoinType.JOIN_TYPE_INNER
+            case FullOuter =>
+              JoinRel.JoinType.JOIN_TYPE_OUTER
+            case LeftOuter |
+                RightOuter =>
+              JoinRel.JoinType.JOIN_TYPE_LEFT
+            case LeftSemi |
+                ExistenceJoin(_) =>
+              JoinRel.JoinType.JOIN_TYPE_LEFT_SEMI
+            case LeftAnti =>
+              JoinRel.JoinType.JOIN_TYPE_LEFT_ANTI
+            case _ =>
+              JoinRel.JoinType.UNRECOGNIZED
+          }
+
+          // Extract filter information from join condition
+          val (filterBuildColumns, filterPropagatesNulls, hasMixedFiltCondition) =
+            joinContext.condition match {
+              case Some(cond) =>
+                val buildAttrs = joinContext.buildOutputSet
+                val cols: Array[String] = cond.references.toSeq.collect {
+                  case a: Attribute if buildAttrs.contains(a) =>
+                    ConverterUtils.genColumnNameWithExprId(a)
+                }.toArray
+                val propagatesNulls = SparkShimLoader.getSparkShims.isNullIntolerant(cond)
+                (cols, propagatesNulls, true)
+              case None =>
+                (Array.empty[String], false, false)
+            }
+
+          // Calculate bloom filter pushdown size if enabled
+          val bloomFilterPushdownSize = if (VeloxConfig.get.hashProbeDynamicFilterPushdownEnabled) {
+            VeloxConfig.get.hashProbeBloomFilterPushdownMaxSize
+          } else {
+            -1
+          }
+
+          // Use the join keys from the matched context
+          // Since we already matched the context by comparing outputs,
+          // we know this is the correct one
+          val joinKeys = if (joinContext.buildRight) {
+            joinContext.originalRightKeys
+          } else {
+            joinContext.originalLeftKeys
+          }
+          val buildContext = BroadcastHashJoinContext(
+            buildSideJoinKeys = if (newBuildKeys.nonEmpty) newBuildKeys else joinKeys,
+            substraitJoinType = substraitJoinType,
+            buildRight = joinContext.buildRight,
+            hasMixedFiltCondition = hasMixedFiltCondition,
+            isExistenceJoin = joinContext.joinType
+              .isInstanceOf[ExistenceJoin],
+            buildSideStructure = newOutput,
+            filterBuildColumns = filterBuildColumns,
+            filterPropagatesNulls = filterPropagatesNulls,
+            buildHashTableId = broadcastId,
+            isNullAwareAntiJoin = joinContext.isNullAwareAntiJoin,
+            bloomFilterPushdownSize = bloomFilterPushdownSize,
+            buildHashTableTimeMetric = Option(buildHashTableTimeMetric),
+            serializeHashTableTimeMetric = Option(serializeHashTableTimeMetric),
+            serializedHashTableSizeMetric = Option(serializedHashTableSizeMetric)
+          )
+
+          try {
+            // Build and serialize hash table on driver
+            val (serializedHashTable, safeMode) = columnarRelation match {
+              case rel: ColumnarBuildSideRelation =>
+                (
+                  VeloxBroadcastBuildSideCache
+                    .buildAndSerializeOnDriverInBroadcastExchange(
+                      rel,
+                      buildContext,
+                      buildSideRowCount),
+                  rel.safeBroadcastMode
+                )
+              case rel: UnsafeColumnarBuildSideRelation =>
+                (
+                  VeloxBroadcastBuildSideCache
+                    .buildAndSerializeOnDriverInBroadcastExchange(
+                      rel,
+                      buildContext,
+                      buildSideRowCount),
+                  rel.getSafeBroadcastMode
+                )
+            }
+
+            logInfo(
+              s"Successfully built hash table on driver: " +
+                s"size=${serializedHashTable.sizeInBytes} bytes, " +
+                s"rows=${serializedHashTable.numRows}, " +
+                s"joinType=${joinContext.joinType}, " +
+                s"broadcastId=$broadcastId")
+
+            // Return SerializedHashTableBroadcastRelation
+            SerializedHashTableBroadcastRelation(
+              serializedHashTable,
+              safeMode,
+              newOutput,
+              0L, // buildTimeMs - tracked inside SerializedBroadcastHashTable
+              0L // serializeTimeMs - tracked inside SerializedBroadcastHashTable
+            )
+          } catch {
+            case e: Exception =>
+              logWarning(
+                s"Failed to build hash table on driver for broadcastId=$broadcastId, " +
+                  s"falling back to executor-side build: ${e.getMessage}",
+                e)
+              columnarRelation
+          }
+
+        case None =>
+          // No join context available - fall back to executor-side build
+          logInfo(s"No broadcast join context found in logical plan, using executor-side build")
+          columnarRelation
+      }
+    } else {
+      // Return ColumnarBuildSideRelation for executor-side build (legacy approach)
+      columnarRelation
+    }
   }
 
   override def doCanonicalizeForBroadcastMode(mode: BroadcastMode): BroadcastMode = {
     mode match {
-      case hash: HashedRelationBroadcastMode =>
-        // Node: It's different with vanilla Spark.
+      case hash: HashedRelationBroadcastMode
+          // TODO: Build keys are sensitive when `enableBroadcastBuildOncePerExecutor` is enabled.
+          // For expression join keys, the build HashRelation needs pre-projection, in which case
+          // the reuse of broadcast exchange may cause incorrect results.
+          // Remove this limitation after supporting join-key pre-projection plan rewriting.
+          if !VeloxConfig.get.enableBroadcastBuildOncePerExecutor =>
+        // Note: It's different with vanilla Spark.
         // Vanilla Spark build HashRelation at driver side, so it is build keys sensitive.
         // But we broadcast byte array and build HashRelation at executor side,
         // the build keys are actually meaningless for the broadcast value.
@@ -935,6 +1147,30 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         ExpressionNames.STR_TO_MAP,
         StrToMapRestrictions.ONLY_SUPPORT_MAP_KEY_DEDUP_POLICY
       )
+    }
+    GenericExpressionTransformer(substraitExprName, children, expr)
+  }
+
+  override def genFormatNumberTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      expr: Expression): ExpressionTransformer = {
+    // Velox registers format_number only for integral and floating-point input with an integer
+    // number of decimal places. Reject the other Spark forms here so the fallback reason names
+    // the documented restriction instead of a generic native validation failure.
+    expr.children.head.dataType match {
+      case _: DecimalType =>
+        GlutenExceptionUtil.throwsNotFullySupported(
+          ExpressionNames.FORMAT_NUMBER,
+          FormatNumberRestrictions.NOT_SUPPORT_DECIMAL_INPUT)
+      case _ =>
+    }
+    expr.children(1).dataType match {
+      case _: StringType =>
+        GlutenExceptionUtil.throwsNotFullySupported(
+          ExpressionNames.FORMAT_NUMBER,
+          FormatNumberRestrictions.NOT_SUPPORT_STRING_FORMAT)
+      case _ =>
     }
     GenericExpressionTransformer(substraitExprName, children, expr)
   }
@@ -1029,7 +1265,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       substraitExprName: String,
       child: ExpressionTransformer,
       expr: UnBase64): ExpressionTransformer = {
-    if (SparkShimLoader.getSparkShims.unBase64FunctionFailsOnError(expr)) {
+    if (expr.failOnError) {
       GlutenExceptionUtil
         .throwsNotFullySupported(
           ExpressionNames.UNBASE64,
@@ -1175,12 +1411,14 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     PullOutArrowEvalPythonPreProjectHelper.pullOutPreProject(arrowEvalPythonExec)
   }
 
-  override def maybeCollapseTakeOrderedAndProject(plan: SparkPlan): SparkPlan = {
+  override def maybeCollapseTakeOrderedAndProject(
+      plan: SparkPlan,
+      metrics: Map[String, SQLMetric]): SparkPlan = {
     // This to-top-n optimization assumes exchange operators were already placed in input plan.
     plan.transformUp {
       case p @ LimitExecTransformer(SortExecTransformer(sortOrder, _, child, _), 0, count) =>
         val global = child.outputPartitioning.satisfies(AllTuples)
-        val topN = TopNTransformer(count, sortOrder, global, child)
+        val topN = TopNTransformer(count, sortOrder, global, child)(metrics)
         if (topN.doValidate().ok()) {
           topN
         } else {
@@ -1205,6 +1443,41 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
   override def genColumnarRangeExec(rangeExec: RangeExec): ColumnarRangeBaseExec =
     ColumnarRangeExec(rangeExec.range)
 
+  override def isSupportRDDScanExec(plan: RDDScanExec): Boolean = {
+    if (!VeloxConfig.get.enableRddScan) {
+      logDebug(
+        "RDDScan offload skipped: " +
+          s"${VeloxConfig.COLUMNAR_VELOX_RDD_SCAN_ENABLED.key}=false")
+      return false
+    }
+    // Exclude any scan planned within a Structured Streaming query (micro-batch or its
+    // foreachBatch callback). The per-batch source RDD is a materialized snapshot that
+    // otherwise slips past the plan-level logicalLink.isStreaming fallback, yet offloading
+    // it into a streaming/state-store pipeline can deadlock the micro-batch.
+    if (isWithinStreamingQuery) {
+      logDebug("RDDScan offload skipped: within a streaming query (micro-batch/foreachBatch)")
+      return false
+    }
+    true
+  }
+
+  /**
+   * Whether the current thread is planning/executing a Structured Streaming query -- including the
+   * `DataFrameWriter.foreachBatch` user callback, which Spark runs on the StreamExecution driver
+   * thread. That thread sets the `sql.streaming.queryId` local property
+   * (`StreamExecution.QUERY_ID_KEY`) for the whole lifetime of the query. We match on the literal
+   * key rather than referencing the class so this stays agnostic to the per-Spark-version package
+   * of `StreamExecution` across shims.
+   */
+  private def isWithinStreamingQuery: Boolean =
+    SparkSession.getActiveSession
+      .map(_.sparkContext)
+      .flatMap(sc => Option(sc.getLocalProperty("sql.streaming.queryId")))
+      .isDefined
+
+  override def getRDDScanTransform(plan: RDDScanExec): RDDScanTransformer =
+    VeloxRDDScanTransformer.replace(plan)
+
   override def genColumnarTailExec(limit: Int, child: SparkPlan): ColumnarCollectTailBaseExec =
     ColumnarCollectTailExec(limit, child)
 
@@ -1212,16 +1485,53 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     VeloxColumnarToCarrierRowExec.enforce(plan)
   }
 
+  override def isSupportEmptyRelationExec(plan: SparkPlan): Boolean = {
+    if (!GlutenConfig.get.enableColumnarEmptyRelation) {
+      logDebug(
+        "EmptyRelationExec offload skipped: " +
+          s"${GlutenConfig.COLUMNAR_EMPTY_RELATION_ENABLED.key}=false")
+      return false
+    }
+    true
+  }
+
+  override def isSupportLocalTableScanExec(plan: LocalTableScanExec): Boolean = {
+    // `rows` is @transient, so it becomes null after Java serialization (e.g. an AQE sub-plan
+    // shipped across an RPC boundary). A null rows payload signals a deserialized plan that can
+    // no longer be executed natively, so offload must be skipped to avoid a later NPE.
+    if (plan.rows == null) {
+      logDebug("LocalTableScan offload skipped: deserialized plan with null transient rows")
+      return false
+    }
+    // A streaming source (Spark 4.0+ only) must keep vanilla execution.
+    if (SparkShimLoader.getSparkShims.getLocalTableScanStream(plan).isDefined) {
+      logDebug("LocalTableScan offload skipped: streaming source detected")
+      return false
+    }
+    if (!GlutenConfig.get.enableColumnarLocalTableScan) {
+      logDebug(
+        "LocalTableScan offload skipped: " +
+          s"${GlutenConfig.COLUMNAR_LOCAL_TABLE_SCAN_ENABLED.key}=false")
+      return false
+    }
+    true
+  }
+
+  override def getEmptyRelationExecTransform(plan: SparkPlan): EmptyRelationExecTransformer =
+    EmptyRelationExecTransformer(plan.output)
+
+  override def getLocalTableScanTransform(plan: LocalTableScanExec): LocalTableScanTransformer =
+    VeloxLocalTableScanTransformer.replace(plan)
+
   override def genTimestampAddTransformer(
       substraitExprName: String,
       left: ExpressionTransformer,
       right: ExpressionTransformer,
       original: Expression): ExpressionTransformer = {
-    // Since spark 3.3.0
     val extract =
       SparkShimLoader.getSparkShims.extractExpressionTimestampAddUnit(original)
     if (extract.isEmpty) {
-      throw new UnsupportedOperationException(s"Not support expression TimestampAdd.")
+      throw new UnsupportedOperationException("Not support expression TimestampAdd.")
     }
     TimestampAddTransformer(substraitExprName, extract.get.head, left, right, original)
   }
@@ -1231,13 +1541,12 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       left: ExpressionTransformer,
       right: ExpressionTransformer,
       original: Expression): ExpressionTransformer = {
-    // Since spark 3.3.0
-    val extract =
-      SparkShimLoader.getSparkShims.extractExpressionTimestampDiffUnit(original)
-    if (extract.isEmpty) {
-      throw new UnsupportedOperationException(s"Not support expression TimestampDiff.")
+    val unit = original match {
+      case timestampDiff: TimestampDiff => timestampDiff.unit
+      case _ =>
+        throw new UnsupportedOperationException("Not support expression TimestampDiff.")
     }
-    TimestampDiffTransformer(substraitExprName, extract.get, left, right, original)
+    TimestampDiffTransformer(substraitExprName, unit, left, right, original)
   }
 
   override def genToUnixTimestampTransformer(
@@ -1264,6 +1573,145 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         GlutenExceptionUtil.throwsNotFullySupported(
           ExpressionNames.RAISE_ERROR,
           RaiseErrorRestrictions.ONLY_SUPPORT_ERROR_MESSAGE)
+    }
+  }
+
+  override def genWindowFunctionsNode(
+      windowExpression: Seq[NamedExpression],
+      windowExpressionNodes: JList[WindowFunctionNode],
+      originalInputAttributes: Seq[Attribute],
+      context: SubstraitContext): Unit = {
+    windowExpression.foreach {
+      windowExpr =>
+        val aliasExpr = windowExpr.asInstanceOf[Alias]
+        val columnName = s"${aliasExpr.name}_${aliasExpr.exprId.id}"
+        val wExpression = aliasExpr.child.asInstanceOf[WindowExpression]
+        wExpression.windowFunction match {
+          case wf @ (RowNumber() | Rank(_) | DenseRank(_) | CumeDist() | PercentRank(_)) =>
+            val aggWindowFunc = wf.asInstanceOf[AggregateWindowFunction]
+            val frame = aggWindowFunc.frame.asInstanceOf[SpecifiedWindowFrame]
+            val windowFunctionNode = ExpressionBuilder.makeWindowFunction(
+              WindowFunctionsBuilder.create(context, aggWindowFunc).toInt,
+              new JArrayList[ExpressionNode](),
+              columnName,
+              ConverterUtils.getTypeNode(aggWindowFunc.dataType, aggWindowFunc.nullable),
+              frame.upper,
+              frame.lower,
+              frame.frameType.sql,
+              originalInputAttributes.asJava
+            )
+            windowExpressionNodes.add(windowFunctionNode)
+          case aggExpression: AggregateExpression =>
+            val frame = wExpression.windowSpec.frameSpecification.asInstanceOf[SpecifiedWindowFrame]
+            val originalAggFunc = aggExpression.aggregateFunction
+            val aggregateFunc =
+              try {
+                AggregateFunctionsBuilder.getSubstraitFunctionName(originalAggFunc)
+                originalAggFunc
+              } catch {
+                case e: GlutenNotSupportException =>
+                  HiveUDAFInspector.getUDAFClassName(originalAggFunc) match {
+                    case Some(udafClass) if UDFResolver.UDAFNames.contains(udafClass) =>
+                      UDFResolver.getUdafExpression(udafClass)(originalAggFunc.children)
+                    case _ => throw e
+                  }
+              }
+
+            val childrenNodeList = aggregateFunc.children
+              .map(
+                ExpressionConverter
+                  .replaceWithExpressionTransformer(_, originalInputAttributes)
+                  .doTransform(context))
+              .asJava
+
+            val functionId = VeloxAggregateFunctionsBuilder
+              .create(context, aggregateFunc, aggExpression.mode)
+              .toInt
+            val windowFunctionNode = ExpressionBuilder.makeWindowFunction(
+              functionId,
+              childrenNodeList,
+              columnName,
+              ConverterUtils.getTypeNode(aggExpression.dataType, aggExpression.nullable),
+              frame.upper,
+              frame.lower,
+              frame.frameType.sql,
+              originalInputAttributes.asJava
+            )
+            windowExpressionNodes.add(windowFunctionNode)
+          case wf @ (_: Lead | _: Lag) =>
+            val offsetWf = wf.asInstanceOf[FrameLessOffsetWindowFunction]
+            val frame = offsetWf.frame.asInstanceOf[SpecifiedWindowFrame]
+            val childrenNodeList = new JArrayList[ExpressionNode]()
+            childrenNodeList.add(
+              ExpressionConverter
+                .replaceWithExpressionTransformer(
+                  offsetWf.input,
+                  attributeSeq = originalInputAttributes)
+                .doTransform(context))
+            val offset = offsetWf.offset.eval(EmptyRow).asInstanceOf[Int]
+            val offsetNode = ExpressionBuilder.makeLiteral(Math.abs(offset.toLong), LongType, false)
+            childrenNodeList.add(offsetNode)
+            if (offsetWf.default.dataType != NullType) {
+              childrenNodeList.add(
+                ExpressionConverter
+                  .replaceWithExpressionTransformer(
+                    offsetWf.default,
+                    attributeSeq = originalInputAttributes)
+                  .doTransform(context))
+            }
+            val windowFunctionNode = ExpressionBuilder.makeWindowFunction(
+              WindowFunctionsBuilder.create(context, offsetWf).toInt,
+              childrenNodeList,
+              columnName,
+              ConverterUtils.getTypeNode(offsetWf.dataType, offsetWf.nullable),
+              frame.upper,
+              frame.lower,
+              frame.frameType.sql,
+              offsetWf.ignoreNulls,
+              originalInputAttributes.asJava
+            )
+            windowExpressionNodes.add(windowFunctionNode)
+          case wf @ NthValue(input, offset: Literal, ignoreNulls: Boolean) =>
+            val frame = wExpression.windowSpec.frameSpecification.asInstanceOf[SpecifiedWindowFrame]
+            val childrenNodeList = new JArrayList[ExpressionNode]()
+            childrenNodeList.add(
+              ExpressionConverter
+                .replaceWithExpressionTransformer(input, attributeSeq = originalInputAttributes)
+                .doTransform(context))
+            childrenNodeList.add(LiteralTransformer(offset).doTransform(context))
+            val windowFunctionNode = ExpressionBuilder.makeWindowFunction(
+              WindowFunctionsBuilder.create(context, wf).toInt,
+              childrenNodeList,
+              columnName,
+              ConverterUtils.getTypeNode(wf.dataType, wf.nullable),
+              frame.upper,
+              frame.lower,
+              frame.frameType.sql,
+              ignoreNulls,
+              originalInputAttributes.asJava
+            )
+            windowExpressionNodes.add(windowFunctionNode)
+          case wf @ NTile(buckets: Expression) =>
+            val frame = wExpression.windowSpec.frameSpecification.asInstanceOf[SpecifiedWindowFrame]
+            val childrenNodeList = new JArrayList[ExpressionNode]()
+            val literal = buckets.asInstanceOf[Literal]
+            childrenNodeList.add(LiteralTransformer(literal).doTransform(context))
+            val windowFunctionNode = ExpressionBuilder.makeWindowFunction(
+              WindowFunctionsBuilder.create(context, wf).toInt,
+              childrenNodeList,
+              columnName,
+              ConverterUtils.getTypeNode(wf.dataType, wf.nullable),
+              frame.upper,
+              frame.lower,
+              frame.frameType.sql,
+              originalInputAttributes.asJava
+            )
+            windowExpressionNodes.add(windowFunctionNode)
+          case _ =>
+            throw new GlutenNotSupportException(
+              "unsupported window function type: " +
+                wExpression.windowFunction)
+        }
     }
   }
 }

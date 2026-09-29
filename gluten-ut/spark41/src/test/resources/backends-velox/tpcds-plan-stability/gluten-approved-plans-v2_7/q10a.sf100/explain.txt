@@ -77,7 +77,6 @@ Arguments: false
 
 (5) VeloxResizeBatches
 Input [4]: [hash_partition_key#5, c_customer_sk#1, c_current_cdemo_sk#2, c_current_addr_sk#3]
-Arguments: 1024, 2147483647, 10485760
 
 (6) ColumnarExchange
 Input [4]: [hash_partition_key#5, c_customer_sk#1, c_current_cdemo_sk#2, c_current_addr_sk#3]
@@ -121,7 +120,6 @@ Arguments: false
 
 (16) VeloxResizeBatches
 Input [2]: [hash_partition_key#10, ss_customer_sk#6]
-Arguments: 1024, 2147483647, 10485760
 
 (17) ColumnarExchange
 Input [2]: [hash_partition_key#10, ss_customer_sk#6]
@@ -218,7 +216,6 @@ Arguments: false
 
 (40) VeloxResizeBatches
 Input [2]: [hash_partition_key#19, customer_sk#14]
-Arguments: 1024, 2147483647, 10485760
 
 (41) ColumnarExchange
 Input [2]: [hash_partition_key#19, customer_sk#14]
@@ -331,7 +328,6 @@ Arguments: false
 
 (66) VeloxResizeBatches
 Input [10]: [hash_partition_key#33, cd_gender#23, cd_marital_status#24, cd_education_status#25, cd_purchase_estimate#26, cd_credit_rating#27, cd_dep_count#28, cd_dep_employed_count#29, cd_dep_college_count#30, count#32]
-Arguments: 1024, 2147483647, 10485760
 
 (67) ColumnarExchange
 Input [10]: [hash_partition_key#33, cd_gender#23, cd_marital_status#24, cd_education_status#25, cd_purchase_estimate#26, cd_credit_rating#27, cd_dep_count#28, cd_dep_employed_count#29, cd_dep_college_count#30, count#32]
@@ -407,7 +403,6 @@ Arguments: false
 
 (80) VeloxResizeBatches
 Input [1]: [buf#43]
-Arguments: 1024, 2147483647, 10485760
 
 (81) ColumnarExchange
 Input [1]: [buf#43]

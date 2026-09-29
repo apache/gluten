@@ -50,7 +50,7 @@ object SparkArrowUtil {
       } else {
         new ArrowType.Timestamp(TimeUnit.MICROSECOND, "UTC")
       }
-    case dt if dt.catalogString == "timestamp_ntz" =>
+    case dt if dt.typeName == "timestamp_ntz" =>
       new ArrowType.Timestamp(TimeUnit.MICROSECOND, null)
     case YearMonthIntervalType.DEFAULT =>
       new ArrowType.Interval(IntervalUnit.YEAR_MONTH)
@@ -168,8 +168,6 @@ object SparkArrowUtil {
     }.asJava)
   }
 
-  // TimestampNTZ is not supported for native computation, but the Arrow type mapping is needed
-  // for row-to-columnar transitions when the fallback validator tags NTZ operators.
   def checkSchema(schema: StructType): Boolean = {
     try {
       SparkSchemaUtil.toArrowSchema(schema)

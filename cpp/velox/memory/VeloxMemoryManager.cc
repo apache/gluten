@@ -233,7 +233,7 @@ VeloxMemoryManager::VeloxMemoryManager(
 
   ArbitratorFactoryRegister afr(listener_.get());
   velox::memory::MemoryManager::Options mmOptions;
-  mmOptions.alignment = velox::memory::MemoryAllocator::kMaxAlignment;
+  mmOptions.alignment = velox::memory::MemoryAllocator::kDefaultAlignment;
   mmOptions.trackDefaultUsage = true; // memory usage tracking
   mmOptions.checkUsageLeak = checkUsageLeak; // leak check
   mmOptions.coreOnAllocationFailureEnabled = false;

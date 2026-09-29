@@ -127,7 +127,6 @@ Arguments: false
 
 (14) VeloxResizeBatches
 Input [10]: [hash_partition_key#29, d_week_seq#5, ss_store_sk#1, sum#22, sum#23, sum#24, sum#25, sum#26, sum#27, sum#28]
-Arguments: 1024, 2147483647, 10485760
 
 (15) ColumnarExchange
 Input [10]: [hash_partition_key#29, d_week_seq#5, ss_store_sk#1, sum#22, sum#23, sum#24, sum#25, sum#26, sum#27, sum#28]
@@ -288,7 +287,6 @@ Arguments: false
 
 (50) VeloxResizeBatches
 Input [10]: [hash_partition_key#87, d_week_seq#63, ss_store_sk#59, sum#80, sum#81, sum#82, sum#83, sum#84, sum#85, sum#86]
-Arguments: 1024, 2147483647, 10485760
 
 (51) ColumnarExchange
 Input [10]: [hash_partition_key#87, d_week_seq#63, ss_store_sk#59, sum#80, sum#81, sum#82, sum#83, sum#84, sum#85, sum#86]
@@ -462,7 +460,6 @@ Arguments: false
 
 (87) VeloxResizeBatches
 Input [1]: [buf#117]
-Arguments: 1024, 2147483647, 10485760
 
 (88) ColumnarExchange
 Input [1]: [buf#117]
@@ -540,7 +537,6 @@ Arguments: false
 
 (99) VeloxResizeBatches
 Input [1]: [buf#122]
-Arguments: 1024, 2147483647, 10485760
 
 (100) ColumnarExchange
 Input [1]: [buf#122]

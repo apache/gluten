@@ -18,6 +18,7 @@ package org.apache.gluten.config
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.network.util.ByteUnit
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.internal.{SQLConf, SQLConfProvider}
 
 class GlutenCoreConfig(conf: SQLConf) extends Logging {
@@ -62,13 +63,18 @@ class GlutenCoreConfig(conf: SQLConf) extends Logging {
  */
 object GlutenCoreConfig extends ConfigRegistry {
   override def get: GlutenCoreConfig = {
-    new GlutenCoreConfig(SQLConf.get)
+    new GlutenCoreConfig(activeSQLConf)
+  }
+
+  private[gluten] def activeSQLConf: SQLConf = {
+    SparkSession.getActiveSession
+      .filterNot(_.sparkContext.isStopped)
+      .map(_.sessionState.conf)
+      .getOrElse(SQLConf.get)
   }
 
   val SPARK_OFFHEAP_SIZE_KEY = "spark.memory.offHeap.size"
   val SPARK_OFFHEAP_ENABLED_KEY = "spark.memory.offHeap.enabled"
-
-  val SPARK_ONHEAP_SIZE_KEY = "spark.executor.memory"
 
   val GLUTEN_ENABLED =
     buildConf("spark.gluten.enabled")
@@ -83,7 +89,7 @@ object GlutenCoreConfig extends ConfigRegistry {
       .doc(
         "The class name of user-defined cost model that will be used by Gluten's transition " +
           "planner. If not specified, a legacy built-in cost model will be " +
-          "used. The legacy cost model helps RAS planner exhaustively offload computations, and " +
+          "used. The legacy cost model exhaustively offloads computations, and " +
           "helps transition planner choose columnar-to-columnar transition over others.")
       .stringConf
       .createWithDefaultString("legacy")

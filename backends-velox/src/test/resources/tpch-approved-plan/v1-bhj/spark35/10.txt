@@ -215,7 +215,6 @@ Arguments: false
 
 (35) VeloxResizeBatches
 Input [10]: [hash_partition_key#X, c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X, sum#X, isEmpty#X]
-Arguments: X, X, X
 
 (36) ColumnarExchange
 Input [10]: [hash_partition_key#X, c_custkey#X, c_name#X, c_acctbal#X, c_phone#X, n_name#X, c_address#X, c_comment#X, sum#X, isEmpty#X]

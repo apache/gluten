@@ -131,25 +131,13 @@ class GlutenClickHouseTPCHParquetBucketSuite
             .asInstanceOf[HashJoinLikeExecTransformer]
             .left
             .isInstanceOf[InputIteratorTransformer])
-        if (spark32) {
-          assert(
-            plans(9)
-              .asInstanceOf[HashJoinLikeExecTransformer]
-              .right
-              .isInstanceOf[InputIteratorTransformer])
-        } else {
-          assert(
-            plans(9)
-              .asInstanceOf[HashJoinLikeExecTransformer]
-              .right
-              .isInstanceOf[FilterExecTransformerBase])
-        }
+        assert(
+          plans(9)
+            .asInstanceOf[HashJoinLikeExecTransformer]
+            .right
+            .isInstanceOf[FilterExecTransformerBase])
 
-        if (spark32) {
-          assert(!plans(11).asInstanceOf[FileSourceScanExecTransformer].bucketedScan)
-        } else {
-          assert(plans(11).asInstanceOf[FileSourceScanExecTransformer].bucketedScan)
-        }
+        assert(plans(11).asInstanceOf[FileSourceScanExecTransformer].bucketedScan)
         assert(plans(11).metrics("numFiles").value === 1)
         assert(plans(11).metrics("numOutputRows").value === 1000)
     }
@@ -162,19 +150,11 @@ class GlutenClickHouseTPCHParquetBucketSuite
           case scanExec: BasicScanExecTransformer => scanExec
           case joinExec: HashJoinLikeExecTransformer => joinExec
         }
-        if (spark32) {
-          assert(
-            plans(1)
-              .asInstanceOf[HashJoinLikeExecTransformer]
-              .left
-              .isInstanceOf[InputIteratorTransformer])
-        } else {
-          assert(
-            plans(1)
-              .asInstanceOf[HashJoinLikeExecTransformer]
-              .left
-              .isInstanceOf[ProjectExecTransformer])
-        }
+        assert(
+          plans(1)
+            .asInstanceOf[HashJoinLikeExecTransformer]
+            .left
+            .isInstanceOf[ProjectExecTransformer])
 
         assert(
           plans(1)
@@ -182,11 +162,7 @@ class GlutenClickHouseTPCHParquetBucketSuite
             .right
             .isInstanceOf[InputIteratorTransformer])
 
-        if (spark32) {
-          assert(!plans(2).asInstanceOf[FileSourceScanExecTransformer].bucketedScan)
-        } else {
-          assert(plans(2).asInstanceOf[FileSourceScanExecTransformer].bucketedScan)
-        }
+        assert(plans(2).asInstanceOf[FileSourceScanExecTransformer].bucketedScan)
         assert(plans(2).metrics("numFiles").value === 4)
         assert(plans(2).metrics("numOutputRows").value === 15000)
 
@@ -198,18 +174,7 @@ class GlutenClickHouseTPCHParquetBucketSuite
     withSQLConf(
       ("spark.sql.optimizer.runtime.bloomFilter.applicationSideScanSizeThreshold", "1KB"),
       ("spark.sql.optimizer.runtime.bloomFilter.enabled", "true")) {
-      customCheck(3) {
-        df =>
-          if (spark33) {
-            val plans = collectWithSubqueries(df.queryExecution.executedPlan) {
-              case aggExec: HashAggregateExecBaseTransformer
-                  if aggExec.aggregateExpressions.exists(
-                    _.aggregateFunction.getClass.getSimpleName.equals("BloomFilterAggregate")) =>
-                aggExec
-            }
-            assert(plans.size == 4)
-          }
-      }
+      check(3)
     }
   }
 
@@ -244,18 +209,7 @@ class GlutenClickHouseTPCHParquetBucketSuite
     withSQLConf(
       ("spark.sql.optimizer.runtime.bloomFilter.applicationSideScanSizeThreshold", "1KB"),
       ("spark.sql.optimizer.runtime.bloomFilter.enabled", "true")) {
-      customCheck(4) {
-        df =>
-          if (spark33) {
-            val plans = collectWithSubqueries(df.queryExecution.executedPlan) {
-              case aggExec: HashAggregateExecBaseTransformer
-                  if aggExec.aggregateExpressions.exists(
-                    _.aggregateFunction.getClass.getSimpleName.equals("BloomFilterAggregate")) =>
-                aggExec
-            }
-            assert(plans.size == 2)
-          }
-      }
+      check(4)
     }
   }
 
@@ -303,18 +257,7 @@ class GlutenClickHouseTPCHParquetBucketSuite
     withSQLConf(
       ("spark.sql.optimizer.runtime.bloomFilter.applicationSideScanSizeThreshold", "1KB"),
       ("spark.sql.optimizer.runtime.bloomFilter.enabled", "true")) {
-      customCheck(12) {
-        df =>
-          if (spark33) {
-            val plans = collectWithSubqueries(df.queryExecution.executedPlan) {
-              case aggExec: HashAggregateExecBaseTransformer
-                  if aggExec.aggregateExpressions.exists(
-                    _.aggregateFunction.getClass.getSimpleName.equals("BloomFilterAggregate")) =>
-                aggExec
-            }
-            assert(plans.size == 2)
-          }
-      }
+      check(12)
     }
   }
 
@@ -355,19 +298,11 @@ class GlutenClickHouseTPCHParquetBucketSuite
         val plans = collect(df.queryExecution.executedPlan) {
           case joinExec: HashJoinLikeExecTransformer => joinExec
         }
-        if (spark32) {
-          assert(
-            plans(1)
-              .asInstanceOf[HashJoinLikeExecTransformer]
-              .left
-              .isInstanceOf[InputIteratorTransformer])
-        } else {
-          assert(
-            plans(1)
-              .asInstanceOf[HashJoinLikeExecTransformer]
-              .left
-              .isInstanceOf[FilterExecTransformerBase])
-        }
+        assert(
+          plans(1)
+            .asInstanceOf[HashJoinLikeExecTransformer]
+            .left
+            .isInstanceOf[FilterExecTransformerBase])
         assert(
           plans(1)
             .asInstanceOf[HashJoinLikeExecTransformer]
@@ -400,18 +335,7 @@ class GlutenClickHouseTPCHParquetBucketSuite
     withSQLConf(
       ("spark.sql.optimizer.runtime.bloomFilter.applicationSideScanSizeThreshold", "1KB"),
       ("spark.sql.optimizer.runtime.bloomFilter.enabled", "true")) {
-      customCheck(20) {
-        df =>
-          if (spark33) {
-            val plans = collectWithSubqueries(df.queryExecution.executedPlan) {
-              case aggExec: HashAggregateExecBaseTransformer
-                  if aggExec.aggregateExpressions.exists(
-                    _.aggregateFunction.getClass.getSimpleName.equals("BloomFilterAggregate")) =>
-                aggExec
-            }
-            assert(plans.size == 3)
-          }
-      }
+      check(20)
     }
   }
 

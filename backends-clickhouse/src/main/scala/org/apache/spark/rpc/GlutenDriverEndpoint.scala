@@ -95,7 +95,8 @@ class GlutenDriverEndpoint extends IsolatedRpcEndpoint with Logging {
   }
 }
 
-object GlutenDriverEndpoint extends Logging with RemovalListener[String, util.Set[String]] {
+object GlutenDriverEndpoint extends Logging
+  with RemovalListener[String, util.Set[String]] {
   private lazy val executionResourceExpiredTime = SparkEnv.get.conf.getLong(
     GlutenConfig.GLUTEN_RESOURCE_RELATION_EXPIRED_TIME.key,
     GlutenConfig.GLUTEN_RESOURCE_RELATION_EXPIRED_TIME.defaultValue.get
@@ -126,7 +127,10 @@ object GlutenDriverEndpoint extends Logging with RemovalListener[String, util.Se
     executionResourceRelation.invalidate(executionId)
   }
 
-  override def onRemoval(key: String, value: util.Set[String], cause: RemovalCause): Unit = {
+  override def onRemoval(
+      key: String,
+      value: util.Set[String],
+      cause: RemovalCause): Unit = {
     executorDataMap.forEach(
       (_, executor) => executor.executorEndpointRef.send(GlutenCleanExecutionResource(key, value)))
   }

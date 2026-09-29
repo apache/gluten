@@ -25,7 +25,7 @@
 #include <Interpreters/GraceHashJoin.h>
 #include <Interpreters/HashJoin/HashJoin.h>
 #include <Interpreters/TableJoin.h>
-#include <Join/BroadCastJoinBuilder.h>
+#include <Join/BroadcastJoinBuilder.h>
 #include <Join/StorageJoinFromReadBuffer.h>
 #include <Operator/EarlyStopStep.h>
 #include <Parser/AdvancedParametersParseUtil.h>
@@ -204,10 +204,10 @@ DB::QueryPlanPtr JoinRelParser::parseJoin(const substrait::JoinRel & join, DB::Q
 {
     auto join_config = JoinConfig::loadFromContext(getContext());
     google::protobuf::StringValue optimization_info;
-    optimization_info.ParseFromString(join.advanced_extension().optimization().value());
+    optimization_info.ParseFromString(firstOptimizationOrDefault(join.advanced_extension()).value());
     auto join_opt_info = JoinOptimizationInfo::parse(optimization_info.value());
     LOG_DEBUG(getLogger("JoinRelParser"), "optimization info:{}", optimization_info.value());
-    auto storage_join = join_opt_info.is_broadcast ? BroadCastJoinBuilder::getJoin(join_opt_info.storage_join_key) : nullptr;
+    auto storage_join = join_opt_info.is_broadcast ? BroadcastJoinBuilder::getJoin(join_opt_info.storage_join_key) : nullptr;
     if (storage_join)
         renamePlanColumns(*left, *right, *storage_join);
 

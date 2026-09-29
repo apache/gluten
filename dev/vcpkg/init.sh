@@ -70,7 +70,7 @@ cd "$SCRIPT_ROOT"
 if [ ! -d "$VCPKG_ROOT" ] || [ -z "$(ls "$VCPKG_ROOT")" ]; then
     # The builtin-baseline (commit hash) specified in vcpkg.json should exist in this branch.
     # Therefore, upgrading the builtin-baseline may require updating the branch.
-    git clone https://github.com/microsoft/vcpkg.git --branch 2025.09.17 "$VCPKG_ROOT"
+    git clone https://github.com/microsoft/vcpkg.git --branch 2026.03.18 "$VCPKG_ROOT"
 fi
 [ -f "$VCPKG" ] || "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
 
@@ -85,11 +85,14 @@ if [ "$ENABLE_GCS" = "ON" ]; then
   EXTRA_FEATURES+="--x-feature=velox-gcs "
 fi
 if [ "$ENABLE_ABFS" = "ON" ]; then
-  EXTRA_FEATURES+="--x-feature=velox-abfs"
+  EXTRA_FEATURES+="--x-feature=velox-abfs "
+fi
+if [ "${VCPKG_DYNAMIC_OPENSSL:-OFF}" = "ON" ]; then
+  EXTRA_FEATURES+="--x-feature=dynamic-openssl "
 fi
 
 
-$VCPKG install --no-print-usage \
+$VCPKG install --no-print-usage --allow-unsupported \
     --triplet="${VCPKG_TRIPLET}" --host-triplet="${VCPKG_TRIPLET}" ${EXTRA_FEATURES}
 
 # For fixing a build error like below when gluten's build type is Debug:
@@ -97,7 +100,9 @@ $VCPKG install --no-print-usage \
 # needed by 'releases/libvelox.so'
 mkdir -p $VCPKG_TRIPLET_INSTALL_DIR/debug/lib/
 cp $VCPKG_TRIPLET_INSTALL_DIR/lib/libz.a $VCPKG_TRIPLET_INSTALL_DIR/debug/lib
-cp $VCPKG_TRIPLET_INSTALL_DIR/lib/libssl.a $VCPKG_TRIPLET_INSTALL_DIR/debug/lib
-cp $VCPKG_TRIPLET_INSTALL_DIR/lib/libcrypto.a $VCPKG_TRIPLET_INSTALL_DIR/debug/lib
+if [ "${VCPKG_DYNAMIC_OPENSSL:-OFF}" = "OFF" ]; then
+  cp $VCPKG_TRIPLET_INSTALL_DIR/lib/libssl.a $VCPKG_TRIPLET_INSTALL_DIR/debug/lib
+  cp $VCPKG_TRIPLET_INSTALL_DIR/lib/libcrypto.a $VCPKG_TRIPLET_INSTALL_DIR/debug/lib
+fi
 cp $VCPKG_TRIPLET_INSTALL_DIR/lib/liblzma.a $VCPKG_TRIPLET_INSTALL_DIR/debug/lib
 cp $VCPKG_TRIPLET_INSTALL_DIR/lib/libdwarf.a $VCPKG_TRIPLET_INSTALL_DIR/debug/lib

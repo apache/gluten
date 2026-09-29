@@ -21,11 +21,13 @@ import org.apache.gluten.execution.VeloxWholeStageTransformerSuite
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.util.Utils
 
 import org.apache.hadoop.fs.Path
 import org.apache.parquet.hadoop.ParquetFileReader
 import org.apache.parquet.hadoop.util.HadoopInputFile
+import org.apache.parquet.schema.PrimitiveType
 
 import java.io.File
 
@@ -70,8 +72,42 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
         // TODO: maybe remove constant complex type restriction (Spark 3.4+)
         checkNativeWrite(
           s"INSERT OVERWRITE DIRECTORY '$path' USING PARQUET SELECT array(struct(1), null) as var1",
-          expectNative = !isSparkVersionGE("3.4"))
+          expectNative = false)
     }
+  }
+
+  test("test write parquet decimal with writeLegacyFormat") {
+    // writeLegacyFormat details see `VeloxWriterUtils.cc`
+    Seq(
+      false -> PrimitiveType.PrimitiveTypeName.INT32,
+      true -> PrimitiveType.PrimitiveTypeName.FIXED_LEN_BYTE_ARRAY)
+      .foreach {
+        case (legacyFormat, expectedType) =>
+          withSQLConf(SQLConf.PARQUET_WRITE_LEGACY_FORMAT.key -> legacyFormat.toString) {
+            withTempPath {
+              f =>
+                val path = f.getCanonicalPath
+                val expected = spark.sql("SELECT CAST(123.456 AS DECIMAL(8, 3)) AS value")
+                checkNativeWrite(
+                  s"INSERT OVERWRITE DIRECTORY '$path' USING PARQUET " +
+                    "SELECT CAST(123.456 AS DECIMAL(8, 3)) AS value")
+                val parquetFiles = f.list((_, name) => name.contains("parquet"))
+                assert(parquetFiles.nonEmpty)
+                parquetFiles.foreach {
+                  file =>
+                    val filePath = new Path(path, file)
+                    val in = HadoopInputFile.fromPath(filePath, spark.sessionState.newHadoopConf())
+                    Utils.tryWithResource(ParquetFileReader.open(in)) {
+                      reader =>
+                        val physicalType = reader.getFooter.getFileMetaData.getSchema
+                          .getFields.get(0).asPrimitiveType.getPrimitiveTypeName
+                        assert(physicalType == expectedType)
+                    }
+                }
+                checkAnswer(spark.read.parquet(path), expected)
+            }
+          }
+      }
   }
 
   test("test write parquet with compression codec") {
@@ -142,7 +178,7 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
       // TODO: maybe remove constant complex type restriction (Spark 3.4+)
       checkNativeWrite(
         "INSERT INTO src SELECT array(1, 2, 3)",
-        expectNative = !isSparkVersionGE("3.4"))
+        expectNative = false)
       spark.sql("CREATE TABLE t (ids ARRAY<INT>) USING PARQUET")
       checkNativeWrite("INSERT INTO t SELECT ids FROM src")
       checkAnswer(spark.table("t"), Row(Seq(1, 2, 3)))
@@ -155,7 +191,7 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
       // TODO: maybe remove constant complex type restriction (Spark 3.4+)
       checkNativeWrite(
         "INSERT INTO src SELECT map('a', 1, 'b', 2)",
-        expectNative = !isSparkVersionGE("3.4"))
+        expectNative = false)
       spark.sql("CREATE TABLE t (kv MAP<STRING, INT>) USING PARQUET")
       checkNativeWrite("INSERT INTO t SELECT kv FROM src")
       checkAnswer(spark.table("t"), Row(Map("a" -> 1, "b" -> 2)))
@@ -183,9 +219,7 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
         .range(100)
         .toDF("id")
         .createOrReplaceTempView("ctas_temp")
-      checkNativeWrite(
-        "CREATE TABLE velox_ctas USING PARQUET AS SELECT * FROM ctas_temp",
-        expectNative = isSparkVersionGE("3.4"))
+      checkNativeWrite("CREATE TABLE velox_ctas USING PARQUET AS SELECT * FROM ctas_temp")
     }
   }
 
@@ -268,6 +302,57 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
 
         val parquetDf = spark.read.parquet(f.getCanonicalPath)
         checkAnswer(parquetDf, spark.range(100).toDF("id"))
+    }
+  }
+
+  test("test write parquet with page index enabled/disabled/default") {
+    Seq(Some(true), Some(false), None).foreach {
+      enablePageIndex =>
+        withTempPath {
+          f =>
+            val writer = spark
+              .range(0, 100000, 1, 1)
+              .selectExpr("id", "cast(id % 100 as int) as v")
+              .write
+              .format("parquet")
+              .option(GlutenConfig.PARQUET_DATAPAGE_SIZE, (4 * 1024).toString)
+            enablePageIndex.foreach(
+              v => writer.option(GlutenConfig.PARQUET_ENABLE_PAGE_INDEX, v.toString))
+            writer.save(f.getCanonicalPath)
+
+            val expectPageIndex = enablePageIndex.getOrElse(true)
+            val parquetFiles = f.list((_, name) => name.contains("parquet"))
+            assert(parquetFiles.nonEmpty)
+            val indexRefs = parquetFiles.flatMap {
+              file =>
+                val path = new Path(f.getCanonicalPath, file)
+                val in = HadoopInputFile.fromPath(path, spark.sessionState.newHadoopConf())
+                Utils.tryWithResource(ParquetFileReader.open(in)) {
+                  reader =>
+                    reader.getFooter.getBlocks.asScala.flatMap {
+                      block =>
+                        block.getColumns.asScala.map {
+                          col =>
+                            (
+                              col.getColumnIndexReference != null,
+                              col.getOffsetIndexReference != null)
+                        }
+                    }
+                }
+            }
+            val hasColumnIndex = indexRefs.exists(_._1)
+            val hasOffsetIndex = indexRefs.exists(_._2)
+            assert(
+              hasColumnIndex == expectPageIndex,
+              s"expected column index present=$expectPageIndex but found $hasColumnIndex")
+            assert(
+              hasOffsetIndex == expectPageIndex,
+              s"expected offset index present=$expectPageIndex but found $hasOffsetIndex")
+
+            checkAnswer(
+              spark.read.parquet(f.getCanonicalPath),
+              spark.range(0, 100000, 1, 1).selectExpr("id", "cast(id % 100 as int) as v"))
+        }
     }
   }
 }

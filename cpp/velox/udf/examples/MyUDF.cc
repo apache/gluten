@@ -71,6 +71,43 @@ class HiveStringStringRegisterer final : public gluten::UdfRegisterer {
 
 } // namespace hivestringstring
 
+namespace myudfplusone {
+
+template <typename T>
+struct MyUdfPlusOneFunction {
+  VELOX_DEFINE_FUNCTION_TYPES(T);
+
+  FOLLY_ALWAYS_INLINE void call(int64_t& result, const int64_t& a) {
+    result = a + 1;
+  }
+};
+
+// name: myudf_plus_one
+// signatures:
+//    bigint -> bigint
+// type: SimpleFunction
+// A name with no dot, so it is callable directly without a Hive UDF class.
+class MyUdfPlusOneRegisterer final : public gluten::UdfRegisterer {
+ public:
+  int getNumUdf() override {
+    return 1;
+  }
+
+  void populateUdfEntries(int& index, gluten::UdfEntry* udfEntries) override {
+    udfEntries[index++] = {name_.c_str(), kBigInt, 1, arg_, false, false};
+  }
+
+  void registerSignatures() override {
+    facebook::velox::registerFunction<MyUdfPlusOneFunction, int64_t, int64_t>({name_});
+  }
+
+ private:
+  const std::string name_ = "myudf_plus_one";
+  const char* arg_[1] = {kBigInt};
+};
+
+} // namespace myudfplusone
+
 std::vector<std::shared_ptr<gluten::UdfRegisterer>>& globalRegisters() {
   static std::vector<std::shared_ptr<gluten::UdfRegisterer>> registerers;
   return registerers;
@@ -83,6 +120,7 @@ void setupRegisterers() {
   }
   auto& registerers = globalRegisters();
   registerers.push_back(std::make_shared<hivestringstring::HiveStringStringRegisterer>());
+  registerers.push_back(std::make_shared<myudfplusone::MyUdfPlusOneRegisterer>());
   inited = true;
 }
 } // namespace

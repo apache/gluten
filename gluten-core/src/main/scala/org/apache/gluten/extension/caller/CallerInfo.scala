@@ -79,10 +79,14 @@ object CallerInfo {
   }
 
   private def inBloomFilterStatFunctionCall(stack: Seq[StackTraceElement]): Boolean = {
-    val res = stack.exists(
-      _.getClassName.equals("org.apache.spark.sql.DataFrameStatFunctions")
-        && stack.exists(_.getMethodName.equals("bloomFilter")))
-    res
+    // Two independent existence checks over the stack. The previous shape used a nested
+    // `stack.exists(_.getMethodName.equals(...))` inside the outer predicate, which re-walked
+    // the whole stack for every candidate frame - O(n^2) in stack depth. Splitting the checks
+    // makes each a single pass. `&&` short-circuits, so the bloomFilter scan only runs when a
+    // DataFrameStatFunctions frame is present.
+    val hasStatFunctionsClass =
+      stack.exists(_.getClassName.equals("org.apache.spark.sql.DataFrameStatFunctions"))
+    hasStatFunctionsClass && stack.exists(_.getMethodName.equals("bloomFilter"))
   }
 
   /** For testing only. */

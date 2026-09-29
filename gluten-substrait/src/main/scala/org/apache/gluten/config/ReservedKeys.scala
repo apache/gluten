@@ -34,5 +34,4 @@ object ReservedKeys {
   val GLUTEN_HASH_SHUFFLE_WRITER = "hash"
   val GLUTEN_SORT_SHUFFLE_WRITER = "sort"
   val GLUTEN_RSS_SORT_SHUFFLE_WRITER = "rss_sort"
-  val GLUTEN_GPU_HASH_SHUFFLE_WRITER = "gpu_hash"
 }

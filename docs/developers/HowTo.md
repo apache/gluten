@@ -61,7 +61,7 @@ mvn test -Pspark-3.5 -Pbackends-velox -pl backends-velox \
 
 - After the above operations, the example files are generated under `${GLUTEN_HOME}/backends-velox`
 - You can check it by the command `tree ${GLUTEN_HOME}/backends-velox/generated-native-benchmark/`
-- You may replace `-Pspark-3.5` with `-Pspark-3.3` or `-Pspark-3.4` for earlier Spark versions
+- You may replace `-Pspark-3.5` with `-Pspark-3.4` for an earlier Spark version
 
 ```shell
 $ tree ${GLUTEN_HOME}/backends-velox/generated-native-benchmark/

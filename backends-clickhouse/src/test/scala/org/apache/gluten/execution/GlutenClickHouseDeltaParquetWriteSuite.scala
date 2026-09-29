@@ -23,6 +23,7 @@ import org.apache.spark.SparkConf
 import org.apache.spark.gluten.delta.DeltaStatsUtils
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.delta.files.TahoeFileIndex
+import org.apache.spark.sql.delta.stats.PreparedDeltaFileIndex
 
 import io.delta.tables.DeltaTable
 
@@ -542,7 +543,7 @@ class GlutenClickHouseDeltaParquetWriteSuite extends ParquetTPCHSuite {
                  |CREATE TABLE IF NOT EXISTS lineitem_delta_parquet_ctas2
                  |USING delta
                  |PARTITIONED BY (l_returnflag)
-                 |LOCATION '$dataHome/lineitem_mergetree_ctas2'
+                 |LOCATION '$dataHome/lineitem_delta_parquet_ctas2'
                  | as select * from lineitem
                  |""".stripMargin)
     checkQuery(q1("lineitem_delta_parquet_ctas2"))
@@ -958,11 +959,7 @@ class GlutenClickHouseDeltaParquetWriteSuite extends ParquetTPCHSuite {
     spark.sparkContext.setJobGroup("test3", "test3")
     spark.sql("optimize lineitem_delta_parquet_optimize_p2")
     val job_ids = spark.sparkContext.statusTracker.getJobIdsForGroup("test3")
-    if (spark32) {
-      assert(job_ids.length === 7) // WILL trigger actual merge job
-    } else {
-      assert(job_ids.length === 8) // WILL trigger actual merge job
-    }
+    assert(job_ids.length === 8) // WILL trigger actual merge job
 
     spark.sparkContext.clearJobGroup()
 
@@ -971,11 +968,7 @@ class GlutenClickHouseDeltaParquetWriteSuite extends ParquetTPCHSuite {
 
     assert(countFiles(new File(s"$dataHome/lineitem_delta_parquet_optimize_p2")) === 23)
     spark.sql("VACUUM lineitem_delta_parquet_optimize_p2 RETAIN 0 HOURS")
-    if (spark32) {
-      assert(countFiles(new File(s"$dataHome/lineitem_delta_parquet_optimize_p2")) === 5)
-    } else {
-      assert(countFiles(new File(s"$dataHome/lineitem_delta_parquet_optimize_p2")) === 7)
-    }
+    assert(countFiles(new File(s"$dataHome/lineitem_delta_parquet_optimize_p2")) === 7)
 
     val ret2 = spark.sql("select count(*) from lineitem_delta_parquet_optimize_p2").collect()
     assert(ret2.apply(0).get(0) === 600572)
@@ -1001,11 +994,7 @@ class GlutenClickHouseDeltaParquetWriteSuite extends ParquetTPCHSuite {
 
       assert(countFiles(new File(s"$dataHome/lineitem_delta_parquet_optimize_p4")) === 149)
       spark.sql("VACUUM lineitem_delta_parquet_optimize_p4 RETAIN 0 HOURS")
-      if (spark32) {
-        assert(countFiles(new File(s"$dataHome/lineitem_delta_parquet_optimize_p4")) === 23)
-      } else {
-        assert(countFiles(new File(s"$dataHome/lineitem_delta_parquet_optimize_p4")) === 25)
-      }
+      assert(countFiles(new File(s"$dataHome/lineitem_delta_parquet_optimize_p4")) === 25)
 
       val ret2 = spark.sql("select count(*) from lineitem_delta_parquet_optimize_p4").collect()
       assert(ret2.apply(0).get(0) === 600572)
@@ -1037,12 +1026,8 @@ class GlutenClickHouseDeltaParquetWriteSuite extends ParquetTPCHSuite {
       assert(countFiles(new File(dataPath)) === 77)
 
       clickhouseTable.vacuum(0.0)
-      if (spark32) {
-        assert(countFiles(new File(dataPath)) === 27)
-      } else {
-        // There are 25 parquet files + 4 json files after vacuum
-        assert(countFiles(new File(dataPath)) === 29)
-      }
+      // There are 25 parquet files + 4 json files after vacuum
+      assert(countFiles(new File(dataPath)) === 29)
 
       val ret = spark.sql(s"select count(*) from clickhouse.`$dataPath`").collect()
       assert(ret.apply(0).get(0) === 600572)
@@ -1056,12 +1041,8 @@ class GlutenClickHouseDeltaParquetWriteSuite extends ParquetTPCHSuite {
       clickhouseTable.optimize().executeCompaction()
 
       clickhouseTable.vacuum(0.0)
-      if (spark32) {
-        assert(countFiles(new File(dataPath)) === 6)
-      } else {
-        // There are 3 parquet files + 7 json files + 2 check point files after vacuum
-        assert(countFiles(new File(dataPath)) === 12)
-      }
+      // There are 3 parquet files + 7 json files + 2 check point files after vacuum
+      assert(countFiles(new File(dataPath)) === 12)
 
       val ret = spark.sql(s"select count(*) from clickhouse.`$dataPath`").collect()
       assert(ret.apply(0).get(0) === 600572)
@@ -1072,15 +1053,114 @@ class GlutenClickHouseDeltaParquetWriteSuite extends ParquetTPCHSuite {
     clickhouseTable.optimize().executeCompaction()
 
     clickhouseTable.vacuum(0.0)
-    if (spark32) {
-      assert(countFiles(new File(dataPath)) === 5)
-    } else {
-      // There are 1 parquet file + 10 json files + 2 check point files after vacuum
-      assert(countFiles(new File(dataPath)) === 13)
-    }
+    // There are 1 parquet file + 10 json files + 2 check point files after vacuum
+    assert(countFiles(new File(dataPath)) === 13)
 
     val ret = spark.sql(s"select count(*) from clickhouse.`$dataPath`").collect()
     assert(ret.apply(0).get(0) === 600572)
+  }
+
+  // TODO: after rebase-25.12, support 'reorg' command for delta dv + partition
+  ignore("Gluten-9697: Add 'reorg' command ut for the mergetree + delta dv") {
+    val tableName = "mergetree_delta_dv_reorg"
+    withTable(tableName) {
+      withTempDir {
+        dirName =>
+          val s = createTableBuilder(tableName, "delta", s"$dirName/$tableName")
+            .withProps(Map("delta.enableDeletionVectors" -> "'true'"))
+            .withTableKey("lineitem")
+            .build()
+          spark.sql(s)
+
+          spark.sql(s"""
+                       |insert into table $tableName
+                       |select /*+ REPARTITION(6) */ * from lineitem
+                       |""".stripMargin)
+
+          spark.sql(s"""
+                       |delete from $tableName
+                       |where mod(l_orderkey, 3) = 2
+                       |""".stripMargin)
+
+          var df = spark.sql(s"""
+                                | select sum(l_linenumber) from $tableName
+                                |""".stripMargin)
+          var result = df.collect()
+          assert(
+            result(0).get(0) === 1200671
+          )
+          checkFallbackOperators(df, 0)
+
+          spark.sql(s"""
+                       | REORG TABLE $tableName APPLY (PURGE)
+                       |""".stripMargin)
+          df = spark.sql(s"""
+                            | select sum(l_linenumber) from $tableName
+                            |""".stripMargin)
+          result = df.collect()
+          assert(
+            result(0).get(0) === 1200671
+          )
+          val scanExec = collect(df.queryExecution.executedPlan) {
+            case f: FileSourceScanExecTransformer => f
+          }
+          val parquetScan = scanExec.head
+          val fileIndex = parquetScan.relation.location.asInstanceOf[PreparedDeltaFileIndex]
+          val addFiles = fileIndex.preparedScan.files
+          assert(addFiles.size === 1)
+          assert(addFiles(0).deletionVector === null)
+      }
+    }
+  }
+
+  // TODO: after rebase-25.12, fix reorg purge command in delta 3.3.1
+  ignore("Gluten-9697: Add 'reorg' command ut for delta dv + partition") {
+    val tableName = "mergetree_delta_dv_reorg_partition"
+    spark.sql(s"""
+                 |DROP TABLE IF EXISTS $tableName;
+                 |""".stripMargin)
+    spark.sql(s"""
+                 |CREATE TABLE IF NOT EXISTS $tableName
+                 |(${table2columns.get("lineitem").get(true)})
+                 |USING delta
+                 |PARTITIONED BY (l_returnflag)
+                 |TBLPROPERTIES (delta.enableDeletionVectors='true')
+                 |LOCATION '$dataHome/$tableName'
+                 |""".stripMargin)
+    spark.sql(s"""
+                 |insert into table $tableName
+                 | select /*+ REPARTITION(6) */ * from lineitem
+                 |""".stripMargin)
+    spark.sql(s"""
+                 |delete from $tableName
+                 | where mod(l_orderkey, 3) = 1
+                 |""".stripMargin)
+    var df = spark.sql(s"""
+                          |select sum(l_linenumber) from $tableName
+                          |""".stripMargin)
+    var result = df.collect()
+    assert(
+      result(0).get(0) === 1201486
+    )
+    checkFallbackOperators(df, 0)
+    spark.sql(s"""
+                 |REORG TABLE $tableName APPLY (PURGE)
+                 |""".stripMargin)
+    df = spark.sql(s"""
+                      |select sum(l_linenumber) from $tableName
+                      |""".stripMargin)
+    result = df.collect()
+    assert(
+      result(0).get(0) === 1201486
+    )
+    val scanExec = collect(df.queryExecution.executedPlan) {
+      case f: FileSourceScanExecTransformer => f
+    }
+    val parquetScan = scanExec.head
+    val fileIndex = parquetScan.relation.location.asInstanceOf[PreparedDeltaFileIndex]
+    val addFiles = fileIndex.preparedScan.files
+    assert(addFiles.size === 3)
+    assert(addFiles.forall(_.deletionVector === null))
   }
 }
 // scalastyle:off line.size.limit

@@ -18,55 +18,12 @@ package org.apache.spark.sql.execution.datasources
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.execution.ColumnarToRowExecBase
-import org.apache.gluten.execution.datasource.GlutenFormatFactory
 
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
-import org.apache.spark.sql.execution.command.{CreateDataSourceTableAsSelectCommand, DataWritingCommand, DataWritingCommandExec}
-import org.apache.spark.sql.hive.execution.{CreateHiveTableAsSelectCommand, InsertIntoHiveDirCommand, InsertIntoHiveTable}
-import org.apache.spark.sql.sources.DataSourceRegister
 
 object GlutenWriterColumnarRules {
-  // TODO: support ctas in Spark3.4, see https://github.com/apache/spark/pull/39220
-  // TODO: support dynamic partition and bucket write
-  //  1. pull out `Empty2Null` and required ordering to `WriteFilesExec`, see Spark3.4 `V1Writes`
-  //  2. support detect partition value, partition path, bucket value, bucket path at native side,
-  //     see `BaseDynamicPartitionDataWriter`
-  private val formatMapping = Map(
-    "org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat" -> "orc",
-    "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat" -> "parquet"
-  )
-  private def getNativeFormat(cmd: DataWritingCommand): Option[String] = {
-    cmd match {
-      case command: CreateDataSourceTableAsSelectCommand
-          if !BackendsApiManager.getSettings.skipNativeCtas(command) =>
-        command.table.provider.filter(GlutenFormatFactory.isRegistered)
-      case command: InsertIntoHadoopFsRelationCommand
-          if !BackendsApiManager.getSettings.skipNativeInsertInto(command) =>
-        command.fileFormat match {
-          case register: DataSourceRegister
-              if GlutenFormatFactory.isRegistered(register.shortName()) =>
-            Some(register.shortName())
-          case _ => None
-        }
-      case command: InsertIntoHiveDirCommand =>
-        command.storage.outputFormat
-          .flatMap(formatMapping.get)
-          .filter(GlutenFormatFactory.isRegistered)
-      case command: InsertIntoHiveTable =>
-        command.table.storage.outputFormat
-          .flatMap(formatMapping.get)
-          .filter(GlutenFormatFactory.isRegistered)
-      case command: CreateHiveTableAsSelectCommand =>
-        command.tableDesc.storage.outputFormat
-          .flatMap(formatMapping.get)
-          .filter(GlutenFormatFactory.isRegistered)
-      case _ =>
-        None
-    }
-  }
 
   private[datasources] def injectFakeRowAdaptor(command: SparkPlan, child: SparkPlan): SparkPlan = {
     child match {
@@ -92,35 +49,6 @@ object GlutenWriterColumnarRules {
       case other =>
         command.withNewChildren(
           Array(BackendsApiManager.getSparkPlanExecApiInstance.genColumnarToCarrierRow(other)))
-    }
-  }
-
-  case class NativeWritePostRule(session: SparkSession) extends Rule[SparkPlan] {
-
-    override def apply(p: SparkPlan): SparkPlan = p match {
-      case rc @ DataWritingCommandExec(cmd, child) =>
-        // The same thread can set these properties in the last query submission.
-        val format =
-          if (BackendsApiManager.getSettings.enableNativeWriteFiles()) {
-            getNativeFormat(cmd)
-          } else {
-            None
-          }
-        val numStaticPartitions: Option[Int] = cmd match {
-          case cmd: InsertIntoHadoopFsRelationCommand =>
-            Some(cmd.staticPartitions.size)
-          case _ =>
-            None
-        }
-        injectSparkLocalProperty(session, format, numStaticPartitions)
-        format match {
-          case Some(_) =>
-            injectFakeRowAdaptor(rc, child)
-          case None =>
-            rc.withNewChildren(rc.children.map(apply))
-        }
-
-      case plan: SparkPlan => plan.withNewChildren(plan.children.map(apply))
     }
   }
 

@@ -20,8 +20,10 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.vectorized.ColumnVector
 
 /**
- * Because Spark-3.2 declares ColumnarBatch as final, so `ArrowColumnarBatch` can't extend
- * `ColumnarBatch`. The code is mainly copied from Spark-3.2
+ * A `ColumnarBatch`-like container of [[ArrowWritableColumnVector]]s. Originally forked from
+ * Spark's `ColumnarBatch` before Gluten could depend on that class directly; it is kept as a
+ * standalone class rather than extending `ColumnarBatch` to preserve the writable-column contract
+ * and existing call sites.
  *
  * @param writableColumns
  *   the columns this class wraps

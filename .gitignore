@@ -13,6 +13,10 @@ hs_err_pid*
 
 # IDEA config
 .idea/
+# Eclipse config
+.classpath
+.project
+.settings/
 # vscode config
 .vscode
 # vscode scala

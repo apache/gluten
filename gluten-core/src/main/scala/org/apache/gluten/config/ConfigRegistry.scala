@@ -29,6 +29,35 @@ trait ConfigRegistry {
     require(existing.isEmpty, s"Config entry ${entry.key} already registered!")
   }
 
+  private def registerToSQLConf(entry: ConfigEntry[_], isStatic: Boolean): Unit = {
+    (entry.key :: entry.alternatives).foreach(registerToSQLConf(entry, _, isStatic))
+  }
+
+  private def registerToSQLConf(entry: ConfigEntry[_], key: String, isStatic: Boolean): Unit = {
+    var builder =
+      if (isStatic) SQLConf.buildStaticConf(key) else SQLConf.buildConf(key)
+    if (entry.doc.nonEmpty) {
+      builder = builder.doc(entry.doc)
+    }
+    if (entry.version.nonEmpty) {
+      builder = builder.version(entry.version)
+    }
+    if (!entry.isPublic) {
+      builder = builder.internal()
+    }
+
+    val sparkEntry = builder.stringConf.transform {
+      value =>
+        entry.valueConverter(value)
+        value
+    }
+    if (entry.defaultValue.isDefined) {
+      sparkEntry.createWithDefaultString(entry.defaultValueString)
+    } else {
+      sparkEntry.createOptional
+    }
+  }
+
   /** Visible for testing. */
   private[config] def allEntries: Seq[ConfigEntry[_]] = {
     configEntries.values.toSeq
@@ -38,6 +67,7 @@ trait ConfigRegistry {
     ConfigBuilder(key).onCreate {
       entry =>
         register(entry)
+        registerToSQLConf(entry, isStatic = false)
         ConfigRegistry.registerToAllEntries(entry)
     }
   }
@@ -45,8 +75,8 @@ trait ConfigRegistry {
   protected def buildStaticConf(key: String): ConfigBuilder = {
     ConfigBuilder(key).onCreate {
       entry =>
-        SQLConf.registerStaticConfigKey(key)
         register(entry)
+        registerToSQLConf(entry, isStatic = true)
         ConfigRegistry.registerToAllEntries(entry)
     }
   }

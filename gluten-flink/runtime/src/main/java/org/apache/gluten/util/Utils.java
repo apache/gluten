@@ -18,6 +18,7 @@ package org.apache.gluten.util;
 
 import org.apache.gluten.streaming.api.operators.GlutenOneInputOperatorFactory;
 import org.apache.gluten.streaming.api.operators.GlutenOperator;
+import org.apache.gluten.streaming.api.operators.GlutenTwoInputOperatorFactory;
 
 import org.apache.flink.connector.file.table.stream.PartitionCommitInfo;
 import org.apache.flink.streaming.api.graph.StreamConfig;
@@ -64,6 +65,8 @@ public class Utils {
       }
     } else if (operatorFactory instanceof GlutenOneInputOperatorFactory) {
       return Optional.of(((GlutenOneInputOperatorFactory) operatorFactory).getOperator());
+    } else if (operatorFactory instanceof GlutenTwoInputOperatorFactory) {
+      return Optional.of(((GlutenTwoInputOperatorFactory) operatorFactory).getOperator());
     }
     return Optional.empty();
   }

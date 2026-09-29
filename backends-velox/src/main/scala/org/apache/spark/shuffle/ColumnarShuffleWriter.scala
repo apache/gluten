@@ -18,7 +18,7 @@ package org.apache.spark.shuffle
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.columnarbatch.ColumnarBatches
-import org.apache.gluten.config.{GlutenConfig, GpuHashShuffleWriterType, HashShuffleWriterType, SortShuffleWriterType}
+import org.apache.gluten.config.{GlutenConfig, HashShuffleWriterType, SortShuffleWriterType}
 import org.apache.gluten.memory.memtarget.{MemoryTarget, Spiller}
 import org.apache.gluten.runtime.Runtimes
 import org.apache.gluten.vectorized._
@@ -44,7 +44,7 @@ class ColumnarShuffleWriter[K, V](
   private val dep = handle.dependency.asInstanceOf[ColumnarShuffleDependency[K, V, V]]
 
   dep.shuffleWriterType match {
-    case HashShuffleWriterType | SortShuffleWriterType | GpuHashShuffleWriterType =>
+    case HashShuffleWriterType | SortShuffleWriterType =>
     // Valid shuffle writer types
     case _ =>
       throw new IllegalArgumentException(
@@ -59,6 +59,8 @@ class ColumnarShuffleWriter[K, V](
   private val conf = SparkEnv.get.conf
 
   private val blockManager = SparkEnv.get.blockManager
+
+  private val rowBasedChecksumEnabled: Boolean = GlutenMapStatusUtil.isRowBasedChecksumEnabled
 
   // Are we in the process of stopping? Because map tasks can call stop() with success = true
   // and then call stop() with success = false if they get an exception, we want to make sure
@@ -172,17 +174,6 @@ class ColumnarShuffleWriter[K, V](
               conf.get(SHUFFLE_SORT_USE_RADIXSORT),
               partitionWriterHandle
             )
-          } else if (dep.shuffleWriterType == GpuHashShuffleWriterType) {
-            shuffleWriterJniWrapper.createGpuHashShuffleWriter(
-              numPartitions,
-              dep.nativePartitioning.getShortName,
-              GlutenShuffleUtils.getStartPartitionId(
-                dep.nativePartitioning,
-                taskContext.partitionId),
-              nativeBufferSize,
-              reallocThreshold,
-              partitionWriterHandle
-            )
           } else {
             shuffleWriterJniWrapper.createHashShuffleWriter(
               numPartitions,
@@ -192,7 +183,9 @@ class ColumnarShuffleWriter[K, V](
                 taskContext.partitionId),
               nativeBufferSize,
               reallocThreshold,
-              partitionWriterHandle
+              GlutenConfig.get.columnarShufflePartitionBufferEvictThreshold,
+              partitionWriterHandle,
+              rowBasedChecksumEnabled
             )
           }
 
@@ -281,7 +274,15 @@ class ColumnarShuffleWriter[K, V](
     // almost 3 times than vanilla spark partitionLengths
     // This value is sensitive in rules such as AQE rule OptimizeSkewedJoin DynamicJoinSelection
     // May affect the final plan
-    mapStatus = MapStatus(blockManager.shuffleServerId, partitionLengths, mapId)
+    val rowChecksums = splitResult.getRowBasedChecksums
+    val aggregatedChecksum = if (rowChecksums != null && rowChecksums.nonEmpty) {
+      rowChecksums.foldLeft(0L)((acc, c) => acc * 31L + c)
+    } else 0L
+    mapStatus = GlutenMapStatusUtil.createMapStatus(
+      blockManager.shuffleServerId,
+      partitionLengths,
+      mapId,
+      aggregatedChecksum)
   }
 
   private def handleEmptyInput(): Unit = {
@@ -292,7 +293,11 @@ class ColumnarShuffleWriter[K, V](
       partitionLengths,
       Array[Long](),
       null)
-    mapStatus = MapStatus(blockManager.shuffleServerId, partitionLengths, mapId)
+    mapStatus = GlutenMapStatusUtil.createMapStatus(
+      blockManager.shuffleServerId,
+      partitionLengths,
+      mapId,
+      0L)
   }
 
   @throws[IOException]

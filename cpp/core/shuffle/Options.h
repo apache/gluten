@@ -23,10 +23,12 @@
 
 #include <arrow/ipc/options.h>
 #include <arrow/util/compression.h>
+#include <thread>
 
 namespace gluten {
 
 static constexpr int16_t kDefaultBatchSize = 4096;
+static constexpr int32_t kDefaultPartitionBufferEvictThreshold = -1;
 static constexpr int32_t kDefaultShuffleWriterBufferSize = 4096;
 static constexpr int64_t kDefaultSortBufferThreshold = 64 << 20;
 static constexpr int64_t kDefaultPushMemoryThreshold = 4096;
@@ -44,7 +46,7 @@ static constexpr int64_t kDefaultShuffleFileBufferSize = 32 << 10;
 static constexpr bool kDefaultEnableDictionary = false;
 static constexpr bool kDefaultEnableTypeAwareCompress = false;
 
-enum class ShuffleWriterType { kHashShuffle, kSortShuffle, kRssSortShuffle, kGpuHashShuffle };
+enum class ShuffleWriterType { kHashShuffle, kSortShuffle, kRssSortShuffle };
 
 enum class PartitionWriterType { kLocal, kRss };
 
@@ -63,12 +65,21 @@ struct ShuffleReaderOptions {
 
   // Buffer size when deserializing rows into columnar batches. Only used for sort-based shuffle.
   int64_t deserializerBufferSize = kDefaultDeserializerBufferSize;
+
+  // Whether to enable the reader-side raw payload merge fast path for plain hash shuffle payloads within one input
+  // stream.
+  bool enableHashShuffleReaderStreamMerge = false;
+
+  // GPU shuffle reader.
+  bool enableGpuAsyncReader = false;
+  int64_t gpuAsyncReaderMaxPrefetchBytes = 1 << 30;
 };
 
 struct ShuffleWriterOptions {
   ShuffleWriterType shuffleWriterType;
   Partitioning partitioning = Partitioning::kRoundRobin;
   int32_t startPartitionId = 0;
+  bool rowBasedChecksumEnabled = false;
 
   ShuffleWriterOptions(ShuffleWriterType shuffleWriterType) : shuffleWriterType(shuffleWriterType) {}
 
@@ -81,6 +92,7 @@ struct ShuffleWriterOptions {
 struct HashShuffleWriterOptions : ShuffleWriterOptions {
   int32_t splitBufferSize = kDefaultShuffleWriterBufferSize;
   double splitBufferReallocThreshold = kDefaultSplitBufferReallocThreshold;
+  int32_t partitionBufferEvictThreshold = kDefaultPartitionBufferEvictThreshold;
 
   HashShuffleWriterOptions() : ShuffleWriterOptions(ShuffleWriterType::kHashShuffle) {}
 
@@ -88,10 +100,12 @@ struct HashShuffleWriterOptions : ShuffleWriterOptions {
       Partitioning partitioning,
       int32_t startPartitionId,
       int32_t partitionBufferSize,
-      double partitionBufferReallocThreshold)
+      double partitionBufferReallocThreshold,
+      int32_t partitionBufferEvictThreshold = kDefaultPartitionBufferEvictThreshold)
       : ShuffleWriterOptions(ShuffleWriterType::kHashShuffle, partitioning, startPartitionId),
         splitBufferSize(partitionBufferSize),
-        splitBufferReallocThreshold(partitionBufferReallocThreshold) {}
+        splitBufferReallocThreshold(partitionBufferReallocThreshold),
+        partitionBufferEvictThreshold(partitionBufferEvictThreshold) {}
 
  protected:
   HashShuffleWriterOptions(ShuffleWriterType shuffleWriterType) : ShuffleWriterOptions(shuffleWriterType) {}
@@ -101,10 +115,12 @@ struct HashShuffleWriterOptions : ShuffleWriterOptions {
       Partitioning partitioning,
       int32_t startPartitionId,
       int32_t partitionBufferSize,
-      double partitionBufferReallocThreshold)
+      double partitionBufferReallocThreshold,
+      int32_t partitionBufferEvictThreshold = kDefaultPartitionBufferEvictThreshold)
       : ShuffleWriterOptions(shuffleWriterType, partitioning, startPartitionId),
         splitBufferSize(partitionBufferSize),
-        splitBufferReallocThreshold(partitionBufferReallocThreshold) {}
+        splitBufferReallocThreshold(partitionBufferReallocThreshold),
+        partitionBufferEvictThreshold(partitionBufferEvictThreshold) {}
 };
 
 struct SortShuffleWriterOptions : ShuffleWriterOptions {
@@ -143,25 +159,6 @@ struct RssSortShuffleWriterOptions : ShuffleWriterOptions {
         splitBufferSize(splitBufferSize),
         sortBufferMaxSize(sortBufferMaxSize),
         compressionType(compressionType) {}
-};
-
-struct GpuHashShuffleWriterOptions : HashShuffleWriterOptions {
-  int32_t splitBufferSize = kDefaultShuffleWriterBufferSize;
-  double splitBufferReallocThreshold = kDefaultSplitBufferReallocThreshold;
-
-  GpuHashShuffleWriterOptions() : HashShuffleWriterOptions(ShuffleWriterType::kGpuHashShuffle) {}
-
-  GpuHashShuffleWriterOptions(
-      Partitioning partitioning,
-      int32_t startPartitionId,
-      int32_t partitionBufferSize,
-      double partitionBufferReallocThreshold)
-      : HashShuffleWriterOptions(
-            ShuffleWriterType::kGpuHashShuffle,
-            partitioning,
-            startPartitionId,
-            partitionBufferSize,
-            partitionBufferReallocThreshold) {}
 };
 
 struct LocalPartitionWriterOptions {
@@ -224,5 +221,6 @@ struct ShuffleWriterMetrics {
   int64_t dictionarySize{0};
   std::vector<int64_t> partitionLengths{};
   std::vector<int64_t> rawPartitionLengths{}; // Uncompressed size.
+  std::vector<int64_t> rowBasedChecksums{}; // Per-partition row-based checksums.
 };
 } // namespace gluten

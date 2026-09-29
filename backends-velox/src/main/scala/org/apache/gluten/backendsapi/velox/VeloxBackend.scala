@@ -25,7 +25,6 @@ import org.apache.gluten.execution.WriteFilesExecTransformer
 import org.apache.gluten.expression.WindowFunctionsBuilder
 import org.apache.gluten.extension.columnar.cost.{LegacyCoster, LongCoster, RoughCoster}
 import org.apache.gluten.extension.columnar.transition.{Convention, ConventionFunc}
-import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.rel.LocalFilesNode
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat.{DwrfReadFormat, OrcReadFormat, ParquetReadFormat}
@@ -33,15 +32,14 @@ import org.apache.gluten.utils._
 
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.expressions.{Alias, CumeDist, DenseRank, Descending, Expression, Lag, Lead, NamedExpression, NthValue, NTile, PercentRank, RangeFrame, Rank, RowNumber, SortOrder, SpecialFrameBoundary, SpecifiedWindowFrame}
-import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, ApproximatePercentile, HyperLogLogPlusPlus, Percentile}
+import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, ApproximatePercentile, Count, HyperLogLogPlusPlus, Percentile}
 import org.apache.spark.sql.catalyst.plans.{JoinType, LeftOuter, RightOuter}
 import org.apache.spark.sql.catalyst.util.{CaseInsensitiveMap, CharVarcharUtils}
 import org.apache.spark.sql.connector.read.Scan
 import org.apache.spark.sql.execution.{ColumnarCachedBatchSerializer, SparkPlan}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
-import org.apache.spark.sql.execution.command.CreateDataSourceTableAsSelectCommand
-import org.apache.spark.sql.execution.datasources.{FileFormat, InsertIntoHadoopFsRelationCommand}
+import org.apache.spark.sql.execution.datasources.FileFormat
 import org.apache.spark.sql.execution.datasources.parquet.{ParquetFileFormat, ParquetOptions}
 import org.apache.spark.sql.hive.execution.HiveFileFormat
 import org.apache.spark.sql.internal.SQLConf
@@ -103,6 +101,8 @@ object VeloxBackendSettings extends BackendSettingsApi {
   val GLUTEN_VELOX_BROADCAST_CACHE_EXPIRED_TIME_DEFAULT: Int = 86400
 
   override def primaryBatchType: Convention.BatchType = VeloxBatchType
+
+  override def supportTimestampNtz: Boolean = true
 
   override def validateScanExec(
       format: ReadFileFormat,
@@ -231,7 +231,7 @@ object VeloxBackendSettings extends BackendSettingsApi {
     }
 
     def validateDataSchema(): Option[String] = {
-      if (VeloxConfig.get.parquetUseColumnNames && VeloxConfig.get.orcUseColumnNames) {
+      if (VeloxConfig.get.parquetUseColumnNames) {
         return None
       }
 
@@ -397,8 +397,6 @@ object VeloxBackendSettings extends BackendSettingsApi {
     }
   }
 
-  override def supportExpandExec(): Boolean = true
-
   override def supportSortExec(): Boolean = true
 
   override def supportSortMergeJoinExec(): Boolean = {
@@ -468,13 +466,22 @@ object VeloxBackendSettings extends BackendSettingsApi {
           }
           windowExpression.windowFunction match {
             case _: RowNumber | _: Rank | _: CumeDist | _: DenseRank | _: PercentRank | _: NTile =>
-            case nv: NthValue if !nv.input.foldable =>
-            case l: Lag if !l.input.foldable =>
-            case l: Lead if !l.input.foldable =>
-            case aggrExpr: AggregateExpression
-                if !aggrExpr.aggregateFunction.isInstanceOf[ApproximatePercentile]
-                  && !aggrExpr.aggregateFunction.isInstanceOf[Percentile]
-                  && !aggrExpr.aggregateFunction.isInstanceOf[HyperLogLogPlusPlus] =>
+            case _: NthValue =>
+            case _: Lag =>
+            case _: Lead =>
+            case ae: AggregateExpression =>
+              // Velox only supports count() and count(T) signatures for the window count
+              // function. Spark's count(c1, c2, ...) (counts rows where ALL arguments are
+              // non-null) is normally rewritten to single-arg form by RewriteMultiChildrenCount.
+              // If the rewrite did not run (e.g., the rule is disabled), keep us safe by
+              // falling back to vanilla Spark instead of crashing inside Velox.
+              ae.aggregateFunction match {
+                case c: Count if c.children.size > 1 =>
+                  allSupported = false
+                case _: ApproximatePercentile | _: Percentile | _: HyperLogLogPlusPlus =>
+                  allSupported = false
+                case _ =>
+              }
             case _ =>
               allSupported = false
           }
@@ -489,10 +496,6 @@ object VeloxBackendSettings extends BackendSettingsApi {
     val conf = GlutenConfig.get
     conf.enableColumnarShuffle &&
     (conf.isUseGlutenShuffleManager || conf.shuffleManagerSupportsColumnarShuffle)
-  }
-
-  override def enableHashTableBuildOncePerExecutor(): Boolean = {
-    VeloxConfig.get.enableBroadcastBuildOncePerExecutor
   }
 
   override def supportHashBuildJoinTypeOnLeft: JoinType => Boolean = {
@@ -526,17 +529,10 @@ object VeloxBackendSettings extends BackendSettingsApi {
   override def fallbackAggregateWithEmptyOutputChild(): Boolean = true
 
   override def recreateJoinExecOnFallback(): Boolean = true
-  override def rescaleDecimalArithmetic(): Boolean = true
 
   override def shuffleSupportedCodec(): Set[String] = SHUFFLE_SUPPORTED_CODEC
 
   override def insertPostProjectForGenerate(): Boolean = true
-
-  override def skipNativeCtas(ctas: CreateDataSourceTableAsSelectCommand): Boolean = true
-
-  override def skipNativeInsertInto(insertInto: InsertIntoHadoopFsRelationCommand): Boolean = {
-    insertInto.bucketSpec.nonEmpty
-  }
 
   override def alwaysFailOnMapExpression(): Boolean = true
 
@@ -545,13 +541,7 @@ object VeloxBackendSettings extends BackendSettingsApi {
   override def staticPartitionWriteOnly(): Boolean = true
 
   override def enableNativeWriteFiles(): Boolean = {
-    GlutenConfig.get.enableNativeWriter.getOrElse(
-      SparkShimLoader.getSparkShims.enableNativeWriteFilesByDefault()
-    )
-  }
-
-  override def enableNativeArrowReadFiles(): Boolean = {
-    GlutenConfig.get.enableNativeArrowReader
+    GlutenConfig.get.enableNativeWriter.getOrElse(true)
   }
 
   override def shouldRewriteCount(): Boolean = {
@@ -569,6 +559,8 @@ object VeloxBackendSettings extends BackendSettingsApi {
   override def needPreComputeRangeFrameBoundary(): Boolean = true
 
   override def supportIcebergEqualityDeleteRead(): Boolean = false
+
+  override def supportIcebergInitialDefaultRead(): Boolean = true
 
   override def reorderColumnsForPartitionWrite(): Boolean = true
 

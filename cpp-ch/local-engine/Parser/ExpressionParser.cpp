@@ -551,6 +551,12 @@ ExpressionParser::expressionsToActionsDAG(const std::vector<substrait::Expressio
                 for (const auto * node : result_nodes)
                     result_names.emplace_back(node->result_name);
             }
+            else if (signature_name == "stack")
+            {
+                auto result_nodes = parseStack(scalar_function, actions_dag);
+                for (const auto * node : result_nodes)
+                    result_names.emplace_back(node->result_name);
+            }
             else
             {
                 result_names.resize(1);
@@ -819,6 +825,91 @@ ExpressionParser::parseArrayJoin(const substrait::Expression_ScalarFunction & fu
             return {pos_node, item_node};
         }
     }
+}
+
+DB::ActionsDAG::NodeRawConstPtrs
+ExpressionParser::parseStack(const substrait::Expression_ScalarFunction & func, DB::ActionsDAG & actions_dag) const
+{
+    /// Spark stores stack values in row-major order. For example, stack(2, a, b, c, d) produces rows (a, b) and (c, d).
+    /// Build one array per output field ([a, c] and [b, d]), resize each array to num_rows with typed NULLs, zip the arrays
+    /// into row tuples, and expand them with ARRAY JOIN. A single output field skips arrayZip.
+    const auto & pb_args = func.arguments();
+    if (pb_args.size() < 2)
+        throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "stack function requires at least 2 arguments");
+
+    const auto & num_rows_expr = pb_args[0].value();
+    if (!num_rows_expr.has_literal() || !num_rows_expr.literal().has_i32())
+        throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "The number of rows for stack must be a constant integer");
+
+    const auto num_rows = num_rows_expr.literal().i32();
+    if (num_rows <= 0)
+        throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "The number of rows for stack must be positive");
+
+    const auto num_values = static_cast<size_t>(pb_args.size() - 1);
+    const auto num_fields = (num_values + num_rows - 1) / num_rows;
+
+    const auto stack_output_type = DB::removeNullable(TypeParser::parseType(func.output_type()));
+    const auto * output_array_type = typeid_cast<const DB::DataTypeArray *>(stack_output_type.get());
+    if (!output_array_type)
+        throw DB::Exception(
+            DB::ErrorCodes::BAD_ARGUMENTS, "The output type of stack must be Array but is {}", stack_output_type->getName());
+
+    const auto stack_element_type = DB::removeNullable(output_array_type->getNestedType());
+    const auto * output_tuple_type = typeid_cast<const DB::DataTypeTuple *>(stack_element_type.get());
+    if (!output_tuple_type || output_tuple_type->getElements().size() != num_fields)
+        throw DB::Exception(
+            DB::ErrorCodes::BAD_ARGUMENTS,
+            "The output type of stack must contain {} fields but is {}",
+            num_fields,
+            stack_element_type->getName());
+
+    const auto parsed_args = parseFunctionArguments(actions_dag, func);
+    const auto * num_rows_node = parsed_args[0];
+    const auto & output_field_types = output_tuple_type->getElements();
+
+    DB::ActionsDAG::NodeRawConstPtrs field_arrays;
+    field_arrays.reserve(num_fields);
+    for (size_t field = 0; field < num_fields; ++field)
+    {
+        const auto field_type = wrapNullableType(true, output_field_types[field]);
+        DB::ActionsDAG::NodeRawConstPtrs field_values;
+        for (size_t arg_index = field + 1; arg_index < parsed_args.size(); arg_index += num_fields)
+        {
+            field_values.emplace_back(
+                ActionsDAGUtil::convertNodeTypeIfNeeded(actions_dag, parsed_args[arg_index], field_type, context->queryContext()));
+        }
+
+        const auto * field_array = toFunctionNode(actions_dag, "array", field_values);
+        const auto * null_node = addConstColumn(actions_dag, field_type, DB::Field());
+        field_arrays.emplace_back(toFunctionNode(actions_dag, "arrayResize", {field_array, num_rows_node, null_node}));
+    }
+
+    const DB::ActionsDAG::Node * array_join_input;
+    if (num_fields == 1)
+        array_join_input = field_arrays[0];
+    else
+        array_join_input = toFunctionNode(actions_dag, "arrayZip", field_arrays);
+
+    array_join_input = &actions_dag.materializeNode(*array_join_input);
+    const auto * array_join_node = &actions_dag.addArrayJoin(*array_join_input, array_join_input->result_name);
+
+    if (num_fields == 1)
+    {
+        actions_dag.addOrReplaceInOutputs(*array_join_node);
+        return {array_join_node};
+    }
+
+    DB::ActionsDAG::NodeRawConstPtrs result_nodes;
+    result_nodes.reserve(num_fields);
+    const auto tuple_index_type = std::make_shared<DB::DataTypeUInt32>();
+    for (size_t field = 0; field < num_fields; ++field)
+    {
+        const auto * index_node = addConstColumn(actions_dag, tuple_index_type, field + 1);
+        const auto * result_node = toFunctionNode(actions_dag, "sparkTupleElement", {array_join_node, index_node});
+        actions_dag.addOrReplaceInOutputs(*result_node);
+        result_nodes.emplace_back(result_node);
+    }
+    return result_nodes;
 }
 
 DB::ActionsDAG::NodeRawConstPtrs

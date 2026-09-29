@@ -44,20 +44,32 @@ function(FIND_ARROW_LIB LIB_NAME)
     endif()
     message(STATUS "Found Arrow library: ${ARROW_LIB_${LIB_NAME}}")
 
-    # Get the parent-parent directory of the lib file. For example:
-    #
-    # * ${ARROW_LIB_${LIB_NAME}}: /usr/local/lib/libarrow.a
-    # * ${ARROW_LIB_INCLUDE_DIR}: /usr/local
-    #
-    # Then we can get our include directory: /usr/local/include
-    get_filename_component(ARROW_LIB_INCLUDE_DIR "${ARROW_LIB_${LIB_NAME}}"
-                           PATH)
-    get_filename_component(ARROW_LIB_INCLUDE_DIR "${ARROW_LIB_INCLUDE_DIR}"
-                           PATH)
+    # Walk up from the library directory until we find a parent that contains an
+    # "include/arrow/api.h" anchor file.  This handles both conventional layouts
+    # (/usr/local/lib/libarrow.a → /usr/local/include) and multi-arch ones
+    # (/usr/lib/x86_64-linux-gnu/libarrow.a → /usr/include) without hard-coding
+    # the number of directory levels to strip.
+    get_filename_component(_arrow_search_dir "${ARROW_LIB_${LIB_NAME}}" PATH)
+    set(ARROW_LIB_INCLUDE_DIR "")
+    foreach(_level RANGE 5)
+      if(EXISTS "${_arrow_search_dir}/include/arrow/api.h")
+        set(ARROW_LIB_INCLUDE_DIR "${_arrow_search_dir}/include")
+        break()
+      endif()
+      get_filename_component(_arrow_search_dir "${_arrow_search_dir}" PATH)
+    endforeach()
+    if(NOT ARROW_LIB_INCLUDE_DIR)
+      message(
+        FATAL_ERROR
+          "Could not locate Arrow headers near ${ARROW_LIB_${LIB_NAME}}. "
+          "Set ARROW_HOME to the Arrow installation prefix (the directory "
+          "that contains lib/ and include/).")
+    endif()
+    message(STATUS "Found Arrow include: ${ARROW_LIB_INCLUDE_DIR}")
 
     set_target_properties(
       Arrow::${LIB_NAME}
       PROPERTIES IMPORTED_LOCATION ${ARROW_LIB_${LIB_NAME}}
-                 INTERFACE_INCLUDE_DIRECTORIES ${ARROW_LIB_INCLUDE_DIR}/include)
+                 INTERFACE_INCLUDE_DIRECTORIES ${ARROW_LIB_INCLUDE_DIR})
   endif()
 endfunction()

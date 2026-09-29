@@ -36,6 +36,7 @@ NPROC=$(getconf _NPROCESSORS_ONLN)
 export CFLAGS=$(get_cxx_flags $CPU_TARGET)  # Used by LZO.
 export CXXFLAGS=$CFLAGS  # Used by boost.
 export CPPFLAGS=$CFLAGS  # Used by LZO.
+EXTRA_PKG_CXXFLAGS=" -isystem ${INSTALL_PREFIX}/include"
 CMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}"
 VELOX_BUILD_SHARED=${VELOX_BUILD_SHARED:-"OFF"} #Build folly and gflags shared for use in libvelox.so.
 BUILD_DUCKDB="${BUILD_DUCKDB:-true}"
@@ -44,28 +45,47 @@ VERSION=$(cat /etc/os-release | grep VERSION_ID)
 export INSTALL_PREFIX=${INSTALL_PREFIX:-"/usr/local"}
 DEPENDENCY_DIR=${DEPENDENCY_DIR:-$(pwd)/deps-download}
 
-FB_OS_VERSION="v2024.07.01.00"
-FMT_VERSION="10.1.1"
+FB_OS_VERSION="v2026.09.07.00"
+FMT_VERSION="11.2.0"
 BOOST_VERSION="boost-1.84.0"
 DUCKDB_VERSION="v0.8.1"
 GEOS_VERSION="3.10.7"
 ABSEIL_VERSION="20240116.2"
 GRPC_VERSION="v1.48.1"
+CCACHE_VERSION="4.14"
 
 function dnf_install {
   dnf install -y -q --setopt=install_weak_deps=False "$@"
 }
 
+function install_ccache {
+  # Upstream static (musl) builds have no glibc requirement but only exist for x86_64 and
+  # aarch64; fall back to the distro package on other architectures (e.g. ppc64le).
+  case "$(uname -m)" in
+  x86_64|aarch64) ;;
+  *)
+    dnf_install ccache
+    return
+    ;;
+  esac
+  local name="ccache-${CCACHE_VERSION}-linux-$(uname -m)-musl-static"
+  wget -nv -O "/tmp/${name}.tar.gz" "https://github.com/ccache/ccache/releases/download/v${CCACHE_VERSION}/${name}.tar.gz"
+  tar -xzf "/tmp/${name}.tar.gz" -C /tmp
+  ${SUDO:-} install -m 0755 "/tmp/${name}/ccache" /usr/local/bin/ccache
+  rm -rf "/tmp/${name}" "/tmp/${name}.tar.gz"
+}
+
 # Install packages required for build.
 function install_build_prerequisites {
   dnf update -y
-  dnf_install dnf-plugins-core # For ccache, ninja
+  dnf_install dnf-plugins-core # For ninja
   dnf update -y
-  dnf_install ninja-build cmake ccache gcc g++ git wget which patch
+  dnf_install ninja-build cmake gcc g++ git wget which patch
   dnf_install autoconf automake python3-devel python3-pip libtool
   dnf_install libxml2-devel libgsasl-devel libuuid-devel
 
-  pip install cmake==3.28.3
+  pip install cmake==3.31.4
+  install_ccache
 }
 
 # Install dependencies from the package managers.
@@ -82,7 +102,7 @@ function install_velox_deps_from_dnf {
 function install_gflags {
   # Remove an older version if present.
   dnf remove -y gflags
-  wget_and_untar https://github.com/gflags/gflags/archive/v2.2.2.tar.gz gflags
+  wget_and_untar https://github.com/gflags/gflags/archive/v2.3.0.tar.gz gflags
   cmake_install_dir gflags -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=ON -DBUILD_gflags_LIB=ON -DLIB_SUFFIX=64
 }
 
@@ -110,9 +130,21 @@ function install_boost {
   )
 }
 
+function install_xxhash {
+  wget_and_untar https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.2.tar.gz xxHash
+  cd ${DEPENDENCY_DIR}/xxHash
+  make "-j${NPROC}"
+  make install PREFIX=${INSTALL_PREFIX}
+}
+
 function install_snappy {
   wget_and_untar https://github.com/google/snappy/archive/1.1.8.tar.gz snappy
   cmake_install_dir snappy -DSNAPPY_BUILD_TESTS=OFF
+}
+
+function install_fast_float {
+  wget_and_untar https://github.com/fastfloat/fast_float/archive/refs/tags/v8.0.2.tar.gz fast_float
+  cmake_install_dir fast_float -DBUILD_TESTS=OFF
 }
 
 function install_fmt {
@@ -133,7 +165,7 @@ function install_protobuf {
 
 function install_fizz {
   wget_and_untar https://github.com/facebookincubator/fizz/archive/refs/tags/${FB_OS_VERSION}.tar.gz fizz
-  cmake_install_dir fizz/fizz -DBUILD_TESTS=OFF
+  cmake_install_dir fizz/fizz -DBUILD_TESTS=OFF -DBUILD_EXAMPLES=OFF
 }
 
 function install_folly {
@@ -143,11 +175,14 @@ function install_folly {
 
 function install_wangle {
   wget_and_untar https://github.com/facebook/wangle/archive/refs/tags/${FB_OS_VERSION}.tar.gz wangle
-  cmake_install_dir wangle/wangle -DBUILD_TESTS=OFF
+  cmake_install_dir wangle/wangle -DBUILD_TESTS=OFF -DBUILD_EXAMPLES=OFF
 }
 
 function install_fbthrift {
   wget_and_untar https://github.com/facebook/fbthrift/archive/refs/tags/${FB_OS_VERSION}.tar.gz fbthrift
+  cd ${DEPENDENCY_DIR}/fbthrift
+  git apply ${VELOX_HOME:-${DEPENDENCY_DIR}/../}/CMake/resolve_dependency_modules/fbthrift/compactv1-protocol-refiller.patch 2>/dev/null || true
+  cd ${DEPENDENCY_DIR}
   cmake_install_dir fbthrift -Denable_tests=OFF -DBUILD_TESTS=OFF -DBUILD_SHARED_LIBS=OFF
 }
 
@@ -198,8 +233,10 @@ function install_velox_deps {
   run_and_time install_gflags
   run_and_time install_glog
   run_and_time install_lzo
+  run_and_time install_xxhash
   run_and_time install_snappy
   run_and_time install_boost
+  run_and_time install_fast_float
   run_and_time install_protobuf
   run_and_time install_fmt
   run_and_time install_folly
@@ -211,6 +248,34 @@ function install_velox_deps {
   run_and_time install_grpc
   run_and_time install_duckdb
   run_and_time install_geos
+}
+
+function install_s3 {
+  install_aws_deps
+  local MINIO_OS="linux"
+  install_minio ${MINIO_OS}
+}
+
+function install_gcs {
+  dnf -y install npm curl-devel c-ares-devel re2-devel
+  install_gcs_sdk_cpp
+}
+
+function install_abfs {
+  dnf -y install perl-IPC-Cmd openssl-devel libxml2-devel
+  install_azure_storage_sdk_cpp
+}
+
+function install_hdfs {
+  dnf -y install libxml2-devel libgsasl-devel libuuid-devel krb5-devel java-1.8.0-openjdk-devel
+  install_hdfs_deps
+}
+
+function install_adapters {
+  run_and_time install_s3
+  run_and_time install_gcs
+  run_and_time install_abfs
+  run_and_time install_hdfs
 }
 
 (return 2> /dev/null) && return # If script was sourced, don't run commands.

@@ -30,6 +30,7 @@ namespace tac {
 enum TacDataType : int8_t {
   kUnsupported = -1, // Not compressible by TAC.
   kUInt64 = 0, // 8-byte unsigned integer (also used for int64, double, date64).
+  kUInt128 = 1, // 16-byte unsigned integer (used for HUGEINT / DECIMAL128).
 };
 
 } // namespace tac
@@ -38,7 +39,8 @@ enum TacDataType : int8_t {
 /// compression algorithm based on the data type of the buffer.
 ///
 /// Currently supported:
-///   kUInt64 -> FFor (Frame-of-Reference + Bit-Packing) for uint64_t streams.
+///   kUInt64  -> FFOR (Frame-of-Reference + Bit-Packing) for uint64_t streams.
+///   kUInt128 -> FFOR applied to lo/hi uint64 sub-streams of 128-bit values.
 ///
 /// The compressed wire format is self-describing: decompress() does not need
 /// a type hint because codec ID and element width are embedded in the header.

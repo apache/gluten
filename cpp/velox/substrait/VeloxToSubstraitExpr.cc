@@ -292,7 +292,7 @@ template <TypeKind kind>
 void convertVectorValue(
     google::protobuf::Arena& arena,
     const velox::VectorPtr& vectorValue,
-    ::substrait::Expression_Literal_Struct* litValue,
+    ::substrait::Expression_Nested_Struct* litValue,
     ::substrait::Expression_Literal* substraitField) {
   const TypePtr& childType = vectorValue->type();
 
@@ -303,7 +303,7 @@ void convertVectorValue(
   //  Get the batchSize and convert each value in it.
   vector_size_t flatVecSize = childToFlatVec->size();
   for (int64_t i = 0; i < flatVecSize; i++) {
-    substraitField = litValue->add_fields();
+    substraitField = litValue->add_fields()->mutable_literal();
     if (childToFlatVec->isNullAt(i)) {
       // Process the null value.
       substraitField->MergeFrom(toSubstraitNullLiteral(arena, childType->kind()));
@@ -512,7 +512,7 @@ const ::substrait::Expression& VeloxToSubstraitExprConvertor::toSubstraitExpr(
 const ::substrait::Expression_Literal& VeloxToSubstraitExprConvertor::toSubstraitExpr(
     google::protobuf::Arena& arena,
     const std::shared_ptr<const core::ConstantTypedExpr>& constExpr,
-    ::substrait::Expression_Literal_Struct* litValue) {
+    ::substrait::Expression_Nested_Struct* litValue) {
   if (constExpr->hasValueVector()) {
     return toSubstraitLiteral(arena, constExpr->valueVector(), litValue);
   } else {
@@ -595,7 +595,7 @@ const ::substrait::Expression_Literal& VeloxToSubstraitExprConvertor::toSubstrai
 const ::substrait::Expression_Literal& VeloxToSubstraitExprConvertor::toSubstraitLiteral(
     google::protobuf::Arena& arena,
     const velox::VectorPtr& vectorValue,
-    ::substrait::Expression_Literal_Struct* litValue) {
+    ::substrait::Expression_Nested_Struct* litValue) {
   ::substrait::Expression_Literal* substraitField =
       google::protobuf::Arena::CreateMessage<::substrait::Expression_Literal>(&arena);
   if (vectorValue->isScalar()) {

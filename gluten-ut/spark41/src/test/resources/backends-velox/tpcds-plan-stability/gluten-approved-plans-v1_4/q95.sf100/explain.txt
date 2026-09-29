@@ -2,9 +2,9 @@
 VeloxColumnarToRow (74)
 +- ^ ProjectExecTransformer (72)
    +- ^ RegularHashAggregateExecTransformer (71)
-      +- ^ RegularHashAggregateExecTransformer (70)
+      +- ^ FlushableHashAggregateExecTransformer (70)
          +- ^ RegularHashAggregateExecTransformer (69)
-            +- ^ RegularHashAggregateExecTransformer (68)
+            +- ^ FlushableHashAggregateExecTransformer (68)
                +- ^ ProjectExecTransformer (67)
                   +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (66)
                      :- ^ ProjectExecTransformer (58)
@@ -80,7 +80,6 @@ Arguments: false
 
 (5) VeloxResizeBatches
 Input [7]: [hash_partition_key#11, ws_ship_date_sk#1, ws_ship_addr_sk#2, ws_web_site_sk#3, ws_order_number#4, ws_ext_ship_cost#5, ws_net_profit#6]
-Arguments: 1024, 2147483647, 10485760
 
 (6) ColumnarExchange
 Input [7]: [hash_partition_key#11, ws_ship_date_sk#1, ws_ship_addr_sk#2, ws_web_site_sk#3, ws_order_number#4, ws_ext_ship_cost#5, ws_net_profit#6]
@@ -113,7 +112,6 @@ Arguments: false
 
 (13) VeloxResizeBatches
 Input [3]: [hash_partition_key#15, ws_warehouse_sk#12, ws_order_number#13]
-Arguments: 1024, 2147483647, 10485760
 
 (14) ColumnarExchange
 Input [3]: [hash_partition_key#15, ws_warehouse_sk#12, ws_order_number#13]
@@ -171,7 +169,6 @@ Arguments: false
 
 (27) VeloxResizeBatches
 Input [2]: [hash_partition_key#20, wr_order_number#18]
-Arguments: 1024, 2147483647, 10485760
 
 (28) ColumnarExchange
 Input [2]: [hash_partition_key#20, wr_order_number#18]
@@ -340,7 +337,7 @@ Join condition: None
 Output [3]: [ws_order_number#4, UnscaledValue(ws_ext_ship_cost#5) AS _pre_1#31, UnscaledValue(ws_net_profit#6) AS _pre_2#32]
 Input [5]: [ws_ship_date_sk#1, ws_order_number#4, ws_ext_ship_cost#5, ws_net_profit#6, d_date_sk#29]
 
-(68) RegularHashAggregateExecTransformer
+(68) FlushableHashAggregateExecTransformer
 Input [3]: [ws_order_number#4, _pre_1#31, _pre_2#32]
 Keys [1]: [ws_order_number#4]
 Functions [2]: [partial_sum(_pre_1#31), partial_sum(_pre_2#32)]
@@ -354,7 +351,7 @@ Functions [2]: [merge_sum(UnscaledValue(ws_ext_ship_cost#5)), merge_sum(Unscaled
 Aggregate Attributes [2]: [sum(UnscaledValue(ws_ext_ship_cost#5))#33, sum(UnscaledValue(ws_net_profit#6))#34]
 Results [3]: [ws_order_number#4, sum#35, sum#36]
 
-(70) RegularHashAggregateExecTransformer
+(70) FlushableHashAggregateExecTransformer
 Input [3]: [ws_order_number#4, sum#35, sum#36]
 Keys: []
 Functions [3]: [merge_sum(UnscaledValue(ws_ext_ship_cost#5)), merge_sum(UnscaledValue(ws_net_profit#6)), partial_count(distinct ws_order_number#4)]
@@ -421,7 +418,6 @@ Arguments: false
 
 (80) VeloxResizeBatches
 Input [1]: [buf#44]
-Arguments: 1024, 2147483647, 10485760
 
 (81) ColumnarExchange
 Input [1]: [buf#44]
@@ -487,7 +483,6 @@ Arguments: false
 
 (92) VeloxResizeBatches
 Input [1]: [buf#49]
-Arguments: 1024, 2147483647, 10485760
 
 (93) ColumnarExchange
 Input [1]: [buf#49]
@@ -553,7 +548,6 @@ Arguments: false
 
 (104) VeloxResizeBatches
 Input [1]: [buf#54]
-Arguments: 1024, 2147483647, 10485760
 
 (105) ColumnarExchange
 Input [1]: [buf#54]

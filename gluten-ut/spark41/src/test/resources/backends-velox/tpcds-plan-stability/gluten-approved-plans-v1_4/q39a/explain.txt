@@ -177,7 +177,6 @@ Arguments: false
 
 (27) VeloxResizeBatches
 Input [10]: [hash_partition_key#22, w_warehouse_name#8, w_warehouse_sk#7, i_item_sk#6, d_moy#10, n#17, avg#18, m2#19, sum#20, count#21]
-Arguments: 1024, 2147483647, 10485760
 
 (28) ColumnarExchange
 Input [10]: [hash_partition_key#22, w_warehouse_name#8, w_warehouse_sk#7, i_item_sk#6, d_moy#10, n#17, avg#18, m2#19, sum#20, count#21]
@@ -294,7 +293,6 @@ Arguments: false
 
 (55) VeloxResizeBatches
 Input [10]: [hash_partition_key#49, w_warehouse_name#35, w_warehouse_sk#34, i_item_sk#33, d_moy#37, n#44, avg#45, m2#46, sum#47, count#48]
-Arguments: 1024, 2147483647, 10485760
 
 (56) ColumnarExchange
 Input [10]: [hash_partition_key#49, w_warehouse_name#35, w_warehouse_sk#34, i_item_sk#33, d_moy#37, n#44, avg#45, m2#46, sum#47, count#48]
@@ -351,7 +349,6 @@ Arguments: false
 
 (69) VeloxResizeBatches
 Input [10]: [w_warehouse_sk#7, i_item_sk#6, d_moy#10, mean#26, cov#27, w_warehouse_sk#34, i_item_sk#33, d_moy#37, mean#51, cov#52]
-Arguments: 1024, 2147483647, 10485760
 
 (70) ColumnarExchange
 Input [10]: [w_warehouse_sk#7, i_item_sk#6, d_moy#10, mean#26, cov#27, w_warehouse_sk#34, i_item_sk#33, d_moy#37, mean#51, cov#52]

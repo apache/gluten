@@ -50,6 +50,7 @@ case class VeloxColumnarToRowExec(child: SparkPlan) extends ColumnarToRowExecBas
         case _: DoubleType =>
         case _: StringType =>
         case _: TimestampType =>
+        case other if other.typeName == "timestamp_ntz" =>
         case _: DateType =>
         case _: BinaryType =>
         case _: DecimalType =>

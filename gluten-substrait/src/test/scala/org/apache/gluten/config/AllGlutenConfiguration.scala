@@ -16,6 +16,8 @@
  */
 package org.apache.gluten.config
 
+import org.apache.spark.sql.internal.SQLConf
+
 import org.scalactic.Prettifier
 import org.scalactic.source.Position
 import org.scalatest.Assertions._
@@ -25,7 +27,6 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path, Paths, StandardOpenOption}
 
 import scala.collection.JavaConverters._
-import scala.collection.Traversable
 import scala.io.Source
 
 /**
@@ -67,44 +68,55 @@ class AllGlutenConfiguration extends AnyFunSuite {
       s"""
          |## Spark base configurations for Gluten plugin
          |
-         | Key | Recommend Setting | Description
-         | --- | --- | ---
+         | Key | Modifiability | Recommend Setting | Description
+         | --- | --- | --- | ---
          |"""
 
     // scalastyle:off
     builder += Seq(
       "spark.plugins",
+      AllGlutenConfiguration.configModifiability("spark.plugins"),
       "org.apache.gluten.GlutenPlugin",
-      "To load Gluten's components by Spark's plug-in loader.").mkString("|")
+      "To load Gluten's components by Spark's plug-in loader."
+    ).mkString("|")
     builder += Seq(
       "spark.memory.offHeap.enabled",
+      AllGlutenConfiguration.configModifiability("spark.memory.offHeap.enabled"),
       "true",
-      "Gluten use off-heap memory for certain operations.").mkString("|")
+      "Gluten use off-heap memory for certain operations."
+    ).mkString("|")
     builder += Seq(
       "spark.memory.offHeap.size",
+      AllGlutenConfiguration.configModifiability("spark.memory.offHeap.size"),
       "30G",
       "The absolute amount of memory which can be used for off-heap allocation, in bytes unless otherwise specified.<br /> Note: Gluten Plugin will leverage this setting to allocate memory space for native usage even offHeap is disabled. <br /> The value is based on your system and it is recommended to set it larger if you are facing Out of Memory issue in Gluten Plugin."
     ).mkString("|")
     builder += Seq(
       "spark.shuffle.manager",
+      AllGlutenConfiguration.configModifiability("spark.shuffle.manager"),
       "org.apache.spark.shuffle.sort.ColumnarShuffleManager",
-      "To turn on Gluten Columnar Shuffle Plugin.").mkString("|")
+      "To turn on Gluten Columnar Shuffle Plugin."
+    ).mkString("|")
     builder += Seq(
       "spark.driver.extraClassPath",
+      AllGlutenConfiguration.configModifiability("spark.driver.extraClassPath"),
       "/path/to/gluten_jar_file",
-      "Gluten Plugin jar file to prepend to the classpath of the driver.").mkString("|")
+      "Gluten Plugin jar file to prepend to the classpath of the driver."
+    ).mkString("|")
     builder += Seq(
       "spark.executor.extraClassPath",
+      AllGlutenConfiguration.configModifiability("spark.executor.extraClassPath"),
       "/path/to/gluten_jar_file",
-      "Gluten Plugin jar file to prepend to the classpath of executors.").mkString("|")
+      "Gluten Plugin jar file to prepend to the classpath of executors."
+    ).mkString("|")
     // scalastyle:on
 
     builder ++=
       s"""
          |## Gluten configurations
          |
-         | Key | Default | Description
-         | --- | --- | ---
+         | Key | Modifiability | Default | Description
+         | --- | --- | --- | ---
          |"""
 
     val allEntries = GlutenConfig.allEntries ++ GlutenCoreConfig.allEntries
@@ -116,7 +128,11 @@ class AllGlutenConfiguration extends AnyFunSuite {
       .foreach {
         entry =>
           val dft = entry.defaultValueString.replace("<", "&lt;").replace(">", "&gt;")
-          builder += Seq(s"${entry.key}", s"$dft", s"${entry.doc}")
+          builder += Seq(
+            s"${entry.key}",
+            AllGlutenConfiguration.configModifiability(entry.key),
+            s"$dft",
+            s"${entry.doc}")
             .mkString("|")
       }
 
@@ -124,8 +140,8 @@ class AllGlutenConfiguration extends AnyFunSuite {
       s"""
          |## Gluten *experimental* configurations
          |
-         | Key | Default | Description
-         | --- | --- | ---
+         | Key | Modifiability | Default | Description
+         | --- | --- | --- | ---
          |"""
 
     allEntries
@@ -135,7 +151,11 @@ class AllGlutenConfiguration extends AnyFunSuite {
       .foreach {
         entry =>
           val dft = entry.defaultValueString.replace("<", "&lt;").replace(">", "&gt;")
-          builder += Seq(s"${entry.key}", s"$dft", s"${entry.doc}")
+          builder += Seq(
+            s"${entry.key}",
+            AllGlutenConfiguration.configModifiability(entry.key),
+            s"$dft",
+            s"${entry.doc}")
             .mkString("|")
       }
 
@@ -147,6 +167,20 @@ class AllGlutenConfiguration extends AnyFunSuite {
 }
 
 object AllGlutenConfiguration {
+  private val Anchor = Character.toString(0x2693)
+  private val CounterclockwiseArrows = new String(Character.toChars(0x1f504))
+
+  val staticConfigLabel: String = s"$Anchor Static"
+  val dynamicConfigLabel: String = s"$CounterclockwiseArrows Dynamic"
+
+  def configModifiability(key: String): String = {
+    if (SQLConf.get.isModifiable(key)) {
+      dynamicConfigLabel
+    } else {
+      staticConfigLabel
+    }
+  }
+
   def isRegenerateGoldenFiles: Boolean = sys.env.get("GLUTEN_UPDATE").contains("1")
 
   def getCodeSourceLocation[T](clazz: Class[T]): String = {
@@ -175,7 +209,7 @@ object AllGlutenConfiguration {
         StandardOpenOption.CREATE,
         StandardOpenOption.TRUNCATE_EXISTING)
     } else {
-      assertFileContent(path, lines, regenScript)
+      assertFileContent(path, lines.toSeq, regenScript)
     }
   }
 
@@ -188,35 +222,27 @@ object AllGlutenConfiguration {
    *   source file path
    * @param regenScript
    *   regeneration script
-   * @param splitFirstExpectedLine
-   *   whether to split the first expected line into multiple lines by EOL
    */
   def assertFileContent(
       path: Path,
-      expectedLines: Traversable[String],
-      regenScript: String,
-      splitFirstExpectedLine: Boolean = false)(implicit
+      expectedLines: Seq[String],
+      regenScript: String)(implicit
       prettifier: Prettifier,
       pos: Position): Unit = {
     val fileSource = Source.fromFile(path.toUri, StandardCharsets.UTF_8.name())
     try {
-      def expectedLinesIter = if (splitFirstExpectedLine) {
-        Source.fromString(expectedLines.head).getLines()
-      } else {
-        expectedLines.toIterator
-      }
-      val fileLinesIter = fileSource.getLines()
+      val fileLines = fileSource.getLines().toSeq
       val regenerationHint = s"The file ($path) is out of date. " + {
         if (regenScript != null && regenScript.nonEmpty) {
           s" Please regenerate it by running `${regenScript.stripMargin}`. "
         } else ""
       }
-      val fileLineCount = fileLinesIter.length
+      val fileLineCount = fileLines.length
       withClue(s"Line number is not expected. $regenerationHint") {
-        assertResult(expectedLinesIter.size)(fileLineCount)(prettifier, pos)
+        assertResult(expectedLines.size)(fileLineCount)(prettifier, pos)
       }
-      fileLinesIter.zipWithIndex
-        .zip(expectedLinesIter)
+      fileLines.zipWithIndex
+        .zip(expectedLines)
         .foreach {
           case ((lineInFile, lineIndex), expectedLine) =>
             val lineNum = lineIndex + 1

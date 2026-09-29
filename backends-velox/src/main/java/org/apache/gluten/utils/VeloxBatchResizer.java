@@ -31,6 +31,7 @@ public final class VeloxBatchResizer {
       int minOutputBatchSize,
       int maxOutputBatchSize,
       long preferredBatchBytes,
+      boolean enableCopyRanges,
       Iterator<ColumnarBatch> in) {
     final Runtime runtime =
         Runtimes.contextInstance(BackendsApiManager.getBackendName(), "VeloxBatchResizer");
@@ -40,6 +41,7 @@ public final class VeloxBatchResizer {
                 minOutputBatchSize,
                 maxOutputBatchSize,
                 preferredBatchBytes,
+                enableCopyRanges,
                 new ColumnarBatchInIterator(BackendsApiManager.getBackendName(), in));
     return new ColumnarBatchOutIterator(runtime, outHandle);
   }

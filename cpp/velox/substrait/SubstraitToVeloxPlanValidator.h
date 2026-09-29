@@ -22,9 +22,10 @@
 #include "config/VeloxConfig.h"
 #include "operators/plannodes/IteratorSplit.h"
 #include "velox/core/QueryCtx.h"
+#include "velox/functions/sparksql/SparkQueryConfig.h"
 
 using namespace facebook;
-
+using facebook::velox::functions::sparksql::SparkQueryConfig;
 namespace gluten {
 
 /// This class is used to validate whether the computing of
@@ -33,13 +34,18 @@ class SubstraitToVeloxPlanValidator {
  public:
   SubstraitToVeloxPlanValidator(memory::MemoryPool* pool) {
     std::unordered_map<std::string, std::string> configs{
-        {velox::core::QueryConfig::kSparkPartitionId, "0"}, {velox::core::QueryConfig::kSessionTimezone, "UTC"}};
+        {SparkQueryConfig::qualify(SparkQueryConfig::kPartitionId), "0"},
+        {velox::core::QueryConfig::kSessionTimezone, "UTC"}};
     veloxCfg_ = std::make_shared<facebook::velox::config::ConfigBase>(std::move(configs));
     planConverter_ = std::make_unique<SubstraitToVeloxPlanConverter>(
         pool,
         veloxCfg_.get(),
         std::vector<std::shared_ptr<ResultIterator>>{},
-        VeloxConnectorIds{.hive = kHiveConnectorId, .iterator = kIteratorConnectorId, .cudfHive = kCudfHiveConnectorId},
+        VeloxConnectorIds{
+            .hive = kHiveConnectorId,
+            .iceberg = kIcebergConnectorId,
+            .iterator = kIteratorConnectorId,
+            .cudfHive = kCudfHiveConnectorId},
         std::nullopt,
         std::nullopt,
         true);
@@ -81,7 +87,7 @@ class SubstraitToVeloxPlanValidator {
   bool validate(const ::substrait::SortRel& sortRel);
 
   /// Used to validate whether the computing of this Window is supported.
-  bool validate(const ::substrait::WindowRel& windowRel);
+  bool validate(const ::substrait::ConsistentPartitionWindowRel& windowRel);
 
   /// Used to validate whether the computing of this WindowGroupLimit is supported.
   bool validate(const ::substrait::WindowGroupLimitRel& windowGroupLimitRel);
@@ -101,8 +107,8 @@ class SubstraitToVeloxPlanValidator {
   /// Used to validate Join.
   bool validate(const ::substrait::JoinRel& joinRel);
 
-  /// Used to validate Cartesian product.
-  bool validate(const ::substrait::CrossRel& crossRel);
+  /// Used to validate nested loop join.
+  bool validate(const ::substrait::NestedLoopJoinRel& nestedLoopJoinRel);
 
   /// Used to validate whether the computing of this Read is supported.
   bool validate(const ::substrait::ReadRel& readRel);

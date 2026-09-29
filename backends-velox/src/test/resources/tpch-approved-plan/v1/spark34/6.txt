@@ -48,7 +48,6 @@ Arguments: false
 
 (6) VeloxResizeBatches
 Input [2]: [sum#X, isEmpty#X]
-Arguments: X, X, X
 
 (7) ColumnarExchange
 Input [2]: [sum#X, isEmpty#X]

@@ -16,6 +16,7 @@
 
 LIBRDKAFKA_VERSION="v2.10.0"
 CPPKAFKA_VERSION="v0.4.1"
+PULSAR_CLIENT_VERSION="v3.3.0"
 FROCKSDB_VERSION="FRocksDB-6.20.3"
 FROCKSDB_REPO="ververica/frocksdb"
 
@@ -122,9 +123,15 @@ function install_rocksdb {
   cmake_install_dir frocksdb -DWITH_GFLAGS=OFF -DWITH_TESTS=OFF -DFAIL_ON_WARNINGS=OFF
 }
 
+function install_pulsarclient {
+  wget_and_untar https://github.com/apache/pulsar-client-cpp/archive/refs/tags/${PULSAR_CLIENT_VERSION}.tar.gz pulsarclient
+  cmake_install_dir pulsarclient -DBUILD_TESTS=OFF
+}
+
 function install_velox_deps {
   run_and_time install_librdkafka
   run_and_time install_cppkafka
+  run_and_time install_pulsarclient
   run_and_time install_rocksdb
 }
 

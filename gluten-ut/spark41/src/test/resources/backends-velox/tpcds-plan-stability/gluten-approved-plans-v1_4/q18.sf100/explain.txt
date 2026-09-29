@@ -170,7 +170,6 @@ Arguments: false
 
 (26) VeloxResizeBatches
 Input [9]: [hash_partition_key#18, cs_bill_customer_sk#1, cs_quantity#4, cs_list_price#5, cs_sales_price#6, cs_coupon_amt#7, cs_net_profit#8, cd_dep_count#14, i_item_id#17]
-Arguments: 1024, 2147483647, 10485760
 
 (27) ColumnarExchange
 Input [9]: [hash_partition_key#18, cs_bill_customer_sk#1, cs_quantity#4, cs_list_price#5, cs_sales_price#6, cs_coupon_amt#7, cs_net_profit#8, cd_dep_count#14, i_item_id#17]
@@ -238,7 +237,6 @@ Arguments: false
 
 (42) VeloxResizeBatches
 Input [7]: [hash_partition_key#28, c_customer_sk#19, c_current_cdemo_sk#20, c_birth_year#23, ca_county#25, ca_state#26, ca_country#27]
-Arguments: 1024, 2147483647, 10485760
 
 (43) ColumnarExchange
 Input [7]: [hash_partition_key#28, c_customer_sk#19, c_current_cdemo_sk#20, c_birth_year#23, ca_county#25, ca_state#26, ca_country#27]
@@ -271,7 +269,6 @@ Arguments: false
 
 (50) VeloxResizeBatches
 Input [2]: [hash_partition_key#30, cd_demo_sk#29]
-Arguments: 1024, 2147483647, 10485760
 
 (51) ColumnarExchange
 Input [2]: [hash_partition_key#30, cd_demo_sk#29]
@@ -299,7 +296,6 @@ Arguments: false
 
 (57) VeloxResizeBatches
 Input [6]: [hash_partition_key#31, c_customer_sk#19, c_birth_year#23, ca_county#25, ca_state#26, ca_country#27]
-Arguments: 1024, 2147483647, 10485760
 
 (58) ColumnarExchange
 Input [6]: [hash_partition_key#31, c_customer_sk#19, c_birth_year#23, ca_county#25, ca_state#26, ca_country#27]
@@ -346,7 +342,6 @@ Arguments: false
 
 (68) VeloxResizeBatches
 Input [20]: [hash_partition_key#72, i_item_id#32, ca_country#33, ca_state#34, ca_county#35, spark_grouping_id#36, sum#58, count#59, sum#60, count#61, sum#62, count#63, sum#64, count#65, sum#66, count#67, sum#68, count#69, sum#70, count#71]
-Arguments: 1024, 2147483647, 10485760
 
 (69) ColumnarExchange
 Input [20]: [hash_partition_key#72, i_item_id#32, ca_country#33, ca_state#34, ca_county#35, spark_grouping_id#36, sum#58, count#59, sum#60, count#61, sum#62, count#63, sum#64, count#65, sum#66, count#67, sum#68, count#69, sum#70, count#71]

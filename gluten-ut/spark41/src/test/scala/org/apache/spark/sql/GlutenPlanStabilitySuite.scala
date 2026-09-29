@@ -185,7 +185,7 @@ trait GlutenPlanStabilityTestTrait {
 
     def getId(plan: SparkPlan): Int = plan match {
       // Gluten columnar exchanges (must be before Exchange since they extend Exchange)
-      case exchange: ColumnarShuffleExchangeExecBase =>
+      case exchange: ColumnarShuffleExchangeExec =>
         exchangeIdMap.getOrElseUpdate(exchange.id, exchangeIdMap.size + 1)
       case exchange: ColumnarBroadcastExchangeExec =>
         exchangeIdMap.getOrElseUpdate(exchange.id, exchangeIdMap.size + 1)

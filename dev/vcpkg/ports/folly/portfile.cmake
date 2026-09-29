@@ -6,14 +6,12 @@ vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO facebook/folly
     REF "v${VERSION}"
-    SHA512 6d377c48cf1c0796da6fad34b930e9608f3cd765a675414eaad45ff46e9d0b9bb5f027b187ec135e88bb60a83cb91c07d266a6673621caf3f9961942b55276e2
+    SHA512 38032aa0cf88d63dbed8b4330130f71c993ef5e1b3ee640d66a86e56f28b023dff81c762617c2252a79863bfa699c0d95fdb447d64e52d65757a1e874e42193e
     HEAD_REF main
     PATCHES
         fix-deps.patch
         disable-uninitialized-resize-on-new-stl.patch
         fix-unistd-include.patch
-        fix-absolute-dir.patch
-        adding-api.patch
 )
 file(REMOVE "${SOURCE_PATH}/CMake/FindFastFloat.cmake")
 file(REMOVE "${SOURCE_PATH}/CMake/FindFmt.cmake")
@@ -52,13 +50,10 @@ vcpkg_cmake_configure(
         -DCMAKE_INSTALL_DIR=share/folly
         -DCMAKE_POLICY_DEFAULT_CMP0167=NEW
         -DVCPKG_LOCK_FIND_PACKAGE_fmt=ON
-        -DVCPKG_LOCK_FIND_PACKAGE_LibDwarf=OFF
+        -DVCPKG_LOCK_FIND_PACKAGE_LibDwarf=ON
         -DVCPKG_LOCK_FIND_PACKAGE_Libiberty=OFF
         -DVCPKG_LOCK_FIND_PACKAGE_LibUnwind=${VCPKG_TARGET_IS_LINUX}
         -DVCPKG_LOCK_FIND_PACKAGE_ZLIB=ON
-        # Required by Velox.
-        -DFOLLY_HAVE_INT128_T=ON
-        -DFOLLY_MEMCPY_IS_MEMCPY=ON -DFOLLY_MEMSET_IS_MEMSET=ON
         ${FEATURE_OPTIONS}
     MAYBE_UNUSED_VARIABLES
         MSVC_USE_STATIC_RUNTIME

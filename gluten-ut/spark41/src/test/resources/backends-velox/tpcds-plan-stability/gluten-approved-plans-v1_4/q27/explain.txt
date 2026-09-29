@@ -202,7 +202,6 @@ Arguments: false
 
 (38) VeloxResizeBatches
 Input [12]: [hash_partition_key#41, i_item_id#19, s_state#20, spark_grouping_id#21, sum#33, count#34, sum#35, count#36, sum#37, count#38, sum#39, count#40]
-Arguments: 1024, 2147483647, 10485760
 
 (39) ColumnarExchange
 Input [12]: [hash_partition_key#41, i_item_id#19, s_state#20, spark_grouping_id#21, sum#33, count#34, sum#35, count#36, sum#37, count#38, sum#39, count#40]

@@ -19,19 +19,22 @@
 
 #include <boost/regex.hpp>
 #include <jni.h>
-#include <optional>
 #include "compute/ProtobufUtils.h"
 #include "config.pb.h"
 #include "jni/JniError.h"
 
 namespace {
 
-std::optional<boost::regex> getRedactionRegex(const std::unordered_map<std::string, std::string>& conf) {
+// Mirrors Spark's built-in default for spark.redaction.regex.
+// See org.apache.spark.internal.config.SECRET_REDACTION_PATTERN.
+constexpr std::string_view kDefaultRedactionRegex = "(?i)secret|password|token|access[.]?key";
+
+boost::regex getRedactionRegex(const std::unordered_map<std::string, std::string>& conf) {
   auto it = conf.find(gluten::kSparkRedactionRegex);
   if (it != conf.end()) {
     return boost::regex(it->second);
   }
-  return std::nullopt;
+  return boost::regex(kDefaultRedactionRegex.data());
 }
 } // namespace
 
@@ -67,7 +70,7 @@ std::string printConfig(const std::unordered_map<std::string, std::string>& conf
   auto redactionRegex = getRedactionRegex(conf);
 
   for (const auto& [k, v] : conf) {
-    if (redactionRegex && boost::regex_match(k, *redactionRegex)) {
+    if (boost::regex_search(k, redactionRegex)) {
       oss << " [" << k << ", " << kSparkRedactionString << "]\n";
     } else {
       oss << " [" << k << ", " << v << "]\n";

@@ -17,7 +17,7 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
-import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.extension.columnar.transition.ConventionReq
 import org.apache.gluten.metrics.MetricsUpdater
 import org.apache.gluten.substrait.{JoinParams, SubstraitContext}
 import org.apache.gluten.utils.SubstraitUtil
@@ -31,7 +31,7 @@ import org.apache.spark.sql.execution.joins.BaseJoinExec
 import org.apache.spark.sql.execution.metric.SQLMetric
 
 import com.google.protobuf.Any
-import io.substrait.proto.CrossRel
+import io.substrait.proto.NestedLoopJoinRel
 
 abstract class BroadcastNestedLoopJoinExecTransformer(
     left: SparkPlan,
@@ -52,11 +52,23 @@ abstract class BroadcastNestedLoopJoinExecTransformer(
   override def leftKeys: Seq[Expression] = Nil
   override def rightKeys: Seq[Expression] = Nil
 
-  private lazy val substraitJoinType: CrossRel.JoinType =
-    SubstraitUtil.toCrossRelSubstrait(joinType)
+  override def requiredChildConvention(): Seq[ConventionReq] = {
+    val batchReq =
+      ConventionReq.ofBatch(
+        ConventionReq.BatchType.Is(BackendsApiManager.getSettings.primaryBatchType))
+    buildSide match {
+      case BuildLeft =>
+        Seq(ConventionReq.any, batchReq)
+      case BuildRight =>
+        Seq(batchReq, ConventionReq.any)
+    }
+  }
 
-  // Unique ID for builded table
-  lazy val buildBroadcastTableId: String = "BuiltBNLJBroadcastTable-" + buildPlan.id
+  private lazy val substraitJoinType: NestedLoopJoinRel.JoinType =
+    SubstraitUtil.toNestedLoopJoinSubstrait(joinType)
+
+  // Unique ID for the build side.
+  lazy val buildBroadcastTableId: String = buildPlan.id.toString
 
   // Hint substrait to switch the left and right,
   // since we assume always build right side in substrait.
@@ -117,7 +129,7 @@ abstract class BroadcastNestedLoopJoinExecTransformer(
       joinParams.isWithCondition = true
     }
 
-    val crossRel = JoinUtils.createCrossRel(
+    val nestedLoopJoinRel = JoinUtils.createNestedLoopJoinRel(
       substraitJoinType,
       condition,
       inputStreamedRelNode,
@@ -138,7 +150,7 @@ abstract class BroadcastNestedLoopJoinExecTransformer(
       buildPlan.output,
       context,
       operatorId,
-      crossRel,
+      nestedLoopJoinRel,
       inputStreamedOutput,
       inputBuildOutput
     )
@@ -167,12 +179,7 @@ abstract class BroadcastNestedLoopJoinExecTransformer(
   }
 
   override protected def doValidateInternal(): ValidationResult = {
-    if (!GlutenConfig.get.broadcastNestedLoopJoinTransformerTransformerEnabled) {
-      return ValidationResult.failed(
-        s"Config ${GlutenConfig.BROADCAST_NESTED_LOOP_JOIN_TRANSFORMER_ENABLED.key} not enabled")
-    }
-
-    if (substraitJoinType == CrossRel.JoinType.UNRECOGNIZED) {
+    if (substraitJoinType == NestedLoopJoinRel.JoinType.UNRECOGNIZED) {
       return ValidationResult.failed(
         s"$joinType join is not supported with BroadcastNestedLoopJoin")
     }
@@ -184,7 +191,7 @@ abstract class BroadcastNestedLoopJoinExecTransformer(
 
     val substraitContext = new SubstraitContext
 
-    val crossRel = JoinUtils.createCrossRel(
+    val nestedLoopJoinRel = JoinUtils.createNestedLoopJoinRel(
       substraitJoinType,
       condition,
       null,
@@ -196,6 +203,6 @@ abstract class BroadcastNestedLoopJoinExecTransformer(
       genJoinParameters(),
       validation = true
     )
-    doNativeValidation(substraitContext, crossRel)
+    doNativeValidation(substraitContext, nestedLoopJoinRel)
   }
 }

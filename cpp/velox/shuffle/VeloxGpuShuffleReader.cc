@@ -15,8 +15,6 @@
  * limitations under the License.
  */
 
-#include "VeloxGpuShuffleReader.h"
-
 #include <arrow/array/array_binary.h>
 #include <arrow/io/buffered.h>
 
@@ -24,11 +22,14 @@
 #include "memory/VeloxColumnarBatch.h"
 #include "shuffle/Payload.h"
 #include "shuffle/Utils.h"
+#include "shuffle/VeloxGpuShuffleReader.h"
 #include "utils/Common.h"
 #include "utils/Macros.h"
 #include "utils/Timer.h"
 
 #include <algorithm>
+
+#include "VeloxShuffleReader.h"
 
 using namespace facebook::velox;
 
@@ -118,6 +119,10 @@ std::shared_ptr<ColumnarBatch> VeloxGpuHashShuffleReaderDeserializer::next() {
           in_.get(), codec_, memoryManager_->defaultArrowMemoryPool(), numRows, deserializeTime_, decompressTime_));
 
   return std::make_shared<GpuBufferColumnarBatch>(rowType_, std::move(arrowBuffers), static_cast<int32_t>(numRows));
+}
+
+std::unique_ptr<ColumnarBatchIterator> VeloxGpuHashShuffleReaderDeserializer::deserializeStreams() {
+  return std::make_unique<SyncShuffleReaderIterator<VeloxGpuHashShuffleReaderDeserializer>>(this);
 }
 
 } // namespace gluten

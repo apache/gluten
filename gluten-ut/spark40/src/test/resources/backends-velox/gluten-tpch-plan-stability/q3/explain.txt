@@ -132,7 +132,6 @@ Arguments: false
 
 (24) VeloxResizeBatches
 Input [6]: [hash_partition_key#16, l_orderkey#7, o_orderdate#5, o_shippriority#6, sum#14, isEmpty#15]
-Arguments: 1024, 2147483647, 10485760
 
 (25) ColumnarExchange
 Input [6]: [hash_partition_key#16, l_orderkey#7, o_orderdate#5, o_shippriority#6, sum#14, isEmpty#15]

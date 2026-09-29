@@ -238,21 +238,14 @@ class VeloxParquetWriteForHiveSuite extends GlutenQueryTest with SQLTestUtils wi
   test("test hive write dir") {
     withTempPath {
       f =>
-        // compatible with Spark3.3 and later
+        // compatible with Spark3.4 and later
         withSQLConf("spark.sql.hive.convertMetastoreInsertDir" -> "false") {
-          if (isSparkVersionGE("3.4")) {
-            checkNativeWrite(
-              s"""
-                 |INSERT OVERWRITE DIRECTORY '${f.getCanonicalPath}' STORED AS PARQUET SELECT 1 as c
-                 |""".stripMargin,
-              expectNative = false
-            )
-          } else {
-            checkNativeWrite(
-              s"""
-                 |INSERT OVERWRITE DIRECTORY '${f.getCanonicalPath}' STORED AS PARQUET SELECT 1 as c
-                 |""".stripMargin)
-          }
+          checkNativeWrite(
+            s"""
+               |INSERT OVERWRITE DIRECTORY '${f.getCanonicalPath}' STORED AS PARQUET SELECT 1 as c
+               |""".stripMargin,
+            expectNative = false
+          )
           checkAnswer(spark.read.parquet(f.getCanonicalPath), Row(1))
         }
     }
@@ -274,7 +267,11 @@ class VeloxParquetWriteForHiveSuite extends GlutenQueryTest with SQLTestUtils wi
     }
   }
 
-  test("native writer should respect table properties") {
+  // Ignored: the native writer uses spark.sql.parquet.compression.codec instead of the
+  // parquet.compression table property, so this writes GZIP where zstd is expected. The
+  // comparison below used to be a discarded Boolean, which is why the case passed before.
+  // TODO: fix and re-enable, see #12987.
+  ignore("native writer should respect table properties") {
     Seq(true, false).foreach {
       enableNativeWrite =>
         withSQLConf(GlutenConfig.NATIVE_WRITER_ENABLED.key -> enableNativeWrite.toString) {
@@ -298,7 +295,11 @@ class VeloxParquetWriteForHiveSuite extends GlutenQueryTest with SQLTestUtils wi
                 reader =>
                   val column = reader.getFooter.getBlocks.get(0).getColumns.get(0)
                   // native writer and vanilla spark hive writer should be consistent
-                  "zstd".equalsIgnoreCase(column.getCodec.toString)
+                  assert(
+                    "zstd".equalsIgnoreCase(column.getCodec.toString),
+                    s"expected zstd but got ${column.getCodec} in ${files.head.getPath}, " +
+                      s"nativeWriteEnabled=$enableNativeWrite"
+                  )
               }
             }
           }
@@ -307,138 +308,93 @@ class VeloxParquetWriteForHiveSuite extends GlutenQueryTest with SQLTestUtils wi
   }
 
   test("Native writer support compatible hive bucket write with dynamic partition") {
-    if (isSparkVersionGE("3.4")) {
-      Seq("true", "false").foreach {
-        enableConvertMetastore =>
-          withSQLConf("spark.sql.hive.convertMetastoreParquet" -> enableConvertMetastore) {
-            val source = "hive_source_table"
-            val target = "hive_bucketed_table"
-            withTable(source, target) {
-              sql(s"""
-                     |CREATE TABLE IF NOT EXISTS $target (i int, j string)
-                     |PARTITIONED BY(k string)
-                     |CLUSTERED BY (i, j) SORTED BY (i) INTO 8 BUCKETS
-                     |STORED AS PARQUET
+    Seq("true", "false").foreach {
+      enableConvertMetastore =>
+        withSQLConf("spark.sql.hive.convertMetastoreParquet" -> enableConvertMetastore) {
+          val source = "hive_source_table"
+          val target = "hive_bucketed_table"
+          withTable(source, target) {
+            sql(s"""
+                   |CREATE TABLE IF NOT EXISTS $target (i int, j string)
+                   |PARTITIONED BY(k string)
+                   |CLUSTERED BY (i, j) SORTED BY (i) INTO 8 BUCKETS
+                   |STORED AS PARQUET
                """.stripMargin)
 
-              val df =
-                (0 until 50).map(i => (i % 13, i.toString, i % 5)).toDF("i", "j", "k")
-              df.write.mode(SaveMode.Overwrite).saveAsTable(source)
+            val df =
+              (0 until 50).map(i => (i % 13, i.toString, i % 5)).toDF("i", "j", "k")
+            df.write.mode(SaveMode.Overwrite).saveAsTable(source)
 
-              withSQLConf("hive.exec.dynamic.partition.mode" -> "nonstrict") {
-                checkNativeWrite(s"INSERT INTO $target SELECT * FROM $source")
-              }
+            withSQLConf("hive.exec.dynamic.partition.mode" -> "nonstrict") {
+              checkNativeWrite(s"INSERT INTO $target SELECT * FROM $source")
+            }
 
-              for (k <- 0 until 5) {
-                testBucketing(
-                  new File(tableDir(target), s"k=$k"),
-                  "parquet",
-                  8,
-                  Seq("i", "j"),
-                  Seq("i"),
-                  df,
-                  bucketIdExpression,
-                  getBucketIdFromFileName)
-              }
+            for (k <- 0 until 5) {
+              testBucketing(
+                new File(tableDir(target), s"k=$k"),
+                "parquet",
+                8,
+                Seq("i", "j"),
+                Seq("i"),
+                df,
+                bucketIdExpression,
+                getBucketIdFromFileName)
             }
           }
-      }
+        }
     }
   }
 
   test("bucket writer with non-dynamic partition") {
-    if (isSparkVersionGE("3.4")) {
-      Seq("true", "false").foreach {
-        enableConvertMetastore =>
-          withSQLConf("spark.sql.hive.convertMetastoreParquet" -> enableConvertMetastore) {
-            val source = "hive_source_table"
-            val target = "hive_bucketed_table"
-            withTable(source, target) {
-              sql(s"""
-                     |CREATE TABLE IF NOT EXISTS $target (i int, j string)
-                     |PARTITIONED BY(k string)
-                     |CLUSTERED BY (i, j) SORTED BY (i) INTO 8 BUCKETS
-                     |STORED AS PARQUET
+    Seq("true", "false").foreach {
+      enableConvertMetastore =>
+        withSQLConf("spark.sql.hive.convertMetastoreParquet" -> enableConvertMetastore) {
+          val source = "hive_source_table"
+          val target = "hive_bucketed_table"
+          withTable(source, target) {
+            sql(s"""
+                   |CREATE TABLE IF NOT EXISTS $target (i int, j string)
+                   |PARTITIONED BY(k string)
+                   |CLUSTERED BY (i, j) SORTED BY (i) INTO 8 BUCKETS
+                   |STORED AS PARQUET
                """.stripMargin)
 
-              val df =
-                (0 until 50).map(i => (i % 13, i.toString, i % 5)).toDF("i", "j", "k")
-              df.write.mode(SaveMode.Overwrite).saveAsTable(source)
+            val df =
+              (0 until 50).map(i => (i % 13, i.toString, i % 5)).toDF("i", "j", "k")
+            df.write.mode(SaveMode.Overwrite).saveAsTable(source)
 
-              // hive relation convert always use dynamic, so it will offload to native.
-              checkNativeWrite(s"INSERT INTO $target PARTITION(k='0') SELECT i, j FROM $source")
-              val files = tableDir(target)
-                .listFiles()
-                .filterNot(f => f.getName.startsWith(".") || f.getName.startsWith("_"))
-              assert(files.length == 1 && files.head.getName.contains("k=0"))
-              checkAnswer(spark.table(target).select("i", "j"), df.select("i", "j"))
-            }
+            // hive relation convert always use dynamic, so it will offload to native.
+            checkNativeWrite(s"INSERT INTO $target PARTITION(k='0') SELECT i, j FROM $source")
+            val files = tableDir(target)
+              .listFiles()
+              .filterNot(f => f.getName.startsWith(".") || f.getName.startsWith("_"))
+            assert(files.length == 1 && files.head.getName.contains("k=0"))
+            checkAnswer(spark.table(target).select("i", "j"), df.select("i", "j"))
           }
-      }
+        }
     }
   }
 
   test("bucket writer with non-partition table") {
-    if (isSparkVersionGE("3.4")) {
-      Seq("true", "false").foreach {
-        enableConvertMetastore =>
-          withSQLConf("spark.sql.hive.convertMetastoreParquet" -> enableConvertMetastore) {
-            val source = "hive_source_table"
-            val target = "hive_bucketed_table"
-            withTable(source, target) {
-              sql(s"""
-                     |CREATE TABLE IF NOT EXISTS $target (i int, j string)
-                     |CLUSTERED BY (i, j) SORTED BY (i) INTO 8 BUCKETS
-                     |STORED AS PARQUET
+    Seq("true", "false").foreach {
+      enableConvertMetastore =>
+        withSQLConf("spark.sql.hive.convertMetastoreParquet" -> enableConvertMetastore) {
+          val source = "hive_source_table"
+          val target = "hive_bucketed_table"
+          withTable(source, target) {
+            sql(s"""
+                   |CREATE TABLE IF NOT EXISTS $target (i int, j string)
+                   |CLUSTERED BY (i, j) SORTED BY (i) INTO 8 BUCKETS
+                   |STORED AS PARQUET
                """.stripMargin)
 
-              val df =
-                (0 until 50).map(i => (i % 13, i.toString)).toDF("i", "j")
-              df.write.mode(SaveMode.Overwrite).saveAsTable(source)
+            val df =
+              (0 until 50).map(i => (i % 13, i.toString)).toDF("i", "j")
+            df.write.mode(SaveMode.Overwrite).saveAsTable(source)
 
-              checkNativeWrite(s"INSERT INTO $target SELECT i, j FROM $source")
+            checkNativeWrite(s"INSERT INTO $target SELECT i, j FROM $source")
 
-              checkAnswer(spark.table(target), df)
-            }
-          }
-      }
-    }
-  }
-
-  testWithMaxSparkVersion(
-    "Native writer should keep the same compression codec if `hive.exec.compress.output` is true",
-    "3.3") {
-    Seq(false, true).foreach {
-      enableNativeWrite =>
-        withSQLConf(GlutenConfig.NATIVE_WRITER_ENABLED.key -> enableNativeWrite.toString) {
-          withTable("t") {
-            withSQLConf(
-              "spark.sql.hive.convertMetastoreParquet" -> "false",
-              "spark.sql.parquet.compression.codec" -> "gzip") {
-              spark.sql("SET hive.exec.compress.output=true")
-              spark.sql("SET parquet.compression=gzip")
-              spark.sql(
-                "SET mapred.output.compression.codec=org.apache.hadoop.io.compress.SnappyCodec")
-              checkNativeWrite(
-                "CREATE TABLE t STORED AS PARQUET TBLPROPERTIES ('parquet.compression'='zstd') " +
-                  "AS SELECT 1 as c",
-                expectNative = enableNativeWrite)
-              val tableDir = new Path(s"${conf.getConf(StaticSQLConf.WAREHOUSE_PATH)}/t")
-              val configuration = spark.sessionState.newHadoopConf()
-              val files = tableDir
-                .getFileSystem(configuration)
-                .listStatus(tableDir)
-                .filterNot(_.getPath.getName.startsWith("\\."))
-              assert(files.nonEmpty)
-              val in = HadoopInputFile.fromStatus(files.head, spark.sessionState.newHadoopConf())
-              Utils.tryWithResource(ParquetFileReader.open(in)) {
-                reader =>
-                  val compression =
-                    reader.getFooter.getBlocks.get(0).getColumns.get(0).getCodec.toString
-                  // native writer and vanilla spark hive writer should be consistent
-                  assert("zstd".equalsIgnoreCase(compression))
-              }
-            }
+            checkAnswer(spark.table(target), df)
           }
         }
     }

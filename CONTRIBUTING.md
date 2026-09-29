@@ -79,8 +79,6 @@ To check CI failure for Velox backend, please go into the GitHub action page fro
 To see the perf. impact on Velox backend, you can comment `/Benchmark Velox` on PR page to trigger a pretest. The benchmark
 (currently TPC-H) result will be posted after completed.
 
-If some new dependency is required to be installed, you may need to do some change for CI docker at [this folder](https://github.com/apache/gluten/tree/main/tools/gluten-te).
-
 ### Code Review
 
 Please ensure no CI failure is reported for your PR.

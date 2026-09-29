@@ -83,7 +83,7 @@ exit
 ```bash
 cd /path/to/gluten
 
-## The script builds four jars for spark 3.2.2, 3.3.1, 3.4.3 and 3.5.1.
+## The script builds jars for all supported Spark versions.
 ./dev/buildbundle-veloxbe.sh --enable_qat=ON
 ```
 

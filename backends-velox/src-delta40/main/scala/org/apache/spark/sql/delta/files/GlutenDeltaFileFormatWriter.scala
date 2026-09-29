@@ -25,7 +25,7 @@ import org.apache.gluten.execution.datasource.GlutenFormatFactory
 import org.apache.gluten.extension.columnar.transition.{Convention, Transitions}
 
 import org.apache.spark._
-import org.apache.spark.internal.{LoggingShims, MDC}
+import org.apache.spark.internal.{Logging, MDC => SparkMDC}
 import org.apache.spark.internal.io.{FileCommitProtocol, SparkHadoopWriterUtils}
 import org.apache.spark.shuffle.FetchFailedException
 import org.apache.spark.sql.SparkSession
@@ -65,7 +65,7 @@ import java.util.{Date, UUID}
  *  values to data files. Specifically L123-126, L132, and L140 where it adds option
  *  WRITE_PARTITION_COLUMNS
  */
-object GlutenDeltaFileFormatWriter extends LoggingShims {
+object GlutenDeltaFileFormatWriter extends Logging {
 
   /**
    * A variable used in tests to check whether the output ordering of the query matches the
@@ -345,20 +345,20 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
       val ret = f
       val commitMsgs = ret.map(_.commitMsg)
 
-      logInfo(log"Start to commit write Job ${MDC(DeltaLogKeys.JOB_ID, description.uuid)}.")
+      logInfo(log"Start to commit write Job ${SparkMDC.of(DeltaLogKeys.JOB_ID, description.uuid)}.")
       val (_, duration) = Utils.timeTakenMs { committer.commitJob(job, commitMsgs) }
-      logInfo(log"Write Job ${MDC(DeltaLogKeys.JOB_ID, description.uuid)} committed. " +
-        log"Elapsed time: ${MDC(DeltaLogKeys.DURATION, duration)} ms.")
+      logInfo(log"Write Job ${SparkMDC.of(DeltaLogKeys.JOB_ID, description.uuid)} committed. " +
+        log"Elapsed time: ${SparkMDC.of(DeltaLogKeys.DURATION, duration)} ms.")
 
       processStats(description.statsTrackers, ret.map(_.summary.stats), duration)
       logInfo(log"Finished processing stats for write job " +
-        log"${MDC(DeltaLogKeys.JOB_ID, description.uuid)}.")
+        log"${SparkMDC.of(DeltaLogKeys.JOB_ID, description.uuid)}.")
 
       // return a set of all the partition paths that were updated during this job
       ret.map(_.summary.updatedPartitions).reduceOption(_ ++ _).getOrElse(Set.empty)
     } catch {
       case cause: Throwable =>
-        logError(log"Aborting job ${MDC(DeltaLogKeys.JOB_ID, description.uuid)}", cause)
+        logError(log"Aborting job ${SparkMDC.of(DeltaLogKeys.JOB_ID, description.uuid)}", cause)
         committer.abortJob(job)
         throw cause
     }
@@ -492,7 +492,7 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
       })(catchBlock = {
         // If there is an error, abort the task
         dataWriter.abort()
-        logError(log"Job ${MDC(DeltaLogKeys.JOB_ID, jobId)} aborted.")
+        logError(log"Job ${SparkMDC.of(DeltaLogKeys.JOB_ID, jobId)} aborted.")
       }, finallyBlock = {
         dataWriter.close()
       })
@@ -537,7 +537,7 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
     }
   }
 
-  private class GlutenDynamicPartitionDataSingleWriter(
+  private[delta] class GlutenDynamicPartitionDataSingleWriter(
                                                           description: WriteJobDescription,
                                                           taskAttemptContext: TaskAttemptContext,
                                                           committer: FileCommitProtocol,
@@ -626,9 +626,9 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
           } else {
             VeloxColumnarBatches.slice(columnBatch, offset, rowsToWrite)
           }
-        try {
+        Utils.tryWithSafeFinally {
           writeCurrentBatch(terminalRow.withNewBatch(batchToWrite), rowsToWrite)
-        } finally {
+        } {
           if (batchToWrite ne columnBatch) {
             batchToWrite.close()
           }
@@ -638,12 +638,12 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
     }
 
     private def writePartitionStripe(terminalRow: TerminalRow, blockStripe: BlockStripe): Unit = {
-      beforeWrite(blockStripe.getHeadingRow)
       val currentColumnBatch = blockStripe.getColumnarBatch
-      try {
+      Utils.tryWithSafeFinally {
+        beforeWrite(blockStripe.getHeadingRow)
         assert(currentColumnBatch.numRows() > 0)
         writeCurrentBatchWithMaxRecords(terminalRow, currentColumnBatch)
-      } finally {
+      } {
         currentColumnBatch.close()
       }
     }
@@ -653,12 +653,18 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
       if (numRows > 0) {
         val blockStripes = GlutenFormatFactory.rowSplitter
           .splitBlockByPartitionAndBucket(terminalRow.batch(), partitionColIndice, isBucketed)
-        try {
-          val iter = blockStripes.iterator()
+        val iter = blockStripes.iterator()
+        Utils.tryWithSafeFinally {
           while (iter.hasNext) {
             writePartitionStripe(terminalRow, iter.next())
           }
-        } finally {
+        } {
+          // Velox creates all stripe batches eagerly, and release() does not close them.
+          // On failure, the current stripe has already been closed by writePartitionStripe.
+          while (iter.hasNext) {
+            val remainingBatch = iter.next().getColumnarBatch
+            Utils.tryLogNonFatalError(remainingBatch.close())
+          }
           blockStripes.release()
         }
       }

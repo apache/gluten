@@ -1,0 +1,92 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#pragma once
+
+#include <iomanip>
+#include <sstream>
+#include <string>
+
+namespace gluten {
+
+struct BuildInfo {
+  static constexpr const char* version = "@GLUTEN_BUILD_SHORT_HASH@";
+  static constexpr const char* hash = "@GLUTEN_BUILD_HASH@";
+  static constexpr const char* shortHash = "@GLUTEN_BUILD_SHORT_HASH@";
+  static constexpr const char* time = "@GLUTEN_BUILD_TIME@";
+  static constexpr const char* host = "@GLUTEN_BUILD_HOST@";
+  static constexpr const char* systemName = "@GLUTEN_BUILD_SYSTEM_NAME@";
+  static constexpr const char* processor = "@GLUTEN_BUILD_PROCESSOR@";
+  static constexpr const char* buildType = "@GLUTEN_BUILD_TYPE@";
+  static constexpr const char* architecture = "@GLUTEN_BUILD_ARCH@";
+  static constexpr bool isDirty = @GLUTEN_BUILD_DIRTY@;
+  static constexpr const char* modifiedFiles = "@GLUTEN_MODIFIED_FILES@";
+
+  static std::string toString(bool full = false) {
+    std::string versionInfo = "========================================\n";
+    versionInfo += "          Gluten Build Information        \n";
+    versionInfo += "========================================\n";
+
+    versionInfo += "Gluten Version   : " + std::string(version) + "\n";
+    versionInfo += "Git Commit ID    : " + std::string(hash) + "\n";
+    versionInfo += "Build Type       : " + std::string(buildType) + "\n";
+    versionInfo += "Build Time       : " + std::string(time) + "\n";
+
+    if (isDirty) {
+      versionInfo += "Dirty Build      : true\n";
+      versionInfo += "Modified Files   : " + std::string(modifiedFiles) + "\n";
+    } else {
+      versionInfo += "Dirty Build      : false\n";
+    }
+
+    if (full) {
+      versionInfo += "Host Name        : " + std::string(host) + "\n";
+      versionInfo += "OS Name          : " + std::string(systemName) + "\n";
+      versionInfo += "Architecture     : " + std::string(architecture) + "\n";
+      versionInfo += "Build Processor  : " + std::string(processor) + "\n";
+    }
+
+    versionInfo += "========================================\n";
+    return versionInfo;
+  }
+  static std::string toJson(bool full = false) {
+    std::ostringstream oss;
+    oss << std::boolalpha;
+    oss << "{\n";
+    oss << "  \"version\": \"" << version << "\",\n";
+    oss << "  \"hash\": \"" << hash << "\",\n";
+    oss << "  \"shortHash\": \"" << shortHash << "\",\n";
+    oss << "  \"time\": \"" << time << "\",\n";
+    oss << "  \"isDirty\": " << isDirty << ",\n";
+    if (isDirty) {
+      oss << "  \"modifiedFiles\": \"" << modifiedFiles << "\",\n";
+    }
+    if (full) {
+      oss << "  \"host\": \"" << host << "\",\n";
+      oss << "  \"systemName\": \"" << systemName << "\",\n";
+      oss << "  \"architecture\": \"" << architecture << "\",\n";
+      oss << "  \"processor\": \"" << processor << "\",\n";
+    }
+    oss << "  \"buildType\": \"" << buildType << "\"\n";
+    oss << "}";
+    return oss.str();
+  }
+};
+std::string GlutenVersion(bool full = false) {
+  return BuildInfo::toString(full);
+}
+} // namespace gluten

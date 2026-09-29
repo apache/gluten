@@ -138,7 +138,6 @@ Arguments: false
 
 (21) VeloxResizeBatches
 Input [9]: [hash_partition_key#33, d_week_seq#10, sum#26, sum#27, sum#28, sum#29, sum#30, sum#31, sum#32]
-Arguments: 1024, 2147483647, 10485760
 
 (22) ColumnarExchange
 Input [9]: [hash_partition_key#33, d_week_seq#10, sum#26, sum#27, sum#28, sum#29, sum#30, sum#31, sum#32]
@@ -289,7 +288,6 @@ Arguments: false
 
 (57) VeloxResizeBatches
 Input [8]: [d_week_seq1#50, round((sun_sales1 / sun_sales2), 2)#85, round((mon_sales1 / mon_sales2), 2)#86, round((tue_sales1 / tue_sales2), 2)#87, round((wed_sales1 / wed_sales2), 2)#88, round((thu_sales1 / thu_sales2), 2)#89, round((fri_sales1 / fri_sales2), 2)#90, round((sat_sales1 / sat_sales2), 2)#91]
-Arguments: 1024, 2147483647, 10485760
 
 (58) ColumnarExchange
 Input [8]: [d_week_seq1#50, round((sun_sales1 / sun_sales2), 2)#85, round((mon_sales1 / mon_sales2), 2)#86, round((tue_sales1 / tue_sales2), 2)#87, round((wed_sales1 / wed_sales2), 2)#88, round((thu_sales1 / thu_sales2), 2)#89, round((fri_sales1 / fri_sales2), 2)#90, round((sat_sales1 / sat_sales2), 2)#91]

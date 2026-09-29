@@ -42,6 +42,9 @@ const std::string kIgnoreMissingFiles = "spark.sql.files.ignoreMissingFiles";
 
 const std::string kSparkOverheadMemory = "spark.gluten.memoryOverhead.size.in.bytes";
 
+const std::string kMemoryManagerCapacityRatio = "spark.gluten.memory.manager.capacity.ratio";
+const double kMemoryManagerCapacityRatioDefault = 0.75;
+
 const std::string kSparkOffHeapMemory = "spark.gluten.memory.offHeap.size.in.bytes";
 
 const std::string kSparkTaskOffHeapMemory = "spark.gluten.memory.task.offHeap.size.in.bytes";
@@ -53,6 +56,8 @@ const std::string kCheckUsageLeak = "spark.gluten.sql.columnar.backend.velox.che
 const bool kCheckUsageLeakDefault = true;
 
 const std::string kSparkBatchSize = "spark.gluten.sql.columnar.maxBatchSize";
+
+const std::string kColumnarParquetWriteBlockSize = "spark.gluten.sql.columnar.parquet.write.blockSize";
 
 const std::string kParquetBlockSize = "parquet.block.size";
 
@@ -67,9 +72,22 @@ const std::string kParquetDataPageSize = "parquet.page.size";
 
 const std::string kParquetEnableDictionary = "parquet.enable.dictionary";
 
+const std::string kParquetEnablePageIndex = "parquet.enable.page.index";
+
 const std::string kParquetWriterVersion = "parquet.writer.version";
 
 const std::string kParquetCompressionCodec = "spark.sql.parquet.compression.codec";
+
+const std::string kLegacyParquetReturnNullStructIfAllFieldsMissing =
+    "spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing";
+
+/// Spark `spark.sql.parquet.writeLegacyFormat` (passed from the JVM as "true"/"false").
+/// Used in VeloxWriterUtils to set `WriterOptions::enableStoreDecimalAsInteger` (inverted).
+/// Velox decimal storage when enableStoreDecimalAsInteger is:
+/// - true (Spark legacy off / unset): INT32/INT64 for short DECIMAL precisions; higher precisions
+///   use FIXED_LEN_BYTE_ARRAY.
+/// - false (Spark legacy on): FIXED_LEN_BYTE_ARRAY for all DECIMAL precisions.
+const std::string kParquetStoreDecimalAsInteger = "spark.sql.parquet.writeLegacyFormat";
 
 const std::string kColumnarToRowMemoryThreshold = "spark.gluten.sql.columnarToRowMemoryThreshold";
 
@@ -99,6 +117,8 @@ const std::string kCudfEnabled = "spark.gluten.sql.columnar.cudf";
 constexpr bool kCudfEnabledDefault = false;
 const std::string kDebugCudf = "spark.gluten.sql.debug.cudf";
 const std::string kDebugCudfDefault = "false";
+const std::string kCudfAllowCpuFallback = "spark.gluten.sql.columnar.backend.velox.cudf.allowCpuFallback";
+const std::string kCudfAllowCpuFallbackDefault = "true";
 
 std::unordered_map<std::string, std::string>
 parseConfMap(JNIEnv* env, const uint8_t* planData, const int32_t planDataLength);

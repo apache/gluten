@@ -22,7 +22,7 @@ import org.apache.gluten.execution._
 import org.apache.gluten.expression._
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.SubstraitContext
-import org.apache.gluten.substrait.expression.{ExpressionBuilder, ExpressionNode, WindowFunctionNode}
+import org.apache.gluten.substrait.expression.WindowFunctionNode
 
 import org.apache.spark.ShuffleDependency
 import org.apache.spark.rdd.RDD
@@ -44,13 +44,11 @@ import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.execution.python.ArrowEvalPythonExec
 import org.apache.spark.sql.execution.window._
 import org.apache.spark.sql.hive.HiveUDFTransformer
-import org.apache.spark.sql.types.{DecimalType, LongType, NullType, StructType}
+import org.apache.spark.sql.types.{DecimalType, StructType}
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 import java.io.{ObjectInputStream, ObjectOutputStream}
-import java.util.{ArrayList => JArrayList, List => JList}
-
-import scala.collection.JavaConverters._
+import java.util.{List => JList}
 
 trait SparkPlanExecApi {
 
@@ -184,6 +182,13 @@ trait SparkPlanExecApi {
     GenericExpressionTransformer(substraitExprName, children, expr)
   }
 
+  def genFormatNumberTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      expr: Expression): ExpressionTransformer = {
+    GenericExpressionTransformer(substraitExprName, children, expr)
+  }
+
   def genFromJsonTransformer(
       substraitExprName: String,
       children: Seq[ExpressionTransformer],
@@ -264,7 +269,10 @@ trait SparkPlanExecApi {
     GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
   }
 
-  def getDecimalArithmeticExprName(exprName: String): String = exprName
+  // Default: ignore allowPrecisionLoss and return exprName unchanged. Non-Velox backends
+  // (e.g. ClickHouse) do not use the _deny_precision_loss naming convention; they handle
+  // decimal precision through their own mechanisms. VeloxSparkPlanExecApi overrides this.
+  def getDecimalArithmeticExprName(exprName: String, allowPrecisionLoss: Boolean): String = exprName
 
   /** Transform map_entries to Substrait. */
   def genMapEntriesTransformer(
@@ -363,6 +371,13 @@ trait SparkPlanExecApi {
     throw new GlutenNotSupportException("ArrayInsert is not supported")
   }
 
+  /** Whether the backend supports offloading the given [[LocalTableScanExec]] to native. */
+  def isSupportLocalTableScanExec(plan: LocalTableScanExec): Boolean = false
+
+  /** Returns the backend transformer that replaces the given [[LocalTableScanExec]]. */
+  def getLocalTableScanTransform(plan: LocalTableScanExec): LocalTableScanTransformer =
+    throw new GlutenNotSupportException("LocalTableScanExec is not supported")
+
   // For date_add(cast('2001-01-01' as Date), interval 1 day), backends may handle it in different
   // ways
   def genDateAddTransformer(
@@ -405,7 +420,8 @@ trait SparkPlanExecApi {
   /** Determine whether to use sort-based shuffle based on shuffle partitioning and output. */
   def getShuffleWriterType(
       partitioning: Partitioning,
-      output: Seq[Attribute]): ShuffleWriterType = {
+      output: Seq[Attribute],
+      executionMode: Option[StageExecutionMode] = None): ShuffleWriterType = {
     HashShuffleWriterType
   }
 
@@ -436,7 +452,10 @@ trait SparkPlanExecApi {
       child: SparkPlan,
       numOutputRows: SQLMetric,
       dataSize: SQLMetric,
-      buildThreads: SQLMetric = null): BuildSideRelation
+      buildThreads: SQLMetric = null,
+      buildHashTableTimeMetric: SQLMetric = null,
+      serializeHashTableTimeMetric: SQLMetric = null,
+      serializedHashTableSizeMetric: SQLMetric = null): BuildSideRelation
 
   def doCanonicalizeForBroadcastMode(mode: BroadcastMode): BroadcastMode = {
     mode.canonicalized
@@ -552,134 +571,7 @@ trait SparkPlanExecApi {
       windowExpression: Seq[NamedExpression],
       windowExpressionNodes: JList[WindowFunctionNode],
       originalInputAttributes: Seq[Attribute],
-      context: SubstraitContext): Unit = {
-    windowExpression.map {
-      windowExpr =>
-        val aliasExpr = windowExpr.asInstanceOf[Alias]
-        val columnName = s"${aliasExpr.name}_${aliasExpr.exprId.id}"
-        val wExpression = aliasExpr.child.asInstanceOf[WindowExpression]
-        wExpression.windowFunction match {
-          case wf @ (RowNumber() | Rank(_) | DenseRank(_) | CumeDist() | PercentRank(_)) =>
-            val aggWindowFunc = wf.asInstanceOf[AggregateWindowFunction]
-            val frame = aggWindowFunc.frame.asInstanceOf[SpecifiedWindowFrame]
-            val windowFunctionNode = ExpressionBuilder.makeWindowFunction(
-              WindowFunctionsBuilder.create(context, aggWindowFunc).toInt,
-              new JArrayList[ExpressionNode](),
-              columnName,
-              ConverterUtils.getTypeNode(aggWindowFunc.dataType, aggWindowFunc.nullable),
-              frame.upper,
-              frame.lower,
-              frame.frameType.sql,
-              originalInputAttributes.asJava
-            )
-            windowExpressionNodes.add(windowFunctionNode)
-          case aggExpression: AggregateExpression =>
-            val frame = wExpression.windowSpec.frameSpecification.asInstanceOf[SpecifiedWindowFrame]
-            val aggregateFunc = aggExpression.aggregateFunction
-            val substraitAggFuncName = ExpressionMappings.expressionsMap.get(aggregateFunc.getClass)
-            if (substraitAggFuncName.isEmpty) {
-              throw new GlutenNotSupportException(s"Not currently supported: $aggregateFunc.")
-            }
-
-            val childrenNodeList = aggregateFunc.children
-              .map(
-                ExpressionConverter
-                  .replaceWithExpressionTransformer(_, originalInputAttributes)
-                  .doTransform(context))
-              .asJava
-
-            val windowFunctionNode = ExpressionBuilder.makeWindowFunction(
-              AggregateFunctionsBuilder.create(context, aggExpression.aggregateFunction).toInt,
-              childrenNodeList,
-              columnName,
-              ConverterUtils.getTypeNode(aggExpression.dataType, aggExpression.nullable),
-              frame.upper,
-              frame.lower,
-              frame.frameType.sql,
-              originalInputAttributes.asJava
-            )
-            windowExpressionNodes.add(windowFunctionNode)
-          case wf @ (_: Lead | _: Lag) =>
-            val offsetWf = wf.asInstanceOf[FrameLessOffsetWindowFunction]
-            val frame = offsetWf.frame.asInstanceOf[SpecifiedWindowFrame]
-            val childrenNodeList = new JArrayList[ExpressionNode]()
-            childrenNodeList.add(
-              ExpressionConverter
-                .replaceWithExpressionTransformer(
-                  offsetWf.input,
-                  attributeSeq = originalInputAttributes)
-                .doTransform(context))
-            // Spark only accepts foldable offset. Converts it to LongType literal.
-            val offset = offsetWf.offset.eval(EmptyRow).asInstanceOf[Int]
-            // Velox only allows negative offset. WindowFunctionsBuilder#create converts
-            // lag/lead with negative offset to the function with positive offset. So just
-            // makes offsetNode store positive value.
-            val offsetNode = ExpressionBuilder.makeLiteral(Math.abs(offset.toLong), LongType, false)
-            childrenNodeList.add(offsetNode)
-            // NullType means Null is the default value. Don't pass it to native.
-            if (offsetWf.default.dataType != NullType) {
-              childrenNodeList.add(
-                ExpressionConverter
-                  .replaceWithExpressionTransformer(
-                    offsetWf.default,
-                    attributeSeq = originalInputAttributes)
-                  .doTransform(context))
-            }
-            val windowFunctionNode = ExpressionBuilder.makeWindowFunction(
-              WindowFunctionsBuilder.create(context, offsetWf).toInt,
-              childrenNodeList,
-              columnName,
-              ConverterUtils.getTypeNode(offsetWf.dataType, offsetWf.nullable),
-              frame.upper,
-              frame.lower,
-              frame.frameType.sql,
-              offsetWf.ignoreNulls,
-              originalInputAttributes.asJava
-            )
-            windowExpressionNodes.add(windowFunctionNode)
-          case wf @ NthValue(input, offset: Literal, ignoreNulls: Boolean) =>
-            val frame = wExpression.windowSpec.frameSpecification.asInstanceOf[SpecifiedWindowFrame]
-            val childrenNodeList = new JArrayList[ExpressionNode]()
-            childrenNodeList.add(
-              ExpressionConverter
-                .replaceWithExpressionTransformer(input, attributeSeq = originalInputAttributes)
-                .doTransform(context))
-            childrenNodeList.add(LiteralTransformer(offset).doTransform(context))
-            val windowFunctionNode = ExpressionBuilder.makeWindowFunction(
-              WindowFunctionsBuilder.create(context, wf).toInt,
-              childrenNodeList,
-              columnName,
-              ConverterUtils.getTypeNode(wf.dataType, wf.nullable),
-              frame.upper,
-              frame.lower,
-              frame.frameType.sql,
-              ignoreNulls,
-              originalInputAttributes.asJava
-            )
-            windowExpressionNodes.add(windowFunctionNode)
-          case wf @ NTile(buckets: Expression) =>
-            val frame = wExpression.windowSpec.frameSpecification.asInstanceOf[SpecifiedWindowFrame]
-            val childrenNodeList = new JArrayList[ExpressionNode]()
-            val literal = buckets.asInstanceOf[Literal]
-            childrenNodeList.add(LiteralTransformer(literal).doTransform(context))
-            val windowFunctionNode = ExpressionBuilder.makeWindowFunction(
-              WindowFunctionsBuilder.create(context, wf).toInt,
-              childrenNodeList,
-              columnName,
-              ConverterUtils.getTypeNode(wf.dataType, wf.nullable),
-              frame.upper,
-              frame.lower,
-              frame.frameType.sql,
-              originalInputAttributes.asJava
-            )
-            windowExpressionNodes.add(windowFunctionNode)
-          case _ =>
-            throw new GlutenNotSupportException(
-              "unsupported window function type: " +
-                wExpression.windowFunction)
-        }
-    }
-  }
+      context: SubstraitContext): Unit
 
   def rewriteSpillPath(path: String): String = path
 
@@ -709,7 +601,9 @@ trait SparkPlanExecApi {
   def genPreProjectForArrowEvalPythonExec(arrowEvalPythonExec: ArrowEvalPythonExec): SparkPlan =
     arrowEvalPythonExec
 
-  def maybeCollapseTakeOrderedAndProject(plan: SparkPlan): SparkPlan = plan
+  def maybeCollapseTakeOrderedAndProject(
+      plan: SparkPlan,
+      metrics: Map[String, SQLMetric]): SparkPlan = plan
 
   def genDecimalRoundExpressionOutput(decimalType: DecimalType, toScale: Int): DecimalType = {
     val p = decimalType.precision
@@ -776,6 +670,17 @@ trait SparkPlanExecApi {
 
   def getRDDScanTransform(plan: RDDScanExec): RDDScanTransformer =
     throw new GlutenNotSupportException("RDDScanExec is not supported")
+
+  /**
+   * Whether the backend supports offloading the given empty-relation plan to a columnar
+   * transformer. Typed as [[SparkPlan]] because EmptyRelationExec only exists on Spark 4.0+;
+   * callers must first confirm the type through `SparkShims.isEmptyRelationExec`.
+   */
+  def isSupportEmptyRelationExec(plan: SparkPlan): Boolean = false
+
+  /** Returns the backend transformer that replaces the given empty-relation plan. */
+  def getEmptyRelationExecTransform(plan: SparkPlan): EmptyRelationExecTransformer =
+    throw new GlutenNotSupportException("EmptyRelationExec is not supported")
 
   def copyColumnarBatch(batch: ColumnarBatch): ColumnarBatch =
     throw new GlutenNotSupportException("Copying ColumnarBatch is not supported")

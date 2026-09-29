@@ -36,7 +36,7 @@ class SharedLibraryLoaderOpenEuler2403 extends SharedLibraryLoader {
     loader.loadAndCreateLink("libboost_context.so.1.84.0", "libboost_context.so")
     loader.loadAndCreateLink("libdouble-conversion.so.3", "libdouble-conversion.so")
     loader.loadAndCreateLink("libevent-2.1.so.7", "libevent-2.1.so")
-    loader.loadAndCreateLink("libgflags.so.2.2", "libgflags.so")
+    loader.loadAndCreateLink("libgflags.so.2.3", "libgflags.so")
     loader.loadAndCreateLink("libglog.so.1", "libglog.so")
     loader.loadAndCreateLink("libdwarf.so.0", "libdwarf.so")
     loader.loadAndCreateLink("libidn.so.12", "libidn.so")

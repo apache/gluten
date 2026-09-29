@@ -21,7 +21,7 @@ import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution._
 import org.apache.gluten.execution.GlutenPlan
 
-import org.apache.spark.{SparkConf, SparkException}
+import org.apache.spark.{SparkConf, SparkEnv, SparkException}
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.catalyst.optimizer.{BuildLeft, ConstantFolding, NullPropagation}
 import org.apache.spark.sql.execution.{ColumnarToRowExec, ReusedSubqueryExec, SubqueryExec}
@@ -878,6 +878,80 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
     compareResultsAgainstVanillaSpark(sql, true, { _ => })
   }
 
+  test("grouping sets preserves nullable columns across union") {
+    val sql =
+      """
+        |select msg_type, os, count(*) as cnt
+        |from (
+        |  select 'file' as msg_type, 'Android' as os, id from range(10)
+        |  union all
+        |  select 'file' as msg_type, 'iOS' as os, id from range(10)
+        |) t
+        |group by grouping sets ((msg_type), (os))
+        |having msg_type is not null
+        |order by msg_type, os, cnt
+        |""".stripMargin
+    withSparkEnvConf(CHConfig.runtimeConfig("enable_lazy_aggregate_expand"), "false") {
+      compareResultsAgainstVanillaSpark(
+        sql,
+        true,
+        {
+          df =>
+            val expands = collectWithSubqueries(df.queryExecution.executedPlan) {
+              case e: ExpandExecTransformer
+                  if !e.child.isInstanceOf[HashAggregateExecBaseTransformer] =>
+                e
+            }
+            assert(expands.size == 1)
+        }
+      )
+    }
+  }
+
+  test("lazy aggregate expand preserves nullable columns across union") {
+    val sql =
+      """
+        |select msg_type, os, count(*) as cnt
+        |from (
+        |  select 'file' as msg_type, 'Android' as os, id from range(10)
+        |  union all
+        |  select 'file' as msg_type, 'iOS' as os, id from range(10)
+        |) t
+        |group by grouping sets ((msg_type), (os))
+        |having msg_type is not null
+        |order by msg_type, os, cnt
+        |""".stripMargin
+    withSparkEnvConf(CHConfig.runtimeConfig("enable_lazy_aggregate_expand"), "true") {
+      compareResultsAgainstVanillaSpark(
+        sql,
+        true,
+        {
+          df =>
+            val expands = collectWithSubqueries(df.queryExecution.executedPlan) {
+              case e: ExpandExecTransformer
+                  if e.child.isInstanceOf[HashAggregateExecBaseTransformer] =>
+                e
+            }
+            assert(expands.size == 1)
+        }
+      )
+    }
+  }
+
+  private def withSparkEnvConf(key: String, value: String)(f: => Unit): Unit = {
+    val sparkConf = SparkEnv.get.conf
+    val previousValue = sparkConf.getOption(key)
+    sparkConf.set(key, value)
+    try {
+      f
+    } finally {
+      previousValue match {
+        case Some(previous) => sparkConf.set(key, previous)
+        case None => sparkConf.remove(key)
+      }
+    }
+  }
+
   test("expand with nullable type not match") {
     val sql =
       """
@@ -1142,7 +1216,8 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
     }
   }
 
-  testSparkVersionLE33("test posexplode issue: https://github.com/oap-project/gluten/issues/1767") {
+  ignoreSpark33OnlyCase(
+    "test posexplode issue: https://github.com/oap-project/gluten/issues/1767") {
     spark.sql("create table test_1767 (id bigint, data map<string, string>) using parquet")
     spark.sql("INSERT INTO test_1767 values(1, map('k', 'v'))")
 
@@ -3043,6 +3118,30 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
       spark.sql("drop table if exists test_win_top")
     }
 
+  }
+
+  test("row number aggregate topk handles first array result offset") {
+    withSQLConf(
+      (CHConfig.runtimeSettings("enable_window_group_limit_to_aggregate"), "true"),
+      (CHConfig.runtimeSettings("window.aggregate_topk_high_cardinality_threshold"), "2.0")
+    ) {
+      compareResultsAgainstVanillaSpark(
+        """
+          |select * from (
+          |  select a, b, row_number() over (partition by a order by b) as r
+          |  from (select * from values ('a', 2), ('a', 1) as t(a, b))
+          |) where r <= 1
+          |""".stripMargin,
+        compareResult = true,
+        df => {
+          val groupLimit = collectWithSubqueries(df.queryExecution.executedPlan) {
+            case e: CHAggregateGroupLimitExecTransformer => e
+            case wgl: CHWindowGroupLimitExecTransformer => wgl
+          }
+          assert(groupLimit.nonEmpty)
+        }
+      )
+    }
   }
 
   test("GLUTEN-7905 get topk of window by window") {

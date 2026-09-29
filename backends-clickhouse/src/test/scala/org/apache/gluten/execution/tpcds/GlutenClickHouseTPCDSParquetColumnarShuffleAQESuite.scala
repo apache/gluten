@@ -119,8 +119,7 @@ class GlutenClickHouseTPCDSParquetColumnarShuffleAQESuite
           case r: ReusedSubqueryExec => true
           case _ => false
         }
-        // On Spark 3.2, there are 15 AdaptiveSparkPlanExec,
-        // and on Spark 3.3, there are 5 AdaptiveSparkPlanExec and 10 ReusedSubqueryExec
+        // 5 AdaptiveSparkPlanExec and 10 ReusedSubqueryExec on Spark 3.3+.
         assertResult(15)(subqueryAdaptiveSparkPlan.count(_ == true))
     }
   }

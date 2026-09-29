@@ -21,18 +21,18 @@
   <parent>
     <groupId>org.apache.gluten</groupId>
     <artifactId>gluten-it</artifactId>
-    <version>1.7.0-SNAPSHOT</version>
+    <version>1.8.0-SNAPSHOT</version>
   </parent>
 
   <artifactId>gluten-it-common</artifactId>
-  <version>1.7.0-SNAPSHOT</version>
+  <version>1.8.0-SNAPSHOT</version>
   <packaging>jar</packaging>
 
   <dependencies>
     <dependency>
       <groupId>org.apache.gluten</groupId>
       <artifactId>gluten-it-3rd</artifactId>
-      <version>1.7.0-SNAPSHOT</version>
+      <version>1.8.0-SNAPSHOT</version>
       <scope>compile</scope>
       <exclusions>
         <exclusion>

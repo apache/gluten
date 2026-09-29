@@ -160,8 +160,21 @@ object ConverterUtils extends Logging {
         (StringType, isNullable(substraitType.getString.getNullability))
       case Type.KindCase.BINARY =>
         (BinaryType, isNullable(substraitType.getBinary.getNullability))
-      case Type.KindCase.TIMESTAMP_TZ =>
-        (TimestampType, isNullable(substraitType.getTimestampTz.getNullability))
+      case Type.KindCase.PRECISION_TIMESTAMP =>
+        try {
+          (
+            Class
+              .forName("org.apache.spark.sql.types.TimestampNTZType$")
+              .getField("MODULE$")
+              .get(null)
+              .asInstanceOf[DataType],
+            isNullable(substraitType.getPrecisionTimestamp.getNullability))
+        } catch {
+          case _: ReflectiveOperationException =>
+            throw new GlutenNotSupportException(s"Type $substraitType not supported.")
+        }
+      case Type.KindCase.PRECISION_TIMESTAMP_TZ =>
+        (TimestampType, isNullable(substraitType.getPrecisionTimestampTz.getNullability))
       case Type.KindCase.DATE =>
         (DateType, isNullable(substraitType.getDate.getNullability))
       case Type.KindCase.DECIMAL =>
@@ -226,6 +239,8 @@ object ConverterUtils extends Logging {
         TypeBuilder.makeDecimal(nullable, precision, scale)
       case TimestampType =>
         TypeBuilder.makeTimestamp(nullable)
+      case TimestampNTZType =>
+        TypeBuilder.makeTimestampNTZ(nullable)
       case m: MapType =>
         TypeBuilder.makeMap(
           nullable,
@@ -399,6 +414,8 @@ object ConverterUtils extends Logging {
       case DoubleType => "fp64"
       case DateType => "date"
       case TimestampType => "ts"
+      // Underscores delimit arguments in native function signatures.
+      case TimestampNTZType => "tsntz"
       case StringType => "str"
       case BinaryType => "vbin"
       case DecimalType() =>
@@ -428,7 +445,7 @@ object ConverterUtils extends Logging {
         sigName = sigName.concat(getTypeSigName(valueType))
         sigName = sigName.concat(">")
         sigName
-      case CharType(_) =>
+      case _: CharType =>
         "fchar"
       case NullType =>
         "nothing"

@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.substrait.rel;
 
+import org.apache.gluten.substrait.expression.ExpressionBuilder;
 import org.apache.gluten.substrait.extensions.AdvancedExtensionNode;
 
 import io.substrait.proto.FetchRel;
@@ -23,6 +24,8 @@ import io.substrait.proto.Rel;
 import io.substrait.proto.RelCommon;
 
 import java.io.Serializable;
+import java.util.Collections;
+import java.util.List;
 
 public class FetchRelNode implements RelNode, Serializable {
   private final RelNode input;
@@ -55,8 +58,8 @@ public class FetchRelNode implements RelNode, Serializable {
     if (input != null) {
       fetchRelBuilder.setInput(input.toProtobuf());
     }
-    fetchRelBuilder.setOffset(offset);
-    fetchRelBuilder.setCount(count);
+    fetchRelBuilder.setOffsetExpr(ExpressionBuilder.makeLongLiteral(offset).toProtobuf());
+    fetchRelBuilder.setCountExpr(ExpressionBuilder.makeLongLiteral(count).toProtobuf());
 
     if (extensionNode != null) {
       fetchRelBuilder.setAdvancedExtension(extensionNode.toProtobuf());
@@ -65,5 +68,10 @@ public class FetchRelNode implements RelNode, Serializable {
     Rel.Builder relBuilder = Rel.newBuilder();
     relBuilder.setFetch(fetchRelBuilder.build());
     return relBuilder.build();
+  }
+
+  @Override
+  public List<RelNode> childNodes() {
+    return Collections.singletonList(input);
   }
 }

@@ -21,14 +21,18 @@
 namespace gluten {
 
 bool TypeAwareCompressCodec::support(int8_t tacType) {
-  return tacType == tac::kUInt64;
+  return tacType == tac::kUInt64 || tacType == tac::kUInt128;
 }
 
 int64_t TypeAwareCompressCodec::maxCompressedLen(int64_t inputLen, int8_t tacType) {
-  if (!support(tacType)) {
-    return 0;
+  switch (tacType) {
+    case tac::kUInt64:
+      return kPayloadHeaderSize + FForCodec::maxCompressedLength(inputLen);
+    case tac::kUInt128:
+      return kPayloadHeaderSize + FForCodec::maxCompressedLength128(inputLen);
+    default:
+      return 0;
   }
-  return kPayloadHeaderSize + FForCodec::maxCompressedLength(inputLen);
 }
 
 arrow::Result<int64_t> TypeAwareCompressCodec::compress(
@@ -50,10 +54,21 @@ arrow::Result<int64_t> TypeAwareCompressCodec::compress(
   auto* out = output;
   *out++ = static_cast<uint8_t>(CodecId::kFFor);
   *out++ = static_cast<uint8_t>(tacType);
+  int64_t availableOutput = outputLen - kPayloadHeaderSize;
 
-  auto availableOutput = outputLen - kPayloadHeaderSize;
-  ARROW_ASSIGN_OR_RAISE(auto compressedLen, FForCodec::compress(input, inputLen, out, availableOutput));
-
+  int64_t compressedLen = 0;
+  switch (tacType) {
+    case tac::kUInt64: {
+      ARROW_ASSIGN_OR_RAISE(compressedLen, FForCodec::compress(input, inputLen, out, availableOutput));
+      break;
+    }
+    case tac::kUInt128: {
+      ARROW_ASSIGN_OR_RAISE(compressedLen, FForCodec::compress128(input, inputLen, out, availableOutput));
+      break;
+    }
+    default:
+      return arrow::Status::Invalid("Unsupported tac type in compress: ", static_cast<int>(tacType));
+  }
   return kPayloadHeaderSize + compressedLen;
 }
 
@@ -65,18 +80,41 @@ TypeAwareCompressCodec::decompress(const uint8_t* input, int64_t inputLen, uint8
 
   auto* in = input;
   auto codecId = static_cast<CodecId>(*in++);
-  [[maybe_unused]] auto tacType = *in++;
+  auto tacType = static_cast<int8_t>(*in++);
   auto dataLen = inputLen - kPayloadHeaderSize;
 
   switch (codecId) {
-    case CodecId::kFFor: {
-      ARROW_ASSIGN_OR_RAISE(auto nDecoded, FForCodec::decompress(in, dataLen, output, outputLen));
-      (void)nDecoded;
-      return inputLen;
-    }
+    case CodecId::kFFor:
+      break;
     default:
       return arrow::Status::Invalid("Unknown type-aware codec ID: ", static_cast<int>(codecId));
   }
+
+  int64_t nDecoded = 0;
+  int64_t valueSize = 0;
+  const char* typeName = nullptr;
+  switch (tacType) {
+    case tac::kUInt64: {
+      ARROW_ASSIGN_OR_RAISE(nDecoded, FForCodec::decompress(in, dataLen, output, outputLen));
+      valueSize = sizeof(uint64_t);
+      typeName = "uint64";
+      break;
+    }
+    case tac::kUInt128: {
+      ARROW_ASSIGN_OR_RAISE(nDecoded, FForCodec::decompress128(in, dataLen, output, outputLen));
+      valueSize = 2 * sizeof(uint64_t);
+      typeName = "uint128";
+      break;
+    }
+    default:
+      return arrow::Status::Invalid("Unknown tac type in decompress: ", static_cast<int>(tacType));
+  }
+  const int64_t expected = outputLen / valueSize;
+  if (nDecoded != expected) {
+    return arrow::Status::Invalid(
+        "TAC decompress ", typeName, " value count mismatch: expected ", expected, " got ", nDecoded);
+  }
+  return inputLen;
 }
 
 } // namespace gluten

@@ -35,3 +35,11 @@ add_velox_benchmark(generic_benchmark GenericBenchmark.cc)
 add_velox_benchmark(parquet_write_benchmark ParquetWriteBenchmark.cc)
 
 add_velox_benchmark(plan_validator_util PlanValidatorUtil.cc)
+
+add_velox_benchmark(velox_batch_resizer_benchmark VeloxBatchResizerBenchmark.cc)
+
+if(ENABLE_S3)
+  add_velox_benchmark(s3_async_upload_benchmark S3AsyncUploadBenchmark.cc)
+endif()
+
+add_velox_benchmark(delta_bitmap_benchmark DeltaBitmapBenchmark.cc)

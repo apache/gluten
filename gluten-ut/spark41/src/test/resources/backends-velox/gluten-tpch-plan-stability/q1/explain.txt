@@ -48,7 +48,6 @@ Arguments: false
 
 (7) VeloxResizeBatches
 Input [18]: [hash_partition_key#43, l_returnflag#5, l_linestatus#6, sum#28, isEmpty#29, sum#30, isEmpty#31, sum#32, isEmpty#33, sum#34, isEmpty#35, sum#36, count#37, sum#38, count#39, sum#40, count#41, count#42]
-Arguments: 1024, 2147483647, 10485760
 
 (8) ColumnarExchange
 Input [18]: [hash_partition_key#43, l_returnflag#5, l_linestatus#6, sum#28, isEmpty#29, sum#30, isEmpty#31, sum#32, isEmpty#33, sum#34, isEmpty#35, sum#36, count#37, sum#38, count#39, sum#40, count#41, count#42]
@@ -77,7 +76,6 @@ Arguments: false
 
 (14) VeloxResizeBatches
 Input [10]: [l_returnflag#5, l_linestatus#6, sum_qty#52, sum_base_price#53, sum_disc_price#54, sum_charge#55, avg_qty#56, avg_price#57, avg_disc#58, count_order#59]
-Arguments: 1024, 2147483647, 10485760
 
 (15) ColumnarExchange
 Input [10]: [l_returnflag#5, l_linestatus#6, sum_qty#52, sum_base_price#53, sum_disc_price#54, sum_charge#55, avg_qty#56, avg_price#57, avg_disc#58, count_order#59]

@@ -226,7 +226,6 @@ Arguments: false
 
 (37) VeloxResizeBatches
 Input [56]: [hash_partition_key#143, w_warehouse_name#17, w_warehouse_sq_ft#18, w_city#19, w_county#20, w_state#21, w_country#22, d_year#14, sum#95, isEmpty#96, sum#97, isEmpty#98, sum#99, isEmpty#100, sum#101, isEmpty#102, sum#103, isEmpty#104, sum#105, isEmpty#106, sum#107, isEmpty#108, sum#109, isEmpty#110, sum#111, isEmpty#112, sum#113, isEmpty#114, sum#115, isEmpty#116, sum#117, isEmpty#118, sum#119, isEmpty#120, sum#121, isEmpty#122, sum#123, isEmpty#124, sum#125, isEmpty#126, sum#127, isEmpty#128, sum#129, isEmpty#130, sum#131, isEmpty#132, sum#133, isEmpty#134, sum#135, isEmpty#136, sum#137, isEmpty#138, sum#139, isEmpty#140, sum#141, isEmpty#142]
-Arguments: 1024, 2147483647, 10485760
 
 (38) ColumnarExchange
 Input [56]: [hash_partition_key#143, w_warehouse_name#17, w_warehouse_sq_ft#18, w_city#19, w_county#20, w_state#21, w_country#22, d_year#14, sum#95, isEmpty#96, sum#97, isEmpty#98, sum#99, isEmpty#100, sum#101, isEmpty#102, sum#103, isEmpty#104, sum#105, isEmpty#106, sum#107, isEmpty#108, sum#109, isEmpty#110, sum#111, isEmpty#112, sum#113, isEmpty#114, sum#115, isEmpty#116, sum#117, isEmpty#118, sum#119, isEmpty#120, sum#121, isEmpty#122, sum#123, isEmpty#124, sum#125, isEmpty#126, sum#127, isEmpty#128, sum#129, isEmpty#130, sum#131, isEmpty#132, sum#133, isEmpty#134, sum#135, isEmpty#136, sum#137, isEmpty#138, sum#139, isEmpty#140, sum#141, isEmpty#142]
@@ -358,7 +357,6 @@ Arguments: false
 
 (69) VeloxResizeBatches
 Input [56]: [hash_partition_key#333, w_warehouse_name#207, w_warehouse_sq_ft#208, w_city#209, w_county#210, w_state#211, w_country#212, d_year#204, sum#285, isEmpty#286, sum#287, isEmpty#288, sum#289, isEmpty#290, sum#291, isEmpty#292, sum#293, isEmpty#294, sum#295, isEmpty#296, sum#297, isEmpty#298, sum#299, isEmpty#300, sum#301, isEmpty#302, sum#303, isEmpty#304, sum#305, isEmpty#306, sum#307, isEmpty#308, sum#309, isEmpty#310, sum#311, isEmpty#312, sum#313, isEmpty#314, sum#315, isEmpty#316, sum#317, isEmpty#318, sum#319, isEmpty#320, sum#321, isEmpty#322, sum#323, isEmpty#324, sum#325, isEmpty#326, sum#327, isEmpty#328, sum#329, isEmpty#330, sum#331, isEmpty#332]
-Arguments: 1024, 2147483647, 10485760
 
 (70) ColumnarExchange
 Input [56]: [hash_partition_key#333, w_warehouse_name#207, w_warehouse_sq_ft#208, w_city#209, w_county#210, w_state#211, w_country#212, d_year#204, sum#285, isEmpty#286, sum#287, isEmpty#288, sum#289, isEmpty#290, sum#291, isEmpty#292, sum#293, isEmpty#294, sum#295, isEmpty#296, sum#297, isEmpty#298, sum#299, isEmpty#300, sum#301, isEmpty#302, sum#303, isEmpty#304, sum#305, isEmpty#306, sum#307, isEmpty#308, sum#309, isEmpty#310, sum#311, isEmpty#312, sum#313, isEmpty#314, sum#315, isEmpty#316, sum#317, isEmpty#318, sum#319, isEmpty#320, sum#321, isEmpty#322, sum#323, isEmpty#324, sum#325, isEmpty#326, sum#327, isEmpty#328, sum#329, isEmpty#330, sum#331, isEmpty#332]

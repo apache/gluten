@@ -62,6 +62,7 @@ nav:
   - Velox Backend CI: developers/velox-backend-CI.md
   - Build in Docker: developers/velox-backend-build-in-docker.md
   - Query Trace: developers/QueryTrace.md
+  - Metrics Framework: developers/MetricsFramework.md
   - Memory Profiling: developers/ProfileMemoryOfGlutenWithVelox.md
   - Dynamic Off-Heap Sizing: developers/VeloxDynamicSizingOffheap.md
   - Partial Project: developers/PartialProject.md

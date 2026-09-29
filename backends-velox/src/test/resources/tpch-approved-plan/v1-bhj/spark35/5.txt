@@ -321,7 +321,6 @@ Arguments: false
 
 (53) VeloxResizeBatches
 Input [4]: [hash_partition_key#X, n_name#X, sum#X, isEmpty#X]
-Arguments: X, X, X
 
 (54) ColumnarExchange
 Input [4]: [hash_partition_key#X, n_name#X, sum#X, isEmpty#X]
@@ -350,7 +349,6 @@ Arguments: false
 
 (60) VeloxResizeBatches
 Input [2]: [n_name#X, revenue#X]
-Arguments: X, X, X
 
 (61) ColumnarExchange
 Input [2]: [n_name#X, revenue#X]

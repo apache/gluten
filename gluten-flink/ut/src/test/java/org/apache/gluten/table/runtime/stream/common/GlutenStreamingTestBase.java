@@ -16,7 +16,6 @@
  */
 package org.apache.gluten.table.runtime.stream.common;
 
-import org.apache.flink.configuration.CoreOptions;
 import org.apache.flink.core.execution.JobClient;
 import org.apache.flink.table.api.ExplainDetail;
 import org.apache.flink.table.api.Table;
@@ -29,6 +28,8 @@ import org.apache.flink.table.types.logical.TimestampType;
 import org.apache.flink.types.Row;
 import org.apache.flink.util.FlinkRuntimeException;
 
+import com.sun.jna.Library;
+import com.sun.jna.Native;
 import org.junit.jupiter.api.BeforeAll;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,6 +47,23 @@ public class GlutenStreamingTestBase extends StreamingTestBase {
   private static final Logger LOG = LoggerFactory.getLogger(GlutenStreamingTestBase.class);
   private static final String EXECUTION_PLAN_PREIFX = "== Physical Execution Plan ==";
   private static final long timeoutMS = 30000;
+
+  // dup2 fd=1 onto a file: Velox print sink writes to std::cout, which bypasses System.setOut and
+  // goes straight to the process's fd=1.
+  private interface CLibrary extends Library {
+    int dup(int oldfd);
+
+    int dup2(int oldfd, int newfd);
+
+    int open(String path, int flags, int mode);
+
+    int close(int fd);
+  }
+
+  private static final CLibrary C_LIB = Native.load("c", CLibrary.class);
+  private static final int O_WRONLY = 1;
+  private static final int O_CREAT = 0100;
+  private static final int O_TRUNC = 01000;
 
   @BeforeAll
   public static void setup() throws Exception {
@@ -114,42 +132,57 @@ public class GlutenStreamingTestBase extends StreamingTestBase {
 
   protected void runAndCheck(String query, List<String> expected) {
     String printResultDirPath = System.getProperty("user.dir") + "/log/";
-    tEnv().getConfig().set(CoreOptions.FLINK_LOG_DIR, printResultDirPath);
-    String printResultFilePath = String.format("%s%s", printResultDirPath, "taskmanager.out");
+    new File(printResultDirPath).mkdirs();
+    String printResultFilePath = printResultDirPath + "taskmanager.out";
     File printResultFile = new File(printResultFilePath);
-    boolean deleteResultFile = true;
     if (printResultFile.exists()) {
-      deleteResultFile = printResultFile.delete();
+      printResultFile.delete();
     }
-    Table table = tEnv().sqlQuery(query);
-    createPrintSinkTable("printT", table.getResolvedSchema());
-    String newQuery = String.format("insert into %s %s", "printT", query);
-    TableResult tableResult = tEnv().executeSql(newQuery);
-    assertTrue(tableResult.getJobClient().isPresent());
+
+    int savedStdout = C_LIB.dup(1);
+    int fileFd = C_LIB.open(printResultFilePath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fileFd < 0) {
+      C_LIB.close(savedStdout);
+      throw new FlinkRuntimeException("Failed to open " + printResultFilePath);
+    }
+    C_LIB.dup2(fileFd, 1);
     try {
+      Table table = tEnv().sqlQuery(query);
+      createPrintSinkTable("printT", table.getResolvedSchema());
+      String newQuery = String.format("insert into %s %s", "printT", query);
+      TableResult tableResult = tEnv().executeSql(newQuery);
+      assertTrue(tableResult.getJobClient().isPresent());
       JobClient jobClient = tableResult.getJobClient().get();
-      if (deleteResultFile) {
-        try {
-          long startTime = System.currentTimeMillis();
-          while (!printResultFile.exists()) {
-            if (System.currentTimeMillis() - startTime > timeoutMS) {
-              break;
-            }
-            Thread.sleep(10);
+      try {
+        long startTime = System.currentTimeMillis();
+        while (printResultFile.length() == 0) {
+          if (System.currentTimeMillis() - startTime > timeoutMS) {
+            break;
           }
-          long fileSize = -1L;
-          startTime = System.currentTimeMillis();
-          while (printResultFile.length() > fileSize) {
-            if (System.currentTimeMillis() - startTime > timeoutMS) {
-              break;
-            }
-            fileSize = printResultFile.length();
-            Thread.sleep(3000);
-          }
-        } finally {
-          jobClient.cancel();
+          Thread.sleep(10);
         }
+        long fileSize = -1L;
+        startTime = System.currentTimeMillis();
+        while (printResultFile.length() > fileSize) {
+          if (System.currentTimeMillis() - startTime > timeoutMS) {
+            break;
+          }
+          fileSize = printResultFile.length();
+          Thread.sleep(3000);
+        }
+      } catch (InterruptedException ie) {
+        Thread.currentThread().interrupt();
+        throw new FlinkRuntimeException(ie);
+      } finally {
+        jobClient.cancel();
       }
+    } finally {
+      C_LIB.dup2(savedStdout, 1);
+      C_LIB.close(fileFd);
+      C_LIB.close(savedStdout);
+    }
+
+    try {
       List<String> result = new ArrayList<>();
       try (FileReader fr = new FileReader(printResultFile);
           BufferedReader br = new BufferedReader(fr)) {

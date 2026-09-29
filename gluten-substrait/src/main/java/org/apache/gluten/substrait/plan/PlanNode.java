@@ -77,4 +77,8 @@ public class PlanNode implements Serializable {
     }
     return planBuilder.build();
   }
+
+  public List<RelNode> getRelNodes() {
+    return relNodes;
+  }
 }

@@ -17,13 +17,17 @@
 package org.apache.gluten.expression
 
 import org.apache.gluten.backendsapi.velox.VeloxBackendSettings
+import org.apache.gluten.config.VeloxConfig
 import org.apache.gluten.execution.ProjectExecTransformer
+import org.apache.gluten.execution.WindowExecTransformer
 import org.apache.gluten.tags.{SkipTest, UDFTest}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{GlutenQueryTest, Row, SparkSession}
+import org.apache.spark.sql.catalyst.FunctionIdentifier
 import org.apache.spark.sql.catalyst.plans.SQLHelper
 import org.apache.spark.sql.execution.ProjectExec
+import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.expression.UDFResolver
 
 import java.nio.file.Paths
@@ -92,54 +96,7 @@ abstract class VeloxUdfSuite extends GlutenQueryTest with SQLHelper {
       .set("spark.memory.offHeap.enabled", "true")
       .set("spark.memory.offHeap.size", "1024MB")
       .set("spark.ui.enabled", "false")
-  }
-
-  // Aggregate result can be flaky.
-  ignore("test native hive udaf") {
-    val tbl = "test_hive_udaf_replacement"
-    withTempPath {
-      dir =>
-        try {
-          // Check native hive udaf has been registered.
-          val udafClass = "test.org.apache.spark.sql.MyDoubleAvg"
-          assert(UDFResolver.UDAFNames.contains(udafClass))
-
-          spark.sql(s"""
-                       |CREATE TEMPORARY FUNCTION my_double_avg
-                       |AS '$udafClass'
-                       |""".stripMargin)
-          spark.sql(s"""
-                       |CREATE EXTERNAL TABLE $tbl
-                       |LOCATION 'file://$dir'
-                       |AS select * from values (1, '1'), (2, '2'), (3, '3')
-                       |""".stripMargin)
-          val df = spark.sql(s"""select
-                                |  my_double_avg(cast(col1 as double)),
-                                |  my_double_avg(cast(col2 as double))
-                                |  from $tbl
-                                |""".stripMargin)
-          val nativeImplicitConversionDF = spark.sql(s"""select
-                                                        |  my_double_avg(col1),
-                                                        |  my_double_avg(col2)
-                                                        |  from $tbl
-                                                        |""".stripMargin)
-          val nativeResult = df.collect()
-          val nativeImplicitConversionResult = nativeImplicitConversionDF.collect()
-
-          UDFResolver.UDAFNames.remove(udafClass)
-          val fallbackDF = spark.sql(s"""select
-                                        |  my_double_avg(cast(col1 as double)),
-                                        |  my_double_avg(cast(col2 as double))
-                                        |  from $tbl
-                                        |""".stripMargin)
-          val fallbackResult = fallbackDF.collect()
-          assert(nativeResult.sameElements(fallbackResult))
-          assert(nativeImplicitConversionResult.sameElements(fallbackResult))
-        } finally {
-          spark.sql(s"DROP TABLE IF EXISTS $tbl")
-          spark.sql(s"DROP TEMPORARY FUNCTION IF EXISTS my_double_avg")
-        }
-    }
+      .set("spark.sql.adaptive.enabled", "false")
   }
 
   test("test native hive udf") {
@@ -198,6 +155,113 @@ abstract class VeloxUdfSuite extends GlutenQueryTest with SQLHelper {
     }
   }
 
+  test("test native hive udaf") {
+    val tbl = "test_hive_udaf_replacement"
+    val udafClass = "test.org.apache.spark.sql.MyDoubleAvg"
+    withTempPath {
+      dir =>
+        try {
+          // Check native hive udaf has been registered.
+          assert(UDFResolver.UDAFNames.contains(udafClass))
+
+          spark.sql(s"""
+                       |CREATE TEMPORARY FUNCTION my_double_avg
+                       |AS '$udafClass'
+                       |""".stripMargin)
+          spark.sql(s"""
+                       |CREATE EXTERNAL TABLE $tbl
+                       |LOCATION 'file://$dir'
+                       |AS select * from values (1, '1'), (2, '2'), (3, '3')
+                       |""".stripMargin)
+          val df = spark.sql(s"""select
+                                |  my_double_avg(cast(col1 as double)),
+                                |  my_double_avg(cast(col2 as double))
+                                |  from $tbl
+                                |""".stripMargin)
+          val nativeImplicitConversionDF = spark.sql(s"""select
+                                                        |  my_double_avg(col1),
+                                                        |  my_double_avg(col2)
+                                                        |  from $tbl
+                                                        |""".stripMargin)
+          val nativeResult = df.collect()
+          val nativeImplicitConversionResult = nativeImplicitConversionDF.collect()
+
+          UDFResolver.UDAFNames.remove(udafClass)
+          val fallbackDF = spark.sql(s"""select
+                                        |  my_double_avg(cast(col1 as double)),
+                                        |  my_double_avg(cast(col2 as double))
+                                        |  from $tbl
+                                        |""".stripMargin)
+          val fallbackResult = fallbackDF.collect()
+          assert(nativeResult.sameElements(fallbackResult))
+          assert(nativeImplicitConversionResult.sameElements(fallbackResult))
+        } finally {
+          UDFResolver.UDAFNames.add(udafClass)
+          spark.sql(s"DROP TABLE IF EXISTS $tbl")
+          spark.sql(s"DROP TEMPORARY FUNCTION IF EXISTS my_double_avg")
+        }
+    }
+  }
+
+  test("test native hive udaf in window") {
+    val tbl = "test_hive_udaf_window"
+    val udafClass = "test.org.apache.spark.sql.MyDoubleAvg"
+    val query =
+      s"""SELECT
+         |  col1,
+         |  my_double_avg(col1) OVER (
+         |    PARTITION BY col1 % 2
+         |    ORDER BY col1
+         |    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS my_avg_window
+         |FROM $tbl
+         |ORDER BY col1
+         |""".stripMargin
+
+    withTempPath {
+      dir =>
+        try {
+          assert(UDFResolver.UDAFNames.contains(udafClass))
+
+          spark.sql(s"""
+                       |CREATE TEMPORARY FUNCTION my_double_avg
+                       |AS '$udafClass'
+                       |""".stripMargin)
+          spark.sql(s"""
+                       |DROP TABLE IF EXISTS $tbl;
+                       |""".stripMargin)
+          spark.sql(s"""
+                       |CREATE EXTERNAL TABLE $tbl
+                       |LOCATION 'file://$dir'
+                       |AS SELECT CAST(v AS FLOAT) AS col1
+                       |FROM VALUES (1.0), (2.0), (3.0), (4.0) AS t(v)
+                       |""".stripMargin)
+
+          val offloadDF = spark.sql(query)
+          checkGlutenPlan[WindowExecTransformer](offloadDF)
+          checkAnswer(
+            offloadDF,
+            Seq(
+              Row(1.0f, 101.0),
+              Row(2.0f, 102.0),
+              Row(3.0f, 102.0),
+              Row(4.0f, 103.0)
+            ))
+          val offloadResult = offloadDF.collect()
+
+          UDFResolver.UDAFNames.remove(udafClass)
+          val fallbackDF = spark.sql(query)
+          checkSparkPlan[WindowExec](fallbackDF)
+          val fallbackResult = fallbackDF.collect()
+
+          assert(offloadResult.sameElements(fallbackResult))
+        } finally {
+          UDFResolver.UDAFNames.add(udafClass)
+          spark.sql(s"DROP TABLE IF EXISTS $tbl")
+          spark.sql(s"DROP TEMPORARY FUNCTION IF EXISTS my_double_avg")
+        }
+    }
+  }
+
   test("test udf fallback in partition filter") {
     withTempPath {
       dir =>
@@ -232,6 +296,30 @@ abstract class VeloxUdfSuite extends GlutenQueryTest with SQLHelper {
         }
     }
   }
+
+  test("native udf with a plain name is callable without a hive udf class") {
+    // No CREATE TEMPORARY FUNCTION and no Java class: the session extension put the name in
+    // Spark's registry via SparkInjector.injectFunction, which is the only writer for it.
+    assert(
+      spark.sessionState.functionRegistry
+        .lookupFunction(FunctionIdentifier("myudf_plus_one"))
+        .isDefined)
+
+    val df = spark.sql("SELECT myudf_plus_one(col1) FROM VALUES (1L), (2L), (3L) AS t(col1)")
+    checkGlutenPlan[ProjectExecTransformer](df)
+    checkAnswer(df, Seq(Row(2L), Row(3L), Row(4L)))
+  }
+
+  test("native udf with a plain name fails at analysis when gluten is disabled") {
+    withSQLConf(("spark.gluten.enabled", "false")) {
+      val e = intercept[Exception] {
+        spark.sql("SELECT myudf_plus_one(col1) FROM VALUES (1L) AS t(col1)").collect()
+      }
+      // The injected function has no JVM implementation to fall back to, so the call is
+      // rejected rather than silently returning a result from somewhere else.
+      assert(e.getMessage.contains("myudf_plus_one"))
+    }
+  }
 }
 
 @UDFTest
@@ -243,6 +331,8 @@ class VeloxUdfSuiteLocal extends VeloxUdfSuite {
       .set("spark.files", udfLibPath)
       .set(VeloxBackendSettings.GLUTEN_VELOX_UDF_LIB_PATHS, udfLibRelativePath)
       .set("spark.shuffle.manager", "org.apache.spark.shuffle.sort.ColumnarShuffleManager")
+      // Off by default, so the by-name tests below have to opt in.
+      .set(VeloxConfig.NATIVE_UDF_BYPASS_REGISTRATION.key, "true")
   }
 }
 

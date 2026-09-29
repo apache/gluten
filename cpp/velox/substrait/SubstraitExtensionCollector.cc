@@ -39,15 +39,18 @@ bool SubstraitExtensionCollector::BiDirectionHashMap<T>::putIfAbsent(const int& 
 }
 
 void SubstraitExtensionCollector::addExtensionsToPlan(::substrait::Plan* plan) const {
-  using SimpleExtensionURI = ::substrait::extensions::SimpleExtensionURI;
-  // Currently we don't introduce any substrait extension YAML files, so always
-  // only have one URI.
-  SimpleExtensionURI* extensionUri = plan->add_extension_uris();
-  extensionUri->set_extension_uri_anchor(1);
+  using SimpleExtensionURN = ::substrait::extensions::SimpleExtensionURN;
+  // Currently we don't map functions to their individual Substrait extension
+  // YAML files, so we emit a single catch-all URN and resolve functions by
+  // name. The URN follows the required extension:<OWNER>:<ID> format; consuming
+  // the upstream io.substrait function extensions is left to a follow-up.
+  SimpleExtensionURN* extensionUrn = plan->add_extension_urns();
+  extensionUrn->set_extension_urn_anchor(1);
+  extensionUrn->set_urn("extension:org.apache.gluten:functions");
 
   for (const auto& [referenceNum, functionId] : extensionFunctions_->forwardMap()) {
     auto extensionFunction = plan->add_extensions()->mutable_extension_function();
-    extensionFunction->set_extension_uri_reference(extensionUri->extension_uri_anchor());
+    extensionFunction->set_extension_urn_reference(extensionUrn->extension_urn_anchor());
     extensionFunction->set_function_anchor(referenceNum);
     extensionFunction->set_name(functionId.signature);
   }

@@ -12,6 +12,12 @@
     {
       "kind": "git",
       "repository": "https://github.com/Microsoft/vcpkg",
+      "baseline": "2d32fae67c755b665794a0650f5d268979d7807f",
+      "packages": [ "libsodium"]
+    },
+    {
+      "kind": "git",
+      "repository": "https://github.com/Microsoft/vcpkg",
       "baseline": "a7b6122f6b6504d16d96117336a0562693579933",
       "packages": [ "upb"]
     }

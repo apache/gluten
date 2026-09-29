@@ -20,28 +20,24 @@ import org.apache.gluten.GlutenBuildInfo.SPARK_COMPILE_VERSION
 import org.apache.gluten.expression.Sig
 
 import org.apache.spark.{SparkContext, SparkException}
-import org.apache.spark.broadcast.Broadcast
-import org.apache.spark.internal.io.FileCommitProtocol
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, InputFileBlockLength, InputFileBlockStart, InputFileName, RaiseError, UnBase64}
+import org.apache.spark.sql.catalyst.expressions.{BinaryArithmetic, Expression, RaiseError}
 import org.apache.spark.sql.catalyst.plans.JoinType
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
-import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.connector.catalog.Table
 import org.apache.spark.sql.connector.read.{InputPartition, Scan}
 import org.apache.spark.sql.connector.read.streaming.SparkDataStream
 import org.apache.spark.sql.execution._
-import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.execution.datasources.parquet.ParquetFilters
 import org.apache.spark.sql.execution.datasources.v2.{BatchScanExec, DataSourceV2ScanExecBase}
 import org.apache.spark.sql.execution.exchange.{BroadcastExchangeLike, ShuffleExchangeLike}
 import org.apache.spark.sql.execution.window.WindowGroupLimitExecShim
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DecimalType, StructType}
+import org.apache.spark.sql.types.{StringType, StructType}
+import org.apache.spark.storage.{GlutenShuffleBlockFetcherIteratorBase, ShuffleBlockFetcherIteratorParams}
 import org.apache.spark.util.SparkShimVersionUtil
 
 import org.apache.hadoop.fs.{FileStatus, Path}
@@ -51,7 +47,6 @@ import org.apache.parquet.schema.MessageType
 import java.util.{Map => JMap}
 
 import scala.collection.JavaConverters._
-import scala.reflect.ClassTag
 
 case class SparkShimDescriptor(major: Int, minor: Int, patch: Int) {
   override def toString(): String = s"$major.$minor.$patch"
@@ -83,57 +78,33 @@ trait SparkShims {
 
   def runtimeReplaceableExpressionMappings: Seq[Sig]
 
-  def generateFileScanRDD(
-      sparkSession: SparkSession,
-      readFunction: PartitionedFile => Iterator[InternalRow],
-      filePartitions: Seq[FilePartition],
-      fileSourceScanExec: FileSourceScanExec): FileScanRDD
-
   def filesGroupedToBuckets(
       selectedPartitions: Array[PartitionDirectory]): Map[Int, Array[PartitionedFile]]
 
-  // Spark3.4 new add table parameter in BatchScanExec.
-  def getBatchScanExecTable(batchScan: BatchScanExec): Table
-
-  // The PartitionedFile API changed in spark 3.4
-  def generatePartitionedFile(
-      partitionValues: InternalRow,
-      filePath: String,
-      start: Long,
-      length: Long,
-      @transient locations: Array[String] = Array.empty): PartitionedFile
-
   def isWindowGroupLimitExec(plan: SparkPlan): Boolean = false
+
+  /**
+   * Whether the given plan is an EmptyRelationExec. The node only exists on Spark 4.0+
+   * (SPARK-47217) so the default implementation returns false; Spark 4.0+ shims override it.
+   */
+  def isEmptyRelationExec(plan: SparkPlan): Boolean = false
+
+  /**
+   * The seed of a [[SampleExec]]. Spark 4.2 (SPARK-53564) made the seed optional and resolves it
+   * lazily via `resolvedSeed`, so the accessor is shimmed per version.
+   */
+  def getSampleSeed(plan: SampleExec): Long
+
+  /**
+   * Whether the partitioning is Spark's storage-partitioned-join partitioning. Spark 4.2
+   * (SPARK-53401) renamed `KeyGroupedPartitioning` to `KeyedPartitioning`, so the type test is
+   * shimmed per version.
+   */
+  def isKeyGroupedPartitioning(partitioning: Partitioning): Boolean
 
   def getWindowGroupLimitExecShim(plan: SparkPlan): WindowGroupLimitExecShim = null
 
   def getWindowGroupLimitExec(windowGroupLimitExecShim: WindowGroupLimitExecShim): SparkPlan = null
-
-  def getLimitAndOffsetFromGlobalLimit(plan: GlobalLimitExec): (Int, Int) = (plan.limit, 0)
-
-  def getLimitAndOffsetFromTopK(plan: TakeOrderedAndProjectExec): (Int, Int) = (plan.limit, 0)
-
-  def getExtendedColumnarPostRules(): List[SparkSession => Rule[SparkPlan]]
-
-  def writeFilesExecuteTask(
-      description: WriteJobDescription,
-      jobTrackerID: String,
-      sparkStageId: Int,
-      sparkPartitionId: Int,
-      sparkAttemptNumber: Int,
-      committer: FileCommitProtocol,
-      iterator: Iterator[InternalRow]): WriteTaskResult = {
-    throw new UnsupportedOperationException()
-  }
-
-  def enableNativeWriteFilesByDefault(): Boolean = false
-
-  def broadcastInternal[T: ClassTag](sc: SparkContext, value: T): Broadcast[T] = {
-    // Since Spark 3.4, the `sc.broadcast` has been optimized to use `sc.broadcastInternal`.
-    // More details see SPARK-39983.
-    // TODO, remove this shim once we drop Spark3.3 and previous
-    sc.broadcast(value)
-  }
 
   // To be compatible with Spark-3.5 and later
   // See https://github.com/apache/spark/pull/41440
@@ -164,27 +135,10 @@ trait SparkShims {
       partitionValues: InternalRow,
       metadata: Map[String, Any] = Map.empty): Seq[PartitionedFile]
 
-  def structFromAttributes(attrs: Seq[Attribute]): StructType
-
-  def attributesFromStruct(structType: StructType): Seq[Attribute]
-
-  def generateMetadataColumns(
-      file: PartitionedFile,
-      metadataColumnNames: Seq[String] = Seq.empty): Map[String, String] = {
-    Map(
-      InputFileName().prettyName -> file.filePath.toString,
-      InputFileBlockStart().prettyName -> file.start.toString,
-      InputFileBlockLength().prettyName -> file.length.toString
-    )
-  }
-
   // For compatibility with Spark-3.5.
   def getAnalysisExceptionPlan(ae: AnalysisException): Option[LogicalPlan]
 
-  def getKeyGroupedPartitioning(batchScan: BatchScanExec): Option[Seq[Expression]] = Option(Seq())
-
-  def getCommonPartitionValues(batchScan: BatchScanExec): Option[Seq[(InternalRow, Int)]] =
-    Option(Seq())
+  def getCommonPartitionValues(batchScan: BatchScanExec): Option[Seq[(InternalRow, Int)]]
 
   /**
    * Most of the code in this method is copied from
@@ -199,18 +153,9 @@ trait SparkShims {
       commonPartitionValues: Option[Seq[(InternalRow, Int)]],
       applyPartialClustering: Boolean,
       replicatePartitions: Boolean,
-      joinKeyPositions: Option[Seq[Int]] = None): Seq[Seq[InputPartition]] =
-    filteredPartitions
+      joinKeyPositions: Option[Seq[Int]] = None): Seq[Seq[InputPartition]]
 
-  def extractExpressionTimestampAddUnit(timestampAdd: Expression): Option[Seq[String]] =
-    Option.empty
-
-  def extractExpressionTimestampDiffUnit(timestampDiff: Expression): Option[String] =
-    Option.empty
-
-  def withTryEvalMode(expr: Expression): Boolean = false
-
-  def withAnsiEvalMode(expr: Expression): Boolean = false
+  def extractExpressionTimestampAddUnit(timestampAdd: Expression): Option[Seq[String]]
 
   def isNullIntolerant(expr: Expression): Boolean
 
@@ -218,10 +163,6 @@ trait SparkShims {
       conf: SQLConf,
       schema: MessageType,
       caseSensitive: Option[Boolean] = None): ParquetFilters
-
-  def extractExpressionArrayInsert(arrayInsert: Expression): Seq[Expression] = {
-    throw new UnsupportedOperationException("ArrayInsert not supported.")
-  }
 
   /** Shim method for usages from GlutenExplainUtils.scala. */
   def withOperatorIdMap[T](idMap: java.util.Map[QueryPlan[_], Int])(body: => T): T = {
@@ -237,6 +178,14 @@ trait SparkShims {
   /** Shim method for usages from GlutenExplainUtils.scala. */
   def unsetOperatorId(plan: QueryPlan[_]): Unit
 
+  /**
+   * Returns the streaming source associated with a [[LocalTableScanExec]], if any. The `stream`
+   * field only exists on Spark 4.0+ (where `LocalTableScanExec` mixes in
+   * `StreamSourceAwareSparkPlan`); on Spark 3.x local relations have no streaming concept, so the
+   * default implementation returns None.
+   */
+  def getLocalTableScanStream(plan: LocalTableScanExec): Option[SparkDataStream] = None
+
   def isParquetFileEncrypted(footer: ParquetMetadata): Boolean
 
   def shouldFallbackForParquetVariantAnnotation(footer: ParquetMetadata): Boolean = false
@@ -244,11 +193,11 @@ trait SparkShims {
   def getOtherConstantMetadataColumnValues(file: PartitionedFile): JMap[String, Object] =
     Map.empty[String, Any].asJava.asInstanceOf[JMap[String, Object]]
 
-  def getCollectLimitOffset(plan: CollectLimitExec): Int = 0
-
-  def unBase64FunctionFailsOnError(unBase64: UnBase64): Boolean = false
-
-  def widerDecimalType(d1: DecimalType, d2: DecimalType): DecimalType
+  // Spark 4.1+ (SPARK-53968) embeds allowDecimalPrecisionLoss in each arithmetic expression's
+  // evalContext at analysis time. Spark41Shims overrides this to read from the expression.
+  // All earlier versions have no evalContext field, so reading SQLConf.get here is correct.
+  def decimalAllowPrecisionLoss(expr: BinaryArithmetic): Boolean =
+    SQLConf.get.decimalOperationsAllowPrecisionLoss
 
   def getRewriteCreateTableAsSelect(session: SparkSession): SparkStrategy = _ => Seq.empty
 
@@ -285,11 +234,27 @@ trait SparkShims {
       planner: SparkPlanner,
       plan: LogicalPlan): SparkPlan
 
-  def isFinalAdaptivePlan(p: AdaptiveSparkPlanExec): Boolean
-
   /**
    * Checks if the given JoinType is LeftSingle. LeftSingle is a Spark 4.0+ join type, semantically
    * similar to LeftOuter. Default implementation returns false for Spark 3.x compatibility.
    */
   def isLeftSingleJoinType(joinType: JoinType): Boolean = false
+
+  /**
+   * Returns true iff the given StringType uses the UTF8_BINARY collation (id == 0).
+   *
+   * Spark 4.0 introduced collation-aware StringType. Bound computation in gluten cached batch
+   * partition-stats uses unsigned byte order, which only matches Spark's predicate semantics for
+   * UTF8_BINARY. Non-binary collations must be gated out of the dispatch fast path;
+   * deserializeStats fills a sentinel bound so vanilla
+   * SimpleMetricsCachedBatchSerializer.buildFilter pass-throughs them.
+   *
+   * Default returns true (Spark 3.x has no collation concept; all StringType is binary). Any future
+   * Spark 4.0+ shim MUST override and consult collationId, otherwise the binary-only invariant
+   * degrades silently to "accept any collation".
+   */
+  def isBinaryCollationString(dt: StringType): Boolean = true
+
+  def getShuffleBlockFetcherIterator(params: ShuffleBlockFetcherIteratorParams)
+      : GlutenShuffleBlockFetcherIteratorBase
 }

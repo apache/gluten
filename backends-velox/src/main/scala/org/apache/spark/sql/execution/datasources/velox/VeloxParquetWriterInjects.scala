@@ -31,6 +31,9 @@ class VeloxParquetWriterInjects extends VeloxFormatWriterInjects {
     // i.e., compression, block size, block rows.
     val sparkOptions = new mutable.HashMap[String, String]()
     sparkOptions.put(SQLConf.PARQUET_COMPRESSION.key, compressionCodec)
+    sparkOptions.put(
+      SQLConf.PARQUET_WRITE_LEGACY_FORMAT.key,
+      SQLConf.get.writeLegacyParquetFormat.toString)
     val blockSize = options.getOrElse(
       GlutenConfig.PARQUET_BLOCK_SIZE,
       GlutenConfig.get.columnarParquetWriteBlockSize.toString)
@@ -52,6 +55,7 @@ class VeloxParquetWriterInjects extends VeloxFormatWriterInjects {
       GlutenConfig.PARQUET_ZSTD_COMPRESSION_LEVEL,
       GlutenConfig.PARQUET_DATAPAGE_SIZE,
       GlutenConfig.PARQUET_ENABLE_DICTIONARY,
+      GlutenConfig.PARQUET_ENABLE_PAGE_INDEX,
       GlutenConfig.PARQUET_WRITER_VERSION
     ).foreach(key => options.get(key).foreach(sparkOptions.put(key, _)))
     sparkOptions.asJava

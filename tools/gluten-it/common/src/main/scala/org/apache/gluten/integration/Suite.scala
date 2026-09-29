@@ -70,7 +70,6 @@ abstract class Suite(
     new SparkSessionSwitcher(appName, masterUrl, logLevel.toString)
 
   // define initial configs
-  sessionSwitcher.addDefaultConf("spark.sql.sources.useV1SourceList", "")
   sessionSwitcher.addDefaultConf("spark.sql.shuffle.partitions", s"$shufflePartitions")
   sessionSwitcher.addDefaultConf("spark.storage.blockManagerSlaveTimeoutMs", "3600000")
   sessionSwitcher.addDefaultConf("spark.executor.heartbeatInterval", "10s")

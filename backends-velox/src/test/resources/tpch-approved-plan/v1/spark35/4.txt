@@ -71,7 +71,6 @@ Arguments: false
 
 (5) VeloxResizeBatches
 Input [3]: [hash_partition_key#X, o_orderkey#X, o_orderpriority#X]
-Arguments: X, X, X
 
 (6) ColumnarExchange
 Input [3]: [hash_partition_key#X, o_orderkey#X, o_orderpriority#X]
@@ -108,7 +107,6 @@ Arguments: false
 
 (14) VeloxResizeBatches
 Input [2]: [hash_partition_key#X, l_orderkey#X]
-Arguments: X, X, X
 
 (15) ColumnarExchange
 Input [2]: [hash_partition_key#X, l_orderkey#X]
@@ -151,7 +149,6 @@ Arguments: false
 
 (24) VeloxResizeBatches
 Input [3]: [hash_partition_key#X, o_orderpriority#X, count#X]
-Arguments: X, X, X
 
 (25) ColumnarExchange
 Input [3]: [hash_partition_key#X, o_orderpriority#X, count#X]
@@ -180,7 +177,6 @@ Arguments: false
 
 (31) VeloxResizeBatches
 Input [2]: [o_orderpriority#X, order_count#X]
-Arguments: X, X, X
 
 (32) ColumnarExchange
 Input [2]: [o_orderpriority#X, order_count#X]

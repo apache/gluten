@@ -38,8 +38,7 @@ class GlutenHiveSQLQueryCHSuite extends GlutenHiveSQLQuerySuiteBase {
 
   testGluten("5182: Fix failed to parse post join filters") {
     withSQLConf(
-      "spark.sql.hive.convertMetastoreParquet" -> "false",
-      "spark.gluten.sql.complexType.scan.fallback.enabled" -> "false") {
+      "spark.sql.hive.convertMetastoreParquet" -> "false") {
       sql("DROP TABLE IF EXISTS test_5182_0;")
       sql("DROP TABLE IF EXISTS test_5182_1;")
       sql(
@@ -76,27 +75,23 @@ class GlutenHiveSQLQueryCHSuite extends GlutenHiveSQLQuerySuiteBase {
   }
 
   testGluten("5249: Reading csv may throw Unexpected empty column") {
-    withSQLConf(
-      "spark.gluten.sql.complexType.scan.fallback.enabled" -> "false"
-    ) {
-      sql("DROP TABLE IF EXISTS test_5249;")
-      sql(
-        "CREATE TABLE test_5249 (name STRING, uid STRING) " +
-          "ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe' " +
-          "STORED AS INPUTFORMAT 'org.apache.hadoop.mapred.TextInputFormat' " +
-          "OUTPUTFORMAT 'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat';")
-      sql("INSERT INTO test_5249 VALUES('name_1', 'id_1');")
-      val df = spark.sql(
-        "SELECT name, uid, count(distinct uid) total_uid_num from test_5249 " +
-          "group by name, uid with cube;")
-      checkAnswer(
-        df,
-        Seq(
-          Row("name_1", "id_1", 1),
-          Row("name_1", null, 1),
-          Row(null, "id_1", 1),
-          Row(null, null, 1)))
-    }
+    sql("DROP TABLE IF EXISTS test_5249;")
+    sql(
+      "CREATE TABLE test_5249 (name STRING, uid STRING) " +
+        "ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe' " +
+        "STORED AS INPUTFORMAT 'org.apache.hadoop.mapred.TextInputFormat' " +
+        "OUTPUTFORMAT 'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat';")
+    sql("INSERT INTO test_5249 VALUES('name_1', 'id_1');")
+    val df = spark.sql(
+      "SELECT name, uid, count(distinct uid) total_uid_num from test_5249 " +
+        "group by name, uid with cube;")
+    checkAnswer(
+      df,
+      Seq(
+        Row("name_1", "id_1", 1),
+        Row("name_1", null, 1),
+        Row(null, "id_1", 1),
+        Row(null, null, 1)))
     spark.sessionState.catalog.dropTable(
       TableIdentifier("test_5249"),
       ignoreIfNotExists = true,

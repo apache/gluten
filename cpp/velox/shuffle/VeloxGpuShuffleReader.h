@@ -20,17 +20,16 @@
 #include "memory/VeloxMemoryManager.h"
 #include "shuffle/Payload.h"
 #include "shuffle/ShuffleReader.h"
+#include "shuffle/VeloxShuffleReader.h"
 
-#include "velox/serializers/PrestoSerializer.h"
 #include "velox/type/Type.h"
-#include "velox/vector/ComplexVector.h"
 
 namespace gluten {
 
 /// Convert the buffers to cudf table.
 /// Add a lock after reader produces the Vector, relase the lock after the thread processes all the batches.
 /// After move the shuffle read operation to gpu, move the lock to start read.
-class VeloxGpuHashShuffleReaderDeserializer final : public ColumnarBatchIterator {
+class VeloxGpuHashShuffleReaderDeserializer final : public ShuffleReaderDeserializer {
  public:
   VeloxGpuHashShuffleReaderDeserializer(
       const std::shared_ptr<StreamReader>& streamReader,
@@ -42,7 +41,9 @@ class VeloxGpuHashShuffleReaderDeserializer final : public ColumnarBatchIterator
       int64_t& deserializeTime,
       int64_t& decompressTime);
 
-  std::shared_ptr<ColumnarBatch> next() override;
+  std::shared_ptr<ColumnarBatch> next();
+
+  std::unique_ptr<ColumnarBatchIterator> deserializeStreams() override;
 
  private:
   bool resolveNextBlockType();

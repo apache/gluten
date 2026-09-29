@@ -16,8 +16,192 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.spark.sql.GlutenSQLTestsTrait
+import org.apache.spark.sql.{GlutenSQLTestsTrait, Row}
+import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.StructType
 
 class GlutenRemoveRedundantProjectsSuite
   extends RemoveRedundantProjectsSuite
-  with GlutenSQLTestsTrait {}
+  with GlutenSQLTestsTrait {
+
+  // The original tests count Spark ProjectExec nodes, while Gluten converts offloaded projects to
+  // ProjectExecTransformer. PullOutPreProject and PullOutPostProject may also insert additional
+  // projects while rewriting the Spark physical plan, so project counts are not directly
+  // comparable. Therefore, these tests only verify that query results are identical with redundant
+  // project removal enabled and disabled.
+  private def assertProjectExec(query: String, enabled: Int, disabled: Int): Unit = {
+    val df = sql(query)
+    // When enabling AQE, the DPP subquery filters is replaced in runtime.
+    df.collect()
+    // assertProjectExecCount(df, enabled)
+    val result = df.collect()
+    withSQLConf(SQLConf.REMOVE_REDUNDANT_PROJECTS_ENABLED.key -> "false") {
+      val df2 = sql(query)
+      df2.collect()
+      // assertProjectExecCount(df2, disabled)
+      checkAnswer(df2, result)
+    }
+  }
+
+  testGluten("project with filter") {
+    val query = "select * from testView where a > 5"
+    assertProjectExec(query, 0, 1)
+  }
+
+  testGluten("project with specific column ordering") {
+    val query = "select key, a, b, c from testView"
+    assertProjectExec(query, 1, 1)
+  }
+
+  testGluten("project with extra columns") {
+    val query = "select a, b, c, key, a from testView"
+    assertProjectExec(query, 1, 1)
+  }
+
+  testGluten("project with fewer columns") {
+    val query = "select a from testView where a > 3"
+    assertProjectExec(query, 1, 1)
+  }
+
+  testGluten("aggregate without ordering requirement") {
+    val query = "select sum(a) as sum_a, key, last(b) as last_b " +
+      "from (select key, a, b from testView where a > 100) group by key"
+    assertProjectExec(query, 0, 1)
+  }
+
+  testGluten("aggregate with ordering requirement") {
+    val query = "select a, sum(b) as sum_b from testView group by a"
+    assertProjectExec(query, 1, 1)
+  }
+
+  testGluten("join without ordering requirement") {
+    val query = "select t1.key, t2.key, t1.a, t2.b from (select key, a, b, c from testView)" +
+      " as t1 join (select key, a, b, c from testView) as t2 on t1.c > t2.c and t1.key > 10"
+    assertProjectExec(query, 1, 3)
+  }
+
+  testGluten("join with ordering requirement") {
+    val query = "select * from (select key, a, c, b from testView) as t1 join " +
+      "(select key, a, b, c from testView) as t2 on t1.key = t2.key where t2.a > 50"
+    assertProjectExec(query, 2, 2)
+  }
+
+  testGluten("window function") {
+    val query = "select key, b, avg(a) over (partition by key order by a " +
+      "rows between 1 preceding and 1 following) as avg from testView"
+    assertProjectExec(query, 1, 2)
+  }
+
+  testGluten("generate should require column ordering") {
+    withTempView("testData") {
+      spark.range(0, 10, 1)
+        .selectExpr("id as key", "id * 2 as a", "id * 3 as b")
+        .createOrReplaceTempView("testData")
+
+      val data = sql("select key, a, b, count(*) from testData group by key, a, b limit 2")
+      val df = data.selectExpr("a", "b", "key", "explode(array(key, a, b)) as d").filter("d > 0")
+      df.collect()
+      val plan = df.queryExecution.executedPlan
+      val numProjects = collectWithSubqueries(plan) { case p: ProjectExec => p }.length
+
+      // Create a new plan that reverse the GenerateExec output and add a new ProjectExec between
+      // GenerateExec and its child. This is to test if the ProjectExec is removed, the output of
+      // the query will be incorrect.
+      val newPlan = stripAQEPlan(plan).transform {
+        case g @ GenerateExec(_, requiredChildOutput, _, _, child) =>
+          g.copy(
+            requiredChildOutput = requiredChildOutput.reverse,
+            child = ProjectExec(requiredChildOutput.reverse, child))
+      }
+
+      // Re-apply remove redundant project rule.
+      val rule = RemoveRedundantProjects
+      val newExecutedPlan = rule.apply(newPlan)
+      // The manually added ProjectExec node shouldn't be removed.
+      // assert(collectWithSubqueries(newExecutedPlan) {
+      // case p: ProjectExec => p
+      // }.size == numProjects + 1)
+
+      // Check the original plan's output and the new plan's output are the same.
+      val expectedRows = plan.executeCollect()
+      val actualRows = newExecutedPlan.executeCollect()
+      assert(expectedRows.length == actualRows.length)
+      expectedRows.zip(actualRows).foreach { case (expected, actual) => assert(expected == actual) }
+    }
+  }
+
+  testGluten("subquery") {
+    withTempView("testData") {
+      val data = spark.sparkContext.parallelize((1 to 100).map(i => Row(i, i.toString)))
+      val schema = new StructType().add("key", "int").add("value", "string")
+      spark.createDataFrame(data, schema).createOrReplaceTempView("testData")
+      val query = "select key, value from testData where key in " +
+        "(select sum(a) from testView where a > 5 group by key)"
+      assertProjectExec(query, 0, 1)
+    }
+  }
+
+  testGluten("SPARK-33697: UnionExec should require column ordering") {
+    withTable("t1", "t2") {
+      spark.range(-10, 20)
+        .selectExpr(
+          "id",
+          "date_add(date '1950-01-01', cast(id as int)) as datecol",
+          "cast(id as string) strcol")
+        .write.mode("overwrite").format("parquet").saveAsTable("t1")
+      spark.range(-10, 20)
+        .selectExpr(
+          "cast(id as string) strcol",
+          "id",
+          "date_add(date '1950-01-01', cast(id as int)) as datecol")
+        .write.mode("overwrite").format("parquet").saveAsTable("t2")
+
+      val queryTemplate =
+        """
+          |SELECT DISTINCT datecol, strcol FROM
+          |(
+          |(SELECT datecol, id, strcol from t1)
+          | %s
+          |(SELECT datecol, id, strcol from t2)
+          |)
+          |""".stripMargin
+
+      Seq(("UNION", 1, 2), ("UNION ALL", 1, 2)).foreach {
+        case (setOperation, enabled, disabled) =>
+          val query = queryTemplate.format(setOperation)
+          assertProjectExec(query, enabled = enabled, disabled = disabled)
+      }
+    }
+  }
+
+  testGluten("SPARK-33697: remove redundant projects under expand") {
+    val query =
+      """
+        |SELECT t1.key, t2.key, sum(t1.a) AS s1, sum(t2.b) AS s2 FROM
+        |(SELECT a, key FROM testView) t1
+        |JOIN
+        |(SELECT b, key FROM testView) t2
+        |ON t1.key = t2.key
+        |GROUP BY t1.key, t2.key GROUPING SETS(t1.key, t2.key)
+        |ORDER BY t1.key, t2.key, s1, s2
+        |LIMIT 10
+        |""".stripMargin
+    // The Project above the Expand is not removed due to SPARK-36020.
+    assertProjectExec(query, 1, 3)
+  }
+
+  testGluten("SPARK-36020: Project should not be removed when child's logical link is different") {
+    val query =
+      """
+        |WITH t AS (
+        | SELECT key, a, b, c, explode(d) AS d FROM testView
+        |)
+        |SELECT t1.key, t1.d, t2.key
+        |FROM (SELECT d, key FROM t) t1
+        |JOIN testView t2 ON t1.key = t2.key
+        |""".stripMargin
+    // The ProjectExec above the GenerateExec should not be removed because
+    // they have different logical links.
+    assertProjectExec(query, enabled = 2, disabled = 3)
+  }
+}

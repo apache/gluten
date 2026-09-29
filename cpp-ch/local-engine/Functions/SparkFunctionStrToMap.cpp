@@ -240,7 +240,7 @@ public:
 
         for (size_t i = 0, n = offsets.size(); i < n; ++i)
         {
-            if (null_map && (*null_map)[n] != 0)
+            if (null_map && (*null_map)[i] != 0)
                 col_map->insertDefault();
             else
             {

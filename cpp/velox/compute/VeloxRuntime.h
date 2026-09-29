@@ -17,23 +17,18 @@
 
 #pragma once
 
+#include <folly/Executor.h>
+#include "IcebergNestedField.pb.h"
 #include "WholeStageResultIterator.h"
 #include "compute/Runtime.h"
 #include "compute/VeloxConnectorIds.h"
-#ifdef GLUTEN_ENABLE_ENHANCED_FEATURES
 #include "iceberg/IcebergWriter.h"
-#endif
-#include <folly/Executor.h>
 #include "memory/VeloxMemoryManager.h"
 #include "operators/serializer/VeloxColumnarBatchSerializer.h"
 #include "operators/serializer/VeloxColumnarToRowConverter.h"
 #include "operators/writer/VeloxParquetDataSource.h"
 #include "shuffle/ShuffleReader.h"
 #include "shuffle/ShuffleWriter.h"
-
-#ifdef GLUTEN_ENABLE_ENHANCED_FEATURES
-#include "IcebergNestedField.pb.h"
-#endif
 
 namespace gluten {
 
@@ -42,6 +37,7 @@ class VeloxRuntime final : public Runtime {
   explicit VeloxRuntime(
       const std::string& kind,
       VeloxMemoryManager* vmm,
+      ThreadManager* threadManager,
       const std::unordered_map<std::string, std::string>& confMap);
 
   ~VeloxRuntime() override;
@@ -76,7 +72,6 @@ class VeloxRuntime final : public Runtime {
 
   std::shared_ptr<RowToColumnarConverter> createRow2ColumnarConverter(struct ArrowSchema* cSchema) override;
 
-#ifdef GLUTEN_ENABLE_ENHANCED_FEATURES
   std::shared_ptr<IcebergWriter> createIcebergWriter(
       RowTypePtr rowType,
       int32_t format,
@@ -88,7 +83,6 @@ class VeloxRuntime final : public Runtime {
       std::shared_ptr<const facebook::velox::connector::hive::iceberg::IcebergPartitionSpec> spec,
       const gluten::IcebergNestedField& protoField,
       const std::unordered_map<std::string, std::string>& sparkConfs);
-#endif
 
   std::shared_ptr<ShuffleWriter> createShuffleWriter(
       int numPartitions,
@@ -102,7 +96,7 @@ class VeloxRuntime final : public Runtime {
 
   std::shared_ptr<ShuffleReader> createShuffleReader(
       std::shared_ptr<arrow::Schema> schema,
-      ShuffleReaderOptions options) override;
+      const std::shared_ptr<ShuffleReaderOptions>& options) override;
 
   std::unique_ptr<ColumnarBatchSerializer> createColumnarBatchSerializer(struct ArrowSchema* cSchema) override;
 

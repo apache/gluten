@@ -174,7 +174,27 @@ function cmake_install {
   fi
   mkdir -p "${BINARY_DIR}"
   CPU_TARGET="${CPU_TARGET:-unknown}"
-  COMPILER_FLAGS=$(get_cxx_flags $CPU_TARGET)
+  # EXTRA_CMAKE_CXX_FLAGS lets a caller append dependency-specific compiler flags
+  # for a single cmake_install invocation without affecting other dependencies.
+  COMPILER_FLAGS="$(get_cxx_flags $CPU_TARGET) ${EXTRA_CMAKE_CXX_FLAGS:-}"
+
+  local MACOS_ISOLATION_FLAGS=""
+  if [[ "$(uname)" == "Darwin" ]]; then
+    if [[ -z "${INSTALL_PREFIX:-}" ]]; then
+      :
+    elif [[ "${INSTALL_PREFIX:-}" == "/usr/local" || "${INSTALL_PREFIX:-}" == /usr/local/* ]]; then
+      echo "INFO: INSTALL_PREFIX=${INSTALL_PREFIX} is under /usr/local; keeping /usr/local visible to CMake." >&2
+    else
+      # CMake ignore paths only affect package discovery. AppleClang still adds
+      # /usr/local/include to the default header search path unless an SDK
+      # sysroot is selected, so pin SDKROOT here too for callers that invoke
+      # cmake_install directly (e.g. build-arrow.sh) without exporting it.
+      export SDKROOT="${SDKROOT:-$(xcrun --show-sdk-path)}"
+      MACOS_ISOLATION_FLAGS="-DCMAKE_IGNORE_PREFIX_PATH=/usr/local \
+        -DCMAKE_IGNORE_PATH=/usr/local;/usr/local/include;/usr/local/lib;/usr/local/lib/cmake \
+        -DCMAKE_SYSTEM_IGNORE_PATH=/usr/local;/usr/local/include;/usr/local/lib;/usr/local/lib/cmake"
+    fi
+  fi
 
   # CMAKE_POSITION_INDEPENDENT_CODE is required so that Velox can be built into dynamic libraries \
   cmake -Wno-dev -B"${BINARY_DIR}" \
@@ -185,6 +205,7 @@ function cmake_install {
     "${INSTALL_PREFIX+-DCMAKE_INSTALL_PREFIX=}${INSTALL_PREFIX-}" \
     -DCMAKE_CXX_FLAGS="$COMPILER_FLAGS" \
     -DBUILD_TESTING=OFF \
+    $MACOS_ISOLATION_FLAGS \
     "$@"
 
   cmake --build "${BINARY_DIR}"
@@ -211,8 +232,10 @@ function setup_linux {
   export SIMDJSON_SKIPUTF8VALIDATION=ON
 
   if [[ "$LINUX_DISTRIBUTION" == "ubuntu" || "$LINUX_DISTRIBUTION" == "debian" || "$LINUX_DISTRIBUTION" == "pop" ]]; then
+    source scripts/setup-ubuntu.sh
     scripts/setup-ubuntu.sh
   elif [[ "$LINUX_DISTRIBUTION" == "centos" ]]; then
+    source scripts/setup-centos-adapters.sh 
     case "$LINUX_VERSION_ID" in
     9) scripts/setup-centos9.sh ;;
     8) $GLUTEN_VELOX_SCRIPT_HOME/setup-centos8.sh ;;
@@ -231,6 +254,7 @@ function setup_linux {
   elif [[ "$LINUX_DISTRIBUTION" == "openEuler" ]]; then
     case "$LINUX_VERSION_ID" in
       24.03)
+        source $GLUTEN_VELOX_SCRIPT_HOME/setup-openeuler24.sh
         $GLUTEN_VELOX_SCRIPT_HOME/setup-openeuler24.sh ;;
       *)
         echo "Unsupported openEuler version: $LINUX_VERSION_ID"
@@ -267,14 +291,13 @@ function setup_linux {
       exit 1
       ;;
     esac
-  elif [[ "$LINUX_DISTRIBUTION" == "rhel" ]]; then
-    case "$LINUX_VERSION_ID" in
-    9.6)
-       $GLUTEN_VELOX_SCRIPT_HOME/setup-rhel.sh ;;
-    9.7)
-       $GLUTEN_VELOX_SCRIPT_HOME/setup-rhel.sh ;;
+  elif [[ "$LINUX_DISTRIBUTION" == "rhel" || "$LINUX_DISTRIBUTION" == "rocky" || \
+    "$LINUX_DISTRIBUTION" == "almalinux" ]]; then
+    case "${LINUX_VERSION_ID%%.*}" in
+    9)
+      $GLUTEN_VELOX_SCRIPT_HOME/setup-rhel.sh ;;
     *)
-      echo "Unsupported rhel version: $LINUX_VERSION_ID"
+      echo "Unsupported ${LINUX_DISTRIBUTION} version: $LINUX_VERSION_ID"
       exit 1
       ;;
     esac

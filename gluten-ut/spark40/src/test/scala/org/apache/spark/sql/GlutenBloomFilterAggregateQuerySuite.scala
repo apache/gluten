@@ -112,6 +112,41 @@ class GlutenBloomFilterAggregateQuerySuite
     }
   }
 
+  // Regression test for the capacity mismatch between VeloxBloomFilterAggregate's JVM buffer
+  // sizing and the native bloom_filter_agg aggregate's buffer sizing. Both must agree on the
+  // resulting bit-array size for the same (estimatedNumItems, numBits) arguments, since a
+  // two-phase aggregation's partial and final stages can independently land on either engine
+  // (e.g. via whole-stage fallback), and merging differently-sized buffers silently corrupts
+  // the filter (values inserted are later reported as absent) instead of throwing.
+  testGluten("Test bloom_filter_agg produces identically-sized bytes on native and JVM") {
+    val table = "bloom_filter_test"
+    val numEstimatedItems = 5000000L
+    val sqlString =
+      s"""
+         |SELECT bloom_filter_agg(col,
+         |    cast($numEstimatedItems as long),
+         |    cast($veloxBloomFilterMaxNumBits as long)) AS bf
+         |FROM $table
+      """.stripMargin
+    withTempView(table) {
+      (Seq(Long.MinValue, 0, Long.MaxValue) ++ (1L to 200000L))
+        .toDF("col")
+        .createOrReplaceTempView(table)
+
+      val nativeBytes = spark.sql(sqlString).collect()(0).getAs[Array[Byte]]("bf")
+      val jvmBytes = withSQLConf(GlutenConfig.COLUMNAR_HASHAGG_ENABLED.key -> "false") {
+        spark.sql(sqlString).collect()(0).getAs[Array[Byte]]("bf")
+      }
+      assert(
+        nativeBytes.length == jvmBytes.length,
+        s"native (${nativeBytes.length} bytes) and JVM (${jvmBytes.length} bytes) executions " +
+          "of the same bloom_filter_agg query must produce identically-sized buffers, " +
+          "otherwise merging a partial stage from one engine with a final stage from the " +
+          "other silently corrupts the filter"
+      )
+    }
+  }
+
   testGluten("Test bloom_filter_agg agg fallback") {
     val table = "bloom_filter_test"
     val numEstimatedItems = 5000000L

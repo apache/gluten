@@ -44,8 +44,7 @@ class FakeRowOutputWriter(datasourceJniWrapper: Option[CHDatasourceJniWrapper], 
     datasourceJniWrapper.foreach(_.close())
   }
 
-  // Do NOT add override keyword for compatibility on spark 3.1.
-  def path(): String = {
+  override def path(): String = {
     outputPath
   }
 }

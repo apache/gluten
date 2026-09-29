@@ -43,16 +43,26 @@ public class JniLibLoader {
     this.workDir = workDir;
   }
 
-  private static String toRealPath(String libPath) {
-    String realPath = libPath;
+  /**
+   * Returns the canonical, fully-dereferenced absolute path for the given library path.
+   *
+   * <p>Delegates to {@link Path#toRealPath} so symbolic-link chains whose stored targets are
+   * relative (e.g. {@code lib.so -> lib.so.1 -> lib.so.1.2.3}) and symbolic-link cycles are handled
+   * by the JDK rather than a hand-rolled loop that resolved {@code readSymbolicLink} results
+   * against the process working directory and could spin forever on a cycle.
+   *
+   * <p>Package-private for testing.
+   */
+  static String toRealPath(String libPath) {
     try {
-      while (Files.isSymbolicLink(Paths.get(realPath))) {
-        realPath = Files.readSymbolicLink(Paths.get(realPath)).toString();
-      }
+      Path realPath = Paths.get(libPath).toRealPath();
       LOG.info("Read real path {} for libPath {}", realPath, libPath);
-      return realPath;
-    } catch (Throwable th) {
-      throw new GlutenException("Error to read real path for libPath: " + libPath, th);
+      return realPath.toString();
+    } catch (Exception e) {
+      // Wrap any operational failure (IOException, InvalidPathException, SecurityException,
+      // NPE, ...) as GlutenException so callers see a consistent type. Error subclasses
+      // (OOME, StackOverflowError, ...) are intentionally allowed to propagate.
+      throw new GlutenException("Error to read real path for libPath: " + libPath, e);
     }
   }
 
@@ -75,25 +85,25 @@ public class JniLibLoader {
     loadFromPath0(file.getAbsolutePath());
   }
 
+  /**
+   * Extracts the library resource {@code libPath} to {@code workDir} and loads it. Returns
+   * immediately if {@code libPath} was already loaded by this instance.
+   */
   public synchronized void load(String libPath) {
-    try {
-      if (loadedLibraries.contains(libPath)) {
-        LOG.debug("Library {} has already been loaded, skipping", libPath);
-        return;
-      }
-      File file = moveToWorkDir(workDir, libPath);
-      loadWithLink(file.getAbsolutePath(), null);
-      loadedLibraries.add(libPath);
-      LOG.info("Successfully loaded library {}", libPath);
-    } catch (IOException e) {
-      throw new GlutenException(e);
-    }
+    loadAndCreateLink(libPath, null);
   }
 
+  /**
+   * Same contract as {@link #load(String)}, with the addition of creating a symbolic link named
+   * {@code linkName} in {@code workDir} pointing at the extracted library. Returns immediately if
+   * {@code libPath} was already loaded by this instance. Passing a null {@code linkName} skips the
+   * link creation.
+   */
   public synchronized void loadAndCreateLink(String libPath, String linkName) {
     try {
       if (loadedLibraries.contains(libPath)) {
         LOG.debug("Library {} has already been loaded, skipping", libPath);
+        return;
       }
       File file = moveToWorkDir(workDir, libPath);
       loadWithLink(file.getAbsolutePath(), linkName);

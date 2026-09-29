@@ -44,6 +44,8 @@ class HashAggregateMetricsUpdaterImpl(val metrics: Map[String, SQLMetric])
   val aggSpilledPartitions: SQLMetric = metrics("aggSpilledPartitions")
   val aggSpilledFiles: SQLMetric = metrics("aggSpilledFiles")
   val flushRowCount: SQLMetric = metrics("flushRowCount")
+  val abandonedPartialAggregationRows: SQLMetric = metrics("abandonedPartialAggregationRows")
+  val toIntermediateFastPathCalls: SQLMetric = metrics("toIntermediateFastPathCalls")
   val loadedToValueHook: SQLMetric = metrics("loadedToValueHook")
 
   val rowConstructionCpuCount: SQLMetric = metrics("rowConstructionCpuCount")
@@ -81,6 +83,8 @@ class HashAggregateMetricsUpdaterImpl(val metrics: Map[String, SQLMetric])
     aggSpilledPartitions += aggMetrics.spilledPartitions
     aggSpilledFiles += aggMetrics.spilledFiles
     flushRowCount += aggMetrics.flushRowCount
+    abandonedPartialAggregationRows += aggMetrics.abandonedPartialAggregationRows
+    toIntermediateFastPathCalls += aggMetrics.toIntermediateFastPathCalls
     loadedToValueHook += aggMetrics.loadedToValueHook
     idx += 1
 
@@ -90,7 +94,7 @@ class HashAggregateMetricsUpdaterImpl(val metrics: Map[String, SQLMetric])
       idx += 1
     }
 
-    loadLazyVectorTime += aggregationMetrics.asScala.last.loadLazyVectorTime
+    loadLazyVectorTime += aggregationMetrics.asScala.map(_.loadLazyVectorTime).sum
 
     if (TaskResources.inSparkTask()) {
       SparkMetricsUtil.incMemoryBytesSpilled(

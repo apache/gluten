@@ -44,6 +44,7 @@ class VeloxRssSortShuffleWriterTest : public VeloxShuffleWriterTestBase, public 
 
   void SetUp() override {
     setUpTestData();
+    strBuffer_ = AlignedBuffer::allocate<char>(200, pool());
   }
 
   std::shared_ptr<VeloxShuffleWriter> createShuffleWriter(uint32_t numPartitions) {
@@ -64,77 +65,96 @@ class VeloxRssSortShuffleWriterTest : public VeloxShuffleWriterTestBase, public 
             numPartitions, std::move(partitionWriter), std::move(writerOptions), getDefaultMemoryManager()));
     return shuffleWriter;
   }
+
+  std::shared_ptr<FlatVector<StringView>> makeNonSharedStringVector() const {
+    auto strBuffer = AlignedBuffer::allocate<char>(200, pool());
+    auto vector = BaseVector::create<FlatVector<StringView>>(VARCHAR(), 100, pool());
+    vector->setStringBuffers({std::move(strBuffer)});
+    return vector;
+  }
+
+  std::shared_ptr<FlatVector<StringView>> makeSharedStringVector() {
+    auto vector = BaseVector::create<FlatVector<StringView>>(VARCHAR(), 100, pool());
+    vector->setStringBuffers({strBuffer_});
+    return vector;
+  }
+
+  BufferPtr strBuffer_;
+
+  static constexpr int64_t kMemLimit = std::numeric_limits<int64_t>::max();
 };
 
 TEST_F(VeloxRssSortShuffleWriterTest, calculateBatchesSize) {
   auto shuffleWriter = std::dynamic_pointer_cast<VeloxRssSortShuffleWriter>(createShuffleWriter(10));
-  // Do not trigger resetBatches by shuffle writer.
-  const int64_t memLimit = INT64_MAX;
+
+  auto rowVector1 = makeRowVector({makeSharedStringVector(), makeSharedStringVector()});
+  auto rowVector2 = makeRowVector({makeSharedStringVector(), makeNonSharedStringVector()});
+  auto cb1 = std::make_shared<VeloxColumnarBatch>(rowVector1);
+  auto cb2 = std::make_shared<VeloxColumnarBatch>(rowVector2);
+
+  ASSERT_NOT_OK(shuffleWriter->write(cb1, kMemLimit));
+  ASSERT_NOT_OK(shuffleWriter->write(cb2, kMemLimit));
+  auto expectedSize = rowVector1->retainedSize() + rowVector2->retainedSize() - strBuffer_->capacity() * 2;
+  EXPECT_EQ(expectedSize, shuffleWriter->getInputColumnBytes());
+}
+
+TEST_F(VeloxRssSortShuffleWriterTest, sharedStringInArray) {
+  auto shuffleWriter = std::dynamic_pointer_cast<VeloxRssSortShuffleWriter>(createShuffleWriter(10));
 
   // Shared string buffer in FlatVector<StringView>.
-  BufferPtr strBuffer = AlignedBuffer::allocate<char>(200, pool());
-  auto vector1 = BaseVector::create<FlatVector<StringView>>(VARCHAR(), 100, pool());
-  vector1->setStringBuffers({strBuffer});
-  auto vector2 = BaseVector::create<FlatVector<StringView>>(VARCHAR(), 100, pool());
-  vector2->setStringBuffers({strBuffer});
-  auto vector3 = BaseVector::create<FlatVector<StringView>>(VARCHAR(), 100, pool());
-  vector3->setStringBuffers({strBuffer});
-  auto vector4 = BaseVector::create<FlatVector<int64_t>>(INTEGER(), 100, pool());
-
-  auto rowVector1 = makeRowVector({vector1, vector2});
-  auto rowVector2 = makeRowVector({vector3, vector4});
-  std::shared_ptr<ColumnarBatch> cb1 = std::make_shared<VeloxColumnarBatch>(rowVector1);
-  std::shared_ptr<ColumnarBatch> cb2 = std::make_shared<VeloxColumnarBatch>(rowVector2);
-
-  ASSERT_NOT_OK(shuffleWriter->write(cb1, memLimit));
-  ASSERT_NOT_OK(shuffleWriter->write(cb2, memLimit));
-  auto expectedSize = rowVector1->retainedSize() + rowVector2->retainedSize() - strBuffer->capacity() * 2;
-  EXPECT_EQ(expectedSize, shuffleWriter->getInputColumnBytes());
-  shuffleWriter->resetBatches();
+  auto vector = makeSharedStringVector();
 
   // Shared string buffer in ArrayVector.
-  BufferPtr offsets = allocateOffsets(1, vector1->pool());
-  BufferPtr sizes = allocateOffsets(1, vector1->pool());
-  sizes->asMutable<vector_size_t>()[0] = vector1->size();
+  BufferPtr offsets = allocateOffsets(1, vector->pool());
+  BufferPtr sizes = allocateOffsets(1, vector->pool());
+  sizes->asMutable<vector_size_t>()[0] = vector->size();
 
   auto arrayVector =
-      std::make_shared<facebook::velox::ArrayVector>(pool(), ARRAY(VARCHAR()), nullptr, 1, offsets, sizes, vector1);
-  auto rowVector3 = makeRowVector({arrayVector, vector1});
-  cb1 = std::make_shared<VeloxColumnarBatch>(rowVector3);
-  ASSERT_NOT_OK(shuffleWriter->write(cb1, memLimit));
-  expectedSize = rowVector3->retainedSize() - strBuffer->capacity();
+      std::make_shared<facebook::velox::ArrayVector>(pool(), ARRAY(VARCHAR()), nullptr, 1, offsets, sizes, vector);
+  auto rowVector = makeRowVector({arrayVector, vector});
+  auto cb1 = std::make_shared<VeloxColumnarBatch>(rowVector);
+  ASSERT_NOT_OK(shuffleWriter->write(cb1, kMemLimit));
+  auto expectedSize = rowVector->retainedSize() - strBuffer_->capacity();
   EXPECT_EQ(expectedSize, shuffleWriter->getInputColumnBytes());
-  shuffleWriter->resetBatches();
+}
+
+TEST_F(VeloxRssSortShuffleWriterTest, sharedStringInMap) {
+  auto shuffleWriter = std::dynamic_pointer_cast<VeloxRssSortShuffleWriter>(createShuffleWriter(10));
 
   // Shared string buffer in MapVector.
-  auto keys = vector1;
-  auto values = vector2;
+  auto keys = makeSharedStringVector();
+  auto values = makeSharedStringVector();
   auto mapVector = makeMapVector({0, 10, 20, 50}, keys, values);
-  auto rowVector4 = makeRowVector({mapVector, vector3});
-  cb1 = std::make_shared<VeloxColumnarBatch>(rowVector4);
-  ASSERT_NOT_OK(shuffleWriter->write(cb1, memLimit));
-  expectedSize = rowVector4->retainedSize() - strBuffer->capacity() * 2;
+  auto rowVector = makeRowVector({mapVector, makeSharedStringVector()});
+  auto cb = std::make_shared<VeloxColumnarBatch>(rowVector);
+  ASSERT_NOT_OK(shuffleWriter->write(cb, kMemLimit));
+  auto expectedSize = rowVector->retainedSize() - strBuffer_->capacity() * 2;
   EXPECT_EQ(expectedSize, shuffleWriter->getInputColumnBytes());
-  shuffleWriter->resetBatches();
+}
+
+TEST_F(VeloxRssSortShuffleWriterTest, sharedStringInRowVector) {
+  auto shuffleWriter = std::dynamic_pointer_cast<VeloxRssSortShuffleWriter>(createShuffleWriter(10));
 
   // Shared string buffer in RowVector.
-  auto rowVector5 = makeRowVector({rowVector1, vector3});
-  cb1 = std::make_shared<VeloxColumnarBatch>(rowVector5);
-  ASSERT_NOT_OK(shuffleWriter->write(cb1, memLimit));
-  expectedSize = rowVector5->retainedSize() - strBuffer->capacity() * 2;
+  auto rowVectorInner = makeRowVector({makeSharedStringVector(), makeSharedStringVector()});
+  auto rowVectorOuter = makeRowVector({rowVectorInner, makeSharedStringVector()});
+  auto cb = std::make_shared<VeloxColumnarBatch>(rowVectorOuter);
+  ASSERT_NOT_OK(shuffleWriter->write(cb, kMemLimit));
+  auto expectedSize = rowVectorOuter->retainedSize() - strBuffer_->capacity() * 2;
   EXPECT_EQ(expectedSize, shuffleWriter->getInputColumnBytes());
-  shuffleWriter->resetBatches();
+}
+
+TEST_F(VeloxRssSortShuffleWriterTest, sharedStringInDictionary) {
+  auto shuffleWriter = std::dynamic_pointer_cast<VeloxRssSortShuffleWriter>(createShuffleWriter(10));
 
   // Vector is not flatten.
+  auto vector = makeSharedStringVector();
   auto dictionaryVector = BaseVector::wrapInDictionary(
-      BufferPtr(nullptr),
-      makeIndices(vector1->size(), [](vector_size_t row) { return row; }),
-      vector1->size(),
-      vector1);
-  auto rowVector6 = makeRowVector({dictionaryVector});
-  cb1 = std::make_shared<VeloxColumnarBatch>(rowVector6);
-  ASSERT_NOT_OK(shuffleWriter->write(cb1, memLimit));
-  EXPECT_EQ(rowVector6->retainedSize(), shuffleWriter->getInputColumnBytes());
+      BufferPtr(nullptr), makeIndices(vector->size(), [](vector_size_t row) { return row; }), vector->size(), vector);
+  auto rowVector = makeRowVector({dictionaryVector});
+  auto cb = std::make_shared<VeloxColumnarBatch>(rowVector);
+  ASSERT_NOT_OK(shuffleWriter->write(cb, kMemLimit));
+  EXPECT_EQ(rowVector->retainedSize(), shuffleWriter->getInputColumnBytes());
 }
 
 } // namespace gluten

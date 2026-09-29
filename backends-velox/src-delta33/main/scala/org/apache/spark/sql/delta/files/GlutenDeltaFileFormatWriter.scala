@@ -542,7 +542,7 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
     }
   }
 
-  private class GlutenDynamicPartitionDataSingleWriter(
+  private[delta] class GlutenDynamicPartitionDataSingleWriter(
       description: WriteJobDescription,
       taskAttemptContext: TaskAttemptContext,
       committer: FileCommitProtocol,
@@ -633,9 +633,9 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
           } else {
             VeloxColumnarBatches.slice(columnBatch, offset, rowsToWrite)
           }
-        try {
+        Utils.tryWithSafeFinally {
           writeCurrentBatch(terminalRow.withNewBatch(batchToWrite), rowsToWrite)
-        } finally {
+        } {
           if (batchToWrite ne columnBatch) {
             batchToWrite.close()
           }
@@ -645,12 +645,12 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
     }
 
     private def writePartitionStripe(terminalRow: TerminalRow, blockStripe: BlockStripe): Unit = {
-      beforeWrite(blockStripe.getHeadingRow)
       val currentColumnBatch = blockStripe.getColumnarBatch
-      try {
+      Utils.tryWithSafeFinally {
+        beforeWrite(blockStripe.getHeadingRow)
         assert(currentColumnBatch.numRows() > 0)
         writeCurrentBatchWithMaxRecords(terminalRow, currentColumnBatch)
-      } finally {
+      } {
         currentColumnBatch.close()
       }
     }
@@ -663,12 +663,18 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
             terminalRow.batch(),
             partitionColIndice,
             isBucketed)
-        try {
-          val iter = blockStripes.iterator()
+        val iter = blockStripes.iterator()
+        Utils.tryWithSafeFinally {
           while (iter.hasNext) {
             writePartitionStripe(terminalRow, iter.next())
           }
-        } finally {
+        } {
+          // Velox creates all stripe batches eagerly, and release() does not close them.
+          // On failure, the current stripe has already been closed by writePartitionStripe.
+          while (iter.hasNext) {
+            val remainingBatch = iter.next().getColumnarBatch
+            Utils.tryLogNonFatalError(remainingBatch.close())
+          }
           blockStripes.release()
         }
       }

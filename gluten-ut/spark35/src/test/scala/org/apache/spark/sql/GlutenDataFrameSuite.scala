@@ -325,7 +325,9 @@ class GlutenDataFrameSuite extends DataFrameSuite with GlutenSQLTestsTrait {
   }
 
   testGluten("Allow leading/trailing whitespace in string before casting") {
-    withSQLConf("spark.gluten.velox.castFromVarcharAddTrimNode" -> "true") {
+    withSQLConf(
+      "spark.gluten.velox.castFromVarcharAddTrimNode" -> "true",
+      "spark.gluten.bolt.castFromVarcharAddTrimNode" -> "true") {
       def checkResult(df: DataFrame, expectedResult: Seq[Row]): Unit = {
         checkAnswer(df, expectedResult)
         assert(

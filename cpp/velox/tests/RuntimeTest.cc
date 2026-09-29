@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 #include "compute/VeloxBackend.h"
 #include "memory.pb.h"
+#include "threads/ThreadInitializer.h"
 
 namespace gluten {
 
@@ -46,13 +47,26 @@ class DummyMemoryManager final : public MemoryManager {
 
 inline static const std::string kDummyBackendKind{"dummy"};
 
+class DummyThreadManager final : public ThreadManager {
+ public:
+  explicit DummyThreadManager(const std::string& kind) : ThreadManager(kind), initializer_(ThreadInitializer::noop()) {}
+
+  ThreadInitializer* getThreadInitializer() override {
+    return initializer_.get();
+  }
+
+ private:
+  std::shared_ptr<ThreadInitializer> initializer_;
+};
+
 class DummyRuntime final : public Runtime {
  public:
   DummyRuntime(
       const std::string& kind,
       DummyMemoryManager* mm,
+      ThreadManager* tm,
       const std::unordered_map<std::string, std::string>& conf)
-      : Runtime(kind, mm, conf) {}
+      : Runtime(kind, mm, tm, conf) {}
 
   void parsePlan(const uint8_t* data, int32_t size) override {}
 
@@ -89,12 +103,12 @@ class DummyRuntime final : public Runtime {
     throw GlutenException("Not yet implemented");
   }
   Metrics* getMetrics(ColumnarBatchIterator* rawIter, int64_t exportNanos) override {
-    static Metrics m(1);
+    static Metrics m(0, R"({"orderedNodeIds":[],"omittedNodeIds":[],"loadLazyVectorTime":0,"nodeStats":{}})");
     return &m;
   }
   std::shared_ptr<ShuffleReader> createShuffleReader(
       std::shared_ptr<arrow::Schema> schema,
-      ShuffleReaderOptions options) override {
+      const std::shared_ptr<ShuffleReaderOptions>& options) override {
     throw GlutenException("Not yet implemented");
   }
   std::unique_ptr<ColumnarBatchSerializer> createColumnarBatchSerializer(struct ArrowSchema* cSchema) override {
@@ -127,8 +141,9 @@ class DummyRuntime final : public Runtime {
 static Runtime* dummyRuntimeFactory(
     const std::string& kind,
     MemoryManager* mm,
+    ThreadManager* tm,
     const std::unordered_map<std::string, std::string> conf) {
-  return new DummyRuntime(kind, dynamic_cast<DummyMemoryManager*>(mm), conf);
+  return new DummyRuntime(kind, dynamic_cast<DummyMemoryManager*>(mm), tm, conf);
 }
 
 static void dummyRuntimeReleaser(Runtime* runtime) {
@@ -138,7 +153,8 @@ static void dummyRuntimeReleaser(Runtime* runtime) {
 TEST(TestRuntime, CreateRuntime) {
   Runtime::registerFactory(kDummyBackendKind, dummyRuntimeFactory, dummyRuntimeReleaser);
   DummyMemoryManager mm(kDummyBackendKind);
-  auto runtime = Runtime::create(kDummyBackendKind, &mm);
+  DummyThreadManager tm(kDummyBackendKind);
+  auto runtime = Runtime::create(kDummyBackendKind, &mm, &tm);
   ASSERT_EQ(typeid(*runtime), typeid(DummyRuntime));
   Runtime::release(runtime);
 }
@@ -146,14 +162,18 @@ TEST(TestRuntime, CreateRuntime) {
 TEST(TestRuntime, CreateVeloxRuntime) {
   VeloxBackend::create(AllocationListener::noop(), {});
   auto mm = MemoryManager::create(kVeloxBackendKind, AllocationListener::noop());
-  auto runtime = Runtime::create(kVeloxBackendKind, mm);
+  auto tm = ThreadManager::create(kVeloxBackendKind, ThreadInitializer::noop());
+  auto runtime = Runtime::create(kVeloxBackendKind, mm, tm);
   ASSERT_EQ(typeid(*runtime), typeid(VeloxRuntime));
   Runtime::release(runtime);
+  ThreadManager::release(tm);
 }
 
 TEST(TestRuntime, GetResultIterator) {
   DummyMemoryManager mm(kDummyBackendKind);
-  auto runtime = std::make_shared<DummyRuntime>(kDummyBackendKind, &mm, std::unordered_map<std::string, std::string>());
+  DummyThreadManager tm(kDummyBackendKind);
+  auto runtime =
+      std::make_shared<DummyRuntime>(kDummyBackendKind, &mm, &tm, std::unordered_map<std::string, std::string>());
   auto iter = runtime->createResultIterator("/tmp/test-spill", {});
   runtime->noMoreSplits(iter.get());
   ASSERT_TRUE(iter->hasNext());

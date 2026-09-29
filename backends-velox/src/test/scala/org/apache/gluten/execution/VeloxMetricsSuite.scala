@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.execution
 
-import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.SparkConf
@@ -186,6 +186,44 @@ class VeloxMetricsSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
         val metrics = window.get.metrics
         assert(metrics("numOutputRows").value == 100)
         assert(metrics("outputVectors").value == 2)
+    }
+  }
+
+  test("Metrics of TopN") {
+    runQueryAndCompare("SELECT c1, c2 FROM metrics_t1 ORDER BY c2 LIMIT 5") {
+      df =>
+        // TopNTransformer is synthesized at execution time and is not plan-visible; the native
+        // TopN metrics are reported on the TakeOrderedAndProjectExecTransformer node instead.
+        val topN = find(df.queryExecution.executedPlan) {
+          case _: TakeOrderedAndProjectExecTransformer => true
+          case _ => false
+        }
+        assert(topN.isDefined)
+        val metrics = topN.get.metrics
+        assert(metrics("numOutputRows").value == 5)
+        assert(metrics("outputVectors").value > 0)
+        assert(metrics("outputBytes").value > 0)
+    }
+  }
+
+  test("Hash aggregate metrics include abandoned rows and toIntermediate fast path calls") {
+    withSQLConf(
+      GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> "10",
+      VeloxConfig.ABANDON_PARTIAL_AGGREGATION_MIN_ROWS.key -> "0",
+      VeloxConfig.ABANDON_PARTIAL_AGGREGATION_MIN_PCT.key -> "0"
+    ) {
+      runQueryAndCompare("SELECT c2, sum(c1) FROM metrics_t1 GROUP BY c2") {
+        df =>
+          val aggregates = collect(df.queryExecution.executedPlan) {
+            case agg: HashAggregateExecBaseTransformer => agg
+          }
+          assert(aggregates.nonEmpty)
+          val aggregateMetrics = aggregates.map(_.metrics)
+          assert(aggregateMetrics.forall(_.contains("abandonedPartialAggregationRows")))
+          assert(aggregateMetrics.forall(_.contains("toIntermediateFastPathCalls")))
+          assert(aggregateMetrics.map(_("abandonedPartialAggregationRows").value).sum > 0)
+          assert(aggregateMetrics.map(_("toIntermediateFastPathCalls").value).sum > 0)
+      }
     }
   }
 

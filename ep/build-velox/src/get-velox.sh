@@ -18,8 +18,8 @@ set -exu
 
 CURRENT_DIR=$(cd "$(dirname "$BASH_SOURCE")"; pwd)
 VELOX_REPO=https://github.com/IBM/velox.git
-VELOX_BRANCH=dft-2026_05_13
-VELOX_ENHANCED_BRANCH=ibm-2026_05_13
+VELOX_BRANCH=dft-2026_09_29
+VELOX_ENHANCED_BRANCH=ibm-2026_09_29
 VELOX_HOME=""
 RUN_SETUP_SCRIPT=ON
 ENABLE_ENHANCED_FEATURES=OFF
@@ -65,11 +65,12 @@ if [ "$VELOX_HOME" == "" ]; then
 fi
 
 function process_setup_ubuntu {
+  sed -i "s|run_and_time install_arrow||g" scripts/setup-ubuntu.sh
   echo "Using setup script from Velox"
 }
 
 function process_setup_centos9 {
-  sed -i "s|-DFOLLY_HAVE_INT128_T=ON|-DFOLLY_HAVE_INT128_T=ON -DFOLLY_NO_EXCEPTION_TRACER=ON|g" scripts/setup-common.sh
+  sed -i "s|run_and_time install_arrow||g" scripts/setup-centos9.sh
   echo "Using setup script from Velox"
 }
 
@@ -87,6 +88,17 @@ function process_setup_alinux3 {
 
 function process_setup_tencentos32 {
   sed -i "/^[[:space:]]*#/!s/.*dnf config-manager --set-enabled powertools/#&/" ${CURRENT_DIR}/setup-centos8.sh
+}
+
+# Folly enables jemalloc when Homebrew headers are visible but does not link
+# libjemalloc, leaving _mallocx/_nallocx undefined for downstream links. Keep
+# Folly's Linux-equivalent no-jemalloc behavior; Gluten's own jemalloc build is
+# independent of this. Header-search isolation from /usr/local is handled by
+# SDKROOT exported in builddeps-veloxbe.sh / build-velox.sh.
+function process_setup_macos {
+  if ! grep -Fq 'FOLLY_USE_JEMALLOC=OFF' scripts/setup-common.sh; then
+    sed -i '' 's/local FOLLY_FLAGS=(/local FOLLY_FLAGS=(-DFOLLY_USE_JEMALLOC=OFF /' scripts/setup-common.sh
+  fi
 }
 
 function prepare_velox_source_code {
@@ -141,11 +153,13 @@ function apply_provided_velox_patch {
 }
 
 function apply_compilation_fixes {
-  sudo cp ${CURRENT_DIR}/modify_arrow.patch ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/
-  sudo cp ${CURRENT_DIR}/modify_arrow_dataset_scan_option.patch ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/
+  local SUDO_CMD=""
+  if [ "$OS" == "Linux" ] && [ "${EUID:-$(id -u)}" -ne 0 ]; then
+    SUDO_CMD="sudo"
+  fi
+  $SUDO_CMD cp ${CURRENT_DIR}/modify_arrow.patch ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/
 
   git add ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/modify_arrow.patch # to avoid the file from being deleted by git clean -dffx :/
-  git add ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/modify_arrow_dataset_scan_option.patch # to avoid the file from being deleted by git clean -dffx :/
 }
 
 function setup_linux {
@@ -194,12 +208,13 @@ function setup_linux {
         exit 1
       ;;
     esac
-  elif [[ "$LINUX_DISTRIBUTION" == "rhel" ]]; then
-    case "$LINUX_VERSION_ID" in
-      9.6) ;;
-      9.7) ;;
+  elif [[ "$LINUX_DISTRIBUTION" == "rhel" || "$LINUX_DISTRIBUTION" == "rocky" || \
+    "$LINUX_DISTRIBUTION" == "almalinux" ]]; then
+    case "${LINUX_VERSION_ID%%.*}" in
+      9) ;;
+      8) ;;
       *)
-        echo "Unsupported rhel version: $LINUX_VERSION_ID"
+        echo "Unsupported ${LINUX_DISTRIBUTION} version: $LINUX_VERSION_ID"
         exit 1
       ;;
     esac
@@ -213,7 +228,7 @@ function apply_setup_fixes() {
   if [ $OS == 'Linux' ]; then
     setup_linux
   elif [ $OS == 'Darwin' ]; then
-    :
+    process_setup_macos
   else
     echo "Unsupported kernel: $OS"
     exit 1

@@ -104,8 +104,8 @@ object TaskResources extends TaskListener with Logging {
             try {
               context.markTaskFailed(t)
             } catch {
-              case t: Throwable =>
-                t.addSuppressed(t)
+              case markFailure: Throwable =>
+                t.addSuppressed(markFailure)
             }
             context.markTaskCompleted(Some(t))
             throw t
@@ -140,7 +140,7 @@ object TaskResources extends TaskListener with Logging {
     if (!inSparkTask()) {
       throw new UnsupportedOperationException(
         "Not in a Spark task. If the code is running on driver or for testing purpose, " +
-          "try using TaskResources#runUnsafe")
+          "try using TaskResources#runUnsafe. Current thread: " + Thread.currentThread().getName)
     }
     val tc = getLocalTaskContext()
     RESOURCE_REGISTRIES.synchronized {

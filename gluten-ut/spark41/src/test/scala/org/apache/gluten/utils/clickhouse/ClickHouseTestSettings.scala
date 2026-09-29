@@ -43,6 +43,7 @@ import org.apache.spark.sql.sources._
 // scalastyle:off line.size.limit
 
 class ClickHouseTestSettings extends BackendTestSettings {
+  import SuiteSettings._
 
   enableSuite[ClickHouseAdaptiveQueryExecSuite]
     .includeAllGlutenTests()
@@ -89,6 +90,8 @@ class ClickHouseTestSettings extends BackendTestSettings {
     // Exception.
     .exclude("column pruning - non-readable file")
   enableSuite[GlutenBitmapExpressionsQuerySuite]
+    // bitmap_construct_agg is not supported natively in CH backend.
+    .excludeCH("bitmap_construct_agg routes to native")
   enableSuite[GlutenBitwiseExpressionsSuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuite]
     .excludeCH("Test bloom_filter_agg and might_contain")
@@ -351,6 +354,8 @@ class ClickHouseTestSettings extends BackendTestSettings {
     // Extra ColumnarToRow is needed to transform vanilla columnar data to gluten columnar data.
     .includeCH("SPARK-37369: Avoid redundant ColumnarToRow transition on InMemoryTableScan")
     .excludeCH("Gluten - InMemoryRelation statistics")
+    // Needs to rewrite TimestampNTZType.
+    .excludeGlutenTest("SPARK-36120: Support cache/uncache table with TimestampNTZ type")
   enableSuite[GlutenCastWithAnsiOffSuite]
     .exclude(
       "Process Infinity, -Infinity, NaN in case insensitive manner" // +inf not supported in folly.
@@ -484,6 +489,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
     // Rewrite this test because Velox sorts rows by key for primitive data types, which disrupts the original row sequence.
     .includeCH("map_zip_with function - map of primitive types")
     .excludeCH("map with arrays")
+    .excludeGlutenTest("map with arrays")
     .excludeCH("flatten function")
     .excludeCH("SPARK-41233: array prepend")
     .excludeCH("array_insert functions")
@@ -701,6 +707,10 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeCH("SPARK-31896: Handle am-pm timestamp parsing when hour is missing")
     .excludeCH("UNIX_SECONDS")
     .excludeCH("TIMESTAMP_SECONDS")
+    // TimestampNTZ evaluation is not supported.
+    .excludeCH("Seconds")
+    .excludeCH("Minute")
+    .excludeGlutenTest("Hour")
   enableSuite[GlutenDateFunctionsSuite]
     // The below two are replaced by two modified versions.
     .exclude("unix_timestamp")
@@ -728,9 +738,8 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .includeCH("update char/varchar columns")
   enableSuite[GlutenDeltaBasedUpdateTableSuite]
   enableSuite[GlutenDeprecatedAPISuite]
-  enableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuite]
-    .disable(
-      "DISABLED: GLUTEN-4893 Vanilla UT checks scan operator by exactly matching the class type")
+  disableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuite](
+    "GLUTEN-4893: Vanilla UT checks scan operator by exactly matching the class type")
   enableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuiteAE]
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOff]
     .excludeGlutenTest("Subquery reuse across the whole plan")
@@ -1994,6 +2003,9 @@ class ClickHouseTestSettings extends BackendTestSettings {
   enableSuite[GlutenResolvedDataSourceSuite]
   enableSuite[GlutenReuseExchangeAndSubquerySuite]
   enableSuite[GlutenRuntimeNullChecksV2Writes]
+    .excludeGlutenTest("NOT NULL checks for nullable map with required values (byName)")
+    .excludeGlutenTest("NOT NULL checks for nullable map with required values (byPosition)")
+    .excludeGlutenTest("NOT NULL checks for fields inside nullable maps (byPosition)")
   enableSuite[GlutenSQLAggregateFunctionSuite]
     .excludeGlutenTest("Return NaN or null when dividing by zero")
   enableSuite[GlutenSQLQuerySuite]
@@ -2065,6 +2077,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeCH("sorting on YearMonthIntervalType(0,1) with nullable=false, sortOrder=List('a DESC NULLS LAST)")
     .excludeCH("sorting on YearMonthIntervalType(0,1) with nullable=false, sortOrder=List('a DESC NULLS FIRST)")
   enableSuite[GlutenSparkSessionExtensionSuite]
+    .includeGlutenTest("customColumnarOp")
   enableSuite[GlutenStatisticsCollectionSuite]
     // The output byte size of Velox is different
     .includeCH("SPARK-33687: analyze all tables in a specific database")

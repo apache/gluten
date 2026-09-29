@@ -42,8 +42,8 @@ class AllVeloxConfiguration extends AnyFunSuite {
       s"""
          |## Gluten Velox backend configurations
          |
-         | Key | Default | Description
-         | --- | --- | ---
+         | Key | Modifiability | Default | Description
+         | --- | --- | --- | ---
          |"""
 
     VeloxConfig.allEntries
@@ -53,7 +53,11 @@ class AllVeloxConfiguration extends AnyFunSuite {
       .foreach {
         entry =>
           val dft = entry.defaultValueString.replace("<", "&lt;").replace(">", "&gt;")
-          builder += Seq(s"${entry.key}", s"$dft", s"${entry.doc}")
+          builder += Seq(
+            s"${entry.key}",
+            AllGlutenConfiguration.configModifiability(entry.key),
+            s"$dft",
+            s"${entry.doc}")
             .mkString("|")
       }
 
@@ -61,8 +65,8 @@ class AllVeloxConfiguration extends AnyFunSuite {
       s"""
          |## Gluten Velox backend *experimental* configurations
          |
-         | Key | Default | Description
-         | --- | --- | ---
+         | Key | Modifiability | Default | Description
+         | --- | --- | --- | ---
          |"""
 
     VeloxConfig.allEntries
@@ -72,7 +76,11 @@ class AllVeloxConfiguration extends AnyFunSuite {
       .foreach {
         entry =>
           val dft = entry.defaultValueString.replace("<", "&lt;").replace(">", "&gt;")
-          builder += Seq(s"${entry.key}", s"$dft", s"${entry.doc}")
+          builder += Seq(
+            s"${entry.key}",
+            AllGlutenConfiguration.configModifiability(entry.key),
+            s"$dft",
+            s"${entry.doc}")
             .mkString("|")
       }
 
@@ -80,5 +88,10 @@ class AllVeloxConfiguration extends AnyFunSuite {
       markdown,
       builder.toMarkdown,
       "dev/gen-all-config-docs.sh")
+  }
+
+  test("Velox resize batches copyRanges is enabled by default") {
+    assert(
+      VeloxConfig.COLUMNAR_VELOX_RESIZE_BATCHES_COPY_RANGES_ENABLED.defaultValue.contains(true))
   }
 }

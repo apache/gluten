@@ -358,7 +358,6 @@ Arguments: false
 
 (33) VeloxResizeBatches
 Input [1]: [count#14]
-Arguments: 1024, 2147483647, 10485760
 
 (34) ColumnarExchange
 Input [1]: [count#14]
@@ -482,7 +481,6 @@ Arguments: false
 
 (62) VeloxResizeBatches
 Input [1]: [count#27]
-Arguments: 1024, 2147483647, 10485760
 
 (63) ColumnarExchange
 Input [1]: [count#27]
@@ -624,7 +622,6 @@ Arguments: false
 
 (96) VeloxResizeBatches
 Input [1]: [count#40]
-Arguments: 1024, 2147483647, 10485760
 
 (97) ColumnarExchange
 Input [1]: [count#40]
@@ -766,7 +763,6 @@ Arguments: false
 
 (130) VeloxResizeBatches
 Input [1]: [count#53]
-Arguments: 1024, 2147483647, 10485760
 
 (131) ColumnarExchange
 Input [1]: [count#53]
@@ -908,7 +904,6 @@ Arguments: false
 
 (164) VeloxResizeBatches
 Input [1]: [count#66]
-Arguments: 1024, 2147483647, 10485760
 
 (165) ColumnarExchange
 Input [1]: [count#66]
@@ -1050,7 +1045,6 @@ Arguments: false
 
 (198) VeloxResizeBatches
 Input [1]: [count#79]
-Arguments: 1024, 2147483647, 10485760
 
 (199) ColumnarExchange
 Input [1]: [count#79]
@@ -1192,7 +1186,6 @@ Arguments: false
 
 (232) VeloxResizeBatches
 Input [1]: [count#92]
-Arguments: 1024, 2147483647, 10485760
 
 (233) ColumnarExchange
 Input [1]: [count#92]
@@ -1334,7 +1327,6 @@ Arguments: false
 
 (266) VeloxResizeBatches
 Input [1]: [count#105]
-Arguments: 1024, 2147483647, 10485760
 
 (267) ColumnarExchange
 Input [1]: [count#105]

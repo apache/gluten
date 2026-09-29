@@ -78,6 +78,17 @@ inline std::string toString(const google::protobuf::Any & any)
     return sv.value();
 }
 
+/// Substrait 0.98 changed AdvancedExtension.optimization from a singular to a repeated field.
+/// The old singular accessor returned a default-constructed Any when the field was unset (empty
+/// value(), empty type_url), so callers could unconditionally read optimization().value()/UnpackTo().
+/// optimization(0) on an empty repeated field is out-of-bounds and crashes, so route reads of the
+/// first optimization through this helper to preserve the null-safe behavior.
+inline const google::protobuf::Any & firstOptimizationOrDefault(const substrait::extensions::AdvancedExtension & advanced_extension)
+{
+    return advanced_extension.optimization_size() > 0 ? advanced_extension.optimization(0)
+                                                      : google::protobuf::Any::default_instance();
+}
+
 namespace SubstraitParserUtils
 {
     std::optional<size_t> getStructFieldIndex(const substrait::Expression & e);

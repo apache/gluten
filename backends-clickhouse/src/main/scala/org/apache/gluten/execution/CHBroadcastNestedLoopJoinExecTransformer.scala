@@ -58,20 +58,21 @@ case class CHBroadcastNestedLoopJoinExecTransformer(
       GlutenDriverEndpoint.collectResources(executionId, buildBroadcastTableId)
     } else {
       logWarning(
-        s"Can't not trace broadcast table data $buildBroadcastTableId" +
+        s"Cannot trace broadcast table data $buildBroadcastTableId" +
           s" because execution id is null." +
           s" Will clean up until expire time.")
     }
     val broadcast = buildPlan.executeBroadcast[BuildSideRelation]()
     val context =
-      BroadCastHashJoinContext(
+      BroadcastJoinContext(
         Seq.empty,
         finalJoinType,
         buildSide == BuildRight,
         false,
         joinType.isInstanceOf[ExistenceJoin],
         buildPlan.output,
-        buildBroadcastTableId)
+        buildBroadcastTableId,
+        false)
     val broadcastRDD = CHBroadcastBuildSideRDD(sparkContext, broadcast, context)
     streamedRDD :+ broadcastRDD
   }
@@ -98,9 +99,9 @@ case class CHBroadcastNestedLoopJoinExecTransformer(
     val joinParametersStr = new StringBuffer("JoinParameters:")
     joinParametersStr
       .append("isBHJ=")
-      .append(1)
+      .append(0)
       .append("\n")
-      .append("buildHashTableId=")
+      .append("buildBroadcastTableId=")
       .append(buildBroadcastTableId)
       .append("\n")
     val message = StringValue

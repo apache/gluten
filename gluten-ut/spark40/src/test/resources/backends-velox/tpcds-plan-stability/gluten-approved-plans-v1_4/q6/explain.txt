@@ -193,7 +193,6 @@ Arguments: false
 
 (32) VeloxResizeBatches
 Input [4]: [hash_partition_key#20, i_category#14, sum#18, count#19]
-Arguments: 1024, 2147483647, 10485760
 
 (33) ColumnarExchange
 Input [4]: [hash_partition_key#20, i_category#14, sum#18, count#19]
@@ -285,7 +284,6 @@ Arguments: false
 
 (54) VeloxResizeBatches
 Input [3]: [hash_partition_key#25, ca_state#2, count#24]
-Arguments: 1024, 2147483647, 10485760
 
 (55) ColumnarExchange
 Input [3]: [hash_partition_key#25, ca_state#2, count#24]
@@ -398,7 +396,6 @@ Arguments: false
 
 (74) VeloxResizeBatches
 Input [2]: [hash_partition_key#34, d_month_seq#31]
-Arguments: 1024, 2147483647, 10485760
 
 (75) ColumnarExchange
 Input [2]: [hash_partition_key#34, d_month_seq#31]

@@ -18,15 +18,15 @@ package org.apache.spark.softaffinity
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.softaffinity.{AffinityManager, SoftAffinityManager}
-import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.SparkConf
+import org.apache.spark.paths.SparkPath
 import org.apache.spark.scheduler._
 import org.apache.spark.scheduler.cluster.ExecutorInfo
 import org.apache.spark.sql.QueryTest
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.PredicateHelper
-import org.apache.spark.sql.execution.datasources.FilePartition
+import org.apache.spark.sql.execution.datasources.{FilePartition, PartitionedFile}
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.storage.{RDDInfo, StorageLevel}
 
@@ -41,6 +41,13 @@ object FakeSoftAffinityManager extends AffinityManager {
 }
 
 class SoftAffinityWithRDDInfoSuite extends QueryTest with SharedSparkSession with PredicateHelper {
+
+  private def partitionedFile(
+      path: String,
+      start: Long,
+      length: Long,
+      locations: Array[String]): PartitionedFile =
+    PartitionedFile(InternalRow.empty, SparkPath.fromPathString(path), start, length, locations)
 
   override protected def sparkConf: SparkConf = super.sparkConf
     .set(GlutenConfig.GLUTEN_SOFT_AFFINITY_ENABLED.key, "true")
@@ -77,18 +84,8 @@ class SoftAffinityWithRDDInfoSuite extends QueryTest with SharedSparkSession wit
       null
     )
     val files = Seq(
-      SparkShimLoader.getSparkShims.generatePartitionedFile(
-        InternalRow.empty,
-        "fakePath0",
-        0,
-        100,
-        Array("host-3")),
-      SparkShimLoader.getSparkShims.generatePartitionedFile(
-        InternalRow.empty,
-        "fakePath0",
-        100,
-        200,
-        Array("host-3"))
+      partitionedFile("fakePath0", 0, 100, Array("host-3")),
+      partitionedFile("fakePath0", 100, 200, Array("host-3"))
     ).toArray
     val filePartition = FilePartition(-1, files)
     val softAffinityListener = new SoftAffinityListener()
@@ -119,18 +116,8 @@ class SoftAffinityWithRDDInfoSuite extends QueryTest with SharedSparkSession wit
     // This test simulate the case listener bus stucks. We need to make sure the middle states
     // count would not exceed the configed threshold.
     val files = Seq(
-      SparkShimLoader.getSparkShims.generatePartitionedFile(
-        InternalRow.empty,
-        "fakePath0",
-        0,
-        100,
-        Array("host-3")),
-      SparkShimLoader.getSparkShims.generatePartitionedFile(
-        InternalRow.empty,
-        "fakePath0",
-        100,
-        200,
-        Array("host-3"))
+      partitionedFile("fakePath0", 0, 100, Array("host-3")),
+      partitionedFile("fakePath0", 100, 200, Array("host-3"))
     ).toArray
     val filePartition = FilePartition(-1, files)
     FakeSoftAffinityManager.updatePartitionMap(filePartition, 1)

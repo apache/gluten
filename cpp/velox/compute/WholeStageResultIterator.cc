@@ -15,14 +15,23 @@
  * limitations under the License.
  */
 #include "WholeStageResultIterator.h"
+#include <folly/executors/CPUThreadPoolExecutor.h>
+#include <folly/executors/thread_factory/NamedThreadFactory.h>
+#include <folly/json.h>
+#include <folly/system/ThreadName.h>
+#include <optional>
 #include "VeloxBackend.h"
 #include "VeloxPlanConverter.h"
 #include "VeloxRuntime.h"
+#include "compute/delta/DeltaConnector.h"
+#include "compute/delta/DeltaSplit.h"
+#include "compute/delta/DeltaSplitInfo.h"
 #include "config/VeloxConfig.h"
 #include "utils/ConfigExtractor.h"
 #include "velox/connectors/hive/HiveConfig.h"
 #include "velox/connectors/hive/HiveConnectorSplit.h"
 #include "velox/exec/PlanNodeStats.h"
+#include "velox/functions/sparksql/SparkQueryConfig.h"
 #ifdef GLUTEN_ENABLE_GPU
 #include <cudf/io/types.hpp>
 #include "cudf/GpuLock.h"
@@ -33,39 +42,44 @@
 #include "operators/plannodes/RowVectorStream.h"
 
 using namespace facebook;
+using facebook::velox::functions::sparksql::SparkQueryConfig;
 
 namespace gluten {
 
 namespace {
 
-// metrics
-const std::string kDynamicFiltersProduced = "dynamicFiltersProduced";
-const std::string kDynamicFiltersAccepted = "dynamicFiltersAccepted";
-const std::string kReplacedWithDynamicFilterRows = "replacedWithDynamicFilterRows";
-const std::string kDynamicFilterInputRows = "dynamicFilterInputRows";
-const std::string kFlushRowCount = "flushRowCount";
-const std::string kLoadedToValueHook = "loadedToValueHook";
-const std::string kBloomFilterBlocksByteSize = "bloomFilterSize";
-const std::string kTotalScanTime = "totalScanTime";
-const std::string kSkippedSplits = "skippedSplits";
-const std::string kProcessedSplits = "processedSplits";
-const std::string kSkippedStrides = "skippedStrides";
-const std::string kProcessedStrides = "processedStrides";
-const std::string kRemainingFilterTime = "totalRemainingFilterWallNanos";
-const std::string kIoWaitTime = "ioWaitWallNanos";
-const std::string kStorageReadBytes = "storageReadBytes";
-const std::string kLocalReadBytes = "localReadBytes";
-const std::string kRamReadBytes = "ramReadBytes";
-const std::string kPreloadSplits = "readyPreloadedSplits";
-const std::string kPageLoadTime = "pageLoadTimeNs";
-const std::string kDataSourceAddSplitWallNanos = "dataSourceAddSplitWallNanos";
-const std::string kWaitForPreloadSplitNanos = "waitForPreloadSplitNanos";
-const std::string kDataSourceReadWallNanos = "dataSourceReadWallNanos";
-const std::string kNumWrittenFiles = "numWrittenFiles";
-const std::string kWriteIOTime = "writeIOWallNanos";
-
 // others
 const std::string kHiveDefaultPartition = "__HIVE_DEFAULT_PARTITION__";
+const std::string kDeltaTableFormat = "delta";
+
+const velox::core::TableScanNode* findTableScanNodeById(
+    const std::shared_ptr<const velox::core::PlanNode>& planNode,
+    const velox::core::PlanNodeId& nodeId) {
+  if (planNode == nullptr) {
+    return nullptr;
+  }
+
+  if (planNode->id() == nodeId) {
+    return dynamic_cast<const velox::core::TableScanNode*>(planNode.get());
+  }
+
+  for (const auto& source : planNode->sources()) {
+    if (const auto* found = findTableScanNodeById(source, nodeId)) {
+      return found;
+    }
+  }
+  return nullptr;
+}
+
+std::string connectorIdForScanNode(
+    const std::shared_ptr<const velox::core::PlanNode>& planNode,
+    const velox::core::PlanNodeId& nodeId) {
+  const auto* tableScanNode = findTableScanNodeById(planNode, nodeId);
+  if (tableScanNode == nullptr) {
+    return "";
+  }
+  return tableScanNode->tableHandle()->connectorId();
+}
 
 } // namespace
 
@@ -100,27 +114,24 @@ WholeStageResultIterator::WholeStageResultIterator(
   auto fileSystem = velox::filesystems::getFileSystem(spillDir, nullptr);
   GLUTEN_CHECK(fileSystem != nullptr, "File System for spilling is null!");
   fileSystem->mkdir(spillDir);
-  velox::common::SpillDiskOptions spillOpts{
-      .spillDirPath = spillDir, .spillDirCreated = true, .spillDirCreateCb = nullptr};
 
-  // Create task instance.
   std::unordered_set<velox::core::PlanNodeId> emptySet;
-  velox::core::PlanFragment planFragment{planNode, velox::core::ExecutionStrategy::kUngrouped, 1, emptySet};
-  std::shared_ptr<velox::core::QueryCtx> queryCtx = createNewVeloxQueryCtx();
-  task_ = velox::exec::Task::create(
-      fmt::format(
-          "Gluten_Stage_{}_TID_{}_VTID_{}",
-          std::to_string(taskInfo_.stageId),
-          std::to_string(taskInfo_.taskId),
-          std::to_string(taskInfo.vId)),
-      std::move(planFragment),
-      0,
-      std::move(queryCtx),
-      velox::exec::Task::ExecutionMode::kSerial,
-      /*consumer=*/velox::exec::Consumer{},
-      /*memoryArbitrationPriority=*/0,
-      /*spillDiskOpts=*/spillOpts,
-      /*onError=*/nullptr);
+  const bool serialExecution = true;
+
+  facebook::velox::exec::CursorParameters params;
+  params.planNode = planNode;
+  params.destination = 0;
+  params.maxDrivers = 1;
+  params.queryCtx = createNewVeloxQueryCtx();
+  params.executionStrategy = velox::core::ExecutionStrategy::kUngrouped;
+  params.groupedExecutionLeafNodeIds = std::move(emptySet);
+  params.numSplitGroups = 1;
+  params.spillDirectory = spillDir;
+  params.serialExecution = serialExecution;
+  params.copyResult = false;
+  params.outputPool = memoryManager_->getLeafMemoryPool();
+  cursor_ = velox::exec::TaskCursor::create(params);
+  task_ = cursor_->task().get();
   if (!task_->supportSerialExecutionMode()) {
     throw std::runtime_error("Task doesn't support single threaded execution: " + planNode->toString());
   }
@@ -131,7 +142,8 @@ WholeStageResultIterator::WholeStageResultIterator(
     throw std::runtime_error("Invalid scan information.");
   }
 
-  for (const auto& scanInfo : scanInfos) {
+  for (size_t scanInfoIdx = 0; scanInfoIdx < scanInfos.size(); ++scanInfoIdx) {
+    const auto& scanInfo = scanInfos[scanInfoIdx];
     // Get the information for TableScan.
     // Partition index in scan info is not used.
     const auto& paths = scanInfo->paths;
@@ -141,6 +153,9 @@ WholeStageResultIterator::WholeStageResultIterator(
     const auto& format = scanInfo->format;
     const auto& partitionColumns = scanInfo->partitionColumns;
     const auto& metadataColumns = scanInfo->metadataColumns;
+    const auto scanNodeConnectorId = connectorIdForScanNode(veloxPlan_, scanNodeIds_[scanInfoIdx]);
+    const auto deltaSplitInfo = std::dynamic_pointer_cast<DeltaSplitInfo>(scanInfo);
+    const bool isDeltaScan = scanNodeConnectorId == connectorIds_.delta || deltaSplitInfo != nullptr;
 #ifdef GLUTEN_ENABLE_GPU
     // Under the pre-condition that all the split infos has same partition column and format.
     const auto canUseCudfConnector = scanInfo->canUseCudfConnector();
@@ -161,7 +176,7 @@ WholeStageResultIterator::WholeStageResultIterator(
         std::unordered_map<std::string, std::string> customSplitInfo{{"table_format", "hive-iceberg"}};
         auto deleteFiles = icebergSplitInfo->deleteFilesVec[idx];
         split = std::make_shared<velox::connector::hive::iceberg::HiveIcebergSplit>(
-            connectorIds_.hive,
+            connectorIds_.iceberg,
             paths[idx],
             format,
             starts[idx],
@@ -173,11 +188,42 @@ WholeStageResultIterator::WholeStageResultIterator(
             true,
             deleteFiles,
             metadataColumn,
-            properties[idx]);
+            properties[idx],
+            /*dataSequenceNumber=*/0,
+            /*identityPartitionKeys=*/std::unordered_map<int32_t, std::optional<std::string>>{},
+            scanInfo->columnMappingMode);
+      } else if (isDeltaScan) {
+        std::unordered_map<std::string, std::string> customSplitInfo{{"table_format", kDeltaTableFormat}};
+        std::optional<gluten::delta::DeltaDeletionVectorDescriptor> deletionVector = std::nullopt;
+        auto rowIndexFilterType = gluten::delta::DeltaRowIndexFilterType::kKeepAll;
+        if (deltaSplitInfo != nullptr) {
+          VELOX_USER_CHECK_LT(idx, deltaSplitInfo->deletionVectors.size());
+          VELOX_USER_CHECK_LT(idx, deltaSplitInfo->rowIndexFilterTypes.size());
+          deletionVector = deltaSplitInfo->deletionVectors[idx];
+          rowIndexFilterType = deltaSplitInfo->rowIndexFilterTypes[idx];
+        }
+        split = std::make_shared<gluten::delta::HiveDeltaSplit>(
+            connectorIds_.delta,
+            paths[idx],
+            format,
+            starts[idx],
+            lengths[idx],
+            partitionKeys,
+            std::nullopt,
+            customSplitInfo,
+            nullptr,
+            std::unordered_map<std::string, std::string>(),
+            true,
+            deletionVector,
+            std::nullopt,
+            rowIndexFilterType,
+            metadataColumn,
+            properties[idx],
+            scanInfo->columnMappingMode);
       } else {
         auto connectorId = connectorIds_.hive;
 #ifdef GLUTEN_ENABLE_GPU
-        if (canUseCudfConnector && enableCudf_ &&
+        if (connectorId == connectorIds_.hive && canUseCudfConnector && enableCudf_ &&
             veloxCfg_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault)) {
           connectorId = connectorIds_.cudfHive;
         }
@@ -196,7 +242,10 @@ WholeStageResultIterator::WholeStageResultIterator(
             0,
             true,
             metadataColumn,
-            properties[idx]);
+            properties[idx],
+            std::nullopt,
+            std::nullopt,
+            scanInfo->columnMappingMode);
       }
       connectorSplits.emplace_back(split);
     }
@@ -216,6 +265,8 @@ std::shared_ptr<velox::core::QueryCtx> WholeStageResultIterator::createNewVeloxQ
   std::unordered_map<std::string, std::shared_ptr<velox::config::ConfigBase>> connectorConfigs;
   auto hiveSessionConfig = createHiveConnectorSessionConfig(veloxCfg_);
   connectorConfigs[connectorIds_.hive] = hiveSessionConfig;
+  connectorConfigs[connectorIds_.iceberg] = hiveSessionConfig;
+  connectorConfigs[connectorIds_.delta] = hiveSessionConfig;
   connectorConfigs[connectorIds_.iterator] = hiveSessionConfig;
 #ifdef GLUTEN_ENABLE_GPU
   if (!connectorIds_.cudfHive.empty()) {
@@ -238,41 +289,24 @@ std::shared_ptr<velox::core::QueryCtx> WholeStageResultIterator::createNewVeloxQ
 }
 
 std::shared_ptr<ColumnarBatch> WholeStageResultIterator::next() {
-  if (task_->isFinished()) {
-    return nullptr;
-  }
-  velox::RowVectorPtr vector;
   while (true) {
-    auto future = velox::ContinueFuture::makeEmpty();
-    auto out = task_->next(&future);
-    if (!future.valid()) {
-      // Not need to wait. Break.
-      vector = std::move(out);
-      break;
+    if (!cursor_->moveNext()) {
+      return nullptr;
     }
-    // Velox suggested to wait. This might be because another thread (e.g., background io thread) is spilling the task.
-    GLUTEN_CHECK(out == nullptr, "Expected to wait but still got non-null output from Velox task");
-    VLOG(2) << "Velox task " << task_->taskId()
-            << " is busy when ::next() is called. Will wait and try again. Task state: "
-            << taskStateString(task_->state());
-    future.wait();
-  }
-  if (vector == nullptr) {
-    return nullptr;
-  }
-  uint64_t numRows = vector->size();
-  if (numRows == 0) {
-    return nullptr;
-  }
-
-  {
-    ScopedTimer timer(&loadLazyVectorTime_);
-    for (auto& child : vector->children()) {
-      child->loadedVector();
+    RowVectorPtr vector = cursor_->current();
+    GLUTEN_CHECK(vector != nullptr, "Cursor returned null vector.");
+    uint64_t numRows = vector->size();
+    if (numRows == 0) {
+      continue;
     }
+    {
+      ScopedTimer timer(&loadLazyVectorTime_);
+      for (auto& child : vector->children()) {
+        child->loadedVector();
+      }
+    }
+    return std::make_shared<VeloxColumnarBatch>(vector);
   }
-
-  return std::make_shared<VeloxColumnarBatch>(vector);
 }
 
 int64_t WholeStageResultIterator::spillFixedSize(int64_t size) {
@@ -304,9 +338,6 @@ void WholeStageResultIterator::getOrderedNodeIds(
     std::vector<velox::core::PlanNodeId>& nodeIds) {
   bool isProjectNode = (std::dynamic_pointer_cast<const velox::core::ProjectNode>(planNode) != nullptr);
   bool isLocalExchangeNode = (std::dynamic_pointer_cast<const velox::core::LocalPartitionNode>(planNode) != nullptr);
-  bool isUnionNode = isLocalExchangeNode &&
-      std::dynamic_pointer_cast<const velox::core::LocalPartitionNode>(planNode)->type() ==
-          velox::core::LocalPartitionNode::Type::kGather;
   const auto& sourceNodes = planNode->sources();
   if (isProjectNode) {
     GLUTEN_CHECK(sourceNodes.size() == 1, "Illegal state");
@@ -322,22 +353,24 @@ void WholeStageResultIterator::getOrderedNodeIds(
     return;
   }
 
-  if (isUnionNode) {
-    // FIXME: The whole metrics system in gluten-substrait is magic. Passing metrics trees through JNI with a trivial
-    //  array is possible but requires for a solid design. Apparently we haven't had it. All the code requires complete
-    //  rework.
-    // Union was interpreted as LocalPartition + LocalExchange + 2 fake projects as children in Velox. So we only fetch
-    // metrics from the root node.
-    std::vector<std::shared_ptr<const velox::core::PlanNode>> unionChildren{};
+  if (isLocalExchangeNode) {
+    // LocalPartition was interpreted as LocalPartition + LocalExchange + 2 fake projects (optional) as children
+    // in SubstraitToVeloxPlan. So we only fetch metrics from the root node.
     for (const auto& source : planNode->sources()) {
       const auto projectedChild = std::dynamic_pointer_cast<const velox::core::ProjectNode>(source);
-      GLUTEN_CHECK(projectedChild != nullptr, "Illegal state");
-      const auto projectSources = projectedChild->sources();
-      GLUTEN_CHECK(projectSources.size() == 1, "Illegal state");
-      const auto projectSource = projectSources.at(0);
-      getOrderedNodeIds(projectSource, nodeIds);
+      if (projectedChild != nullptr) {
+        const auto projectSources = projectedChild->sources();
+        GLUTEN_CHECK(projectSources.size() == 1, "Illegal state");
+        const auto projectSource = projectSources.at(0);
+        getOrderedNodeIds(projectSource, nodeIds);
+      } else {
+        getOrderedNodeIds(source, nodeIds);
+      }
     }
-    nodeIds.emplace_back(planNode->id());
+    if (planNode->sources().size() == 2) {
+      // The LocalPartition maps to a concrete Spark native union transformer operator.
+      nodeIds.emplace_back(planNode->id());
+    }
     return;
   }
 
@@ -399,6 +432,7 @@ void WholeStageResultIterator::noMoreSplits() {
   for (const auto& streamId : streamIds_) {
     task_->noMoreSplits(streamId);
   }
+  cursor_->setNoMoreSplits();
   allSplitsAdded_ = true;
 }
 
@@ -434,114 +468,55 @@ void WholeStageResultIterator::collectMetrics() {
   }
 
   auto planStats = velox::exec::toPlanStats(taskStats);
-  // Calculate the total number of metrics.
-  int statsNum = 0;
+  folly::dynamic orderedNodeIds = folly::dynamic::array();
+  folly::dynamic omittedNodeIds = folly::dynamic::array();
+  folly::dynamic nodeStats = folly::dynamic::object();
+  unsigned int statsNum = 0;
+
   for (int idx = 0; idx < orderedNodeIds_.size(); idx++) {
     const auto& nodeId = orderedNodeIds_[idx];
+    orderedNodeIds.push_back(nodeId);
+
     if (planStats.find(nodeId) == planStats.end()) {
       if (omittedNodeIds_.find(nodeId) == omittedNodeIds_.end()) {
         LOG(WARNING) << "Not found node id: " << nodeId;
         LOG(WARNING) << "Plan Node: " << std::endl << veloxPlan_->toString(true, true);
         throw std::runtime_error("Node id cannot be found in plan status.");
       }
-      // Special handing for Filter over Project case. Filter metrics are
-      // omitted.
+      omittedNodeIds.push_back(nodeId);
       statsNum += 1;
-      continue;
-    }
-    statsNum += planStats.at(nodeId).operatorStats.size();
-  }
-
-  metrics_ = std::make_unique<Metrics>(statsNum);
-
-  int metricIndex = 0;
-  for (int idx = 0; idx < orderedNodeIds_.size(); idx++) {
-    metrics_->get(Metrics::kLoadLazyVectorTime)[metricIndex] = 0;
-
-    const auto& nodeId = orderedNodeIds_[idx];
-    if (planStats.find(nodeId) == planStats.end()) {
-      // Special handing for Filter over Project case. Filter metrics are
-      // omitted.
-      metrics_->get(Metrics::kOutputRows)[metricIndex] = 0;
-      metrics_->get(Metrics::kOutputVectors)[metricIndex] = 0;
-      metrics_->get(Metrics::kOutputBytes)[metricIndex] = 0;
-      metrics_->get(Metrics::kCpuCount)[metricIndex] = 0;
-      metrics_->get(Metrics::kWallNanos)[metricIndex] = 0;
-      metrics_->get(Metrics::kPeakMemoryBytes)[metricIndex] = 0;
-      metrics_->get(Metrics::kNumMemoryAllocations)[metricIndex] = 0;
-      metricIndex += 1;
       continue;
     }
 
     const auto& stats = planStats.at(nodeId);
-    // Add each operator stats into metrics.
+    folly::dynamic operatorStats = folly::dynamic::array();
     for (const auto& entry : stats.operatorStats) {
-      const auto& second = entry.second;
-      metrics_->get(Metrics::kInputRows)[metricIndex] = second->inputRows;
-      metrics_->get(Metrics::kInputVectors)[metricIndex] = second->inputVectors;
-      metrics_->get(Metrics::kInputBytes)[metricIndex] = second->inputBytes;
-      metrics_->get(Metrics::kRawInputRows)[metricIndex] = second->rawInputRows;
-      metrics_->get(Metrics::kRawInputBytes)[metricIndex] = second->rawInputBytes;
-      metrics_->get(Metrics::kOutputRows)[metricIndex] = second->outputRows;
-      metrics_->get(Metrics::kOutputVectors)[metricIndex] = second->outputVectors;
-      metrics_->get(Metrics::kOutputBytes)[metricIndex] = second->outputBytes;
-      metrics_->get(Metrics::kCpuCount)[metricIndex] = second->cpuWallTiming.count;
-      metrics_->get(Metrics::kWallNanos)[metricIndex] = second->cpuWallTiming.wallNanos;
-      metrics_->get(Metrics::kPeakMemoryBytes)[metricIndex] = second->peakMemoryBytes;
-      metrics_->get(Metrics::kNumMemoryAllocations)[metricIndex] = second->numMemoryAllocations;
-      metrics_->get(Metrics::kSpilledInputBytes)[metricIndex] = second->spilledInputBytes;
-      metrics_->get(Metrics::kSpilledBytes)[metricIndex] = second->spilledBytes;
-      metrics_->get(Metrics::kSpilledRows)[metricIndex] = second->spilledRows;
-      metrics_->get(Metrics::kSpilledPartitions)[metricIndex] = second->spilledPartitions;
-      metrics_->get(Metrics::kSpilledFiles)[metricIndex] = second->spilledFiles;
-      metrics_->get(Metrics::kNumDynamicFiltersProduced)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kDynamicFiltersProduced);
-      metrics_->get(Metrics::kNumDynamicFiltersAccepted)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kDynamicFiltersAccepted);
-      metrics_->get(Metrics::kNumReplacedWithDynamicFilterRows)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kReplacedWithDynamicFilterRows);
-      metrics_->get(Metrics::kNumDynamicFilterInputRows)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kDynamicFilterInputRows);
-      metrics_->get(Metrics::kFlushRowCount)[metricIndex] = runtimeMetric("sum", second->customStats, kFlushRowCount);
-      metrics_->get(Metrics::kLoadedToValueHook)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kLoadedToValueHook);
-      metrics_->get(Metrics::kBloomFilterBlocksByteSize)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kBloomFilterBlocksByteSize);
-      metrics_->get(Metrics::kScanTime)[metricIndex] = runtimeMetric("sum", second->customStats, kTotalScanTime);
-      metrics_->get(Metrics::kSkippedSplits)[metricIndex] = runtimeMetric("sum", second->customStats, kSkippedSplits);
-      metrics_->get(Metrics::kProcessedSplits)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kProcessedSplits);
-      metrics_->get(Metrics::kSkippedStrides)[metricIndex] = runtimeMetric("sum", second->customStats, kSkippedStrides);
-      metrics_->get(Metrics::kProcessedStrides)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kProcessedStrides);
-      metrics_->get(Metrics::kRemainingFilterTime)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kRemainingFilterTime);
-      metrics_->get(Metrics::kIoWaitTime)[metricIndex] = runtimeMetric("sum", second->customStats, kIoWaitTime);
-      metrics_->get(Metrics::kStorageReadBytes)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kStorageReadBytes);
-      metrics_->get(Metrics::kStorageReads)[metricIndex] =
-          runtimeMetric("count", second->customStats, kStorageReadBytes);
-      metrics_->get(Metrics::kLocalReadBytes)[metricIndex] = runtimeMetric("sum", second->customStats, kLocalReadBytes);
-      metrics_->get(Metrics::kRamReadBytes)[metricIndex] = runtimeMetric("sum", second->customStats, kRamReadBytes);
-      metrics_->get(Metrics::kPreloadSplits)[metricIndex] =
-          runtimeMetric("sum", entry.second->customStats, kPreloadSplits);
-      metrics_->get(Metrics::kPageLoadTime)[metricIndex] = runtimeMetric("sum", second->customStats, kPageLoadTime);
-      metrics_->get(Metrics::kDataSourceAddSplitWallNanos)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kDataSourceAddSplitWallNanos) +
-          runtimeMetric("sum", second->customStats, kWaitForPreloadSplitNanos);
-      metrics_->get(Metrics::kDataSourceReadWallNanos)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kDataSourceReadWallNanos);
-      metrics_->get(Metrics::kNumWrittenFiles)[metricIndex] =
-          runtimeMetric("sum", entry.second->customStats, kNumWrittenFiles);
-      metrics_->get(Metrics::kPhysicalWrittenBytes)[metricIndex] = second->physicalWrittenBytes;
-      metrics_->get(Metrics::kWriteIOTime)[metricIndex] = runtimeMetric("sum", second->customStats, kWriteIOTime);
+      const auto& opStats = entry.second;
+      folly::dynamic customStats = folly::dynamic::object();
+      for (const auto& customMetric : opStats->customStats) {
+        customStats[customMetric.first] = folly::dynamic::object("sum", customMetric.second.sum)(
+            "count", customMetric.second.count)("min", customMetric.second.min)("max", customMetric.second.max);
+      }
 
-      metricIndex += 1;
+      operatorStats.push_back(folly::dynamic::object("inputRows", opStats->inputRows)(
+          "inputVectors", opStats->inputVectors)("inputBytes", opStats->inputBytes)(
+          "rawInputRows", opStats->rawInputRows)("rawInputBytes", opStats->rawInputBytes)(
+          "outputRows", opStats->outputRows)("outputVectors", opStats->outputVectors)(
+          "outputBytes", opStats->outputBytes)("cpuCount", opStats->cpuWallTiming.count)(
+          "wallNanos", opStats->cpuWallTiming.wallNanos)("peakMemoryBytes", opStats->peakMemoryBytes)(
+          "numMemoryAllocations", opStats->numMemoryAllocations)("spilledInputBytes", opStats->spilledInputBytes)(
+          "spilledBytes", opStats->spilledBytes)("spilledRows", opStats->spilledRows)(
+          "spilledPartitions", opStats->spilledPartitions)("spilledFiles", opStats->spilledFiles)(
+          "physicalWrittenBytes", opStats->physicalWrittenBytes)("customStats", customStats));
     }
+
+    statsNum += static_cast<unsigned int>(operatorStats.size());
+    nodeStats[nodeId] = folly::dynamic::object("operatorStats", operatorStats);
   }
 
-  // Put the loadLazyVector time into the metrics of the last operator.
-  metrics_->get(Metrics::kLoadLazyVectorTime)[orderedNodeIds_.size() - 1] = loadLazyVectorTime_;
+  folly::dynamic payload = folly::dynamic::object("orderedNodeIds", orderedNodeIds)("omittedNodeIds", omittedNodeIds)(
+      "loadLazyVectorTime", loadLazyVectorTime_)("nodeStats", nodeStats);
+  metrics_ = std::make_unique<Metrics>(statsNum, folly::toJson(payload));
 
   // Populate the metrics with task stats for long running tasks.
   if (const int64_t collectTaskStatsThreshold =
@@ -551,27 +526,6 @@ void WholeStageResultIterator::collectMetrics() {
           collectTaskStatsThreshold * 1'000) {
     auto jsonStats = velox::exec::toPlanStatsJson(taskStats);
     metrics_->stats = folly::toJson(jsonStats);
-  }
-}
-
-int64_t WholeStageResultIterator::runtimeMetric(
-    const std::string& type,
-    const std::unordered_map<std::string, velox::RuntimeMetric>& runtimeStats,
-    const std::string& metricId) {
-  if (runtimeStats.find(metricId) == runtimeStats.end()) {
-    return 0;
-  }
-
-  if (type == "sum") {
-    return runtimeStats.at(metricId).sum;
-  } else if (type == "count") {
-    return runtimeStats.at(metricId).count;
-  } else if (type == "min") {
-    return runtimeStats.at(metricId).min;
-  } else if (type == "max") {
-    return runtimeStats.at(metricId).max;
-  } else {
-    return 0;
   }
 }
 
@@ -585,7 +539,8 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
   configs[velox::core::QueryConfig::kPreferredOutputBatchBytes] =
       std::to_string(veloxCfg_->get<uint64_t>(kVeloxPreferredBatchBytes, 10L << 20));
   try {
-    configs[velox::core::QueryConfig::kSparkAnsiEnabled] = veloxCfg_->get<std::string>(kAnsiEnabled, "false");
+    configs[SparkQueryConfig::qualify(SparkQueryConfig::kAnsiEnabled)] =
+        veloxCfg_->get<std::string>(kAnsiEnabled, "false");
     configs[velox::core::QueryConfig::kSessionTimezone] =
         normalizeSessionTimezone(veloxCfg_->get<std::string>(kSessionTimezone, ""));
     // Adjust timestamp according to the above configured session timezone.
@@ -632,6 +587,8 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
     configs[velox::core::QueryConfig::kMaxSpillLevel] = std::to_string(veloxCfg_->get<int32_t>(kMaxSpillLevel, 4));
     configs[velox::core::QueryConfig::kMaxSpillFileSize] =
         std::to_string(veloxCfg_->get<uint64_t>(kMaxSpillFileSize, 1L * 1024 * 1024 * 1024));
+    configs[velox::core::QueryConfig::kSpillNumMaxMergeFiles] =
+        std::to_string(veloxCfg_->get<uint32_t>(kSpillNumMaxMergeFiles, 0));
     configs[velox::core::QueryConfig::kMaxSpillRunRows] =
         std::to_string(veloxCfg_->get<uint64_t>(kMaxSpillRunRows, 3L * 1024 * 1024));
     configs[velox::core::QueryConfig::kMaxSpillBytes] =
@@ -659,19 +616,23 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
         std::to_string(veloxCfg_->get<bool>(kHashProbeDynamicFilterPushdownEnabled, true));
     configs[velox::core::QueryConfig::kHashProbeBloomFilterPushdownMaxSize] =
         std::to_string(veloxCfg_->get<uint64_t>(kHashProbeBloomFilterPushdownMaxSize, 0));
+    configs[velox::core::QueryConfig::kBypassHashProbeBloomFilterMinRows] = std::to_string(
+        veloxCfg_->get<int32_t>(kHashProbeBloomFilterBypassMinRows, kHashProbeBloomFilterBypassMinRowsDefault));
+    configs[velox::core::QueryConfig::kBypassHashProbeBloomFilterMinPct] = std::to_string(
+        veloxCfg_->get<int32_t>(kHashProbeBloomFilterBypassMinPct, kHashProbeBloomFilterBypassMinPctDefault));
 
     if (const auto opt = veloxCfg_->get<std::string>(kSparkBloomFilterExpectedNumItems)) {
-      configs[velox::core::QueryConfig::kSparkBloomFilterExpectedNumItems] = opt.value();
+      configs[SparkQueryConfig::qualify(SparkQueryConfig::kBloomFilterExpectedNumItems)] = opt.value();
     }
     if (const auto opt = veloxCfg_->get<std::string>(kSparkBloomFilterNumBits)) {
-      configs[velox::core::QueryConfig::kSparkBloomFilterNumBits] = opt.value();
+      configs[SparkQueryConfig::qualify(SparkQueryConfig::kBloomFilterNumBits)] = opt.value();
     }
     if (const auto opt = veloxCfg_->get<std::string>(kSparkBloomFilterMaxNumBits)) {
       // Velox will check memory cannot exceed 4194304.
-      configs[velox::core::QueryConfig::kSparkBloomFilterMaxNumBits] = opt.value();
+      configs[SparkQueryConfig::qualify(SparkQueryConfig::kBloomFilterMaxNumBits)] = opt.value();
     }
     if (const auto opt = veloxCfg_->get<std::string>(kSparkBloomFilterMaxNumItems)) {
-      configs[velox::core::QueryConfig::kSparkBloomFilterMaxNumItems] = opt.value();
+      configs[SparkQueryConfig::qualify(SparkQueryConfig::kBloomFilterMaxNumItems)] = opt.value();
     }
     // spark.gluten.sql.columnar.backend.velox.SplitPreloadPerDriver takes no effect if
     // spark.gluten.sql.columnar.backend.velox.IOThreads is set to 0
@@ -687,14 +648,14 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
     // Disable driver cpu time slicing.
     configs[velox::core::QueryConfig::kDriverCpuTimeSliceLimitMs] = "0";
 
-    configs[velox::core::QueryConfig::kSparkPartitionId] = std::to_string(taskInfo_.partitionId);
+    configs[SparkQueryConfig::qualify(SparkQueryConfig::kPartitionId)] = std::to_string(taskInfo_.partitionId);
 
     // Enable Spark legacy date formatter if spark.sql.legacy.timeParserPolicy is set to 'LEGACY'
     // or 'legacy'
     if (veloxCfg_->get<std::string>(kSparkLegacyTimeParserPolicy, "") == "LEGACY") {
-      configs[velox::core::QueryConfig::kSparkLegacyDateFormatter] = "true";
+      configs[SparkQueryConfig::qualify(SparkQueryConfig::kLegacyDateFormatter)] = "true";
     } else {
-      configs[velox::core::QueryConfig::kSparkLegacyDateFormatter] = "false";
+      configs[SparkQueryConfig::qualify(SparkQueryConfig::kLegacyDateFormatter)] = "false";
     }
 
     if (veloxCfg_->get<std::string>(kSparkMapKeyDedupPolicy, "") == "EXCEPTION") {
@@ -703,11 +664,14 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
       configs[velox::core::QueryConfig::kThrowExceptionOnDuplicateMapKeys] = "false";
     }
 
-    configs[velox::core::QueryConfig::kSparkLegacyStatisticalAggregate] =
+    configs[SparkQueryConfig::qualify(SparkQueryConfig::kLegacyStatisticalAggregate)] =
         std::to_string(veloxCfg_->get<bool>(kSparkLegacyStatisticalAggregate, false));
 
-    configs[velox::core::QueryConfig::kSparkJsonIgnoreNullFields] =
+    configs[SparkQueryConfig::qualify(SparkQueryConfig::kJsonIgnoreNullFields)] =
         std::to_string(veloxCfg_->get<bool>(kSparkJsonIgnoreNullFields, true));
+
+    configs[SparkQueryConfig::qualify(SparkQueryConfig::kDecimalToFloatHighPrecisionCastEnabled)] =
+        std::to_string(veloxCfg_->get<bool>(kDecimalToFloatHighPrecisionCastEnabled, false));
 
     configs[velox::core::QueryConfig::kExprMaxCompiledRegexes] =
         std::to_string(veloxCfg_->get<int32_t>(kExprMaxCompiledRegexes, 100));

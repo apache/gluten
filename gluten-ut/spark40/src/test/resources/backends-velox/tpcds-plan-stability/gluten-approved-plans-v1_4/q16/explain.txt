@@ -2,9 +2,9 @@
 VeloxColumnarToRow (59)
 +- ^ ProjectExecTransformer (57)
    +- ^ RegularHashAggregateExecTransformer (56)
-      +- ^ RegularHashAggregateExecTransformer (55)
+      +- ^ FlushableHashAggregateExecTransformer (55)
          +- ^ RegularHashAggregateExecTransformer (54)
-            +- ^ RegularHashAggregateExecTransformer (53)
+            +- ^ FlushableHashAggregateExecTransformer (53)
                +- ^ ProjectExecTransformer (52)
                   +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (51)
                      :- ^ ProjectExecTransformer (43)
@@ -68,7 +68,6 @@ Arguments: false
 
 (5) VeloxResizeBatches
 Input [8]: [hash_partition_key#9, cs_ship_date_sk#1, cs_ship_addr_sk#2, cs_call_center_sk#3, cs_warehouse_sk#4, cs_order_number#5, cs_ext_ship_cost#6, cs_net_profit#7]
-Arguments: 1024, 2147483647, 10485760
 
 (6) ColumnarExchange
 Input [8]: [hash_partition_key#9, cs_ship_date_sk#1, cs_ship_addr_sk#2, cs_call_center_sk#3, cs_warehouse_sk#4, cs_order_number#5, cs_ext_ship_cost#6, cs_net_profit#7]
@@ -96,7 +95,6 @@ Arguments: false
 
 (12) VeloxResizeBatches
 Input [3]: [hash_partition_key#13, cs_warehouse_sk#10, cs_order_number#11]
-Arguments: 1024, 2147483647, 10485760
 
 (13) ColumnarExchange
 Input [3]: [hash_partition_key#13, cs_warehouse_sk#10, cs_order_number#11]
@@ -134,7 +132,6 @@ Arguments: false
 
 (21) VeloxResizeBatches
 Input [2]: [hash_partition_key#16, cr_order_number#14]
-Arguments: 1024, 2147483647, 10485760
 
 (22) ColumnarExchange
 Input [2]: [hash_partition_key#16, cr_order_number#14]
@@ -269,7 +266,7 @@ Join condition: None
 Output [3]: [cs_order_number#5, UnscaledValue(cs_ext_ship_cost#6) AS _pre_1#23, UnscaledValue(cs_net_profit#7) AS _pre_2#24]
 Input [5]: [cs_call_center_sk#3, cs_order_number#5, cs_ext_ship_cost#6, cs_net_profit#7, cc_call_center_sk#21]
 
-(53) RegularHashAggregateExecTransformer
+(53) FlushableHashAggregateExecTransformer
 Input [3]: [cs_order_number#5, _pre_1#23, _pre_2#24]
 Keys [1]: [cs_order_number#5]
 Functions [2]: [partial_sum(_pre_1#23), partial_sum(_pre_2#24)]
@@ -283,7 +280,7 @@ Functions [2]: [merge_sum(UnscaledValue(cs_ext_ship_cost#6)), merge_sum(Unscaled
 Aggregate Attributes [2]: [sum(UnscaledValue(cs_ext_ship_cost#6))#25, sum(UnscaledValue(cs_net_profit#7))#26]
 Results [3]: [cs_order_number#5, sum#27, sum#28]
 
-(55) RegularHashAggregateExecTransformer
+(55) FlushableHashAggregateExecTransformer
 Input [3]: [cs_order_number#5, sum#27, sum#28]
 Keys: []
 Functions [3]: [merge_sum(UnscaledValue(cs_ext_ship_cost#6)), merge_sum(UnscaledValue(cs_net_profit#7)), partial_count(distinct cs_order_number#5)]

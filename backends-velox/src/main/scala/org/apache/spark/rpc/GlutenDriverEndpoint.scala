@@ -37,8 +37,7 @@ class GlutenDriverEndpoint extends IsolatedRpcEndpoint with Logging {
 
   protected val totalRegisteredExecutors = new AtomicInteger(0)
 
-  private val driverEndpoint: RpcEndpointRef =
-    rpcEnv.setupEndpoint(GlutenRpcConstants.GLUTEN_DRIVER_ENDPOINT_NAME, this)
+  rpcEnv.setupEndpoint(GlutenRpcConstants.GLUTEN_DRIVER_ENDPOINT_NAME, this)
 
   // TODO(yuan): get thread cnt from spark context
   override def threadCount(): Int = 1
@@ -90,11 +89,12 @@ class GlutenDriverEndpoint extends IsolatedRpcEndpoint with Logging {
   }
 
   override def onStart(): Unit = {
-    logInfo(s"Initialized GlutenDriverEndpoint, address: ${driverEndpoint.address.toString()}.")
+    logInfo(s"Initialized GlutenDriverEndpoint, address: ${self.address}.")
   }
 }
 
-object GlutenDriverEndpoint extends Logging with RemovalListener[String, util.Set[String]] {
+object GlutenDriverEndpoint extends Logging
+  with RemovalListener[String, util.Set[String]] {
   private lazy val executionResourceExpiredTime = SparkEnv.get.conf.getLong(
     GlutenConfig.GLUTEN_RESOURCE_RELATION_EXPIRED_TIME.key,
     GlutenConfig.GLUTEN_RESOURCE_RELATION_EXPIRED_TIME.defaultValue.get
@@ -125,7 +125,10 @@ object GlutenDriverEndpoint extends Logging with RemovalListener[String, util.Se
     executionResourceRelation.invalidate(executionId)
   }
 
-  override def onRemoval(key: String, value: util.Set[String], cause: RemovalCause): Unit = {
+  override def onRemoval(
+      key: String,
+      value: util.Set[String],
+      cause: RemovalCause): Unit = {
     executorDataMap.forEach(
       (_, executor) => executor.executorEndpointRef.send(GlutenCleanExecutionResource(key, value)))
   }

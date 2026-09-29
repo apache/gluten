@@ -98,10 +98,18 @@ function install_minio {
   apt-get update -y
   apt-get install -y curl
 
-  curl -fsSL -o /usr/local/bin/minio https://dl.min.io/server/minio/release/linux-amd64/minio
+  # dl.min.io no longer serves the community binaries (HTTP 410), so pull pinned
+  # release assets from GitHub. minio's latest release ships no assets, so the
+  # server has to be pinned to the last release that still has them.
+  local minio_version="RELEASE.2025-09-07T16-13-09Z"
+  local mc_version="RELEASE.2025-08-13T08-35-41Z"
+
+  curl -fsSL -o /usr/local/bin/minio \
+    "https://github.com/minio/minio/releases/download/${minio_version}/minio.linux-amd64.${minio_version}"
   chmod +x /usr/local/bin/minio
 
-  curl -fsSL -o /usr/local/bin/mc https://dl.min.io/client/mc/release/linux-amd64/mc
+  curl -fsSL -o /usr/local/bin/mc \
+    "https://github.com/minio/mc/releases/download/${mc_version}/mc.linux-amd64.${mc_version}"
   chmod +x /usr/local/bin/mc
 
   echo "MinIO installed successfully"
@@ -112,7 +120,6 @@ function setup_minio {
   local spark_version_short=$(echo "${spark_version}" | cut -d '.' -f 1,2 | tr -d '.')
 
   case "$spark_version" in
-    3.3) hadoop_aws_version="3.3.2"; aws_sdk_artifact="aws-java-sdk-bundle"; aws_sdk_version="1.12.262" ;;
     3.4|3.5*) hadoop_aws_version="3.3.4"; aws_sdk_artifact="aws-java-sdk-bundle"; aws_sdk_version="1.12.262" ;;
     4.0) hadoop_aws_version="3.4.0"; aws_sdk_artifact="bundle"; aws_sdk_version="2.25.11" ;;
     4.1) hadoop_aws_version="3.4.1"; aws_sdk_artifact="bundle"; aws_sdk_version="2.25.11" ;;

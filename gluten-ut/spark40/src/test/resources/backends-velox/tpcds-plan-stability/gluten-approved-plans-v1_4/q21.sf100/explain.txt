@@ -151,7 +151,6 @@ Arguments: false
 
 (28) VeloxResizeBatches
 Input [5]: [hash_partition_key#19, w_warehouse_name#12, i_item_id#7, sum#17, sum#18]
-Arguments: 1024, 2147483647, 10485760
 
 (29) ColumnarExchange
 Input [5]: [hash_partition_key#19, w_warehouse_name#12, i_item_id#7, sum#17, sum#18]

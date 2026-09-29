@@ -218,6 +218,8 @@ def get_files(commit, path):
         if "_build" not in file
         and "cmake-build-debug" not in file
         and "cpp-ch" not in file
+        and "dev" not in file
+        and "ep/build-velox" not in file
     ]
 
 

@@ -25,6 +25,7 @@ import org.apache.gluten.sql.shims.{DeltaShimLoader, SparkShimLoader}
 import org.apache.gluten.substrait.plan.PlanNode
 import org.apache.gluten.substrait.rel._
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
+import org.apache.gluten.utils.FileMetadataUtil
 import org.apache.gluten.vectorized.{BatchIterator, CHNativeExpressionEvaluator, CloseableCHColumnBatchIterator}
 
 import org.apache.spark.{InterruptibleIterator, Partition, SparkConf, TaskContext}
@@ -161,7 +162,10 @@ class CHIteratorApi extends IteratorApi with Logging with LogLevelUtil {
         val fileSizes = new JArrayList[JLong]()
         val modificationTimes = new JArrayList[JLong]()
         val partitionColumns = new JArrayList[JMap[String, String]]
-        val metadataColumns = new JArrayList[JMap[String, String]]
+        val needMetadataColumns = metadataColumnNames != null && metadataColumnNames.nonEmpty
+        val emptyMetadataColumn: JMap[String, String] =
+          java.util.Collections.emptyMap[String, String]()
+        val metadataColumns = new JArrayList[JMap[String, String]](f.files.length)
         val otherMetadataColumns = new JArrayList[JMap[String, Object]]
         val dateFormatter = DateFormatter()
         val timestampFormatter = TimestampFormatter.getFractionFormatter(ZoneOffset.UTC)
@@ -171,9 +175,13 @@ class CHIteratorApi extends IteratorApi with Logging with LogLevelUtil {
             starts.add(JLong.valueOf(file.start))
             lengths.add(JLong.valueOf(file.length))
             val metadataColumn =
-              SparkShimLoader.getSparkShims
-                .generateMetadataColumns(file, metadataColumnNames)
-                .asJava
+              if (needMetadataColumns) {
+                FileMetadataUtil
+                  .generateMetadataColumns(file, metadataColumnNames)
+                  .asJava
+              } else {
+                emptyMetadataColumn
+              }
             metadataColumns.add(metadataColumn)
             val partitionColumn = new JHashMap[String, String]()
             for (i <- 0 until file.partitionValues.numFields) {
@@ -277,7 +285,8 @@ class CHIteratorApi extends IteratorApi with Logging with LogLevelUtil {
       updateNativeMetrics: IMetrics => Unit,
       partitionIndex: Int,
       inputIterators: Seq[Iterator[ColumnarBatch]] = Seq(),
-      enableCudf: Boolean = false
+      enableCudf: Boolean = false,
+      wsContext: WholeStageTransformContext = null
   ): Iterator[ColumnarBatch] = {
 
     require(

@@ -20,7 +20,8 @@ public class RuntimeJniWrapper {
 
   private RuntimeJniWrapper() {}
 
-  public static native long createRuntime(String backendType, long nmm, byte[] sessionConf);
+  public static native long createRuntime(
+      String backendType, long nmm, long ntm, byte[] sessionConf);
 
   public static native void releaseRuntime(long handle);
 }

@@ -17,13 +17,23 @@
 
 #pragma once
 
+#include <cstddef>
 #include <thread>
 
 namespace gluten {
 
-/// Acquire the GPU lock, blocking until available. Reentrant for the same thread.
+/// Configure the maximum number of concurrent GPU tasks.
+/// Must be greater than 0.
+void configureGpuTaskConcurrency(size_t maxConcurrentTasks);
+
+/// Acquire a GPU execution permit (reentrant within the same thread).
 void lockGpu();
+
+/// Try to acquire a GPU execution permit without blocking (reentrant within the same thread).
+/// Returns true if the permit was acquired, false otherwise.
 bool tryLockGpu();
+
+/// Release a GPU execution permit held by the current thread.
 void unlockGpu();
 
 } // namespace gluten

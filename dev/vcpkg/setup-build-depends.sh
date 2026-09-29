@@ -19,13 +19,38 @@ set -e
 
 ## Install functions begin
 
+CCACHE_VERSION="4.14"
+
 function semver {
     echo "$@" | awk -F. '{ printf("%d%03d%03d", $1,$2,$3); }'
 }
 
+install_ccache() {
+    # Upstream static (musl) builds have no glibc requirement but only exist for x86_64 and
+    # aarch64; fall back to the distro package on other architectures (e.g. ppc64le).
+    case "$(uname -m)" in
+    x86_64|aarch64) ;;
+    *)
+        if command -v apt-get > /dev/null; then
+            apt-get -y install ccache
+        elif command -v dnf > /dev/null; then
+            dnf -y install ccache
+        else
+            yum -y install ccache
+        fi
+        return
+        ;;
+    esac
+    local name="ccache-${CCACHE_VERSION}-linux-$(uname -m)-musl-static"
+    wget -nv -O "/tmp/${name}.tar.gz" "https://github.com/ccache/ccache/releases/download/v${CCACHE_VERSION}/${name}.tar.gz"
+    tar -xzf "/tmp/${name}.tar.gz" -C /tmp
+    install -m 0755 "/tmp/${name}/ccache" /usr/local/bin/ccache
+    rm -rf "/tmp/${name}" "/tmp/${name}.tar.gz"
+}
+
 install_maven_from_source() {
     if [ -z "$(which mvn)" ]; then
-        maven_version=3.9.12
+        maven_version=3.9.16
         maven_install_dir=/opt/maven-$maven_version
         if [ -d /opt/maven-$maven_version ]; then
             echo "Failed to install maven: ${maven_install_dir} is exists" >&2
@@ -91,6 +116,8 @@ install_centos_7() {
         bison \
         java-1.8.0-openjdk java-1.8.0-openjdk-devel
 
+    install_ccache
+
     pip3 install --upgrade pip
 
     # Requires cmake >= 3.28.3
@@ -113,7 +140,7 @@ install_centos_7() {
         wget -q --max-redirect 3 -O - "${FLEX_URL}" | tar -xz -C /tmp/flex --strip-components=1
         cd /tmp/flex
         ./autogen.sh
-        ./configure
+        ./configure --prefix=/usr
         make install
         cd
         rm -rf /tmp/flex
@@ -157,11 +184,9 @@ install_centos_8() {
 
     pip3 install --upgrade pip
 
-    # Requires cmake >= 3.28.3
-    pip3 install cmake==3.28.3
-
     dnf -y --enablerepo=powertools install autoconf-archive ninja-build
 
+    install_ccache
     install_maven_from_source
 }
 
@@ -175,20 +200,19 @@ install_centos_9() {
 
     pip3 install --upgrade pip
 
-    # Requires cmake >= 3.28.3
-    pip3 install cmake==3.28.3
-
     dnf -y --enablerepo=crb install autoconf-archive ninja-build
 
+    install_ccache
     install_maven_from_source
 }
 
 install_ubuntu_20.04() {
     apt-get update && apt-get -y install \
         wget curl tar zip unzip git \
-        build-essential ccache cmake ninja-build pkg-config autoconf autoconf-archive libtool \
+        build-essential cmake ninja-build pkg-config autoconf autoconf-archive libtool \
         flex bison \
         openjdk-8-jdk maven
+    install_ccache
     # Overwrite gcc-9 installed by build-essential.
     sudo apt install -y software-properties-common
     sudo add-apt-repository ppa:ubuntu-toolchain-r/test
@@ -199,6 +223,15 @@ install_ubuntu_20.04() {
 
 install_ubuntu_22.04() { install_ubuntu_20.04; }
 
+install_ubuntu_24.04() {
+    apt-get update && apt-get -y install \
+        wget curl tar zip unzip git \
+        build-essential cmake ninja-build pkg-config autoconf autoconf-archive libtool \
+        flex bison \
+        openjdk-17-jdk maven
+    install_ccache
+}
+
 install_openeuler_24.03() {
     dnf -y update
     dnf -y install dnf-plugins-core
@@ -207,8 +240,9 @@ install_openeuler_24.03() {
         gcc g++ cmake ninja-build perl-IPC-Cmd autoconf autoconf-archive automake libtool \
         java-1.8.0-openjdk java-1.8.0-openjdk-devel python3-devel python3-pip libstdc++-static
 
-    pip install cmake==3.28.3
+    pip install cmake==3.31.4
 
+    install_ccache
     install_maven_from_source
 }
 
@@ -235,8 +269,9 @@ install_tencentos_3.2() {
 install_debian_10() {
     apt-get -y install \
         wget curl tar zip unzip git apt-transport-https \
-        build-essential ccache cmake ninja-build pkg-config autoconf autoconf-archive libtool \
+        build-essential cmake ninja-build pkg-config autoconf autoconf-archive libtool \
         flex bison python3
+    install_ccache
 
     # Download the Eclipse Adoptium GPG key
     wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor | tee /etc/apt/trusted.gpg.d/adoptium.gpg > /dev/null
@@ -254,8 +289,9 @@ install_debian_10() {
 install_debian_11() {
     apt-get -y install \
         wget curl tar zip unzip git apt-transport-https \
-        build-essential ccache cmake ninja-build pkg-config autoconf autoconf-archive libtool \
+        build-essential cmake ninja-build pkg-config autoconf autoconf-archive libtool \
         flex bison
+    install_ccache
 
     # Download the Eclipse Adoptium GPG key
     wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor | tee /etc/apt/trusted.gpg.d/adoptium.gpg > /dev/null

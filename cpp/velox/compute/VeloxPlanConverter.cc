@@ -17,8 +17,13 @@
 
 #include "VeloxPlanConverter.h"
 #include <filesystem>
+#include <limits>
+#include <optional>
 
+#include <google/protobuf/any.pb.h>
+#include <google/protobuf/wrappers.pb.h>
 #include "config/GlutenConfig.h"
+#include "delta/DeltaSplitInfo.h"
 #include "iceberg/IcebergPlanConverter.h"
 #include "operators/plannodes/IteratorSplit.h"
 
@@ -48,11 +53,107 @@ VeloxPlanConverter::VeloxPlanConverter(
 }
 
 namespace {
+// Keep this key in sync with the JVM-side constant
+// LocalFilesNode.COLUMN_MAPPING_MODE_METADATA_KEY.
+constexpr std::string_view kColumnMappingModeMetadataKey = "__gluten.column_mapping_mode";
+
+std::optional<std::string> unpackMetadataValue(const google::protobuf::Any& value) {
+  google::protobuf::BytesValue bytesValue;
+  if (value.UnpackTo(&bytesValue)) {
+    return bytesValue.value();
+  }
+
+  google::protobuf::StringValue stringValue;
+  if (value.UnpackTo(&stringValue)) {
+    return stringValue.value();
+  }
+
+  google::protobuf::Int32Value int32Value;
+  if (value.UnpackTo(&int32Value)) {
+    return std::to_string(int32Value.value());
+  }
+
+  google::protobuf::Int64Value int64Value;
+  if (value.UnpackTo(&int64Value)) {
+    return std::to_string(int64Value.value());
+  }
+
+  google::protobuf::DoubleValue doubleValue;
+  if (value.UnpackTo(&doubleValue)) {
+    return std::to_string(doubleValue.value());
+  }
+
+  // Matches the string encoding the JVM side uses for booleans, which are
+  // packed through SubstraitUtil.convertJavaObjectToAny's toString fallback
+  // rather than as BoolValue.
+  google::protobuf::BoolValue boolValue;
+  if (value.UnpackTo(&boolValue)) {
+    return boolValue.value() ? "true" : "false";
+  }
+
+  return std::nullopt;
+}
+
+std::optional<velox::dwio::common::ColumnMappingMode> parseColumnMappingMode(const google::protobuf::Any& value) {
+  auto unpacked = unpackMetadataValue(value);
+  if (!unpacked.has_value()) {
+    return std::nullopt;
+  }
+  return velox::dwio::common::ColumnMappingModeName::tryToColumnMappingMode(*unpacked);
+}
+
+delta::DeltaRowIndexFilterType parseDeltaRowIndexFilterType(int filterType) {
+  switch (filterType) {
+    case 1:
+      return delta::DeltaRowIndexFilterType::kIfContained;
+    case 2:
+      return delta::DeltaRowIndexFilterType::kIfNotContained;
+    case 0:
+    default:
+      return delta::DeltaRowIndexFilterType::kKeepAll;
+  }
+}
+
+std::shared_ptr<DeltaSplitInfo> parseDeltaSplitInfo(
+    const substrait::ReadRel_LocalFiles_FileOrFiles& file,
+    std::shared_ptr<SplitInfo> splitInfo) {
+  auto deltaSplitInfo = std::dynamic_pointer_cast<DeltaSplitInfo>(splitInfo);
+  if (!deltaSplitInfo) {
+    deltaSplitInfo = std::make_shared<DeltaSplitInfo>(*splitInfo);
+  }
+
+  deltaSplitInfo->format = dwio::common::FileFormat::PARQUET;
+  const auto& deltaReadOptions = file.delta();
+  deltaSplitInfo->rowIndexFilterTypes.emplace_back(
+      parseDeltaRowIndexFilterType(deltaReadOptions.row_index_filter_type()));
+
+  if (!deltaReadOptions.has_deletion_vector()) {
+    deltaSplitInfo->deletionVectors.emplace_back(std::nullopt);
+    return deltaSplitInfo;
+  }
+
+  const auto& serializedPayload = deltaReadOptions.serialized_deletion_vector();
+  VELOX_USER_CHECK(!serializedPayload.empty(), "Delta split has a deletion vector without a serialized payload");
+  VELOX_USER_CHECK_LE(
+      serializedPayload.size(),
+      static_cast<size_t>(std::numeric_limits<int32_t>::max()),
+      "Delta deletion vector serialized payload is too large");
+  const auto cardinality = static_cast<uint64_t>(deltaReadOptions.deletion_vector_cardinality());
+  auto payload = std::make_shared<std::string>(serializedPayload);
+  const SplitPayloadBufferView payloadView{
+      reinterpret_cast<const uint8_t*>(payload->data()), static_cast<int32_t>(payload->size())};
+  deltaSplitInfo->deletionVectors.emplace_back(
+      delta::DeltaDeletionVectorDescriptor::serialized(cardinality, payloadView));
+  deltaSplitInfo->deletionVectorPayloads.emplace_back(std::move(payload));
+  return deltaSplitInfo;
+}
+
 std::shared_ptr<SplitInfo> parseScanSplitInfo(
     const facebook::velox::config::ConfigBase* veloxCfg,
-    const google::protobuf::RepeatedPtrField<substrait::ReadRel_LocalFiles_FileOrFiles>& fileList) {
+    const substrait::ReadRel_LocalFiles& localFiles) {
   using SubstraitFileFormatCase = ::substrait::ReadRel_LocalFiles_FileOrFiles::FileFormatCase;
 
+  const auto& fileList = localFiles.items();
   auto splitInfo = std::make_shared<SplitInfo>();
   splitInfo->leafType = SplitInfo::LeafType::TABLE_SCAN;
   splitInfo->paths.reserve(fileList.size());
@@ -74,6 +175,20 @@ std::shared_ptr<SplitInfo> parseScanSplitInfo(
     std::unordered_map<std::string, std::string> metadataColumnMap;
     for (const auto& metadataColumn : file.metadata_columns()) {
       metadataColumnMap[metadataColumn.key()] = metadataColumn.value();
+    }
+    for (const auto& otherMetadataColumn : file.other_const_metadata_columns()) {
+      if (otherMetadataColumn.key() == kColumnMappingModeMetadataKey) {
+        auto mode = parseColumnMappingMode(otherMetadataColumn.value());
+        VELOX_CHECK(mode.has_value(), "Invalid column mapping mode metadata for key {}", kColumnMappingModeMetadataKey);
+        if (splitInfo->columnMappingMode.has_value()) {
+          VELOX_CHECK_EQ(*splitInfo->columnMappingMode, *mode, "A single SplitInfo cannot mix column mapping modes");
+        }
+        splitInfo->columnMappingMode = *mode;
+        continue;
+      }
+      if (auto unpackedValue = unpackMetadataValue(otherMetadataColumn.value())) {
+        metadataColumnMap[otherMetadataColumn.key()] = std::move(*unpackedValue);
+      }
     }
     splitInfo->metadataColumns.emplace_back(metadataColumnMap);
 
@@ -101,7 +216,11 @@ std::shared_ptr<SplitInfo> parseScanSplitInfo(
         splitInfo->format = dwio::common::FileFormat::TEXT;
         break;
       case SubstraitFileFormatCase::kIceberg:
-        splitInfo = IcebergPlanConverter::parseIcebergSplitInfo(file, std::move(splitInfo));
+        splitInfo =
+            IcebergPlanConverter::parseIcebergSplitInfo(file, localFiles.advanced_extension(), std::move(splitInfo));
+        break;
+      case SubstraitFileFormatCase::kDelta:
+        splitInfo = parseDeltaSplitInfo(file, std::move(splitInfo));
         break;
       default:
         splitInfo->format = dwio::common::FileFormat::UNKNOWN;
@@ -142,8 +261,7 @@ void parseLocalFileNodes(
   std::vector<std::shared_ptr<SplitInfo>> splitInfos;
   splitInfos.reserve(localFiles.size());
   for (const auto& localFile : localFiles) {
-    const auto& fileList = localFile.items();
-    splitInfos.push_back(parseScanSplitInfo(veloxCfg, fileList));
+    splitInfos.push_back(parseScanSplitInfo(veloxCfg, localFile));
   }
 
   planConverter->setSplitInfos(std::move(splitInfos));

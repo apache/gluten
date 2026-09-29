@@ -30,6 +30,7 @@
 #include "shuffle/ShuffleReader.h"
 #include "shuffle/ShuffleWriter.h"
 #include "substrait/plan.pb.h"
+#include "threads/ThreadManager.h"
 #include "utils/ObjectStore.h"
 #include "utils/WholeStageDumper.h"
 
@@ -56,17 +57,24 @@ struct SparkTaskInfo {
   }
 };
 
+struct SplitPayloadBufferView {
+  const uint8_t* data;
+  int32_t size;
+};
+
 class Runtime : public std::enable_shared_from_this<Runtime> {
  public:
   using Factory = std::function<Runtime*(
       const std::string& kind,
       MemoryManager* memoryManager,
+      ThreadManager* threadManager,
       const std::unordered_map<std::string, std::string>& sessionConf)>;
   using Releaser = std::function<void(Runtime*)>;
   static void registerFactory(const std::string& kind, Factory factory, Releaser releaser);
   static Runtime* create(
       const std::string& kind,
       MemoryManager* memoryManager,
+      ThreadManager* threadManager,
       const std::unordered_map<std::string, std::string>& sessionConf = {});
   static void release(Runtime*);
   static std::optional<std::string>* localWriteFilesTempPath();
@@ -75,8 +83,9 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
   Runtime(
       const std::string& kind,
       MemoryManager* memoryManager,
+      ThreadManager* threadManager,
       const std::unordered_map<std::string, std::string>& confMap)
-      : kind_(kind), memoryManager_(memoryManager), confMap_(confMap) {}
+      : kind_(kind), memoryManager_(memoryManager), threadManager_(threadManager), confMap_(confMap) {}
 
   virtual ~Runtime() = default;
 
@@ -126,6 +135,10 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
     return memoryManager_;
   };
 
+  virtual ThreadManager* threadManager() {
+    return threadManager_;
+  };
+
   /// This function is used to create certain converter from the format used by
   /// the backend to Spark unsafe row.
   virtual std::shared_ptr<ColumnarToRowConverter> createColumnar2RowConverter(int64_t column2RowMemThreshold) {
@@ -149,7 +162,7 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
 
   virtual std::shared_ptr<ShuffleReader> createShuffleReader(
       std::shared_ptr<arrow::Schema> schema,
-      ShuffleReaderOptions options) {
+      const std::shared_ptr<ShuffleReaderOptions>& options) {
     throw GlutenException("Not implemented");
   }
 
@@ -184,6 +197,7 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
  protected:
   std::string kind_;
   MemoryManager* memoryManager_;
+  ThreadManager* threadManager_;
   std::unique_ptr<ObjectStore> objStore_ = ObjectStore::create();
   std::unordered_map<std::string, std::string> confMap_; // Session conf map
 

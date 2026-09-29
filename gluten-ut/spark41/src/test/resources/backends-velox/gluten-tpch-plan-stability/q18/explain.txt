@@ -83,7 +83,6 @@ Arguments: false
 
 (9) VeloxResizeBatches
 Input [4]: [hash_partition_key#13, l_orderkey#7, sum#11, isEmpty#12]
-Arguments: 1024, 2147483647, 10485760
 
 (10) ColumnarExchange
 Input [4]: [hash_partition_key#13, l_orderkey#7, sum#11, isEmpty#12]
@@ -221,7 +220,6 @@ Arguments: false
 
 (42) VeloxResizeBatches
 Input [8]: [hash_partition_key#22, c_name#2, c_custkey#1, o_orderkey#3, o_orderdate#6, o_totalprice#5, sum#20, isEmpty#21]
-Arguments: 1024, 2147483647, 10485760
 
 (43) ColumnarExchange
 Input [8]: [hash_partition_key#22, c_name#2, c_custkey#1, o_orderkey#3, o_orderdate#6, o_totalprice#5, sum#20, isEmpty#21]

@@ -16,10 +16,9 @@
  */
 
 #include "FilePathGenerator.h"
+
 #include <filesystem>
 
 const std::string FilePathGenerator::getDataFilePath(const std::string& fileName) {
-  const std::string currentPath = std::filesystem::current_path().c_str();
-  const std::string filePath = currentPath + "/../../../velox/tests/data/" + fileName;
-  return filePath;
+  return (std::filesystem::path(GLUTEN_VELOX_TEST_DATA_DIR) / fileName).string();
 }

@@ -652,7 +652,7 @@ class GlutenClickHouseMergeTreePathBasedWriteSuite extends CreateMergeTreeSuite 
     }
   }
 
-  testSparkVersionLE33("test mergetree path based write with bucket table") {
+  ignoreSpark33OnlyCase("test mergetree path based write with bucket table") {
     val dataPath = s"$dataHome/lineitem_mergetree_bucket"
     clearDataPath(dataPath)
 
@@ -1089,10 +1089,7 @@ class GlutenClickHouseMergeTreePathBasedWriteSuite extends CreateMergeTreeSuite 
       .count()
     val result = df.collect()
     assertResult(600572)(result(0).getLong(0))
-    // Spark 3.2 + Delta 2.0 does not support this feature
-    if (!spark32) {
-      assert(df.queryExecution.executedPlan.isInstanceOf[LocalTableScanExec])
-    }
+    assert(df.queryExecution.executedPlan.isInstanceOf[LocalTableScanExec])
   }
 
   test(

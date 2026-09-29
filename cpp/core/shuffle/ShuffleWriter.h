@@ -67,6 +67,8 @@ class ShuffleWriter : public Reclaimable {
 
   const std::vector<int64_t>& rawPartitionLengths() const;
 
+  const std::vector<int64_t>& rowBasedChecksums() const;
+
  protected:
   ShuffleWriter(int32_t numPartitions, Partitioning partitioning);
 

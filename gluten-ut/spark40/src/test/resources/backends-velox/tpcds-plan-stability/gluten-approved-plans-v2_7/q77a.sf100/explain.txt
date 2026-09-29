@@ -227,7 +227,6 @@ Arguments: false
 
 (19) VeloxResizeBatches
 Input [4]: [hash_partition_key#14, s_store_sk#7, sum#12, sum#13]
-Arguments: 1024, 2147483647, 10485760
 
 (20) ColumnarExchange
 Input [4]: [hash_partition_key#14, s_store_sk#7, sum#12, sum#13]
@@ -317,7 +316,6 @@ Arguments: false
 
 (40) VeloxResizeBatches
 Input [4]: [hash_partition_key#31, s_store_sk#24, sum#29, sum#30]
-Arguments: 1024, 2147483647, 10485760
 
 (41) ColumnarExchange
 Input [4]: [hash_partition_key#31, s_store_sk#24, sum#29, sum#30]
@@ -411,7 +409,6 @@ Arguments: false
 
 (62) VeloxResizeBatches
 Input [4]: [hash_partition_key#51, cs_call_center_sk#40, sum#49, sum#50]
-Arguments: 1024, 2147483647, 10485760
 
 (63) ColumnarExchange
 Input [4]: [hash_partition_key#51, cs_call_center_sk#40, sum#49, sum#50]
@@ -473,7 +470,6 @@ Arguments: false
 
 (76) VeloxResizeBatches
 Input [2]: [sum#64, sum#65]
-Arguments: 1024, 2147483647, 10485760
 
 (77) ColumnarExchange
 Input [2]: [sum#64, sum#65]
@@ -605,7 +601,6 @@ Arguments: false
 
 (107) VeloxResizeBatches
 Input [4]: [hash_partition_key#85, wp_web_page_sk#78, sum#83, sum#84]
-Arguments: 1024, 2147483647, 10485760
 
 (108) ColumnarExchange
 Input [4]: [hash_partition_key#85, wp_web_page_sk#78, sum#83, sum#84]
@@ -695,7 +690,6 @@ Arguments: false
 
 (128) VeloxResizeBatches
 Input [4]: [hash_partition_key#102, wp_web_page_sk#95, sum#100, sum#101]
-Arguments: 1024, 2147483647, 10485760
 
 (129) ColumnarExchange
 Input [4]: [hash_partition_key#102, wp_web_page_sk#95, sum#100, sum#101]
@@ -772,7 +766,6 @@ Arguments: false
 
 (147) VeloxResizeBatches
 Input [9]: [hash_partition_key#123, channel#36, id#37, sum#117, isEmpty#118, sum#119, isEmpty#120, sum#121, isEmpty#122]
-Arguments: 1024, 2147483647, 10485760
 
 (148) ColumnarExchange
 Input [9]: [hash_partition_key#123, channel#36, id#37, sum#117, isEmpty#118, sum#119, isEmpty#120, sum#121, isEmpty#122]
@@ -836,7 +829,6 @@ Arguments: false
 
 (162) VeloxResizeBatches
 Input [8]: [hash_partition_key#156, channel#130, sum#150, isEmpty#151, sum#152, isEmpty#153, sum#154, isEmpty#155]
-Arguments: 1024, 2147483647, 10485760
 
 (163) ColumnarExchange
 Input [8]: [hash_partition_key#156, channel#130, sum#150, isEmpty#151, sum#152, isEmpty#153, sum#154, isEmpty#155]
@@ -924,7 +916,6 @@ Arguments: false
 
 (183) VeloxResizeBatches
 Input [6]: [hash_partition_key#186, channel#36, id#37, sales#127, returns#128, profit#129]
-Arguments: 1024, 2147483647, 10485760
 
 (184) ColumnarExchange
 Input [6]: [hash_partition_key#186, channel#36, id#37, sales#127, returns#128, profit#129]

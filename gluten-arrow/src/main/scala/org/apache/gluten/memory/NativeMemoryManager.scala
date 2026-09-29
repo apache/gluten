@@ -25,7 +25,6 @@ import org.apache.gluten.utils.ConfigUtil
 
 import org.apache.spark.memory.SparkMemoryUtil
 import org.apache.spark.sql.internal.{GlutenConfigUtil, SQLConf}
-import org.apache.spark.task.{TaskResource, TaskResources}
 
 import org.slf4j.LoggerFactory
 
@@ -38,12 +37,13 @@ trait NativeMemoryManager {
   def addSpiller(spiller: Spiller): Unit
   def hold(): Unit
   def getHandle(): Long
+  def release(): Unit
 }
 
 object NativeMemoryManager {
   private class Impl(backendName: String, name: String)
-    extends NativeMemoryManager
-    with TaskResource {
+    extends NativeMemoryManager {
+    private val nmmName = s"[nmm-$name]"
     private val LOGGER = LoggerFactory.getLogger(classOf[NativeMemoryManager])
     private val spillers = Spillers.appendable()
     private val mutableStats: mutable.Map[String, MemoryUsageStatsBuilder] = mutable.Map()
@@ -76,19 +76,27 @@ object NativeMemoryManager {
     private val released: AtomicBoolean = new AtomicBoolean(false)
 
     override def addSpiller(spiller: Spiller): Unit = spillers.append(spiller)
-    override def hold(): Unit = NativeMemoryManagerJniWrapper.hold(handle)
+    override def hold(): Unit = {
+      // hold() must run before release(). Reaching here after release means a broken teardown
+      // ordering, so surface it instead of dereferencing a freed native handle silently.
+      if (released.get()) {
+        throw new GlutenException(
+          s"Cannot hold memory manager instance that has already been released: $handle")
+      }
+      NativeMemoryManagerJniWrapper.hold(handle)
+    }
     override def getHandle(): Long = handle
     override def release(): Unit = {
       if (!released.compareAndSet(false, true)) {
         throw new GlutenException(
-          s"Memory manager instance already released: $handle, ${resourceName()}, ${priority()}")
+          s"Memory manager instance already released: $handle")
       }
 
       def dump(): String = {
         SparkMemoryUtil.prettyPrintStats(
-          s"[${resourceName()}]",
+          nmmName,
           new KnownNameAndStats() {
-            override def name: String = resourceName()
+            override def name: String = nmmName
             override def stats: MemoryUsageStats = collectUsage()
           })
       }
@@ -110,15 +118,10 @@ object NativeMemoryManager {
           ))
       }
     }
-    override def priority(): Int = {
-      // Memory managers should be released after all runtimes are released.
-      // So set the priority lower than runtime resources.
-      10
-    }
-    override def resourceName(): String = "nmm"
   }
 
   def apply(backendName: String, name: String): NativeMemoryManager = {
-    TaskResources.addAnonymousResource(new Impl(backendName, name))
+    new Impl(backendName, name)
   }
+
 }

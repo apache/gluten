@@ -32,7 +32,9 @@ object GlutenRpcMessages {
 
   case class GlutenExecutorRemoved(executorId: String) extends GlutenRpcMessage
 
-  case class GlutenCleanExecutionResource(executionId: String, broadcastHashIds: util.Set[String])
+  case class GlutenCleanExecutionResource(
+      executionId: String,
+      broadcastHashIds: util.Set[String])
     extends GlutenRpcMessage
 
   // for mergetree cache

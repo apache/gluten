@@ -55,14 +55,25 @@ case class VeloxBloomFilterAggregate(
 
   override def prettyName: String = "velox_bloom_filter_agg"
 
-  // Mark as lazy so that `estimatedNumItems` is not evaluated during tree transformation.
-  private lazy val estimatedNumItems: Long =
-    Math.min(
-      estimatedNumItemsExpression.eval().asInstanceOf[Number].longValue,
-      SQLConf.get
-        .getConfString("spark.sql.optimizer.runtime.bloomFilter.maxNumItems", "4000000")
-        .toLong
-    )
+  // Mark as lazy so that `numBits` is not evaluated during tree transformation.
+  //
+  // Mirrors the native `bloom_filter_agg` aggregate's own capacity formula
+  // (velox/functions/sparksql/aggregates/BloomFilterAggAggregate.cpp, computeCapacity():
+  // `capacity_ = min(numBits_, maxNumBits_) / 16`), which sizes its accumulator from `numBits`
+  // alone rather than from the raw item count. If this side derived capacity from
+  // `estimatedNumItems` instead (as it previously did), the two engines would allocate
+  // different-sized bit arrays for the same input arguments. Since a two-phase aggregation's
+  // partial and final stages can independently execute on either engine, that mismatch lets
+  // `BloomFilter::merge` (velox/common/base/BloomFilter.h) combine two differently-sized
+  // buffers -- its size-match check is a `VELOX_DCHECK`, compiled out in release builds, so
+  // the merge silently corrupts the filter instead of failing loudly.
+  private lazy val capacityFromNumBits: Int = {
+    val numBits = numBitsExpression.eval().asInstanceOf[Number].longValue
+    val maxNumBits = SQLConf.get
+      .getConfString("spark.sql.optimizer.runtime.bloomFilter.maxNumBits", "67108864")
+      .toLong
+    Math.max(1, Math.toIntExact(Math.min(numBits, maxNumBits) / 16))
+  }
 
   // Mark as lazy so that `updater` is not evaluated during tree transformation.
   private lazy val updater: BloomFilterUpdater = child.dataType match {
@@ -99,7 +110,7 @@ case class VeloxBloomFilterAggregate(
     if (!TaskResources.inSparkTask()) {
       throw new UnsupportedOperationException("velox_bloom_filter_agg is not evaluable on Driver")
     }
-    VeloxBloomFilter.empty(Math.toIntExact(estimatedNumItems))
+    VeloxBloomFilter.empty(capacityFromNumBits)
   }
 
   override def update(buffer: BloomFilter, input: InternalRow): BloomFilter = {

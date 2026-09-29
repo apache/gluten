@@ -90,14 +90,28 @@ abstract class BaseMergeTwoPhasesHashBaseAggregateSuite extends WholeStageTransf
         1
       )
 
-      // with filter hash aggregate
-      checkHashAggregateCount(
-        spark.sql("""
-                    |SELECT key, count(key) FILTER (WHERE key LIKE '%1%') AS pc2
-                    |FROM v1
-                    |GROUP BY key
-                    |""".stripMargin),
-        2
+      // with filter hash aggregate: it is merged into one complete-mode aggregate, and the
+      // FILTER predicate must be preserved so the result still matches vanilla Spark.
+      compareResultsAgainstVanillaSpark(
+        """
+          |SELECT key, count(key) FILTER (WHERE key LIKE '%1%') AS pc2
+          |FROM v1
+          |GROUP BY key
+          |""".stripMargin,
+        compareResult = true,
+        df => checkHashAggregateCount(df, 1)
+      )
+
+      // mix of filtered and non-filtered aggregates: verifies the FILTER is restored on the
+      // right aggregate expression (positional alignment) after merging to complete mode.
+      compareResultsAgainstVanillaSpark(
+        """
+          |SELECT key, count(key) AS c, count(key) FILTER (WHERE key LIKE '%1%') AS pc2
+          |FROM v1
+          |GROUP BY key
+          |""".stripMargin,
+        compareResult = true,
+        df => checkHashAggregateCount(df, 1)
       )
     }
 
@@ -130,14 +144,16 @@ abstract class BaseMergeTwoPhasesHashBaseAggregateSuite extends WholeStageTransf
         1
       )
 
-      // with filter object aggregate
-      checkObjectAggregateCount(
-        spark.sql("""
-                    |SELECT key, collect_list(key) FILTER (WHERE key LIKE '%1%') AS pc2
-                    |FROM v1
-                    |GROUP BY key
-                    |""".stripMargin),
-        2
+      // with filter object aggregate: it is merged into one complete-mode aggregate, and the
+      // FILTER predicate must be preserved so the result still matches vanilla Spark.
+      compareResultsAgainstVanillaSpark(
+        """
+          |SELECT key, collect_list(key) FILTER (WHERE key LIKE '%1%') AS pc2
+          |FROM v1
+          |GROUP BY key
+          |""".stripMargin,
+        compareResult = true,
+        df => checkObjectAggregateCount(df, 1)
       )
     }
 
@@ -171,14 +187,16 @@ abstract class BaseMergeTwoPhasesHashBaseAggregateSuite extends WholeStageTransf
           1
         )
 
-        // with filter sort aggregate
-        checkSortAggregateCount(
-          spark.sql("""
-                      |SELECT key, sum(if(key<0,0,key)) FILTER (WHERE key LIKE '%1%') AS pc2
-                      |FROM v1
-                      |GROUP BY key
-                      |""".stripMargin),
-          2
+        // with filter sort aggregate: it is merged into one complete-mode aggregate, and the
+        // FILTER predicate must be preserved so the result still matches vanilla Spark.
+        compareResultsAgainstVanillaSpark(
+          """
+            |SELECT key, sum(if(key<0,0,key)) FILTER (WHERE key LIKE '%1%') AS pc2
+            |FROM v1
+            |GROUP BY key
+            |""".stripMargin,
+          compareResult = true,
+          df => checkSortAggregateCount(df, 1)
         )
       }
 

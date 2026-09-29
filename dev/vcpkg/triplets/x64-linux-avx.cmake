@@ -13,3 +13,7 @@ set(VCPKG_LINKER_FLAGS "-static-libstdc++ -static-libgcc")
 if("${PORT}" STREQUAL "snappy")
     list(APPEND VCPKG_CMAKE_CONFIGURE_OPTIONS -DSNAPPY_HAVE_BMI2=ON)
 endif()
+
+if("${PORT}" STREQUAL "openssl" AND "$ENV{VCPKG_DYNAMIC_OPENSSL}" STREQUAL "ON")
+    set(VCPKG_LIBRARY_LINKAGE dynamic)
+endif()

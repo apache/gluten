@@ -80,7 +80,6 @@ Arguments: false
 
 (5) VeloxResizeBatches
 Input [6]: [hash_partition_key#7, ss_item_sk#1, ss_customer_sk#2, ss_store_sk#3, ss_ticket_number#4, ss_net_paid#5]
-Arguments: 1024, 2147483647, 10485760
 
 (6) ColumnarExchange
 Input [6]: [hash_partition_key#7, ss_item_sk#1, ss_customer_sk#2, ss_store_sk#3, ss_ticket_number#4, ss_net_paid#5]
@@ -113,7 +112,6 @@ Arguments: false
 
 (13) VeloxResizeBatches
 Input [3]: [hash_partition_key#11, sr_item_sk#8, sr_ticket_number#9]
-Arguments: 1024, 2147483647, 10485760
 
 (14) ColumnarExchange
 Input [3]: [hash_partition_key#11, sr_item_sk#8, sr_ticket_number#9]
@@ -296,7 +294,6 @@ Arguments: false
 
 (55) VeloxResizeBatches
 Input [12]: [hash_partition_key#35, c_last_name#26, c_first_name#25, s_store_name#13, ca_state#29, s_state#15, i_color#20, i_current_price#18, i_manager_id#22, i_units#21, i_size#19, sum#34]
-Arguments: 1024, 2147483647, 10485760
 
 (56) ColumnarExchange
 Input [12]: [hash_partition_key#35, c_last_name#26, c_first_name#25, s_store_name#13, ca_state#29, s_state#15, i_color#20, i_current_price#18, i_manager_id#22, i_units#21, i_size#19, sum#34]
@@ -336,7 +333,6 @@ Arguments: false
 
 (64) VeloxResizeBatches
 Input [6]: [hash_partition_key#42, c_last_name#26, c_first_name#25, s_store_name#13, sum#40, isEmpty#41]
-Arguments: 1024, 2147483647, 10485760
 
 (65) ColumnarExchange
 Input [6]: [hash_partition_key#42, c_last_name#26, c_first_name#25, s_store_name#13, sum#40, isEmpty#41]
@@ -365,7 +361,6 @@ Arguments: false
 
 (71) VeloxResizeBatches
 Input [4]: [c_last_name#26, c_first_name#25, s_store_name#13, paid#44]
-Arguments: 1024, 2147483647, 10485760
 
 (72) ColumnarExchange
 Input [4]: [c_last_name#26, c_first_name#25, s_store_name#13, paid#44]
@@ -564,7 +559,6 @@ Arguments: false
 
 (112) VeloxResizeBatches
 Input [12]: [hash_partition_key#75, c_last_name#66, c_first_name#65, s_store_name#54, ca_state#69, s_state#55, i_color#60, i_current_price#58, i_manager_id#62, i_units#61, i_size#59, sum#74]
-Arguments: 1024, 2147483647, 10485760
 
 (113) ColumnarExchange
 Input [12]: [hash_partition_key#75, c_last_name#66, c_first_name#65, s_store_name#54, ca_state#69, s_state#55, i_color#60, i_current_price#58, i_manager_id#62, i_units#61, i_size#59, sum#74]

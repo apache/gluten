@@ -129,12 +129,14 @@ public class WindowAggOperator<IN, OUT, W> extends GlutenOneInputOperator<IN, OU
                       new org.apache.flink.table.types.logical.RowType(accFields))),
               Map.of(windowStateName, new BigIntType()));
       task.initializeState(0, parameters);
+    } else {
+      task.initializeState(0, null);
     }
   }
 
   @Override
   public <NIN, NOUT> WindowAggOperator<NIN, NOUT, W> cloneWithInputOutputClasses(
-      Class<NIN> newInClass, Class<NOUT> newOutClass) {
+      StatefulPlanNode plan, Class<NIN> newInClass, Class<NOUT> newOutClass) {
     return new WindowAggOperator<>(
         getPlanNode(),
         getId(),

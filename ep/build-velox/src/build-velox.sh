@@ -28,6 +28,8 @@ ENABLE_HDFS=OFF
 ENABLE_ABFS=OFF
 # Enable GPU support
 ENABLE_GPU=OFF
+# Enable LTO/IPO support.
+ENABLE_LTO=OFF
 # CMake build type for Velox.
 BUILD_TYPE=release
 # May be deprecated in Gluten build.
@@ -70,6 +72,10 @@ for arg in "$@"; do
     ENABLE_GPU=("${arg#*=}")
     shift # Remove argument name from processing
     ;;
+  --enable_lto=*)
+    ENABLE_LTO=("${arg#*=}")
+    shift # Remove argument name from processing
+    ;;
   --build_type=*)
     BUILD_TYPE=("${arg#*=}")
     shift # Remove argument name from processing
@@ -97,16 +103,51 @@ for arg in "$@"; do
   esac
 done
 
+function install_cmake_dependency {
+  local build_dir="$1"
+  if [ "$OS" == 'Darwin' ]; then
+    cmake --install "$build_dir" --prefix "${INSTALL_PREFIX}"
+  else
+    sudo cmake --install "$build_dir"
+  fi
+}
+
 function compile {
   # -Wno-unknown-warning-option is a Clang-originated flag. GCC ignores unrecognized -Wno- flags to
   # maintain compatibility, but it prints a diagnostic note about the unknown flag if a true warning
   # or error occurs.
   CXX_FLAGS='-Wno-error=stringop-overflow -Wno-error=cpp -Wno-missing-field-initializers \
     -Wno-error=uninitialized -Wno-unknown-warning-option -Wno-deprecated-declarations'
+  if [[ "$(uname)" == "Darwin" ]]; then
+    CXX_FLAGS="$CXX_FLAGS -Wno-inconsistent-missing-override -Wno-macro-redefined"
+    if [[ -n "${INSTALL_PREFIX:-}" && "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]]; then
+      # Add the dependency prefix as a system include: this finds deps that only
+      # publish loose headers (e.g. xsimd) and demotes warnings in vendored
+      # dependency headers (abseil's __is_trivially_relocatable, arrow's vendored
+      # date.h literal operators) to non-fatal system-header warnings under
+      # -Werror on recent clang.
+      CXX_FLAGS="$CXX_FLAGS -isystem ${INSTALL_PREFIX}/include"
+    fi
+  fi
 
   COMPILE_OPTION="-DCMAKE_CXX_FLAGS=\"$CXX_FLAGS\" -DVELOX_ENABLE_PARQUET=ON -DVELOX_BUILD_TESTING=OFF \
       -DVELOX_MONO_LIBRARY=ON -DVELOX_BUILD_RUNNER=OFF -DVELOX_SIMDJSON_SKIPUTF8VALIDATION=ON \
       -DVELOX_ENABLE_GEO=OFF"
+  if [ -n "${INSTALL_PREFIX:-}" ]; then
+    COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_PREFIX_PATH=${INSTALL_PREFIX} -DCMAKE_INSTALL_PREFIX=${INSTALL_PREFIX}"
+  fi
+  if [[ "$(uname)" == "Darwin" && -n "${INSTALL_PREFIX:-}" && "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]]; then
+    COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_IGNORE_PREFIX_PATH=/usr/local"
+    COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_IGNORE_PATH=/usr/local\;/usr/local/include\;/usr/local/lib\;/usr/local/lib/cmake"
+    COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_SYSTEM_IGNORE_PATH=/usr/local\;/usr/local/include\;/usr/local/lib\;/usr/local/lib/cmake"
+    # Force fmt to build from source via FetchContent: Homebrew's fmt config file
+    # at /opt/homebrew/lib/cmake/fmt/ wins the AUTO find_package probe ahead of
+    # INSTALL_PREFIX, producing a version mismatch. BUNDLED skips find_package.
+    COMPILE_OPTION="$COMPILE_OPTION -Dfmt_SOURCE=BUNDLED"
+  fi
+  if [ $ENABLE_LTO == "ON" ]; then
+    COMPILE_OPTION="$COMPILE_OPTION -DVELOX_ENABLE_LTO=ON"
+  fi
   if [ $BUILD_TEST_UTILS == "ON" ]; then
     COMPILE_OPTION="$COMPILE_OPTION -DVELOX_BUILD_TEST_UTILS=ON"
   fi
@@ -136,6 +177,12 @@ function compile {
     echo "enable GPU support."
     COMPILE_OPTION="$COMPILE_OPTION -DVELOX_ENABLE_CUDF=ON -DCMAKE_CUDA_ARCHITECTURES=75 \
         -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc"
+    # TODO: Remove once cudf builds with CUDA 13.1. cudf 26.10 (Velox pin 456580f)
+    # made cudf::ast::literal::ast_scalar a private nested struct, and nvcc 13.1 +
+    # gcc 14 wrongly rejects join/filter_join_indices/filter_join_indices.cu with
+    # "'struct cudf::ast::literal::ast_scalar' is private within this context".
+    # Velox CI does not hit this because its adapters image ships CUDA 12.9.
+    COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_CUDA_FLAGS=-Xcompiler=-fno-access-control"
   fi
   if [ -n "${GLUTEN_VCPKG_ENABLED:-}" ]; then
     COMPILE_OPTION="$COMPILE_OPTION -DVELOX_GFLAGS_TYPE=static"
@@ -162,15 +209,13 @@ function compile {
     exit 1
   fi
 
-  # Install deps to system as needed
+  # Install deps as needed
   if [ -d "_build/$COMPILE_TYPE/_deps" ]; then
     cd _build/$COMPILE_TYPE/_deps
     if [ -d xsimd-build ]; then
       echo "INSTALL xsimd."
-      if [ $OS == 'Linux' ]; then
-        sudo cmake --install xsimd-build/
-      elif [ $OS == 'Darwin' ]; then
-        sudo cmake --install xsimd-build/
+      if [ -f xsimd-build/cmake_install.cmake ]; then
+        install_cmake_dependency xsimd-build/
       fi
     fi
     if [ -d googletest-build ]; then
@@ -179,7 +224,7 @@ function compile {
         cd googletest-src; cmake . ; sudo make install -j
         #sudo cmake --install googletest-build/
       elif [ $OS == 'Darwin' ]; then
-        sudo cmake --install googletest-build/
+        install_cmake_dependency googletest-build/
       fi
     fi
   fi
@@ -194,6 +239,20 @@ if [ "$VELOX_HOME" == "" ]; then
   VELOX_HOME="$CURRENT_DIR/../build/velox_ep"
 fi
 
+if [ "$OS" == 'Darwin' ]; then
+  export INSTALL_PREFIX="${INSTALL_PREFIX:-${VELOX_HOME}/deps-install}"
+  if [[ "$INSTALL_PREFIX" == "/usr/local" || "$INSTALL_PREFIX" == /usr/local/* ]]; then
+    echo "INFO: INSTALL_PREFIX=$INSTALL_PREFIX is under /usr/local; keeping /usr/local visible to CMake." >&2
+  else
+    # AppleClang adds /usr/local/include to the default header search path
+    # unless an SDK sysroot is selected. Keep prefix-based builds on the SDK so
+    # /usr/local headers cannot shadow the ones from INSTALL_PREFIX.
+    export SDKROOT="${SDKROOT:-$(xcrun --show-sdk-path)}"
+  fi
+elif [ -n "${INSTALL_PREFIX:-}" ]; then
+  export INSTALL_PREFIX
+fi
+
 echo "Start building Velox..."
 echo "CMAKE Arguments:"
 echo "VELOX_HOME=${VELOX_HOME}"
@@ -202,6 +261,7 @@ echo "ENABLE_GCS=${ENABLE_GCS}"
 echo "ENABLE_HDFS=${ENABLE_HDFS}"
 echo "ENABLE_ABFS=${ENABLE_ABFS}"
 echo "ENABLE_GPU=${ENABLE_GPU}"
+echo "ENABLE_LTO=${ENABLE_LTO}"
 echo "BUILD_TYPE=${BUILD_TYPE}"
 
 cd ${VELOX_HOME}

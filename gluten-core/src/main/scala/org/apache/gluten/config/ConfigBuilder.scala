@@ -19,7 +19,6 @@ package org.apache.gluten.config
 import org.apache.spark.network.util.{ByteUnit, JavaUtils}
 
 import java.util.concurrent.TimeUnit
-import java.util.regex.Pattern
 
 object BackendType extends Enumeration {
   type BackendType = Value
@@ -140,8 +139,6 @@ private object ConfigHelpers {
         throw new IllegalArgumentException(s"$key should be boolean, but was $s")
     }
   }
-
-  private val TIME_STRING_PATTERN = Pattern.compile("(-?[0-9]+)([a-z]+)?")
 
   def timeFromString(str: String, unit: TimeUnit): Long = JavaUtils.timeStringAs(str, unit)
 

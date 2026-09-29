@@ -100,12 +100,14 @@ class GlutenClickhouseCountDistinctSuite extends GlutenClickHouseWholeStageTrans
   }
 
   test("check count distinct with agg fallback") {
-    // skewness agg is not supported, will cause fallback
     val sql = "select count(distinct(a,b)) , skewness(b) from " +
       "values (0, null,1), (0,null,1), (1, 1,1), (2, 2, 1) ,(2,2,2),(3,3,3) as data(a,b,c)"
-    assertThrows[UnsupportedOperationException] {
-      spark.sql(sql).show
-    }
+    compareResultsAgainstVanillaSpark(sql, true, { _ => })
+
+    val sqlWithKeys = "select a, count(distinct(b)) , skewness(b) from " +
+      "values (0, null,1), (0,null,1), (1, 1,1), (2, 2, 1) ,(2,2,2),(3,3,3) as data(a,b,c) " +
+      "group by a"
+    compareResultsAgainstVanillaSpark(sqlWithKeys, true, { _ => })
   }
 
   test("check count distinct with expr fallback") {

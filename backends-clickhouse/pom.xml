@@ -20,7 +20,7 @@
   <parent>
     <groupId>org.apache.gluten</groupId>
     <artifactId>gluten-parent</artifactId>
-    <version>1.7.0-SNAPSHOT</version>
+    <version>1.8.0-SNAPSHOT</version>
   </parent>
 
   <artifactId>backends-clickhouse</artifactId>
@@ -29,7 +29,7 @@
 
   <properties>
     <surefire.skipTests>true</surefire.skipTests>
-    <iceberg.flinkConnector.version>1.16.2</iceberg.flinkConnector.version>
+    <iceberg.flinkConnector.version>1.20.4</iceberg.flinkConnector.version>
     <iceberg.flinkConnector.subversion>1.16</iceberg.flinkConnector.subversion>
   </properties>
 
@@ -525,12 +525,6 @@
           </exclusions>
         </dependency>
       </dependencies>
-    </profile>
-    <profile>
-      <id>spark-3.3</id>
-      <activation>
-        <activeByDefault>false</activeByDefault>
-      </activation>
     </profile>
     <profile>
       <id>spark-3.5</id>

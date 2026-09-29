@@ -16,86 +16,76 @@
 
 INFRA:
   - changed-files:
-    - any-glob-to-any-file: [
-      '.github/**/*',
-      '.asf.yaml',
-      '.gitattributes',
-      'LICENSE',
-      'LICENSE-binary',
-      'NOTICE',
-      'NOTICE-binary'
-    ]
+      - any-glob-to-any-file:
+          - '.github/**/*'
+          - '.asf.yaml'
+          - '.gitattributes'
+          - 'LICENSE'
+          - 'LICENSE-binary'
+          - 'NOTICE'
+          - 'NOTICE-binary'
 
 BUILD:
   - changed-files:
-    - any-glob-to-any-file: [
-      'dev/**/*',
-      'ep/build-velox/src/get-velox.sh',
-      'ep/build-velox/src/build-velox.sh',
-      'ep/build-clickhouse/src/build-clickhouse.sh'
-    ]
+      - any-glob-to-any-file:
+          - 'dev/**/*'
+          - 'ep/build-velox/src/get-velox.sh'
+          - 'ep/build-velox/src/build-velox.sh'
+          - 'ep/build-clickhouse/src/build-clickhouse.sh'
 
 DOCS:
   - changed-files:
-    - any-glob-to-any-file: [
-      'docs/**/*',
-      '**/README.md',
-      '**/CONTRIBUTING.md'
-    ]
+      - any-glob-to-any-file:
+          - 'docs/**/*'
+          - '**/README.md'
+          - '**/CONTRIBUTING.md'
 
 CORE:
   - changed-files:
-    - any-glob-to-any-file: [
-      'gluten-core/**/*',
-      'gluten-substrait/**/*',
-      'shims/**/*',
-      'gluten-ras/**/*',
-      'gluten-ui/**/*',
-      'gluten-ut/**/*',
-      'package/**/*',
-      'pom.xml'
-    ]
+      - any-glob-to-any-file:
+          - 'gluten-core/**/*'
+          - 'gluten-substrait/**/*'
+          - 'shims/**/*'
+          - 'gluten-ras/**/*'
+          - 'gluten-ui/**/*'
+          - 'gluten-ut/**/*'
+          - 'package/**/*'
+          - 'pom.xml'
 
 VELOX:
   - changed-files:
-    - any-glob-to-any-file: [
-      'gluten-arrow/**/*',
-      'backends-velox/**/*',
-      'ep/build-velox/**/*',
-      'cpp/**/*'
-    ]
+      - any-glob-to-any-file:
+          - 'gluten-arrow/**/*'
+          - 'backends-velox/**/*'
+          - 'ep/build-velox/**/*'
+          - 'cpp/**/*'
 
 CLICKHOUSE:
   - changed-files:
-    - any-glob-to-any-file: [
-      'backends-clickhouse/**/*',
-      'ep/build-clickhouse/**/*',
-      'cpp-ch/**/*'
-    ]
+      - any-glob-to-any-file:
+          - 'backends-clickhouse/**/*'
+          - 'ep/build-clickhouse/**/*'
+          - 'cpp-ch/**/*'
 
 DATA_LAKE:
   - changed-files:
-    - any-glob-to-any-file: [
-      'gluten-iceberg/**/*',
-      'gluten-delta/**/*',
-      'gluten-hudi/**/*'
-    ]
+      - any-glob-to-any-file:
+          - 'gluten-iceberg/**/*'
+          - 'gluten-delta/**/*'
+          - 'gluten-hudi/**/*'
 
 RSS:
   - changed-files:
-    - any-glob-to-any-file: [
-     'gluten-celeborn/**/*',
-     'gluten-uniffle/**/*'
-    ]
+      - any-glob-to-any-file:
+          - 'gluten-celeborn/**/*'
+          - 'gluten-uniffle/**/*'
 
 TOOLS:
   - changed-files:
-    - any-glob-to-any-file: [
-      'tools/**/*'
-    ]
+      - any-glob-to-any-file:
+          - 'tools/**/*'
 
 FLINK:
   - changed-files:
-    - any-glob-to-any-file: [
-      'gluten-flink/**/*'
-    ]
+      - any-glob-to-any-file:
+          - 'gluten-flink/**/*'

@@ -21,39 +21,46 @@ import org.apache.gluten.integration.Suite
 import org.apache.hadoop.fs.{FileSystem, Path}
 
 case class DataGenOnly(strategy: DataGenOnly.Strategy) extends Action {
-
   override def execute(suite: Suite): Boolean = {
+
     suite.sessionSwitcher.useSession("baseline", "Data Gen")
     val fs = this.fs(suite)
+    val dataPath = this.dataPath(suite)
     val markerPath = this.markerPath(suite)
+
+    def gen(): Unit = {
+      if (fs.exists(dataPath)) {
+        println(
+          s"Test data exists at $dataPath but no completion marker found. Regenerating."
+        )
+        fs.delete(dataPath, true)
+      }
+      if (fs.exists(markerPath)) {
+        fs.delete(markerPath, true)
+      }
+
+      println(s"Generating test data to $dataPath...")
+      val dataGen = suite.createDataGen()
+      dataGen.gen(suite.sessionSwitcher.spark())
+      println(s"All test data successfully generated at $dataPath.")
+
+      // Create marker after successful generation.
+      fs.create(markerPath, false).close()
+    }
 
     strategy match {
       case DataGenOnly.Skip =>
         ()
 
       case DataGenOnly.Once =>
-        val dataPath = this.dataPath(suite)
         if (fs.exists(dataPath) && fs.exists(markerPath)) {
           println(s"Test data already generated at $dataPath. Skipping.")
         } else {
-          if (fs.exists(dataPath)) {
-            println(
-              s"Test data exists at $dataPath but no completion marker found. Regenerating."
-            )
-            fs.delete(dataPath, true)
-          }
-          if (fs.exists(markerPath)) {
-            fs.delete(markerPath, true)
-          }
-          gen(suite)
-          // Create marker after successful generation.
-          fs.create(markerPath, false).close()
+          gen()
         }
 
       case DataGenOnly.Always =>
-        gen(suite)
-        // Create marker after successful generation.
-        fs.create(markerPath, false).close()
+        gen()
     }
     true
   }
@@ -68,17 +75,6 @@ case class DataGenOnly(strategy: DataGenOnly.Strategy) extends Action {
 
   private def dataPath(suite: Suite): Path =
     new Path(suite.dataWritePath())
-
-  private def gen(suite: Suite): Unit = {
-    val dataPath = suite.dataWritePath()
-
-    println(s"Generating test data to $dataPath...")
-
-    val dataGen = suite.createDataGen()
-    dataGen.gen(suite.sessionSwitcher.spark())
-
-    println(s"All test data successfully generated at $dataPath.")
-  }
 }
 
 object DataGenOnly {

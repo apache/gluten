@@ -43,7 +43,9 @@ public class ShuffleWriterJniWrapper implements RuntimeAware {
       int startPartitionId,
       int splitBufferSize,
       double splitBufferReallocThreshold,
-      long partitionWriterHandle);
+      int partitionBufferEvictThreshold,
+      long partitionWriterHandle,
+      boolean rowBasedChecksumEnabled);
 
   public native long createSortShuffleWriter(
       int numPartitions,
@@ -61,14 +63,6 @@ public class ShuffleWriterJniWrapper implements RuntimeAware {
       int splitBufferSize,
       long sortBufferMaxSize,
       String codec,
-      long partitionWriterHandle);
-
-  public native long createGpuHashShuffleWriter(
-      int numPartitions,
-      String partitioningName,
-      int startPartitionId,
-      int splitBufferSize,
-      double splitBufferReallocThreshold,
       long partitionWriterHandle);
 
   /**

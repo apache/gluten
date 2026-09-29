@@ -27,8 +27,7 @@ import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.expressions.{Expression, NamedExpression}
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.connector.read.Scan
-import org.apache.spark.sql.execution.command.CreateDataSourceTableAsSelectCommand
-import org.apache.spark.sql.execution.datasources.{FileFormat, InsertIntoHadoopFsRelationCommand}
+import org.apache.spark.sql.execution.datasources.FileFormat
 import org.apache.spark.sql.types.{StructField, StructType}
 
 import org.apache.hadoop.conf.Configuration
@@ -63,8 +62,6 @@ trait BackendSettingsApi {
 
   def supportNativeRowIndexColumn(): Boolean = true
 
-  def supportExpandExec(): Boolean = false
-
   def supportSortExec(): Boolean = false
 
   def supportSortMergeJoinExec(): Boolean = true
@@ -83,8 +80,6 @@ trait BackendSettingsApi {
 
   def enableJoinKeysRewrite(): Boolean = true
 
-  def enableHashTableBuildOncePerExecutor(): Boolean = true
-
   def supportHashBuildJoinTypeOnLeft: JoinType => Boolean = {
     case _: InnerLike | RightOuter | FullOuter => true
     case _ => false
@@ -101,14 +96,15 @@ trait BackendSettingsApi {
 
   def structFieldToLowerCase(): Boolean = true
 
+  /** Whether the backend may execute TimestampNTZ when validation is disabled. */
+  def supportTimestampNtz: Boolean = false
+
   // Whether to fallback aggregate at the same time if its empty-output child is fallen back.
   def fallbackAggregateWithEmptyOutputChild(): Boolean = false
 
   def recreateJoinExecOnFallback(): Boolean = false
 
   def excludeScanExecFromCollapsedStage(): Boolean = false
-
-  def rescaleDecimalArithmetic: Boolean = false
 
   /**
    * After https://github.com/apache/spark/pull/36698, every arithmetic should report the accurate
@@ -124,10 +120,6 @@ trait BackendSettingsApi {
 
   def insertPostProjectForGenerate(): Boolean = false
 
-  def skipNativeCtas(ctas: CreateDataSourceTableAsSelectCommand): Boolean = false
-
-  def skipNativeInsertInto(insertInto: InsertIntoHadoopFsRelationCommand): Boolean = false
-
   def alwaysFailOnMapExpression(): Boolean = false
 
   def requiredChildOrderingForWindowGroupLimit(): Boolean = true
@@ -138,8 +130,6 @@ trait BackendSettingsApi {
   def requireBloomFilterAggMightContainJointFallback(): Boolean = true
 
   def enableNativeWriteFiles(): Boolean
-
-  def enableNativeArrowReadFiles(): Boolean = false
 
   def shouldRewriteCount(): Boolean = false
 
@@ -154,6 +144,8 @@ trait BackendSettingsApi {
   def needPreComputeRangeFrameBoundary(): Boolean = false
 
   def supportIcebergEqualityDeleteRead(): Boolean = true
+
+  def supportIcebergInitialDefaultRead(): Boolean = false
 
   def reorderColumnsForPartitionWrite(): Boolean = false
 
@@ -171,4 +163,16 @@ trait BackendSettingsApi {
 
   /** Whether the backend supports columnar shuffle with empty schema. */
   def supportEmptySchemaColumnarShuffle(): Boolean = true
+
+  /**
+   * Backend-specific non-prefixed session configs that should be forwarded to native runtime /
+   * memory manager creation.
+   */
+  def extraNativeSessionConfKeys(): Set[String] = Set.empty
+
+  /**
+   * Backend-specific non-prefixed backend initialization configs that should be forwarded during
+   * native backend initialization.
+   */
+  def extraNativeBackendConfKeys(): Set[String] = Set.empty
 }

@@ -76,6 +76,11 @@ abstract class BatchScanExecShim(
       .exists(v => metadataColumnsNames.contains(v.name))
   }
 
+  // Spark 4.2 changed the signature of `postDriverMetrics`, so the call is shimmed per version.
+  def doPostDriverMetrics(): Unit = {
+    postDriverMetrics()
+  }
+
   override def doExecuteColumnar(): RDD[ColumnarBatch] = {
     throw new UnsupportedOperationException("Need to implement this method")
   }
@@ -152,25 +157,4 @@ abstract class BatchScanExecShim(
       case _ => None
     }
   }
-}
-
-abstract class ArrowBatchScanExecShim(original: BatchScanExec)
-  extends BatchScanExecShim(
-    original.output,
-    original.scan,
-    original.runtimeFilters,
-    original.spjParams.keyGroupedPartitioning,
-    original.ordering,
-    original.table,
-    original.spjParams.joinKeyPositions,
-    original.spjParams.commonPartitionValues,
-    original.spjParams.reducers,
-    original.spjParams.applyPartialClustering,
-    original.spjParams.replicatePartitions
-  ) {
-  override def scan: Scan = original.scan
-
-  override def ordering: Option[Seq[SortOrder]] = original.ordering
-
-  override def output: Seq[Attribute] = original.output
 }

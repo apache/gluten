@@ -211,7 +211,6 @@ Arguments: false
 
 (19) VeloxResizeBatches
 Input [5]: [hash_partition_key#13, ca_county#9, d_qoy#7, d_year#6, sum#12]
-Arguments: 1024, 2147483647, 10485760
 
 (20) ColumnarExchange
 Input [5]: [hash_partition_key#13, ca_county#9, d_qoy#7, d_year#6, sum#12]
@@ -301,7 +300,6 @@ Arguments: false
 
 (40) VeloxResizeBatches
 Input [5]: [hash_partition_key#28, ca_county#24, d_qoy#22, d_year#21, sum#27]
-Arguments: 1024, 2147483647, 10485760
 
 (41) ColumnarExchange
 Input [5]: [hash_partition_key#28, ca_county#24, d_qoy#22, d_year#21, sum#27]
@@ -411,7 +409,6 @@ Arguments: false
 
 (66) VeloxResizeBatches
 Input [5]: [hash_partition_key#42, ca_county#38, d_qoy#36, d_year#35, sum#41]
-Arguments: 1024, 2147483647, 10485760
 
 (67) ColumnarExchange
 Input [5]: [hash_partition_key#42, ca_county#38, d_qoy#36, d_year#35, sum#41]
@@ -525,7 +522,6 @@ Arguments: false
 
 (93) VeloxResizeBatches
 Input [5]: [hash_partition_key#55, ca_county#51, d_qoy#49, d_year#48, sum#54]
-Arguments: 1024, 2147483647, 10485760
 
 (94) ColumnarExchange
 Input [5]: [hash_partition_key#55, ca_county#51, d_qoy#49, d_year#48, sum#54]
@@ -635,7 +631,6 @@ Arguments: false
 
 (119) VeloxResizeBatches
 Input [5]: [hash_partition_key#69, ca_county#65, d_qoy#63, d_year#62, sum#68]
-Arguments: 1024, 2147483647, 10485760
 
 (120) ColumnarExchange
 Input [5]: [hash_partition_key#69, ca_county#65, d_qoy#63, d_year#62, sum#68]
@@ -749,7 +744,6 @@ Arguments: false
 
 (146) VeloxResizeBatches
 Input [5]: [hash_partition_key#82, ca_county#78, d_qoy#76, d_year#75, sum#81]
-Arguments: 1024, 2147483647, 10485760
 
 (147) ColumnarExchange
 Input [5]: [hash_partition_key#82, ca_county#78, d_qoy#76, d_year#75, sum#81]
@@ -802,7 +796,6 @@ Arguments: false
 
 (159) VeloxResizeBatches
 Input [6]: [ca_county#9, d_year#6, web_q1_q2_increase#84, store_q1_q2_increase#85, web_q2_q3_increase#86, store_q2_q3_increase#87]
-Arguments: 1024, 2147483647, 10485760
 
 (160) ColumnarExchange
 Input [6]: [ca_county#9, d_year#6, web_q1_q2_increase#84, store_q1_q2_increase#85, web_q2_q3_increase#86, store_q2_q3_increase#87]

@@ -19,6 +19,7 @@ package org.apache.flink.table.planner.plan.nodes.exec.stream;
 import org.apache.gluten.rexnode.RexConversionContext;
 import org.apache.gluten.rexnode.RexNodeConverter;
 import org.apache.gluten.rexnode.Utils;
+import org.apache.gluten.streaming.api.operators.GlutenTwoInputOperatorFactory;
 import org.apache.gluten.table.runtime.operators.GlutenTwoInputOperator;
 import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.util.PlanNodeIdGenerator;
@@ -40,6 +41,7 @@ import io.github.zhztheplayer.velox4j.type.BooleanType;
 import org.apache.flink.FlinkVersion;
 import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.configuration.ReadableConfig;
+import org.apache.flink.streaming.api.operators.StreamOperator;
 import org.apache.flink.streaming.api.operators.TwoInputStreamOperator;
 import org.apache.flink.streaming.api.transformations.TwoInputTransformation;
 import org.apache.flink.table.data.RowData;
@@ -323,15 +325,30 @@ public class StreamExecJoin extends ExecNodeBase<RowData>
     }
 
     final RowType returnType = (RowType) getOutputType();
-    final TwoInputTransformation<RowData, RowData, RowData> transform =
-        ExecNodeUtil.createTwoInputTransformation(
-            leftTransform,
-            rightTransform,
-            createTransformationMeta(JOIN_TRANSFORMATION, config),
-            operator,
-            InternalTypeInfo.of(returnType),
-            leftTransform.getParallelism(),
-            false);
+    final TwoInputTransformation<RowData, RowData, RowData> transform;
+    if (operator instanceof GlutenTwoInputOperator) {
+      transform =
+          ExecNodeUtil.createTwoInputTransformation(
+              leftTransform,
+              rightTransform,
+              createTransformationMeta(JOIN_TRANSFORMATION, config),
+              new GlutenTwoInputOperatorFactory<RowData, RowData, RowData>(
+                  (StreamOperator<RowData>) operator),
+              InternalTypeInfo.of(returnType),
+              leftTransform.getParallelism(),
+              0L,
+              false);
+    } else {
+      transform =
+          ExecNodeUtil.createTwoInputTransformation(
+              leftTransform,
+              rightTransform,
+              createTransformationMeta(JOIN_TRANSFORMATION, config),
+              operator,
+              InternalTypeInfo.of(returnType),
+              leftTransform.getParallelism(),
+              false);
+    }
 
     // set KeyType and Selector for state
     RowDataKeySelector leftSelect =

@@ -36,6 +36,7 @@ import io.github.zhztheplayer.velox4j.plan.StreamWindowPartitionFunctionSpec;
 
 import org.apache.flink.FlinkVersion;
 import org.apache.flink.api.dag.Transformation;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple5;
 import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
@@ -208,11 +209,16 @@ public class StreamExecWindowAggregate extends StreamExecWindowAggregateBase {
     // TODO: support more window types.
     Tuple5<Long, Long, Long, Integer, Integer> windowSpecParams =
         WindowUtils.extractWindowParameters(windowing);
+    Tuple2<Integer, Integer> windowStartAndEndIndexes =
+        WindowUtils.getWindowStartAndEndIndexes(namedWindowProperties, (RowType) getOutputType());
     long size = windowSpecParams.f0;
     long slide = windowSpecParams.f1;
     long offset = windowSpecParams.f2;
     int rowtimeIndex = windowSpecParams.f3;
     int windowType = windowSpecParams.f4;
+    boolean isRowTime = windowing.isRowtime();
+    int windowStartIndex = windowStartAndEndIndexes.f0;
+    int windowEndIndex = windowStartAndEndIndexes.f1;
     PartitionFunctionSpec sliceAssignerSpec =
         new StreamWindowPartitionFunctionSpec(
             inputType, rowtimeIndex, size, slide, offset, windowType);
@@ -221,25 +227,29 @@ public class StreamExecWindowAggregate extends StreamExecWindowAggregateBase {
             PlanNodeIdGenerator.newId(),
             AggregateStep.SINGLE,
             groupingKeys,
-            groupingKeys,
+            isRowTime ? groupingKeys : List.of(),
             aggNames,
             aggregates,
             false,
             List.of(new EmptyNode(inputType)),
             null,
             List.of());
+    // processing time window can not apply to local-global aggregate optimization, so here we need
+    // to set local aggregtate as null when it is not event time window.
     PlanNode localAgg =
-        new AggregationNode(
-            PlanNodeIdGenerator.newId(),
-            AggregateStep.SINGLE,
-            groupingKeys,
-            groupingKeys,
-            aggNames,
-            aggregates,
-            false,
-            List.of(new EmptyNode(inputType)),
-            null,
-            List.of());
+        isRowTime
+            ? new AggregationNode(
+                PlanNodeIdGenerator.newId(),
+                AggregateStep.SINGLE,
+                groupingKeys,
+                groupingKeys,
+                aggNames,
+                aggregates,
+                false,
+                List.of(new EmptyNode(inputType)),
+                null,
+                List.of())
+            : null;
     PlanNode windowAgg =
         new StreamWindowAggregationNode(
             PlanNodeIdGenerator.newId(),
@@ -255,7 +265,10 @@ public class StreamExecWindowAggregate extends StreamExecWindowAggregateBase {
             offset,
             windowType,
             outputType,
-            rowtimeIndex);
+            windowing.isRowtime(),
+            rowtimeIndex,
+            windowStartIndex,
+            windowEndIndex);
     final RowDataKeySelector selector =
         KeySelectorUtil.getRowDataSelector(
             planner.getFlinkContext().getClassLoader(),
@@ -266,6 +279,9 @@ public class StreamExecWindowAggregate extends StreamExecWindowAggregateBase {
             .map(x -> x.getLogicalType())
             .collect(Collectors.toList())
             .toArray(new LogicalType[] {});
+    // For TVF windows (Tumbling, Hopping, Cumulative, Session), the window namespace
+    // is identified by the window end timestamp (Long). If count-based windows are
+    // supported in the future, a different serializer may be needed.
     final OneInputStreamOperator<RowData, RowData> windowOperator =
         new org.apache.gluten.table.runtime.operators.WindowAggOperator<RowData, RowData, Long>(
             new StatefulPlanNode(windowAgg.getId(), windowAgg),

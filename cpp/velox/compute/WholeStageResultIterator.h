@@ -28,6 +28,7 @@
 #include "velox/common/config/Config.h"
 #include "velox/connectors/hive/iceberg/IcebergSplit.h"
 #include "velox/core/PlanNode.h"
+#include "velox/exec/Cursor.h"
 #include "velox/exec/Task.h"
 #ifdef GLUTEN_ENABLE_GPU
 #include "cudf/GpuLock.h"
@@ -57,7 +58,8 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
         task_->requestCancel().wait();
       }
       auto deletionFuture = task_->taskDeletionFuture();
-      task_.reset();
+      cursor_.reset();
+      task_ = nullptr;
       deletionFuture.wait();
     }
 #ifdef GLUTEN_ENABLE_GPU
@@ -85,7 +87,7 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
 
   /// Get the underlying Velox task for direct manipulation
   facebook::velox::exec::Task* task() {
-    return task_.get();
+    return task_;
   }
 
   /// Add iterator-based splits from input iterators
@@ -121,12 +123,6 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
   /// Collect Velox metrics.
   void collectMetrics();
 
-  /// Return a certain type of runtime metric. Supported metric types are: sum, count, min, max.
-  static int64_t runtimeMetric(
-      const std::string& type,
-      const std::unordered_map<std::string, facebook::velox::RuntimeMetric>& runtimeStats,
-      const std::string& metricId);
-
   /// Memory.
   VeloxMemoryManager* memoryManager_;
 
@@ -137,12 +133,13 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
 #endif
   const SparkTaskInfo taskInfo_;
   folly::Executor* executor_;
-  std::shared_ptr<facebook::velox::exec::Task> task_;
+  std::unique_ptr<facebook::velox::exec::TaskCursor> cursor_;
+  facebook::velox::exec::Task* task_ = nullptr;
   std::shared_ptr<const facebook::velox::core::PlanNode> veloxPlan_;
 
   /// Spill.
   std::string spillStrategy_;
-  folly::Executor* spillExecutor_ = nullptr;
+  folly::Executor* spillExecutor_;
   VeloxConnectorIds connectorIds_;
 
   /// Metrics

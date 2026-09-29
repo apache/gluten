@@ -16,7 +16,6 @@
  */
 package org.apache.gluten.execution
 
-import org.apache.gluten.exception.GlutenException
 import org.apache.gluten.extension.columnar.transition.{Convention, ConventionReq}
 
 import org.apache.spark.sql.execution.SparkPlan
@@ -26,7 +25,7 @@ import org.apache.spark.sql.execution.SparkPlan
  *
  * The following Spark APIs are marked final so forbidden from overriding:
  *   - supportsColumnar
- *   - supportsRowBased (Spark version >= 3.3)
+ *   - supportsRowBased
  *
  * Instead, subclasses are expected to implement the following APIs:
  *   - batchType
@@ -46,7 +45,6 @@ trait GlutenPlan
   extends SparkPlan
   with Convention.KnownBatchType
   with Convention.KnownRowType
-  with GlutenPlan.SupportsRowBasedCompatible
   with ConventionReq.KnownChildConvention {
 
   final override val supportsColumnar: Boolean = {
@@ -75,14 +73,5 @@ trait GlutenPlan
       _ => {
         childReq
       })
-  }
-}
-
-object GlutenPlan {
-  // To be compatible with Spark (version < 3.3)
-  trait SupportsRowBasedCompatible {
-    def supportsRowBased(): Boolean = {
-      throw new GlutenException("Illegal state: The method is not expected to be called")
-    }
   }
 }

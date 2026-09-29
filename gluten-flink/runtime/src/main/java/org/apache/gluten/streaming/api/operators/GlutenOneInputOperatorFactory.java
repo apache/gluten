@@ -16,6 +16,8 @@
  */
 package org.apache.gluten.streaming.api.operators;
 
+import org.apache.gluten.table.runtime.operators.GlutenMailboxOperatorHelper;
+
 import io.github.zhztheplayer.velox4j.serde.Serde;
 
 import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
@@ -58,6 +60,10 @@ public class GlutenOneInputOperatorFactory<IN, OUT> extends AbstractStreamOperat
       ((SetupableStreamOperator) operator)
           .setup(
               parameters.getContainingTask(), parameters.getStreamConfig(), parameters.getOutput());
+    }
+    if (operator instanceof GlutenOperator) {
+      GlutenMailboxOperatorHelper.bindAtTaskStartup(
+          ((GlutenOperator) operator).mailboxHolder(), parameters);
     }
     return (T) operator;
   }

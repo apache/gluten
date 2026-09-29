@@ -59,7 +59,7 @@ public final class NativeBackendInitializer {
       throw new IllegalStateException("Already initialized");
     }
     initialize0(rl, conf);
-    SparkShutdownManagerUtil.addHook(
+    SparkShutdownManagerUtil.addHookForLibUnloading(
         () -> {
           shutdown();
           return BoxedUnit.UNIT;

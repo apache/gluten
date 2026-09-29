@@ -142,7 +142,8 @@ public:
 
         sortAndLimit(max_elements, sort_orders);
 
-        result_array_offsets.push_back(result_array_offsets.back() + values.size());
+        const auto previous_offset = result_array_offsets.empty() ? 0 : result_array_offsets.back();
+        result_array_offsets.push_back(previous_offset + values.size());
 
         if (values.empty())
             return;

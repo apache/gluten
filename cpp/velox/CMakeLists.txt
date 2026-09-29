@@ -160,6 +160,11 @@ set(VELOX_SRCS
     compute/VeloxRuntime.cc
     compute/VeloxPlanConverter.cc
     compute/WholeStageResultIterator.cc
+    compute/delta/DeltaConnector.cpp
+    compute/delta/DeltaDataSource.cpp
+    compute/delta/DeltaDeletionVectorReader.cpp
+    compute/delta/DeltaSplit.cpp
+    compute/delta/DeltaSplitReader.cpp
     compute/delta/RoaringBitmapArray.cpp
     compute/iceberg/IcebergPlanConverter.cc
     jni/JniFileSystem.cc
@@ -170,10 +175,13 @@ set(VELOX_SRCS
     memory/VeloxColumnarBatch.cc
     memory/VeloxMemoryManager.cc
     operators/functions/RegistrationAllFunctions.cc
+    operators/functions/delta/DeltaBitmapAggregator.cc
+    operators/functions/overlay/RegisterFunctionOverlay.cc
     operators/functions/RowConstructorWithNull.cc
     operators/functions/SparkExprToSubfieldFilterParser.cc
     operators/plannodes/RowVectorStream.cc
     operators/hashjoin/HashTableBuilder.cc
+    operators/hashjoin/HashTableSerializer.cc
     operators/reader/FileReaderIterator.cc
     operators/reader/ParquetReaderIterator.cc
     operators/serializer/VeloxColumnarBatchSerializer.cc
@@ -182,6 +190,7 @@ set(VELOX_SRCS
     operators/writer/VeloxColumnarBatchWriter.cc
     operators/writer/VeloxParquetDataSource.cc
     shuffle/ArrowShuffleDictionaryWriter.cc
+    shuffle/ReaderThreadPool.cc
     shuffle/VeloxHashShuffleWriter.cc
     shuffle/VeloxRssSortShuffleWriter.cc
     shuffle/VeloxShuffleReader.cc
@@ -206,6 +215,7 @@ set(VELOX_SRCS
     utils/VeloxWriterUtils.cc)
 
 if(ENABLE_S3)
+  list(APPEND VELOX_SRCS filesystem/GlutenS3FileSystem.cc)
   find_package(ZLIB)
 endif()
 
@@ -216,17 +226,15 @@ if(ENABLE_GPU)
     cudf/CudfPlanValidator.cc
     cudf/GpuLock.cc
     operators/plannodes/CudfVectorStream.cc
+    shuffle/VeloxGpuAsyncShuffleReader.cc
     shuffle/VeloxGpuShuffleReader.cc
-    shuffle/VeloxGpuShuffleWriter.cc
     operators/serializer/VeloxGpuColumnarBatchSerializer.cc
     utils/GpuBufferBatchResizer.cc
     memory/GpuBufferColumnarBatch.cc)
 endif()
 
-if(ENABLE_ENHANCED_FEATURES)
-  list(APPEND VELOX_SRCS compute/iceberg/IcebergFormat.cc
-       compute/iceberg/IcebergWriter.cc)
-endif()
+list(APPEND VELOX_SRCS compute/iceberg/IcebergFormat.cc
+     compute/iceberg/IcebergWriter.cc)
 
 if(BUILD_TESTS OR BUILD_BENCHMARKS)
   set(BUILD_TEST_UTILS ON)
@@ -239,10 +247,28 @@ endif()
 
 add_library(velox SHARED ${VELOX_SRCS})
 
+# Keep ABI sensitive Velox feature macros in sync
+set(GLUTEN_VELOX_CMAKE_CACHE "${VELOX_BUILD_PATH}/CMakeCache.txt")
+set(GLUTEN_VELOX_ENABLE_PARQUET ${VELOX_ENABLE_PARQUET})
+if(NOT GLUTEN_VELOX_ENABLE_PARQUET AND EXISTS "${GLUTEN_VELOX_CMAKE_CACHE}")
+  file(STRINGS "${GLUTEN_VELOX_CMAKE_CACHE}" GLUTEN_VELOX_ENABLE_PARQUET
+       REGEX "^VELOX_ENABLE_PARQUET:BOOL=(ON|TRUE|1)$")
+endif()
+if(GLUTEN_VELOX_ENABLE_PARQUET)
+  target_compile_definitions(velox PRIVATE VELOX_ENABLE_PARQUET)
+  message(STATUS "Propagating VELOX_ENABLE_PARQUET to Gluten Velox backend")
+endif()
+
 if(ENABLE_GLUTEN_VCPKG AND NOT CMAKE_SYSTEM_NAME MATCHES "Darwin")
   # Hide some symbols to avoid conflict.
   target_link_options(
     velox PRIVATE -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/symbols.map)
+endif()
+if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
+  # Make libvelox.dylib own the Velox mono archive. Test utilities can then
+  # resolve Velox symbols from the dylib instead of linking a second copy.
+  target_link_options(velox PRIVATE
+                      "LINKER:-force_load,${VELOX_BUILD_PATH}/lib/libvelox.a")
 endif()
 
 find_protobuf()
@@ -271,14 +297,12 @@ target_include_directories(
          ${VELOX_HOME}
          ${PROTO_OUTPUT_DIR}
          ${PROTOBUF_INCLUDE})
+if(GLUTEN_PREFIX_INCLUDE_DIRS)
+  target_include_directories(velox BEFORE PUBLIC ${GLUTEN_PREFIX_INCLUDE_DIRS})
+endif()
 
 set_target_properties(velox PROPERTIES LIBRARY_OUTPUT_DIRECTORY
                                        ${root_directory}/releases)
-
-# If folly is not installed in system lib paths, please add
-# `-DCMAKE_PREFIX_PATH="${folly lib path}" to cmake arguments. It is also
-# applicable to other dependencies.
-find_package(Folly REQUIRED CONFIG)
 
 if(ENABLE_JEMALLOC_STATS)
   include(Findjemalloc)
@@ -295,13 +319,19 @@ target_link_libraries(velox PUBLIC gluten)
 
 # Requires VELOX_MONO_LIBRARY=ON when building Velox.
 import_library(facebook::velox ${VELOX_BUILD_PATH}/lib/libvelox.a)
+set(GLUTEN_VELOX_LINK_SCOPE PUBLIC)
+if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
+  set(GLUTEN_VELOX_LINK_SCOPE PRIVATE)
+endif()
 
-if(BUILD_TESTS)
-  add_duckdb()
-
+if(BUILD_TESTS OR CMAKE_SYSTEM_NAME MATCHES "Darwin")
   import_library(facebook::velox::dbgen
                  ${VELOX_BUILD_PATH}/velox/tpch/gen/dbgen/libdbgen.a)
   target_link_libraries(facebook::velox INTERFACE facebook::velox::dbgen)
+endif()
+
+if(BUILD_TESTS)
+  add_duckdb()
 
   import_library(
     facebook::velox::vector_test_lib
@@ -324,9 +354,8 @@ if(BUILD_TESTS)
   target_link_libraries(velox PUBLIC facebook::velox::exec_test_lib)
 endif()
 
-target_link_libraries(velox PUBLIC facebook::velox)
+target_link_libraries(velox ${GLUTEN_VELOX_LINK_SCOPE} facebook::velox)
 
-target_link_libraries(velox PUBLIC Folly::folly)
 target_link_libraries(velox PUBLIC ${GLUTEN_ROARING_LINK_LIBRARY})
 
 find_re2()
@@ -356,6 +385,98 @@ else()
   import_library(external::geos ${VELOX_BUILD_PATH}/lib/libgeos.a)
 endif()
 target_link_libraries(velox PUBLIC external::geos)
+
+find_package(veloxthrift CONFIG)
+if(veloxthrift_FOUND AND TARGET veloxthrift::veloxthrift)
+  add_library(external::veloxthrift ALIAS veloxthrift::veloxthrift)
+else()
+  message(STATUS "import Velox bundled veloxthrift")
+  import_library(
+    external::veloxthrift
+    ${VELOX_BUILD_PATH}/velox/dwio/parquet/thrift/libvelox_dwio_parquet_thrift_raw.a
+  )
+endif()
+target_link_libraries(velox PUBLIC external::veloxthrift)
+
+# If folly is not installed in system lib paths, please add
+# `-DCMAKE_PREFIX_PATH="${folly lib path}" to cmake arguments. It is also
+# applicable to other dependencies.
+find_package(Folly REQUIRED CONFIG)
+if(CMAKE_SYSTEM_NAME MATCHES "Darwin" AND TARGET gflags_shared)
+  # Folly's exported interface references the static gflags target while glog
+  # links the shared gflags library. Loading both copies into one process makes
+  # gflags register its built-in flags twice and abort test binaries. Point
+  # folly's interface at the shared gflags target instead.
+  foreach(FOLLY_TARGET Folly::folly Folly::folly_deps)
+    if(TARGET ${FOLLY_TARGET})
+      get_target_property(FOLLY_LINK_LIBS ${FOLLY_TARGET}
+                          INTERFACE_LINK_LIBRARIES)
+      if(FOLLY_LINK_LIBS MATCHES "gflags_static")
+        list(TRANSFORM FOLLY_LINK_LIBS REPLACE "gflags_static" "gflags_shared")
+        set_target_properties(
+          ${FOLLY_TARGET} PROPERTIES INTERFACE_LINK_LIBRARIES
+                                     "${FOLLY_LINK_LIBS}")
+      endif()
+    endif()
+  endforeach()
+endif()
+target_link_libraries(velox PUBLIC Folly::folly)
+
+# Link thrift libraries - check vcpkg first, then fall back to system libraries
+# Determine vcpkg triplet directory based on architecture
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)")
+  set(VCPKG_TRIPLET_DIR "x64-linux-avx")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(aarch64)|(arm64)")
+  set(VCPKG_TRIPLET_DIR "arm64-linux-neon")
+else()
+  message(
+    WARNING
+      "Unknown processor type for vcpkg: ${CMAKE_SYSTEM_PROCESSOR}, defaulting to x64-linux-avx"
+  )
+  set(VCPKG_TRIPLET_DIR "x64-linux-avx")
+endif()
+
+if(DEFINED VCPKG_INSTALLED_DIR
+   AND EXISTS "${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftcpp2.a")
+  message(
+    STATUS
+      "Using vcpkg thrift libraries from ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}"
+  )
+  target_link_libraries(
+    velox
+    PRIVATE ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftcpp2.a
+            ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftprotocol.a)
+else()
+  set(THRIFT_LIBRARY_DIRS)
+  if(CMAKE_INSTALL_PREFIX)
+    list(APPEND THRIFT_LIBRARY_DIRS "${CMAKE_INSTALL_PREFIX}/lib")
+  endif()
+  foreach(PREFIX_PATH IN LISTS CMAKE_PREFIX_PATH)
+    list(APPEND THRIFT_LIBRARY_DIRS "${PREFIX_PATH}/lib" "${PREFIX_PATH}")
+  endforeach()
+  list(APPEND THRIFT_LIBRARY_DIRS /usr/local/lib)
+  list(REMOVE_DUPLICATES THRIFT_LIBRARY_DIRS)
+
+  message(STATUS "Searching thrift libraries in ${THRIFT_LIBRARY_DIRS}")
+  find_library(
+    THRIFTCPP2_LIB
+    NAMES thriftcpp2
+    PATHS ${THRIFT_LIBRARY_DIRS}
+    NO_DEFAULT_PATH)
+  find_library(
+    THRIFTPROTOCOL_LIB
+    NAMES thriftprotocol
+    PATHS ${THRIFT_LIBRARY_DIRS}
+    NO_DEFAULT_PATH)
+
+  if(THRIFTCPP2_LIB AND THRIFTPROTOCOL_LIB)
+    target_link_libraries(velox PRIVATE ${THRIFTCPP2_LIB} ${THRIFTPROTOCOL_LIB})
+  else()
+    message(
+      FATAL_ERROR
+        "Could not find thrift libraries. Please install them or use vcpkg.")
+  endif()
+endif()
 
 find_package(simdjson CONFIG)
 if(simdjson_FOUND AND TARGET simdjson::simdjson)
@@ -391,8 +512,8 @@ find_package(
 target_link_libraries(velox PUBLIC ICU::i18n ICU::uc ICU::data)
 
 if(BUILD_TESTS)
-  add_subdirectory(tests)
   add_subdirectory(compute/delta/tests)
+  add_subdirectory(tests)
 endif()
 
 if(BUILD_BENCHMARKS)
@@ -429,11 +550,21 @@ endif()
 
 if(ENABLE_GPU)
   set(cudf_DIR "${VELOX_BUILD_PATH}/_deps/cudf-build")
+  # cudf's build-tree export only calls find_dependency(rapids_logger) when
+  # rapids_logger is not a static library, which is the case since rapids_logger
+  # 0.3.0 (rapids-cmake 26.10). rapids_logger is built inside Velox's _deps tree
+  # and never installed, so its config is findable only there. Harmless when
+  # rapids_logger is static and never searched for.
+  set(rapids_logger_DIR "${VELOX_BUILD_PATH}/_deps/rapids_logger-build")
   find_package(cudf CONFIG REQUIRED)
 
   import_library(
     facebook::velox::velox_cudf_expression
     ${VELOX_BUILD_PATH}/velox/experimental/cudf/expression/libvelox_cudf_expression.a
+  )
+  import_library(
+    facebook::velox::velox_cudf_expression_registry
+    ${VELOX_BUILD_PATH}/velox/experimental/cudf/expression/libvelox_cudf_expression_registry.a
   )
   import_library(
     facebook::velox::velox_cudf_exec
@@ -444,6 +575,10 @@ if(ENABLE_GPU)
   import_library(
     facebook::velox::velox_cudf_hive_connector
     ${VELOX_BUILD_PATH}/velox/experimental/cudf/connectors/hive/libvelox_cudf_hive_connector.a
+  )
+  import_library(
+    facebook::velox::velox_cudf_iceberg_connector
+    ${VELOX_BUILD_PATH}/velox/experimental/cudf/connectors/hive/iceberg/libvelox_cudf_iceberg_connector.a
   )
 
   target_compile_definitions(
@@ -456,18 +591,25 @@ if(ENABLE_GPU)
 
   target_link_libraries(
     velox
-    PUBLIC facebook::velox::velox_cudf_exec facebook::velox::velox_cudf_vector
+    PUBLIC facebook::velox::velox_cudf_exec
+           facebook::velox::velox_cudf_vector
+           facebook::velox::velox_cudf_iceberg_connector
            facebook::velox::velox_cudf_hive_connector
-           facebook::velox::velox_cudf_expression cudf::cudf velox_curl)
+           facebook::velox::velox_cudf_expression
+           facebook::velox::velox_cudf_expression_registry
+           cudf::cudf
+           velox_curl)
 endif()
 
-add_custom_command(
-  TARGET velox
-  POST_BUILD
-  COMMAND ld $<TARGET_FILE:velox> || true
-  COMMENT "Checking ld result of libvelox.so")
-add_custom_command(
-  TARGET velox
-  POST_BUILD
-  COMMAND ldd $<TARGET_FILE:velox> || true
-  COMMENT "Checking ldd result of libvelox.so")
+if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+  add_custom_command(
+    TARGET velox
+    POST_BUILD
+    COMMAND ld $<TARGET_FILE:velox> || true
+    COMMENT "Checking ld result of libvelox.so")
+  add_custom_command(
+    TARGET velox
+    POST_BUILD
+    COMMAND ldd $<TARGET_FILE:velox> || true
+    COMMENT "Checking ldd result of libvelox.so")
+endif()

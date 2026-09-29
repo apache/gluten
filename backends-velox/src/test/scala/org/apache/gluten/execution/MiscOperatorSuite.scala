@@ -20,9 +20,11 @@ import org.apache.gluten.config.{GlutenConfig, GlutenCoreConfig, VeloxConfig}
 import org.apache.gluten.expression.VeloxDummyExpression
 
 import org.apache.spark.SparkConf
+import org.apache.spark.shuffle.GlutenShuffleUtils
 import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.catalyst.expressions.Cast
 import org.apache.spark.sql.execution._
-import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanHelper, AQEShuffleReadExec, ShuffleQueryStageExec}
+import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanHelper, AQEShuffleReadExec, ColumnarAQEShuffleReadExec, ShuffleQueryStageExec}
 import org.apache.spark.sql.execution.joins.BaseJoinExec
 import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.functions._
@@ -62,7 +64,6 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
       .set("spark.unsafe.exceptionOnMemoryLeak", "true")
       .set("spark.sql.autoBroadcastJoinThreshold", "-1")
       .set("spark.sql.sources.useV1SourceList", "avro,parquet,csv")
-      .set(GlutenConfig.NATIVE_ARROW_READER_ENABLED.key, "true")
   }
 
   test("select_part_column") {
@@ -314,7 +315,7 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     checkLengthAndPlan(df, 5)
   }
 
-  testWithMinSparkVersion("coalesce validation", "3.4") {
+  test("coalesce validation") {
     withTempPath {
       path =>
         val data = "2019-09-09 01:02:03.456789"
@@ -509,13 +510,6 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
       "select avg(l_partkey) over" +
         " (partition by l_suppkey order by l_suppkey, l_orderkey) from lineitem ") {
       checkGlutenPlan[WindowExecTransformer]
-    }
-
-    // Foldable input of nth_value is not supported.
-    runQueryAndCompare(
-      "select l_suppkey, l_orderkey, nth_value(1, 2) over" +
-        " (partition by l_suppkey order by l_orderkey) from lineitem ") {
-      checkSparkPlan[WindowExec]
     }
   }
 
@@ -770,7 +764,6 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
       val ops = collect(df.queryExecution.executedPlan) { case p: VeloxResizeBatchesExec => p }
       assert(ops.size == 1)
       val op = ops.head
-      assert(op.minOutputBatchSize == minBatchSize)
       val metrics = op.metrics
       assert(metrics("numInputRows").value == 27)
       assert(metrics("numInputBatches").value == 14)
@@ -789,7 +782,6 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
       val ops = collect(df.queryExecution.executedPlan) { case p: VeloxResizeBatchesExec => p }
       assert(ops.size == 1)
       val op = ops.head
-      assert(op.minOutputBatchSize == 1)
       val metrics = op.metrics
       assert(metrics("numInputRows").value == 27)
       assert(metrics("numInputBatches").value == 14)
@@ -1097,6 +1089,47 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
                             |SELECT stack(2, id, name, 1) from t1;
                             |""".stripMargin) {
         checkGlutenPlan[GenerateExecTransformer]
+      }
+    }
+  }
+
+  test("LATERAL VIEW OUTER stack followed by hash shuffle") {
+    // With OUTER, Velox's Unnest appends a trailing BOOLEAN marker column. The Stack path has
+    // no pullOutPostProject branch to consume that marker (unlike explode/posexplode/inline),
+    // so the native output is one column wider than the declared schema and every upstream
+    // column shifts by one. When the exploded key drives a hash-partition shuffle, the int32
+    // hash_partition_key that must sit at field 0 is displaced by the boolean marker and the
+    // columnar shuffle writer aborts.
+    //
+    // The shuffle must be a *hash-partition* exchange feeding a SortMergeJoin (not a partial
+    // aggregate, not a broadcast join) to reproduce the field-0 crash exactly as production
+    // does: broadcasting the dim table hits a different serializer error, and inserting a
+    // partial HashAggregate crashes earlier in the native input stream. Disable broadcast to
+    // force the SortMergeJoin.
+    withTempView("t1_stack", "t2_dim") {
+      sql("""SELECT * from values
+            |  (1, "james", 10, "lucy"),
+            |  (2, "bond", 20, "lily")
+            |as tbl(id, name, id1, name1)
+         """.stripMargin).createOrReplaceTempView("t1_stack")
+      sql("""SELECT * from values
+            |  (1, "a"), (2, "b"), (10, "c"), (20, "d")
+            |as tbl(k, tag)
+         """.stripMargin).createOrReplaceTempView("t2_dim")
+
+      withSQLConf("spark.sql.autoBroadcastJoinThreshold" -> "-1") {
+        runQueryAndCompare(s"""
+                              |SELECT j.eq_pos, t2.tag
+                              |FROM (
+                              |  SELECT eq_pos, val
+                              |  FROM t1_stack
+                              |  LATERAL VIEW OUTER stack(2, id, name, id1, name1) v AS eq_pos, val
+                              |) j
+                              |JOIN t2_dim t2 ON j.eq_pos = t2.k
+                              |ORDER BY j.eq_pos, t2.tag
+                              |""".stripMargin) {
+          checkGlutenPlan[GenerateExecTransformer]
+        }
       }
     }
   }
@@ -1925,6 +1958,35 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     }
   }
 
+  test("cast null type to complex type") {
+    // An outer join whose right side turns out to be empty is replaced with a projection of a
+    // null cast to the type of each of that side's output attributes. Here the right side is only
+    // known to be empty once its stage has run, so AQE adds the casts after constant folding and
+    // they reach the backend as casts from the null type rather than as typed null literals.
+    val query =
+      """
+        |select l.l_orderkey, r.arr, r.m, r.s
+        |from lineitem l left outer join (
+        |  select l_orderkey, array(l_partkey) as arr, map('k', l_partkey) as m,
+        |    struct(l_partkey as a) as s
+        |  from lineitem where l_orderkey < 0
+        |) r on l.l_orderkey = r.l_orderkey
+        |""".stripMargin
+    runQueryAndCompare(query) {
+      df =>
+        val plan = df.queryExecution.executedPlan
+        val castsToComplexTypes = collect(plan) { case p: ProjectExecTransformer => p }
+          .flatMap(_.projectList)
+          .flatMap(_.collect { case c: Cast if c.child.dataType == NullType => c.dataType })
+        assert(
+          castsToComplexTypes.exists(_.isInstanceOf[ArrayType]),
+          s"Expect the null casts to be offloaded in:\n$plan")
+        // The casts must run natively rather than being split out to the JVM.
+        assert(collect(plan) { case p: ColumnarPartialProjectExec => p }.isEmpty)
+        assert(collect(plan) { case p: ProjectExec => p }.isEmpty)
+    }
+  }
+
   test("timestamp broadcast join") {
     spark.range(0, 5).createOrReplaceTempView("right")
     spark.sql("SELECT id, timestamp_micros(id) as ts from right").createOrReplaceTempView("left")
@@ -2208,11 +2270,58 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
       })
   }
 
+  test("Check VeloxResizeBatches is added in ShuffleRead when cuDF is enabled") {
+    Seq(true, false).foreach(
+      coalesceEnabled => {
+        withSQLConf(
+          GlutenConfig.COLUMNAR_CUDF_ENABLED.key -> "true",
+          VeloxConfig.CUDF_ENABLE_VALIDATION.key -> "false",
+          VeloxConfig.COLUMNAR_VELOX_RESIZE_BATCHES_SHUFFLE_OUTPUT.key -> "false",
+          SQLConf.SHUFFLE_PARTITIONS.key -> "10",
+          SQLConf.COALESCE_PARTITIONS_ENABLED.key -> coalesceEnabled.toString
+        ) {
+          runQueryAndCompare(
+            "SELECT l_orderkey, count(1) from lineitem group by l_orderkey".stripMargin) {
+            df =>
+              val executedPlan = getExecutedPlan(df)
+              if (coalesceEnabled) {
+                // VeloxResizeBatches(AQEShuffleRead(ShuffleQueryStage(ColumnarShuffleExchange)))
+                assert(executedPlan.sliding(4).exists {
+                  case Seq(
+                        _: ColumnarShuffleExchangeExec,
+                        _: ShuffleQueryStageExec,
+                        ColumnarAQEShuffleReadExec(AQEShuffleReadExec(_, _), _),
+                        _: VeloxResizeBatchesExec
+                      ) =>
+                    true
+                  case _ => false
+                })
+              } else {
+                // VeloxResizeBatches(ShuffleQueryStage(ColumnarShuffleExchange))
+                assert(executedPlan.sliding(4).exists {
+                  case Seq(
+                        _: ColumnarShuffleExchangeExec,
+                        _: ShuffleQueryStageExec,
+                        ColumnarAQEShuffleReadExec(ShuffleQueryStageExec(_, _, _), _),
+                        _: VeloxResizeBatchesExec) =>
+                    true
+                  case _ => false
+                })
+              }
+          }
+        }
+      })
+  }
+
   test("RowToVeloxColumnar preferredBatchBytes") {
     Seq("1", "80", "100000000").foreach(
       preferredBatchBytes => {
         withSQLConf(
-          VeloxConfig.COLUMNAR_VELOX_PREFERRED_BATCH_BYTES.key -> preferredBatchBytes
+          VeloxConfig.COLUMNAR_VELOX_PREFERRED_BATCH_BYTES.key -> preferredBatchBytes,
+          // This test targets the RowToVeloxColumnarExec batching path, so the LocalTableScan
+          // offload must stay disabled here; otherwise the local scan produces columnar batches
+          // itself and no RowToVeloxColumnarExec node is inserted.
+          GlutenConfig.COLUMNAR_LOCAL_TABLE_SCAN_ENABLED.key -> "false"
         ) {
           val df = Seq(1, 2, 3, 4, 5, 6, 7, 8, 9, 10).toDF("Col").select($"Col".plus(1))
           assert(df.collect().length == 10)
@@ -2231,16 +2340,6 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
       })
   }
 
-  test("Expression unsupported by backend can be handled by ColumnarPartialProject") {
-    runQueryAndCompare(
-      "SELECT c_custkey, map_from_arrays(array(c_name), array(c_comment)) FROM customer") {
-      df =>
-        val executedPlan = getExecutedPlan(df)
-        assert(executedPlan.count(_.isInstanceOf[ProjectExec]) == 0)
-        assert(executedPlan.count(_.isInstanceOf[ColumnarPartialProjectExec]) == 1)
-    }
-  }
-
   testWithMinSparkVersion("Left single join should not result into exception", "4.0") {
     withSQLConf(SQLConf.ANSI_ENABLED.key -> "false") {
       spark.sql("create temp view x (x1, x2) as values (1, 1), (2, 2);")
@@ -2256,6 +2355,33 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
             }.size == 1
           )
       }
+    }
+  }
+
+  test("GLUTEN-11539: unsupported spark.io.compression.codec throws with actionable message") {
+    val conf = spark.sparkContext.getConf.clone().set("spark.io.compression.codec", "snappy")
+    val ex = intercept[IllegalArgumentException] {
+      GlutenShuffleUtils.getCompressionCodec(conf)
+    }
+    assert(ex.getMessage.contains("does not support codec 'snappy'"))
+    assert(ex.getMessage.contains("spark.shuffle.compress=false"))
+    assert(ex.getMessage.contains(GlutenConfig.COLUMNAR_SHUFFLE_CODEC.key))
+  }
+
+  test("GLUTEN-11539: spark.io.compression.codec=none throws pointing to spark.shuffle.compress") {
+    val conf = spark.sparkContext.getConf.clone().set("spark.io.compression.codec", "none")
+    val ex = intercept[IllegalArgumentException] {
+      GlutenShuffleUtils.getCompressionCodec(conf)
+    }
+    assert(ex.getMessage.contains("spark.shuffle.compress=false"))
+    assert(ex.getMessage.contains(GlutenConfig.COLUMNAR_SHUFFLE_CODEC.key))
+  }
+
+  test("GLUTEN-11539: supported spark.io.compression.codec is accepted") {
+    Seq("lz4", "zstd").foreach {
+      codec =>
+        val conf = spark.sparkContext.getConf.clone().set("spark.io.compression.codec", codec)
+        assert(GlutenShuffleUtils.getCompressionCodec(conf) === codec)
     }
   }
 }

@@ -35,6 +35,7 @@ const std::string kWindowSpillEnabled = "spark.gluten.sql.columnar.backend.velox
 // https://github.com/facebookincubator/velox/blob/95f3e80e77d046c12fbc79dc529366be402e9c2b/velox/docs/configs.rst#spilling
 const std::string kMaxSpillLevel = "spark.gluten.sql.columnar.backend.velox.maxSpillLevel";
 const std::string kMaxSpillFileSize = "spark.gluten.sql.columnar.backend.velox.maxSpillFileSize";
+const std::string kSpillNumMaxMergeFiles = "spark.gluten.sql.columnar.backend.velox.spillNumMaxMergeFiles";
 const std::string kSpillStartPartitionBit = "spark.gluten.sql.columnar.backend.velox.spillStartPartitionBit";
 const std::string kSpillPartitionBits = "spark.gluten.sql.columnar.backend.velox.spillPartitionBits";
 const std::string kMaxSpillRunRows = "spark.gluten.sql.columnar.backend.velox.MaxSpillRunRows";
@@ -50,6 +51,11 @@ const std::string kSparkShuffleSpillCompress = "spark.shuffle.spill.compress";
 const std::string kCompressionKind = "spark.io.compression.codec";
 /// The compression codec to use for spilling. Use kCompressionKind if not set.
 const std::string kSpillCompressionKind = "spark.gluten.sql.columnar.backend.velox.spillCompressionCodec";
+
+// Which compression kind to use for the columnar batch serializer (e.g. broadcast).
+const std::string kColumnarBatchSerializerCompression =
+    "spark.gluten.sql.columnar.backend.velox.columnarBatchSerializerCompression";
+const std::string kColumnarBatchSerializerCompressionDefault = "none";
 const std::string kMaxPartialAggregationMemoryRatio =
     "spark.gluten.sql.columnar.backend.velox.maxPartialAggregationMemoryRatio";
 const std::string kMaxPartialAggregationMemory = "spark.gluten.sql.columnar.backend.velox.maxPartialAggregationMemory";
@@ -79,6 +85,9 @@ const std::string kSparkBloomFilterExpectedNumItems = "spark.sql.optimizer.runti
 const std::string kSparkBloomFilterNumBits = "spark.sql.optimizer.runtime.bloomFilter.numBits";
 const std::string kSparkBloomFilterMaxNumBits = "spark.sql.optimizer.runtime.bloomFilter.maxNumBits";
 const std::string kSparkBloomFilterMaxNumItems = "spark.sql.optimizer.runtime.bloomFilter.maxNumItems";
+const std::string kScanBloomFilterPushdownEnabled =
+    "spark.gluten.sql.columnar.backend.velox.scan.bloomFilterPushdown.enabled";
+const bool kScanBloomFilterPushdownEnabledDefault = false;
 const std::string kVeloxSplitPreloadPerDriver = "spark.gluten.sql.columnar.backend.velox.SplitPreloadPerDriver";
 
 const std::string kHashProbeDynamicFilterPushdownEnabled =
@@ -86,6 +95,14 @@ const std::string kHashProbeDynamicFilterPushdownEnabled =
 
 const std::string kHashProbeBloomFilterPushdownMaxSize =
     "spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilterPushdown.maxSize";
+
+const std::string kHashProbeBloomFilterBypassMinRows =
+    "spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilter.bypassMinRows";
+const int32_t kHashProbeBloomFilterBypassMinRowsDefault = 0;
+
+const std::string kHashProbeBloomFilterBypassMinPct =
+    "spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilter.bypassMinPct";
+const int32_t kHashProbeBloomFilterBypassMinPctDefault = 85;
 
 const std::string kValueStreamDynamicFilterEnabled =
     "spark.gluten.sql.columnar.backend.velox.valueStream.dynamicFilter.enabled";
@@ -116,9 +133,13 @@ const std::string kVeloxMemReclaimMaxWaitMs = "spark.gluten.sql.columnar.backend
 const uint64_t kVeloxMemReclaimMaxWaitMsDefault = 3600000; // 60min
 
 const std::string kHiveConnectorId = "test-hive";
+const std::string kIcebergConnectorId = "test-iceberg";
+
 const std::string kVeloxCacheEnabled = "spark.gluten.sql.columnar.backend.velox.cacheEnabled";
 
 const std::string kExprMaxCompiledRegexes = "spark.gluten.sql.columnar.backend.velox.maxCompiledRegexes";
+
+const std::string kDecimalToFloatHighPrecisionCastEnabled = "spark.gluten.velox.decimalToFloatHighPrecisionCastEnabled";
 
 // memory cache
 const std::string kVeloxMemCacheSize = "spark.gluten.sql.columnar.backend.velox.memCacheSize";
@@ -132,7 +153,7 @@ const std::string kVeloxSsdCachePathDefault = "/tmp/";
 const std::string kVeloxSsdCacheShards = "spark.gluten.sql.columnar.backend.velox.ssdCacheShards";
 const uint32_t kVeloxSsdCacheShardsDefault = 1;
 const std::string kVeloxSsdCacheIOThreads = "spark.gluten.sql.columnar.backend.velox.ssdCacheIOThreads";
-const uint32_t kVeloxSsdCacheIOThreadsDefault = 1;
+const uint32_t kVeloxSsdCacheIOThreadsDefault = 4;
 const std::string kVeloxSsdODirectEnabled = "spark.gluten.sql.columnar.backend.velox.ssdODirect";
 const std::string kVeloxSsdCheckpointIntervalBytes =
     "spark.gluten.sql.columnar.backend.velox.ssdCheckpointIntervalBytes";
@@ -142,8 +163,8 @@ const std::string kVeloxSsdCheckSumReadVerificationEnabled =
     "spark.gluten.sql.columnar.backend.velox.ssdChecksumReadVerificationEnabled";
 
 // async
+const std::string kNumTaskSlotsPerExecutor = "spark.gluten.numTaskSlotsPerExecutor";
 const std::string kVeloxIOThreads = "spark.gluten.sql.columnar.backend.velox.IOThreads";
-const uint32_t kVeloxIOThreadsDefault = 0;
 const std::string kVeloxAsyncTimeoutOnTaskStopping =
     "spark.gluten.sql.columnar.backend.velox.asyncTimeoutOnTaskStopping";
 const int32_t kVeloxAsyncTimeoutOnTaskStoppingDefault = 30000; // 30s
@@ -155,7 +176,16 @@ const std::string kVeloxUdfLibraryPaths = "spark.gluten.sql.columnar.backend.vel
 const std::string kVeloxShuffleReaderPrintFlag = "spark.gluten.velox.shuffleReaderPrintFlag";
 
 const std::string kVeloxFileHandleCacheEnabled = "spark.gluten.sql.columnar.backend.velox.fileHandleCacheEnabled";
-const bool kVeloxFileHandleCacheEnabledDefault = false;
+const bool kVeloxFileHandleCacheEnabledDefault = true;
+
+const std::string kVeloxNumCacheFileHandles = "spark.gluten.sql.columnar.backend.velox.numCacheFileHandles";
+const int32_t kVeloxNumCacheFileHandlesDefault = 10000;
+
+const std::string kVeloxFileHandleExpirationDurationMs =
+    "spark.gluten.sql.columnar.backend.velox.fileHandleExpirationDurationMs";
+// 10 minutes default TTL — ensures stale handles (e.g., expired HDFS leases,
+// closed remote connections) are evicted from the cache.
+const int64_t kVeloxFileHandleExpirationDurationMsDefault = 600000;
 
 /* configs for file read in velox*/
 const std::string kDirectorySizeGuess = "spark.gluten.sql.columnar.backend.velox.directorySizeGuess";
@@ -168,13 +198,11 @@ const std::string kMaxCoalescedBytes = "spark.gluten.sql.columnar.backend.velox.
 const std::string kCachePrefetchMinPct = "spark.gluten.sql.columnar.backend.velox.cachePrefetchMinPct";
 const std::string kMemoryPoolCapacityTransferAcrossTasks =
     "spark.gluten.sql.columnar.backend.velox.memoryPoolCapacityTransferAcrossTasks";
-const std::string kOrcUseColumnNames = "spark.gluten.sql.columnar.backend.velox.orcUseColumnNames";
-const std::string kParquetUseColumnNames = "spark.gluten.sql.columnar.backend.velox.parquetUseColumnNames";
 const std::string kAllowInt32Narrowing = "spark.gluten.sql.columnar.backend.velox.allowInt32Narrowing";
 
 // write files
 const std::string kMaxPartitions = "spark.gluten.sql.columnar.backend.velox.maxPartitionsPerWritersSession";
-const std::string kMaxTargetFileSize = "spark.gluten.sql.columnar.backend.velox.maxTargetFileSize";
+const std::string kParquetMaxTargetFileSize = "spark.gluten.sql.columnar.backend.velox.parquetMaxTargetFileSize";
 
 const std::string kGlogVerboseLevel = "spark.gluten.sql.columnar.backend.velox.glogVerboseLevel";
 const uint32_t kGlogVerboseLevelDefault = 0;
@@ -184,6 +212,8 @@ const uint32_t kGlogSeverityLevelDefault = 1;
 
 // Iceberg write configs
 const std::string kWriteParquetPageSizeBytes = "spark.gluten.sql.columnar.backend.velox.parquet.pageSizeBytes";
+const std::string kWriteParquetDictSizeBytes =
+    "spark.gluten.sql.columnar.backend.velox.parquet.dictionaryPageSizeBytes";
 
 // Query trace
 /// Enable query tracing flag.
@@ -211,6 +241,10 @@ const std::string kCudfMemoryResourceDefault =
 const std::string kCudfMemoryPercent = "spark.gluten.sql.columnar.backend.velox.cudf.memoryPercent";
 const std::string kCudfMemoryPercentDefault = "50";
 
+// Maximum number of concurrent tasks allowed to execute GPU work.
+const std::string kCudfConcurrentGpuTasks = "spark.gluten.sql.columnar.backend.velox.cudf.concurrentGpuTasks";
+const uint32_t kCudfConcurrentGpuTasksDefault = 1;
+
 /// Preferred size of batches in bytes to be returned by operators.
 const std::string kVeloxPreferredBatchBytes = "spark.gluten.sql.columnar.backend.velox.preferredBatchBytes";
 
@@ -220,6 +254,11 @@ const bool kCudfEnableTableScanDefault = false;
 const std::string kCudfHiveConnectorId = "cudf-hive";
 const std::string kCudfShuffleMaxPrefetchBytes = "spark.gluten.sql.columnar.backend.velox.cudf.shuffleMaxPrefetchBytes";
 const int64_t kCudfShuffleMaxPrefetchBytesDefault = 1028L * 1024 * 1024; // 1028MB
+
+/// gpu shuffle
+const std::string kGpuAsyncShuffleReaderThreads =
+    "spark.gluten.sql.columnar.backend.velox.gpuAsyncShuffleReader.threadPoolSize";
+const int32_t kGpuAsyncShuffleReaderThreadsDefault = 1;
 
 const std::string kStaticBackendConfPrefix = "spark.gluten.velox.";
 const std::string kDynamicBackendConfPrefix = "spark.gluten.sql.columnar.backend.velox.";

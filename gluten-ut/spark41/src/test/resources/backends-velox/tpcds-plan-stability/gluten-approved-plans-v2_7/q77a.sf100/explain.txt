@@ -270,7 +270,6 @@ Arguments: false
 
 (19) VeloxResizeBatches
 Input [4]: [hash_partition_key#14, s_store_sk#7, sum#12, sum#13]
-Arguments: 1024, 2147483647, 10485760
 
 (20) ColumnarExchange
 Input [4]: [hash_partition_key#14, s_store_sk#7, sum#12, sum#13]
@@ -360,7 +359,6 @@ Arguments: false
 
 (40) VeloxResizeBatches
 Input [4]: [hash_partition_key#31, s_store_sk#24, sum#29, sum#30]
-Arguments: 1024, 2147483647, 10485760
 
 (41) ColumnarExchange
 Input [4]: [hash_partition_key#31, s_store_sk#24, sum#29, sum#30]
@@ -454,7 +452,6 @@ Arguments: false
 
 (62) VeloxResizeBatches
 Input [4]: [hash_partition_key#51, cs_call_center_sk#40, sum#49, sum#50]
-Arguments: 1024, 2147483647, 10485760
 
 (63) ColumnarExchange
 Input [4]: [hash_partition_key#51, cs_call_center_sk#40, sum#49, sum#50]
@@ -516,7 +513,6 @@ Arguments: false
 
 (76) VeloxResizeBatches
 Input [2]: [sum#64, sum#65]
-Arguments: 1024, 2147483647, 10485760
 
 (77) ColumnarExchange
 Input [2]: [sum#64, sum#65]
@@ -648,7 +644,6 @@ Arguments: false
 
 (107) VeloxResizeBatches
 Input [4]: [hash_partition_key#85, wp_web_page_sk#78, sum#83, sum#84]
-Arguments: 1024, 2147483647, 10485760
 
 (108) ColumnarExchange
 Input [4]: [hash_partition_key#85, wp_web_page_sk#78, sum#83, sum#84]
@@ -738,7 +733,6 @@ Arguments: false
 
 (128) VeloxResizeBatches
 Input [4]: [hash_partition_key#102, wp_web_page_sk#95, sum#100, sum#101]
-Arguments: 1024, 2147483647, 10485760
 
 (129) ColumnarExchange
 Input [4]: [hash_partition_key#102, wp_web_page_sk#95, sum#100, sum#101]
@@ -977,7 +971,6 @@ Arguments: false
 
 (188) VeloxResizeBatches
 Input [8]: [hash_partition_key#172, channel#127, sum#166, isEmpty#167, sum#168, isEmpty#169, sum#170, isEmpty#171]
-Arguments: 1024, 2147483647, 10485760
 
 (189) ColumnarExchange
 Input [8]: [hash_partition_key#172, channel#127, sum#166, isEmpty#167, sum#168, isEmpty#169, sum#170, isEmpty#171]
@@ -1192,7 +1185,6 @@ Arguments: false
 
 (242) VeloxResizeBatches
 Input [6]: [hash_partition_key#231, channel#36, id#37, sales#114, returns#115, profit#116]
-Arguments: 1024, 2147483647, 10485760
 
 (243) ColumnarExchange
 Input [6]: [hash_partition_key#231, channel#36, id#37, sales#114, returns#115, profit#116]

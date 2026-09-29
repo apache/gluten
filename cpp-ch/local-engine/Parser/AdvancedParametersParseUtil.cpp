@@ -138,6 +138,7 @@ JoinOptimizationInfo JoinOptimizationInfo::parse(const String & advance)
     tryAssign(kvs, "isBHJ", info.is_broadcast);
     tryAssign(kvs, "isSMJ", info.is_smj);
     tryAssign(kvs, "buildHashTableId", info.storage_join_key);
+    tryAssign(kvs, "buildBroadcastTableId", info.storage_join_key);
     tryAssign(kvs, "isNullAwareAntiJoin", info.is_null_aware_anti_join);
     tryAssign(kvs, "isExistenceJoin", info.is_existence_join);
     tryAssign(kvs, "isAnyJoin", info.is_any_join);

@@ -18,18 +18,33 @@ package org.apache.gluten.functions
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.{BatchScanExecTransformer, FilterExecTransformer, ProjectExecTransformer}
+import org.apache.gluten.expression.FormatNumberRestrictions
+import org.apache.gluten.extension.columnar.FallbackTags
 
 import org.apache.spark.SparkException
-import org.apache.spark.sql.Row
+import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.catalyst.optimizer.NullPropagation
 import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
-abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
+class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
+
   disableFallbackCheck
 
   import testImplicits._
+
+  // Collects the fallback reasons recorded on the executed plan. GlutenFallbackReporter moves the
+  // tag from the physical node to its logical link, so read both places like the reporter does.
+  private def fallbackReasons(df: DataFrame): Seq[String] = {
+    getExecutedPlan(df).flatMap {
+      p =>
+        FallbackTags
+          .getOption(p)
+          .orElse(p.logicalLink.flatMap(FallbackTags.getOption))
+          .map(_.reason())
+    }
+  }
 
   // Test "SELECT ..." without a from clause.
   test("isnull") {
@@ -51,7 +66,7 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("array_append - INT", "3.4") {
+  test("array_append - INT") {
     withTempPath {
       path =>
         Seq[(Array[Int], Int)](
@@ -76,7 +91,7 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("array_append - STRING", "3.4") {
+  test("array_append - STRING") {
     withTempPath {
       path =>
         Seq[(Array[String], String)](
@@ -124,7 +139,7 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("array_compact", "3.4") {
+  test("array_compact") {
     withTempPath {
       path =>
         Seq[Array[String]](
@@ -227,23 +242,23 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
       sql("INSERT INTO t1 VALUES(1, NOW())")
       runQueryAndCompare("SELECT c1, HOUR(c2) FROM t1 LIMIT 1")(df => checkFallbackOperators(df, 0))
     }
+  }
 
-    test("MINUTE") {
-      withTable("t1") {
-        sql("create table t1 (c1 int, c2 timestamp) USING PARQUET")
-        sql("INSERT INTO t1 VALUES(1, NOW())")
-        runQueryAndCompare("SELECT c1, MINUTE(c2) FROM t1 LIMIT 1")(
-          df => checkFallbackOperators(df, 0))
-      }
+  test("MINUTE") {
+    withTable("t1") {
+      sql("create table t1 (c1 int, c2 timestamp) USING PARQUET")
+      sql("INSERT INTO t1 VALUES(1, NOW())")
+      runQueryAndCompare("SELECT c1, MINUTE(c2) FROM t1 LIMIT 1")(
+        df => checkFallbackOperators(df, 0))
     }
+  }
 
-    test("SECOND") {
-      withTable("t1") {
-        sql("create table t1 (c1 int, c2 timestamp) USING PARQUET")
-        sql("INSERT INTO t1 VALUES(1, NOW())")
-        runQueryAndCompare("SELECT c1, SECOND(c2) FROM t1 LIMIT 1")(
-          df => checkFallbackOperators(df, 0))
-      }
+  test("SECOND") {
+    withTable("t1") {
+      sql("create table t1 (c1 int, c2 timestamp) USING PARQUET")
+      sql("INSERT INTO t1 VALUES(1, NOW())")
+      runQueryAndCompare("SELECT c1, SECOND(c2) FROM t1 LIMIT 1")(
+        df => checkFallbackOperators(df, 0))
     }
   }
 
@@ -549,6 +564,42 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("map_from_arrays offloads to Velox under both mapKeyDedupPolicy values") {
+    // l_orderkey is repeated.
+    val duplicateKeyQuery =
+      "select map_from_arrays(array(l_orderkey, l_orderkey + 1, l_orderkey), " +
+        "array(l_partkey, l_suppkey, l_linenumber)) as m, " +
+        "map_keys(map_from_arrays(array(l_orderkey, l_orderkey + 1, l_orderkey), " +
+        "array(l_partkey, l_suppkey, l_linenumber))) as k from lineitem limit 10"
+
+    // l_orderkey is not repeated.
+    val distinctKeyQuery =
+      "select map_from_arrays(array(l_orderkey, l_orderkey + 1), " +
+        "array(l_partkey, l_suppkey)) from lineitem limit 10"
+
+    withSQLConf(SQLConf.MAP_KEY_DEDUP_POLICY.key -> SQLConf.MapKeyDedupPolicy.EXCEPTION.toString) {
+      // EXCEPTION policy passes when there is no duplicate.
+      runQueryAndCompare(distinctKeyQuery) {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+
+      // EXCEPTION policy raises on a duplicate.
+      val df = sql(duplicateKeyQuery)
+      checkGlutenPlan[ProjectExecTransformer](df)
+      val e = intercept[SparkException] {
+        df.collect()
+      }
+      assert(e.getMessage.contains("Duplicate map key"))
+    }
+
+    withSQLConf(SQLConf.MAP_KEY_DEDUP_POLICY.key -> SQLConf.MapKeyDedupPolicy.LAST_WIN.toString) {
+      // LAST_WIN policy keeps the duplicate's first position and its last value.
+      runQueryAndCompare(duplicateKeyQuery) {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+    }
+  }
+
   test("raise_error, assert_true") {
     runQueryAndCompare("""SELECT assert_true(l_orderkey >= 1), l_orderkey
                          | from lineitem limit 100""".stripMargin) {
@@ -621,7 +672,7 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("url_decode", "3.4") {
+  test("url_decode") {
     withTempPath {
       path =>
         Seq("https%3A%2F%2Fspark.apache.org")
@@ -635,7 +686,7 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("url_encode", "3.4") {
+  test("url_encode") {
     withTempPath {
       path =>
         Seq("https://spark.apache.org")
@@ -651,8 +702,7 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
 
   // Add test suite for CharVarcharCodegenUtils functions.
   // A ProjectExecTransformer is expected to be constructed after expr support.
-  // We currently test below functions with Spark v3.4
-  testWithMinSparkVersion("charTypeWriteSideCheck", "3.4") {
+  test("charTypeWriteSideCheck") {
     withTable("src", "dest") {
 
       sql("create table src(id string) USING PARQUET")
@@ -665,7 +715,7 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("varcharTypeWriteSideCheck", "3.4") {
+  test("varcharTypeWriteSideCheck") {
     withTable("src", "dest") {
 
       sql("create table src(id string) USING PARQUET")
@@ -678,7 +728,7 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("readSidePadding", "3.4") {
+  test("readSidePadding") {
     withTable("src", "dest") {
 
       sql("create table tgt(id char(3)) USING PARQUET")
@@ -713,7 +763,81 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("mask", "3.4") {
+  test("regexp_instr") {
+    // Two-argument form.
+    runQueryAndCompare("SELECT regexp_instr(c_comment, '\\w+') FROM customer limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // No match returns 0.
+    runQueryAndCompare("SELECT regexp_instr(c_comment, '#[0-9]+#') FROM customer limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // Three-argument form: Spark ignores the group index and Velox has no such
+    // argument, so the idx child must be dropped while staying result-consistent.
+    runQueryAndCompare("SELECT regexp_instr(c_comment, '(\\w)(\\w)', 1) FROM customer limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // Three-argument form where the requested group starts at a different
+    // position than the whole match: the whole match "a1" starts at 1 while
+    // group 2 "1" starts at 2. Spark ignores idx and returns 1, so this guards
+    // against any future divergence if Spark starts honoring the group index.
+    runQueryAndCompare("SELECT regexp_instr('a1b2', '([a-z])([0-9])', 2)") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  testWithMinSparkVersion("dayname", "4.0") {
+    runQueryAndCompare("SELECT dayname(l_shipdate) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  testWithMinSparkVersion("monthname", "4.0") {
+    runQueryAndCompare("SELECT monthname(l_shipdate) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  test("format_number") {
+    // Integer / bigint input with different decimal places.
+    runQueryAndCompare("SELECT format_number(l_partkey, 0) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    runQueryAndCompare("SELECT format_number(l_orderkey, 2) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // Floating-point input, exercising HALF_EVEN rounding and thousands separators.
+    runQueryAndCompare(
+      "SELECT format_number(cast(l_quantity as double), 1) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    runQueryAndCompare(
+      "SELECT format_number(cast(l_discount as double), 3) FROM lineitem limit 50") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // Velox format_number only supports tinyint/smallint/integer/bigint/float/double. Decimal
+    // input is rejected on the JVM side, so it falls back to vanilla Spark and the fallback
+    // reason names the documented restriction instead of a generic native validation failure.
+    runQueryAndCompare("SELECT format_number(l_quantity, 1) FROM lineitem limit 50") {
+      df =>
+        checkSparkPlan[ProjectExec](df)
+        assert(
+          fallbackReasons(df).exists(
+            _.contains(FormatNumberRestrictions.NOT_SUPPORT_DECIMAL_INPUT)))
+    }
+    // Velox only implements the integer decimal-places form. The string-format form
+    // (e.g. '#,###.##') is rejected on the JVM side in the same way.
+    runQueryAndCompare(
+      "SELECT format_number(cast(l_quantity as double), '#,###.##') FROM lineitem limit 50") {
+      df =>
+        checkSparkPlan[ProjectExec](df)
+        assert(
+          fallbackReasons(df).exists(
+            _.contains(FormatNumberRestrictions.NOT_SUPPORT_STRING_FORMAT)))
+    }
+  }
+
+  test("mask") {
     runQueryAndCompare("SELECT mask(c_comment) FROM customer limit 50") {
       checkGlutenPlan[ProjectExecTransformer]
     }
@@ -916,7 +1040,7 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("get", "3.4") {
+  test("get") {
     withTempPath {
       path =>
         Seq[Seq[Integer]](Seq(1, null, 5, 4), Seq(5, -1, 8, 9, -7, 2), Seq.empty, null)
@@ -1077,7 +1201,51 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("array insert", "3.4") {
+  test("input_file_name() with BHJ build-side LocalRelation must return real path") {
+    withTempPath {
+      path =>
+        Seq(("event_a", 1001L, "param1"))
+          .toDF("event", "device_id", "params")
+          .write
+          .parquet(path.getCanonicalPath)
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("event_log")
+
+        withSQLConf(
+          "spark.sql.autoBroadcastJoinThreshold" -> "10MB",
+          "spark.sql.adaptive.enabled" -> "true"
+        ) {
+          val sql =
+            """
+              |SELECT  a.event,
+              |        a.params,
+              |        a.device_id,
+              |        input_file_name() AS fname
+              |FROM    event_log a
+              |JOIN
+              |        (
+              |            SELECT  'event_a' AS envent,
+              |                    1001 AS device_id
+              |        ) b
+              |ON      a.event     = b.envent
+              |AND     a.device_id = b.device_id
+              |""".stripMargin
+
+          compareResultsAgainstVanillaSpark(sql, true, { _ => })
+
+          val df = spark.sql(sql)
+          val rows = df.collect()
+          assert(rows.nonEmpty, "Join should match at least one row")
+          rows.foreach {
+            r =>
+              val fname = r.getAs[String]("fname")
+              assert(fname != null && fname.nonEmpty)
+              assert(fname.contains(path.getName))
+          }
+        }
+    }
+  }
+
+  test("array insert") {
     withTempPath {
       path =>
         Seq[Seq[Integer]](Seq(1, null, 5, 4), Seq(5, -1, 8, 9, -7, 2), Seq.empty, null)
@@ -1124,7 +1292,7 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("try_cast", "3.4") {
+  test("try_cast") {
     withTempView("try_cast_table") {
       withTempPath {
         path =>
@@ -1508,7 +1676,7 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("equal_null", "3.4") {
+  test("equal_null") {
     Seq[(Integer, Integer)]().toDF("a", "b")
     withTempPath {
       path =>
@@ -1549,61 +1717,49 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
   test("current_timestamp") {
-    withSQLConf(
-      "spark.sql.optimizer.excludedRules" ->
-        "org.apache.spark.sql.catalyst.optimizer.ConstantFolding") {
-      runQueryAndCompare("SELECT l_orderkey, current_timestamp() from lineitem limit 1") {
-        df =>
-          val optimizedPlan = df.queryExecution.optimizedPlan.toString()
-          assert(
-            optimizedPlan.contains("CurrentTimestamp"),
-            s"Expected CurrentTimestamp in plan when ConstantFolding is disabled, " +
-              s"but got: $optimizedPlan"
-          )
-          checkGlutenPlan[ProjectExecTransformer](df)
-      }
+    // current_timestamp() is folded to a wall-clock literal by ComputeCurrentTime (an always-on
+    // optimizer batch that excludedRules cannot suppress). Each run captures a different instant,
+    // so result comparison across two executions always fails. Skip result comparison but still
+    // assert that the Project offloads natively.
+    runQueryAndCompare(
+      "SELECT l_orderkey, current_timestamp() from lineitem limit 1",
+      compareResult = false) {
+      checkGlutenPlan[ProjectExecTransformer]
     }
   }
 
   test("now") {
-    withSQLConf(
-      "spark.sql.optimizer.excludedRules" ->
-        "org.apache.spark.sql.catalyst.optimizer.ConstantFolding") {
-      runQueryAndCompare("SELECT l_orderkey, now() from lineitem limit 1") {
-        df =>
-          val optimizedPlan = df.queryExecution.optimizedPlan.toString()
-          assert(
-            optimizedPlan.contains("Now"),
-            s"Expected Now in plan when ConstantFolding is disabled, but got: $optimizedPlan"
-          )
-          checkGlutenPlan[ProjectExecTransformer](df)
-      }
+    // now() is an alias for current_timestamp() -- same constant-folding behaviour.
+    runQueryAndCompare(
+      "SELECT l_orderkey, now() from lineitem limit 1",
+      compareResult = false) {
+      checkGlutenPlan[ProjectExecTransformer]
     }
   }
 
-  testWithMinSparkVersion("localtimestamp with validation enabled", "3.4") {
-    // With validation enabled (default), localtimestamp should fallback to Spark
-    // because it returns TimestampNTZType
-    withSQLConf("spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation" -> "true") {
+  test("localtimestamp with validation enabled") {
+    // localtimestamp() is folded to a TimestampNTZType literal by ComputeCurrentTime. With
+    // validation enabled, any Project whose output contains TimestampNTZ falls back to JVM.
+    // The Project falls back at the top of the plan (above the one VeloxColumnarToRow), so
+    // the extra-transition count is 0 (1 ColumnarToRow - 1 baseline = 0).
+    withSQLConf(
+      "spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation" -> "true"
+    ) {
       val df = spark.sql("SELECT l_orderkey, localtimestamp() from lineitem limit 1")
-      // Should fallback to Spark execution due to TimestampNTZ validation
-      checkFallbackOperators(df, 1)
+      checkFallbackOperators(df, 0)
       df.collect()
     }
   }
 
-  testWithMinSparkVersion("localtimestamp with validation disabled", "3.4") {
-    // With validation disabled, localtimestamp can use native execution
-    // This allows developers to test TimestampNTZ support
-    withSQLConf("spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation" -> "false") {
+  test("localtimestamp with validation disabled") {
+    // With validation disabled, scans on TimestampNTZ columns are allowed natively. For
+    // localtimestamp(), the expression constant-folds to a TimestampNTZType literal in the
+    // Project; Gluten only permits native Projects when NTZ appears in Hour(ntz_col), so
+    // this Project still falls back -- same extra-transition count as the validation-enabled case.
+    withSQLConf(
+      "spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation" -> "false"
+    ) {
       val df = spark.sql("SELECT l_orderkey, localtimestamp() from lineitem limit 1")
-      val optimizedPlan = df.queryExecution.optimizedPlan.toString()
-      assert(
-        !optimizedPlan.contains("LocalTimestamp"),
-        s"Expected LocalTimestamp to be folded to a literal, but got: $optimizedPlan"
-      )
-      // Should use native execution when validation is disabled
-      checkGlutenPlan[ProjectExecTransformer](df)
       checkFallbackOperators(df, 0)
       df.collect()
     }

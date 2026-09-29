@@ -85,6 +85,8 @@ private:
     DB::ActionsDAG::NodeRawConstPtrs parseArrayJoinArguments(
         const substrait::Expression_ScalarFunction & func, DB::ActionsDAG & actions_dag, bool position, bool & is_map) const;
 
+    DB::ActionsDAG::NodeRawConstPtrs parseStack(const substrait::Expression_ScalarFunction & func, DB::ActionsDAG & actions_dag) const;
+
     DB::ActionsDAG::NodeRawConstPtrs parseJsonTuple(const substrait::Expression_ScalarFunction & func, DB::ActionsDAG & actions_dag) const;
 
     static bool areEqualNodes(NodeRawConstPtr a, NodeRawConstPtr b);

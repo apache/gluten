@@ -808,10 +808,10 @@ bool tryPrepareSetIndex(const DB::RPNBuilderFunctionTreeNode & func, DB::GlutenP
 {
     const auto right_arg = func.getArgumentAt(1);
     const auto future_set = right_arg.tryGetPreparedSet();
-    if (future_set->getTypes().size() != 1)
+    if (!future_set)
         return false;
 
-    if (!future_set)
+    if (future_set->getTypes().size() != 1)
         return false;
 
     const auto prepared_set = future_set->buildOrderedSetInplace(right_arg.getTreeContext().getQueryContext());
