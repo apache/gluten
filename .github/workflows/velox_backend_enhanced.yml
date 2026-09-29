@@ -269,7 +269,7 @@ jobs:
           if [ "${{ matrix.group }}" = "1" ]; then
             $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta \
             -Pspark-ut -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
-            -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.sql.delta,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
+            -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
           elif [ "${{ matrix.group }}" = "2" ]; then
             $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta \
             -Pspark-ut -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \

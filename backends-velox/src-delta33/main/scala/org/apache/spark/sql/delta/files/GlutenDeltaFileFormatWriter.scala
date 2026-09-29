@@ -542,7 +542,7 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
     }
   }
 
-  private[delta] class GlutenDynamicPartitionDataSingleWriter(
+  private class GlutenDynamicPartitionDataSingleWriter(
       description: WriteJobDescription,
       taskAttemptContext: TaskAttemptContext,
       committer: FileCommitProtocol,
