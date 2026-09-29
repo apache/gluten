@@ -27,4 +27,17 @@ object HiveUDAFInspector {
       case _ => None
     }
   }
+
+  /**
+   * Whether this is an old-style Hive UDAF, which Spark runs by wrapping in a GenericUDAFBridge.
+   * The bridge's getEvaluator resolves over the implementation's iterate methods, so unlike an
+   * AbstractGenericUDAFResolver -- which receives the actual ObjectInspectors and either accepts
+   * them or throws -- Hive picks the implementation by resolving an overload.
+   *
+   * Exposed here because HiveUDAFFunction is private to this package.
+   */
+  def isBridgedLegacyUDAF(expr: Expression): Boolean = expr match {
+    case func: HiveUDAFFunction => func.isUDAFBridgeRequired
+    case _ => false
+  }
 }

@@ -1587,7 +1587,10 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
                 case e: GlutenNotSupportException =>
                   HiveUDAFInspector.getUDAFClassName(originalAggFunc) match {
                     case Some(udafClass) if UDFResolver.UDAFNames.contains(udafClass) =>
-                      UDFResolver.getUdafExpression(udafClass)(originalAggFunc.children)
+                      UDFResolver.getUdafExpression(
+                        udafClass,
+                        UDFResolver.udafAllowsHiveCoercion(originalAggFunc))(
+                        originalAggFunc.children)
                     case _ => throw e
                   }
               }
