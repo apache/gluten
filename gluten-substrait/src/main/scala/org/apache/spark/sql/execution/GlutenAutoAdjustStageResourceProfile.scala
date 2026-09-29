@@ -187,8 +187,8 @@ object GlutenAutoAdjustStageResourceProfile extends Logging {
         // V1/V2 writes have a physical computation child and must remain eligible for profiling.
         case _: DataWritingCommandExec | _: V2TableWriteExec =>
         case _: CommandResultExec | _: ExecutedCommandExec | _: V2CommandExec =>
-          // Most commands are DDL and expose no physical input plan. Only few commands
-          // (e.g. InsertIntoDataSourceDirCommand) have a physical child plan.
+          // Limitation: RunnableCommand exposes no physical child, so this collector cannot attach
+          // a profile to worker RDDs created internally (e.g. by InsertIntoDataSourceDirCommand).
           return
         case _ =>
       }
@@ -281,17 +281,11 @@ object GlutenAutoAdjustStageResourceProfile extends Logging {
     }
 
     plan match {
-      case shuffle: Exchange =>
-        logInfo(s"Apply resource profile $finalRP for plan ${shuffle.child.nodeName}")
-        // Wrap the plan with ApplyResourceProfileExec so that we can apply new ResourceProfile
-        val wrapperPlan = ApplyResourceProfileExec(shuffle.child, finalRP)
-        shuffle.withNewChildren(Seq(wrapperPlan))
-      case command: DataWritingCommandExec =>
-        logInfo(s"Apply resource profile $finalRP for write input ${command.child.nodeName}")
-        command.withNewChildren(Seq(ApplyResourceProfileExec(command.child, finalRP)))
-      case write: V2TableWriteExec =>
-        logInfo(s"Apply resource profile $finalRP for V2 write input ${write.child.nodeName}")
-        write.withNewChildren(Seq(ApplyResourceProfileExec(write.child, finalRP)))
+      case _: Exchange | _: DataWritingCommandExec | _: V2TableWriteExec =>
+        val child = plan.children.head
+        logInfo(s"Apply resource profile $finalRP for child ${child.nodeName}")
+        // Wrap the child with ApplyResourceProfileExec so that we can apply new ResourceProfile
+        plan.withNewChildren(Seq(ApplyResourceProfileExec(child, finalRP)))
       case other =>
         logInfo(s"Apply resource profile $finalRP for plan ${other.nodeName}")
         ApplyResourceProfileExec(other, finalRP)
