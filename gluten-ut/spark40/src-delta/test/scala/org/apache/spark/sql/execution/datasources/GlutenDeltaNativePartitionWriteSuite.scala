@@ -1,1 +1,0 @@
-../../../../../../../../../../spark35/src-delta/test/scala/org/apache/spark/sql/execution/datasources/GlutenDeltaNativePartitionWriteSuite.scala
