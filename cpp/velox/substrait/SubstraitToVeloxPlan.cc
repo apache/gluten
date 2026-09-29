@@ -1585,34 +1585,44 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   auto names = colNameList;
   auto types = veloxTypeList;
 
-  // The columns we project from the file.
+  // The logical scan schema includes columns supplied by the connector, not just the file.
   auto baseSchema = ROW(std::move(names), std::move(types));
-  // The columns present in the table, if not available default to the baseSchema.
-  auto tableSchema = splitInfo->tableSchema ? splitInfo->tableSchema : baseSchema;
 
-  // Build dataColumns from tableSchema, excluding partition columns.
   // HiveTableHandle::dataColumns() is used as fileSchema for the reader.
-  // Partition columns should not be validated against the file's physical types
-  // (their values come from the partition path, not from the file).
-  std::unordered_set<std::string> partitionColNames;
-  for (int idx = 0; idx < colNameList.size(); idx++) {
-    if (columnTypes[idx] == ColumnType::kPartitionKey) {
-      partitionColNames.insert(colNameList[idx]);
-    }
-  }
   RowTypePtr dataColumns;
-  if (partitionColNames.empty()) {
-    dataColumns = tableSchema;
-  } else {
+  if (!splitInfo->tableSchema) {
     std::vector<std::string> dataColNames;
     std::vector<TypePtr> dataColTypes;
-    for (int idx = 0; idx < tableSchema->size(); idx++) {
-      if (partitionColNames.find(tableSchema->nameOf(idx)) == partitionColNames.end()) {
-        dataColNames.push_back(tableSchema->nameOf(idx));
-        dataColTypes.push_back(tableSchema->childAt(idx));
+    for (int idx = 0; idx < colNameList.size(); idx++) {
+      if (columnTypes[idx] == ColumnType::kRegular) {
+        dataColNames.push_back(colNameList[idx]);
+        dataColTypes.push_back(veloxTypeList[idx]);
       }
     }
     dataColumns = ROW(std::move(dataColNames), std::move(dataColTypes));
+  } else {
+    // An explicit schema describes physical fields and their ordinals. A field
+    // must not be removed just because a synthetic output has the same name.
+    const auto& tableSchema = splitInfo->tableSchema;
+    std::unordered_set<std::string> partitionColNames;
+    for (int idx = 0; idx < colNameList.size(); idx++) {
+      if (columnTypes[idx] == ColumnType::kPartitionKey) {
+        partitionColNames.insert(colNameList[idx]);
+      }
+    }
+    if (partitionColNames.empty()) {
+      dataColumns = tableSchema;
+    } else {
+      std::vector<std::string> dataColNames;
+      std::vector<TypePtr> dataColTypes;
+      for (int idx = 0; idx < tableSchema->size(); idx++) {
+        if (partitionColNames.find(tableSchema->nameOf(idx)) == partitionColNames.end()) {
+          dataColNames.push_back(tableSchema->nameOf(idx));
+          dataColTypes.push_back(tableSchema->childAt(idx));
+        }
+      }
+      dataColumns = ROW(std::move(dataColNames), std::move(dataColTypes));
+    }
   }
 
   connector::ConnectorTableHandlePtr tableHandle;

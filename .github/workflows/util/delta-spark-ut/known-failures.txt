@@ -633,8 +633,6 @@ org.apache.spark.sql.delta.rowid.RowTrackingRemovalConcurrencyWithoutDVsSuite#In
 org.apache.spark.sql.delta.rowid.RowTrackingRemovalConcurrencyWithoutDVsSuite#Single Unbackfill batch interleaves delete
 org.apache.spark.sql.delta.rowid.RowTrackingRemovalConcurrencyWithoutDVsSuite#Single Unbackfill batch interleaves update
 org.apache.spark.sql.delta.rowtracking.RowTrackingReadWriteSuite#write and read table with all-null materialized columns
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#Data skipping handles aliasing for _metadata fields
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#data skipping flags
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#data skipping flags - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1JsonCheckpointV2Suite#data skipping on TIMESTAMP_NTZ
@@ -655,8 +653,6 @@ org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data 
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping on TIMESTAMP_NTZ with Long.MaxValue - column mapping name mode - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping stats before and after optimize - column mapping name mode
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1NameColumnMappingSuite#data skipping stats before and after optimize - column mapping name mode - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#Data skipping handles aliasing for _metadata fields
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#data skipping flags
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#data skipping flags - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#data skipping on TIMESTAMP_NTZ
@@ -667,8 +663,6 @@ org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#dat
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#data skipping stats before and after optimize
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1ParquetCheckpointV2Suite#data skipping stats before and after optimize - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#Data skipping handles aliasing for _metadata fields
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping flags
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping flags - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping on TIMESTAMP_NTZ
@@ -679,8 +673,6 @@ org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping on TIMES
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping stats before and after optimize
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1Suite#data skipping stats before and after optimize - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#Data skipping handles aliasing for _metadata fields
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#data skipping flags
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#data skipping flags - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#data skipping on TIMESTAMP_NTZ
@@ -689,8 +681,6 @@ org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suit
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#data skipping on TIMESTAMP_NTZ near Long.MaxValue - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#Data skipping handles aliasing for _metadata fields
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#data skipping flags
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#data skipping flags - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#data skipping on TIMESTAMP_NTZ
@@ -699,8 +689,6 @@ org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#data skipping on TIMESTAMP_NTZ near Long.MaxValue - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#data skipping on TIMESTAMP_NTZ with Long.MaxValue - old behavior with DataFrame schema
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#Data skipping handles aliasing for _metadata fields
-org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#data skipping flags
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#data skipping flags - old behavior with DataFrame schema
 org.apache.spark.sql.delta.stats.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#data skipping on TIMESTAMP_NTZ
