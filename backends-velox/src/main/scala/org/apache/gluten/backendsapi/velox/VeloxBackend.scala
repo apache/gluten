@@ -305,17 +305,8 @@ object VeloxBackendSettings extends BackendSettingsApi {
         case _: ParquetFileFormat => None
         case h: HiveFileFormat if GlutenConfig.get.enableHiveFileFormatWriter =>
           // Validate HiveFileFormat is backed by Parquet
-          val fileSinkConfField = format.getClass.getDeclaredField("fileSinkConf")
-          fileSinkConfField.setAccessible(true)
-          val fileSinkConf = fileSinkConfField.get(h)
-          val tableInfoField = fileSinkConf.getClass.getDeclaredField("tableInfo")
-          tableInfoField.setAccessible(true)
-          val tableInfo = tableInfoField.get(fileSinkConf)
-          val outputFormat = tableInfo.getClass
-            .getDeclaredMethod("getOutputFileFormatClassName")
-            .invoke(tableInfo)
-          outputFormat match {
-            case "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat" => None
+          HiveFileFormatUtil.outputFileFormatClassName(h) match {
+            case HiveFileFormatUtil.PARQUET_OUTPUT_FORMAT => None
             case _ => Some("HiveFileFormat is supported only with Parquet as the output file type")
           }
         case _ => Some("Only ParquetFileFormat and HiveFileFormat are supported.")
