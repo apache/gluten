@@ -16,6 +16,8 @@
  */
 package org.apache.gluten.metrics
 
+import org.apache.gluten.expression.IncrementMetricCall
+
 import org.apache.spark.sql.execution.metric.SQLMetric
 
 class ProjectMetricsUpdater(
@@ -38,6 +40,10 @@ class ProjectMetricsUpdater(
         case (name, metric) =>
           name match {
             case "increment_metric" => metric += operatorMetrics.outputRows
+            case name if name.startsWith(IncrementMetricCall.functionNamePrefix) =>
+              // The counter ran natively: credit the rows Velox evaluated it on.
+              metric += Option(
+                operatorMetrics.expressionStats.get(name)).map(_.longValue()).getOrElse(0L)
             case _ => // do nothing
           }
       }

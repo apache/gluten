@@ -46,9 +46,10 @@ class IncrementMetricOffloadSuite extends AnyFunSuite {
   test("an IncrementMetric at the root of a projection alias is offloadable") {
     val metric = newMetric()
     val projectList = Seq(id, alias(increment(Literal.TrueLiteral, metric)))
-    assert(IncrementMetricOffload.canOffloadProject(projectList))
+    assert(IncrementMetricOffload.canOffloadProject(projectList, nativeCounting = false))
 
-    val (stripped, metrics) = DeltaProjectExecTransformer.stripIncrementMetrics(projectList)
+    val (stripped, metrics) =
+      DeltaProjectExecTransformer.stripIncrementMetrics(projectList, nativeCounting = false)
     assert(stripped.head eq id)
     assert(stripped(1).asInstanceOf[Alias].child === Literal.TrueLiteral)
     assert(stripped(1).exprId === projectList(1).exprId)
@@ -59,9 +60,10 @@ class IncrementMetricOffloadSuite extends AnyFunSuite {
     val inner = newMetric()
     val outer = newMetric()
     val projectList = Seq(alias(increment(increment(Literal.FalseLiteral, inner), outer)))
-    assert(IncrementMetricOffload.canOffloadProject(projectList))
+    assert(IncrementMetricOffload.canOffloadProject(projectList, nativeCounting = false))
 
-    val (stripped, metrics) = DeltaProjectExecTransformer.stripIncrementMetrics(projectList)
+    val (stripped, metrics) =
+      DeltaProjectExecTransformer.stripIncrementMetrics(projectList, nativeCounting = false)
     assert(stripped.head.asInstanceOf[Alias].child === Literal.FalseLiteral)
     assert(metrics.map(_._2) === Seq(outer, inner))
   }
@@ -74,9 +76,11 @@ class IncrementMetricOffloadSuite extends AnyFunSuite {
       Seq((EqualTo(id, Literal(1)), increment(Literal.FalseLiteral, updated))),
       Some(increment(Literal.FalseLiteral, copied)))
     val projectList = Seq(id, alias(rowDropped))
-    assert(!IncrementMetricOffload.canOffloadProject(projectList))
+    assert(!IncrementMetricOffload.canOffloadProject(projectList, nativeCounting = false))
+    // A backend that counts natively takes any shape; the counters become named function calls.
+    assert(IncrementMetricOffload.canOffloadProject(projectList, nativeCounting = true))
     intercept[GlutenNotSupportException] {
-      DeltaProjectExecTransformer.stripIncrementMetrics(projectList)
+      DeltaProjectExecTransformer.stripIncrementMetrics(projectList, nativeCounting = false)
     }
   }
 
@@ -89,16 +93,17 @@ class IncrementMetricOffloadSuite extends AnyFunSuite {
             increment(Literal.TrueLiteral, newMetric()),
             Literal(false)),
           newMetric())))
-    assert(!IncrementMetricOffload.canOffloadProject(projectList))
+    assert(!IncrementMetricOffload.canOffloadProject(projectList, nativeCounting = false))
     intercept[GlutenNotSupportException] {
-      DeltaProjectExecTransformer.stripIncrementMetrics(projectList)
+      DeltaProjectExecTransformer.stripIncrementMetrics(projectList, nativeCounting = false)
     }
   }
 
   test("a project list without IncrementMetric is returned untouched") {
     val projectList = Seq(id, alias(GreaterThan(id, Literal(1))))
-    assert(IncrementMetricOffload.canOffloadProject(projectList))
-    val (stripped, metrics) = DeltaProjectExecTransformer.stripIncrementMetrics(projectList)
+    assert(IncrementMetricOffload.canOffloadProject(projectList, nativeCounting = false))
+    val (stripped, metrics) =
+      DeltaProjectExecTransformer.stripIncrementMetrics(projectList, nativeCounting = false)
     assert(stripped.zip(projectList).forall { case (a, b) => a eq b })
     assert(metrics.isEmpty)
   }
@@ -127,6 +132,30 @@ class IncrementMetricOffloadSuite extends AnyFunSuite {
     intercept[GlutenNotSupportException] {
       DeltaFilterExecTransformer.stripIncrementMetrics(increment(Literal.FalseLiteral, newMetric()))
     }
+  }
+
+  test("a counter function name is derived from the metric's display name") {
+    assert(
+      IncrementMetricOffload.nativeFunctionName(Some("number of target rows copied")) ===
+        Some("increment_metric_number_of_target_rows_copied"))
+    assert(
+      IncrementMetricOffload.nativeFunctionName(Some("number of rows deleted.")) ===
+        Some("increment_metric_number_of_rows_deleted"))
+    assert(IncrementMetricOffload.nativeFunctionName(Some(" -- ")).isEmpty)
+    assert(IncrementMetricOffload.nativeFunctionName(None).isEmpty)
+  }
+
+  test("native counting refuses a metric it cannot name and leaves other aliases untouched") {
+    // An accumulator that was never registered has no name, so it cannot get a counter function.
+    val projectList = Seq(id, alias(increment(Literal.TrueLiteral, newMetric())))
+    intercept[GlutenNotSupportException] {
+      DeltaProjectExecTransformer.stripIncrementMetrics(projectList, nativeCounting = true)
+    }
+    val plain = Seq(id, alias(GreaterThan(id, Literal(1))))
+    val (rewritten, metrics) =
+      DeltaProjectExecTransformer.stripIncrementMetrics(plain, nativeCounting = true)
+    assert(rewritten.zip(plain).forall { case (a, b) => a eq b })
+    assert(metrics.isEmpty)
   }
 
   test("a filter condition without IncrementMetric is returned untouched") {

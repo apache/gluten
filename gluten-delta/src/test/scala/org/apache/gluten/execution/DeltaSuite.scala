@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.execution
 
+import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.extension.DeltaPostTransformRules
 
 import org.apache.spark.SparkConf
@@ -1236,10 +1237,21 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
       assert(metrics("numTargetRowsInserted") === "2", metrics)
       assert(metrics("numTargetRowsCopied") === "2", metrics)
 
-      // The projection carrying the conditional counters stays on Spark, while the unconditional
-      // source-row counter is still offloaded. Delta 2.4 (Spark 3.4) counts through a UDF
-      // instead of IncrementMetric, so there is no Delta transformer to look for there.
-      if (SparkVersionUtil.gteSpark35) {
+      // A backend that counts natively offloads the write projection with its CASE WHEN counters.
+      // Otherwise that projection stays on Spark while the unconditional source-row counter is
+      // still offloaded. Delta 2.4 (Spark 3.4) counts through a UDF instead of IncrementMetric,
+      // so there is no Delta transformer to look for there.
+      val nativeCounting = BackendsApiManager.getSettings.supportNativeIncrementMetric()
+      if (SparkVersionUtil.gteSpark35 && nativeCounting) {
+        val nodes = plans.flatMap(flattenPlanInfo)
+        val nativeDeltaProjects = nodes.filter(_.nodeName == "DeltaProjectExecTransformer")
+        assert(
+          nativeDeltaProjects.exists(_.simpleString.contains("CASE WHEN")),
+          nodes.map(n => s"${n.nodeName}: ${n.simpleString}"))
+        assert(
+          !nodes.exists(n => n.nodeName == "Project" && n.simpleString.contains("CASE WHEN")),
+          nodes.map(n => s"${n.nodeName}: ${n.simpleString}"))
+      } else if (SparkVersionUtil.gteSpark35) {
         val nodes = plans.flatMap(flattenPlanInfo)
         val nativeDeltaProjects = nodes.filter(_.nodeName == "DeltaProjectExecTransformer")
         assert(nativeDeltaProjects.nonEmpty, nodes.map(_.nodeName).distinct)

@@ -51,8 +51,20 @@ object MetricsUtil extends Logging {
       .map(_.asLong())
       .getOrElse(0L)
 
+  private def expressionStatsFromJson(node: JsonNode): JMap[String, java.lang.Long] = {
+    val stats = new java.util.HashMap[String, java.lang.Long]()
+    Option(node.get("expressionStats")).foreach {
+      exprStats =>
+        exprStats.fields().asScala.foreach {
+          entry => stats.put(entry.getKey, java.lang.Long.valueOf(entry.getValue.asLong()))
+        }
+    }
+    stats
+  }
+
   private def operatorMetricFromJson(node: JsonNode): OperatorMetrics = {
     val metrics = new OperatorMetrics()
+    metrics.expressionStats = expressionStatsFromJson(node)
     metrics.inputRows = value(node, "inputRows")
     metrics.inputVectors = value(node, "inputVectors")
     metrics.inputBytes = value(node, "inputBytes")
@@ -355,6 +367,16 @@ object MetricsUtil extends Logging {
     aggregated.bloomFilterTestedRows = bloomFilterTestedRows
     aggregated.bloomFilterAcceptedRows = bloomFilterAcceptedRows
     aggregated.bloomFilterBypassed = bloomFilterBypassed
+    val expressionStats = scala.collection.mutable.HashMap.empty[String, Long]
+    operatorMetrics.asScala.foreach {
+      metrics =>
+        metrics.expressionStats.asScala.foreach {
+          case (name, rows) =>
+            expressionStats.update(name, expressionStats.getOrElse(name, 0L) + rows)
+        }
+    }
+    aggregated.expressionStats =
+      expressionStats.map { case (name, rows) => name -> java.lang.Long.valueOf(rows) }.asJava
     aggregated
   }
 

@@ -16,10 +16,14 @@
  */
 package org.apache.gluten.extension
 
+import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.expression.IncrementMetricCall
 import org.apache.gluten.extension.DeltaPostTransformRules.containsIncrementMetricExpr
 
 import org.apache.spark.sql.catalyst.expressions.{Alias, Expression, Literal, NamedExpression}
 import org.apache.spark.sql.types.BooleanType
+
+import java.util.Locale
 
 /**
  * Decides whether a project or filter carrying Delta's `IncrementMetric` may be offloaded.
@@ -34,7 +38,14 @@ import org.apache.spark.sql.types.BooleanType
  * that take its branch only. Offloading it inflated those counters to the full row count, which
  * corrupted the operation metrics of every MERGE commit and, through
  * `CDCReader.shouldSkipFileActionsInCommit`, produced phantom change-data-feed rows for no-op
- * merges (GLUTEN-9003). Such nodes stay on Spark until the counter is evaluated natively.
+ * merges (GLUTEN-9003).
+ *
+ * A backend that counts natively
+ * ([[org.apache.gluten.backendsapi.BackendSettingsApi.supportNativeIncrementMetric]]) evaluates
+ * each counter as a pass-through function named after its metric and reports how many rows that
+ * function processed, which is the exact evaluation count: inside a `CASE WHEN` branch only the
+ * rows that took the branch reach it. Such backends offload every projection. Others keep the
+ * conditional shapes on Spark.
  */
 object IncrementMetricOffload {
 
@@ -48,12 +59,28 @@ object IncrementMetricOffload {
     if (isIncrementMetric(expr)) peelIncrementMetrics(expr.children.head) else expr
   }
 
+  /** Whether the backend counts natively; then every projection shape can be offloaded. */
+  def nativeCounting: Boolean = BackendsApiManager.getSettings.supportNativeIncrementMetric()
+
   /**
-   * True when every `IncrementMetric` in `projectList` sits at the root of its alias (a stack of
-   * them counts as the root), so crediting each with the operator's output rows is exact.
+   * The counter function name for a metric, derived from the metric's display name (Delta's metric
+   * keys are not carried by the expression). None when the metric has no usable name, in which case
+   * the projection stays on Spark.
    */
-  def canOffloadProject(projectList: Seq[NamedExpression]): Boolean = {
-    projectList.forall {
+  def nativeFunctionName(metricName: Option[String]): Option[String] = {
+    metricName
+      .map(_.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "_").replaceAll("^_+|_+$", ""))
+      .filter(_.nonEmpty)
+      .map(IncrementMetricCall.functionNamePrefix + _)
+  }
+
+  /**
+   * True when the backend counts natively (`nativeCounting`), or when every `IncrementMetric` in
+   * `projectList` sits at the root of its alias (a stack of them counts as the root), so crediting
+   * each with the operator's output rows is exact.
+   */
+  def canOffloadProject(projectList: Seq[NamedExpression], nativeCounting: Boolean): Boolean = {
+    nativeCounting || projectList.forall {
       case alias: Alias => !containsIncrementMetricExpr(peelIncrementMetrics(alias.child))
       case other => !containsIncrementMetricExpr(other)
     }
