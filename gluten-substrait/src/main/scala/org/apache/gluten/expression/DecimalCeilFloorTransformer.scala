@@ -20,7 +20,6 @@ import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.exception.GlutenNotSupportException
 
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DataType, DecimalType}
 
 /**
@@ -39,18 +38,6 @@ case class DecimalCeilFloorTransformer(
     original: Expression,
     scaleExpr: Expression)
   extends BinaryExpressionTransformer {
-
-  // Velox's `decimal_ceil` / `decimal_floor` return NULL when the rounded result exceeds the
-  // declared decimal precision, whereas Spark's `RoundBase` raises a precision-overflow error
-  // under ANSI mode (e.g. DECIMAL(38, 0) at its maximum value rounded with a negative scale).
-  // Offloading under ANSI would silently substitute NULL for that error, so fall back to vanilla
-  // Spark and preserve the ANSI semantics. Under non-ANSI mode Spark also returns NULL on
-  // overflow, matching Velox, so offloading is safe.
-  if (SQLConf.get.ansiEnabled) {
-    throw new GlutenNotSupportException(
-      s"${original.nodeName} on decimal is not offloaded under ANSI mode because Velox returns " +
-        "NULL on precision overflow while Spark raises. Falling back to Spark.")
-  }
 
   // Spark requires the scale to be a foldable integer literal, but guard defensively so any
   // non-foldable scale, evaluation failure, or unexpected value type triggers a clean fallback
@@ -81,15 +68,43 @@ case class DecimalCeilFloorTransformer(
     }
   }
 
-  override val dataType: DataType = original.children.head.dataType match {
+  private val decimalType = original.children.head.dataType match {
     case decimalType: DecimalType =>
-      BackendsApiManager.getSparkPlanExecApiInstance.genDecimalRoundExpressionOutput(
-        decimalType,
-        toScale)
+      decimalType
     case other =>
       throw new GlutenNotSupportException(
         s"Decimal type is expected for ${original.nodeName} but received ${other.typeName}.")
   }
+
+  if (decimalType.scale < 0) {
+    throw new GlutenNotSupportException(
+      s"${original.nodeName} does not support native execution for ${decimalType.sql} because " +
+        "Velox decimal types require a non-negative scale. Falling back to Spark.")
+  }
+
+  private val requiredPrecision: Long = {
+    val integralLeastNumDigits = decimalType.precision.toLong - decimalType.scale + 1L
+    if (toScale < 0) {
+      math.max(integralLeastNumDigits, -toScale.toLong + 1L)
+    } else {
+      integralLeastNumDigits + math.min(decimalType.scale, toScale)
+    }
+  }
+
+  // Velox returns NULL on decimal precision overflow, while Spark raises regardless of ANSI mode.
+  // Spark caps the output type at MAX_PRECISION, so fall back only when rounding can change the
+  // value and the uncapped result precision exceeds that limit.
+  if (toScale < decimalType.scale && requiredPrecision > DecimalType.MAX_PRECISION) {
+    throw new GlutenNotSupportException(
+      s"${original.nodeName} on ${decimalType.sql} with scale $toScale may exceed decimal " +
+        s"precision ${DecimalType.MAX_PRECISION} (required precision: $requiredPrecision). " +
+        "Falling back to Spark.")
+  }
+
+  override val dataType: DataType =
+    BackendsApiManager.getSparkPlanExecApiInstance.genDecimalRoundExpressionOutput(
+      decimalType,
+      toScale)
 
   override def left: ExpressionTransformer = child
   override def right: ExpressionTransformer = LiteralTransformer(toScale)
