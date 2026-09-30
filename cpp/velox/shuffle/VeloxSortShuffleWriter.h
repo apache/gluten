@@ -50,6 +50,8 @@ class VeloxSortShuffleWriter final : public VeloxShuffleWriter {
   int64_t totalC2RTime() const override;
 
  private:
+  friend class VeloxSortShuffleWriterTest;
+
   VeloxSortShuffleWriter(
       uint32_t numPartitions,
       const std::shared_ptr<PartitionWriter>& partitionWriter,
@@ -64,7 +66,7 @@ class VeloxSortShuffleWriter final : public VeloxShuffleWriter {
 
   arrow::Status insert(const facebook::velox::RowVectorPtr& vector, int64_t memLimit);
 
-  void insertRows(
+  arrow::Status insertRows(
       facebook::velox::row::CompactRow& compact,
       facebook::velox::vector_size_t offset,
       facebook::velox::vector_size_t size);
@@ -73,7 +75,7 @@ class VeloxSortShuffleWriter final : public VeloxShuffleWriter {
 
   arrow::Status evictAllPartitions();
 
-  arrow::Status evictPartition(uint32_t partitionId, size_t begin, size_t end);
+  arrow::Status evictPartition(uint32_t partitionId, size_t begin, size_t end, const std::vector<uint32_t>& pageSizes);
 
   arrow::Status evictPartitionInternal(uint32_t partitionId, uint32_t numRows, uint8_t* buffer, int64_t rawLength);
 

@@ -834,8 +834,6 @@ class BoltTestSettings extends BackendTestSettings {
   enableSuite[GlutenReplaceNullWithFalseInPredicateEndToEndSuite]
   enableSuite[GlutenScalaReflectionRelationSuite]
   enableSuite[GlutenSerializationSuite]
-  // following UT is removed in spark3.3.1
-  // enableSuite[GlutenSimpleShowCreateTableSuite]
   enableSuite[GlutenFileSourceSQLInsertTestSuite]
     .exclude("SPARK-33474: Support typed literals as partition spec values")
   enableSuite[GlutenDSV2SQLInsertTestSuite]

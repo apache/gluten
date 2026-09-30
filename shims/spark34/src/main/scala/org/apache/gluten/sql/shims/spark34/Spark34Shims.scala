@@ -49,6 +49,11 @@ import org.apache.parquet.schema.MessageType
 
 class Spark34Shims extends SparkShims {
 
+  override def getSampleSeed(plan: SampleExec): Long = plan.seed
+
+  override def isKeyGroupedPartitioning(partitioning: Partitioning): Boolean =
+    partitioning.isInstanceOf[KeyGroupedPartitioning]
+
   override def scalarExpressionMappings: Seq[Sig] = {
     Seq(
       Sig[Empty2Null](ExpressionNames.EMPTY2NULL),
@@ -91,16 +96,8 @@ class Spark34Shims extends SparkShims {
         f =>
           BucketingUtils
             .getBucketId(f.toPath.getName)
-            .getOrElse(throw invalidBucketFile(f.urlEncodedPath))
+            .getOrElse(throw ExceptionUtils.invalidBucketFile(f.urlEncodedPath))
       }
-  }
-
-  // https://issues.apache.org/jira/browse/SPARK-40400
-  private def invalidBucketFile(path: String): Throwable = {
-    new SparkException(
-      errorClass = "INVALID_BUCKET_FILE",
-      messageParameters = Map("path" -> path),
-      cause = null)
   }
 
   def setJobDescriptionOrTagForBroadcastExchange(
@@ -168,16 +165,6 @@ class Spark34Shims extends SparkShims {
       isSplitable,
       maxSplitBytes,
       partitionValues)
-  }
-
-  def structFromAttributes(attrs: Seq[Attribute]): StructType = {
-    StructType(attrs.map(a => StructField(a.name, a.dataType, a.nullable, a.metadata)))
-  }
-
-  def attributesFromStruct(structType: StructType): Seq[Attribute] = {
-    structType.fields.map {
-      field => AttributeReference(field.name, field.dataType, field.nullable, field.metadata)()
-    }
   }
 
   def getAnalysisExceptionPlan(ae: AnalysisException): Option[LogicalPlan] = {

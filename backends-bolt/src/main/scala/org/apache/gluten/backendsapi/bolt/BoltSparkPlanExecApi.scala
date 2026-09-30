@@ -1093,12 +1093,14 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
     PullOutArrowEvalPythonPreProjectHelper.pullOutPreProject(arrowEvalPythonExec)
   }
 
-  override def maybeCollapseTakeOrderedAndProject(plan: SparkPlan): SparkPlan = {
+  override def maybeCollapseTakeOrderedAndProject(
+      plan: SparkPlan,
+      metrics: Map[String, SQLMetric]): SparkPlan = {
     // This to-top-n optimization assumes exchange operators were already placed in input plan.
     plan.transformUp {
       case p @ LimitExecTransformer(SortExecTransformer(sortOrder, _, child, _), 0, count) =>
         val global = child.outputPartitioning.satisfies(AllTuples)
-        val topN = TopNTransformer(count, sortOrder, global, child)
+        val topN = TopNTransformer(count, sortOrder, global, child)(metrics)
         if (topN.doValidate().ok()) {
           topN
         } else {

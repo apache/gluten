@@ -90,7 +90,6 @@ case class RowToBoltColumnarExec(child: SparkPlan) extends RowToColumnarExecBase
     )
   }
 
-  // For spark 3.2.
   protected def withNewChildInternal(newChild: SparkPlan): RowToBoltColumnarExec =
     copy(child = newChild)
 }

@@ -113,10 +113,6 @@ abstract class BatchScanExecTransformerBase(
     BackendsApiManager.getMetricsApiInstance.genBatchScanTransformerMetrics(
       sparkContext) ++ customMetrics
 
-  def doPostDriverMetrics(): Unit = {
-    postDriverMetrics()
-  }
-
   override def scanFilters: Seq[Expression] = scan match {
     case fileScan: FileScan => fileScan.dataFilters
     case _ =>

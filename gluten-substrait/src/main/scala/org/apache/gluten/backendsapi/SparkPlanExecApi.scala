@@ -182,6 +182,13 @@ trait SparkPlanExecApi {
     GenericExpressionTransformer(substraitExprName, children, expr)
   }
 
+  def genFormatNumberTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      expr: Expression): ExpressionTransformer = {
+    GenericExpressionTransformer(substraitExprName, children, expr)
+  }
+
   def genFromJsonTransformer(
       substraitExprName: String,
       children: Seq[ExpressionTransformer],
@@ -594,7 +601,9 @@ trait SparkPlanExecApi {
   def genPreProjectForArrowEvalPythonExec(arrowEvalPythonExec: ArrowEvalPythonExec): SparkPlan =
     arrowEvalPythonExec
 
-  def maybeCollapseTakeOrderedAndProject(plan: SparkPlan): SparkPlan = plan
+  def maybeCollapseTakeOrderedAndProject(
+      plan: SparkPlan,
+      metrics: Map[String, SQLMetric]): SparkPlan = plan
 
   def genDecimalRoundExpressionOutput(decimalType: DecimalType, toScale: Int): DecimalType = {
     val p = decimalType.precision

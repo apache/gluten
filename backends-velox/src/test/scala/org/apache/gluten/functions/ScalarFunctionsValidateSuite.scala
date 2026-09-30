@@ -18,9 +18,11 @@ package org.apache.gluten.functions
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.{BatchScanExecTransformer, FilterExecTransformer, ProjectExecTransformer}
+import org.apache.gluten.expression.FormatNumberRestrictions
+import org.apache.gluten.extension.columnar.FallbackTags
 
 import org.apache.spark.SparkException
-import org.apache.spark.sql.Row
+import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.catalyst.optimizer.NullPropagation
 import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.internal.SQLConf
@@ -31,6 +33,18 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
   disableFallbackCheck
 
   import testImplicits._
+
+  // Collects the fallback reasons recorded on the executed plan. GlutenFallbackReporter moves the
+  // tag from the physical node to its logical link, so read both places like the reporter does.
+  private def fallbackReasons(df: DataFrame): Seq[String] = {
+    getExecutedPlan(df).flatMap {
+      p =>
+        FallbackTags
+          .getOption(p)
+          .orElse(p.logicalLink.flatMap(FallbackTags.getOption))
+          .map(_.reason())
+    }
+  }
 
   // Test "SELECT ..." without a from clause.
   test("isnull") {
@@ -52,7 +66,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("array_append - INT", "3.4") {
+  test("array_append - INT") {
     withTempPath {
       path =>
         Seq[(Array[Int], Int)](
@@ -77,7 +91,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("array_append - STRING", "3.4") {
+  test("array_append - STRING") {
     withTempPath {
       path =>
         Seq[(Array[String], String)](
@@ -125,7 +139,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("array_compact", "3.4") {
+  test("array_compact") {
     withTempPath {
       path =>
         Seq[Array[String]](
@@ -658,7 +672,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("url_decode", "3.4") {
+  test("url_decode") {
     withTempPath {
       path =>
         Seq("https%3A%2F%2Fspark.apache.org")
@@ -672,7 +686,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("url_encode", "3.4") {
+  test("url_encode") {
     withTempPath {
       path =>
         Seq("https://spark.apache.org")
@@ -688,8 +702,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
 
   // Add test suite for CharVarcharCodegenUtils functions.
   // A ProjectExecTransformer is expected to be constructed after expr support.
-  // We currently test below functions with Spark v3.4
-  testWithMinSparkVersion("charTypeWriteSideCheck", "3.4") {
+  test("charTypeWriteSideCheck") {
     withTable("src", "dest") {
 
       sql("create table src(id string) USING PARQUET")
@@ -702,7 +715,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("varcharTypeWriteSideCheck", "3.4") {
+  test("varcharTypeWriteSideCheck") {
     withTable("src", "dest") {
 
       sql("create table src(id string) USING PARQUET")
@@ -715,7 +728,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("readSidePadding", "3.4") {
+  test("readSidePadding") {
     withTable("src", "dest") {
 
       sql("create table tgt(id char(3)) USING PARQUET")
@@ -750,7 +763,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("regexp_instr", "3.4") {
+  test("regexp_instr") {
     // Two-argument form.
     runQueryAndCompare("SELECT regexp_instr(c_comment, '\\w+') FROM customer limit 50") {
       checkGlutenPlan[ProjectExecTransformer]
@@ -802,20 +815,29 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
       "SELECT format_number(cast(l_discount as double), 3) FROM lineitem limit 50") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    // Velox format_number only supports tinyint/smallint/integer/bigint/float/double.
-    // Decimal input has no matching signature, so it must fall back to vanilla Spark.
+    // Velox format_number only supports tinyint/smallint/integer/bigint/float/double. Decimal
+    // input is rejected on the JVM side, so it falls back to vanilla Spark and the fallback
+    // reason names the documented restriction instead of a generic native validation failure.
     runQueryAndCompare("SELECT format_number(l_quantity, 1) FROM lineitem limit 50") {
-      checkSparkPlan[ProjectExec]
+      df =>
+        checkSparkPlan[ProjectExec](df)
+        assert(
+          fallbackReasons(df).exists(
+            _.contains(FormatNumberRestrictions.NOT_SUPPORT_DECIMAL_INPUT)))
     }
     // Velox only implements the integer decimal-places form. The string-format form
-    // (e.g. '#,###.##') has no matching signature, so it must fall back to vanilla Spark.
+    // (e.g. '#,###.##') is rejected on the JVM side in the same way.
     runQueryAndCompare(
       "SELECT format_number(cast(l_quantity as double), '#,###.##') FROM lineitem limit 50") {
-      checkSparkPlan[ProjectExec]
+      df =>
+        checkSparkPlan[ProjectExec](df)
+        assert(
+          fallbackReasons(df).exists(
+            _.contains(FormatNumberRestrictions.NOT_SUPPORT_STRING_FORMAT)))
     }
   }
 
-  testWithMinSparkVersion("mask", "3.4") {
+  test("mask") {
     runQueryAndCompare("SELECT mask(c_comment) FROM customer limit 50") {
       checkGlutenPlan[ProjectExecTransformer]
     }
@@ -1018,7 +1040,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("get", "3.4") {
+  test("get") {
     withTempPath {
       path =>
         Seq[Seq[Integer]](Seq(1, null, 5, 4), Seq(5, -1, 8, 9, -7, 2), Seq.empty, null)
@@ -1223,7 +1245,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("array insert", "3.4") {
+  test("array insert") {
     withTempPath {
       path =>
         Seq[Seq[Integer]](Seq(1, null, 5, 4), Seq(5, -1, 8, 9, -7, 2), Seq.empty, null)
@@ -1270,7 +1292,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("try_cast", "3.4") {
+  test("try_cast") {
     withTempView("try_cast_table") {
       withTempPath {
         path =>
@@ -1654,7 +1676,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("equal_null", "3.4") {
+  test("equal_null") {
     Seq[(Integer, Integer)]().toDF("a", "b")
     withTempPath {
       path =>
@@ -1715,7 +1737,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("localtimestamp with validation enabled", "3.4") {
+  test("localtimestamp with validation enabled") {
     // localtimestamp() is folded to a TimestampNTZType literal by ComputeCurrentTime. With
     // validation enabled, any Project whose output contains TimestampNTZ falls back to JVM.
     // The Project falls back at the top of the plan (above the one VeloxColumnarToRow), so
@@ -1729,7 +1751,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("localtimestamp with validation disabled", "3.4") {
+  test("localtimestamp with validation disabled") {
     // With validation disabled, scans on TimestampNTZ columns are allowed natively. For
     // localtimestamp(), the expression constant-folds to a TimestampNTZType literal in the
     // Project; Gluten only permits native Projects when NTZ appears in Hour(ntz_col), so

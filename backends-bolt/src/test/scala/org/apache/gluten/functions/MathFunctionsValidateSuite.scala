@@ -49,7 +49,7 @@ class MathFunctionsValidateSuiteAnsiOn extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("try_multiply", "3.3") {
+  test("try_multiply") {
     runQueryAndCompare(
       "select try_multiply(2147483647, cast(l_orderkey as int)), " +
         "try_multiply(-2147483648, cast(l_orderkey as int)) from lineitem") {
@@ -57,7 +57,7 @@ class MathFunctionsValidateSuiteAnsiOn extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("try_subtract", "3.3") {
+  test("try_subtract") {
     runQueryAndCompare(
       "select try_subtract(2147483647, cast(l_orderkey as int)), " +
         "try_subtract(-2147483648, cast(l_orderkey as int)) from lineitem") {
@@ -363,7 +363,7 @@ class MathFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("width_bucket", "3.4") {
+  test("width_bucket") {
     withTempPath {
       path =>
         Seq[(Integer, Integer, Integer, Integer)](

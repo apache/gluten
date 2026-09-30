@@ -116,7 +116,7 @@ private object GlutenDriverPlugin extends Logging {
         if (conf.contains(GlutenCoreConfig.SPARK_OFFHEAP_ENABLED_KEY)) {
           logWarning(
             s"Dynamic off-heap sizing is enabled. Ignoring user-defined " +
-              s"'${GlutenCoreConfig.SPARK_OFFHEAP_SIZE_KEY}' setting.")
+              s"'${GlutenCoreConfig.SPARK_OFFHEAP_ENABLED_KEY}' setting.")
         }
         if (conf.contains(GlutenCoreConfig.SPARK_OFFHEAP_SIZE_KEY)) {
           logWarning(

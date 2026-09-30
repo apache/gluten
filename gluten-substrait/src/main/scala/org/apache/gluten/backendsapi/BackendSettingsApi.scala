@@ -106,8 +106,6 @@ trait BackendSettingsApi {
 
   def excludeScanExecFromCollapsedStage(): Boolean = false
 
-  def rescaleDecimalArithmetic: Boolean = false
-
   /**
    * After https://github.com/apache/spark/pull/36698, every arithmetic should report the accurate
    * result decimal type and implement `CheckOverflow` by itself. <p/> Regardless of whether there

@@ -23,7 +23,6 @@ import org.apache.gluten.expression.{ArrowProjection, ExpressionMappings, Expres
 import org.apache.gluten.extension.columnar.transition.Convention
 import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
-import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.vectorized.{ArrowColumnarRow, ArrowWritableColumnVector}
 
 import org.apache.spark.rdd.RDD
@@ -226,7 +225,7 @@ case class ColumnarPartialProjectExec(projectList: Seq[Expression], child: Spark
     c2a += System.currentTimeMillis() - start
 
     val schema =
-      SparkShimLoader.getSparkShims.structFromAttributes(replacedAlias.map(_.toAttribute))
+      ExpressionUtils.structFromAttributes(replacedAlias.map(_.toAttribute))
     val vectors: Array[ArrowWritableColumnVector] = ArrowWritableColumnVector
       .allocateColumns(numRows, schema)
       .map {

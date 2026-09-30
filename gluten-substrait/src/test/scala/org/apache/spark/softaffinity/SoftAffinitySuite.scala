@@ -269,5 +269,16 @@ class SoftAffinitySuite extends QueryTest with SharedSparkSession with Predicate
           ("3", "host-3"),
           ("4", "host-3"))
       ))
+
+    executorsListListener.onExecutorRemoved(removedEvent0)
+    executorsListListener.onExecutorRemoved(removedEvent1)
+    executorsListListener.onExecutorRemoved(removedEvent2)
+    executorsListListener.onExecutorRemoved(removedEvent3)
+    executorsListListener.onExecutorRemoved(removedEvent4)
+    executorsListListener.onExecutorRemoved(removedEvent5)
+    executorsListListener.onExecutorRemoved(removedEvent6)
+
+    assert(SoftAffinityManager.nodesExecutorsMap.isEmpty)
+    assert(SoftAffinityManager.sortedIdForExecutors.isEmpty)
   }
 }

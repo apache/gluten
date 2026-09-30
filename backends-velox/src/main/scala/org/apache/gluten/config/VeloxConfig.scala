@@ -73,6 +73,9 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def enableBroadcastBuildOncePerExecutor: Boolean =
     getConf(VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR)
 
+  def broadcastNestedLoopJoinFullOuterRewriteThreshold: Long =
+    getConf(VELOX_BROADCAST_NESTED_LOOP_JOIN_FULL_OUTER_REWRITE_THRESHOLD)
+
   def veloxBroadcastHashTableBuildTargetBytes: Long =
     getConf(COLUMNAR_VELOX_BROADCAST_HASH_TABLE_BUILD_TARGET_BYTES)
 
@@ -251,6 +254,17 @@ object VeloxConfig extends ConfigRegistry {
           " as these consistently provided the most significant performance gains.")
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("32MB")
+
+  val VELOX_BROADCAST_NESTED_LOOP_JOIN_FULL_OUTER_REWRITE_THRESHOLD =
+    buildConf(
+      "spark.gluten.sql.columnar.backend.velox.broadcastNLJ.fullOuterRewriteThreshold")
+      .doc(
+        "Maximum per-side plan size in bytes for rewriting a full outer broadcast nested loop " +
+          "join into a left outer join and an existence join followed by union. The rewrite is " +
+          "applied only when both sides have known statistics and each side is at or below this " +
+          "threshold. Set to -1 to disable the rewrite.")
+      .bytesConf(ByteUnit.BYTE)
+      .createWithDefaultString("10MB")
 
   val COLUMNAR_VELOX_ASYNC_TIMEOUT_ON_TASK_STOPPING =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.asyncTimeoutOnTaskStopping")
@@ -1003,9 +1017,10 @@ object VeloxConfig extends ConfigRegistry {
   val ENABLE_TIMESTAMP_NTZ_VALIDATION =
     buildConf("spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation")
       .doc(
-        "Enable validation fallback for TimestampNTZ type. When true, any plan " +
-          "containing TimestampNTZ will fall back to Spark execution. When false, " +
-          "allows native execution for TimestampNTZ scan.")
+        "Enable validation fallback for TimestampNTZ type. When true, plans with " +
+          "TimestampNTZ in their input or output schemas fall back to Spark execution. " +
+          "When false, supported TimestampNTZ operations are eligible for native execution, " +
+          "subject to other validation rules.")
       .booleanConf
       .createWithDefault(false)
 

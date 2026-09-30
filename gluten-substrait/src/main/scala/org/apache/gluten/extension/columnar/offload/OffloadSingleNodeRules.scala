@@ -319,7 +319,7 @@ object OffloadOthers {
             plan.lowerBound,
             plan.upperBound,
             plan.withReplacement,
-            plan.seed,
+            SparkShimLoader.getSparkShims.getSampleSeed(plan),
             child)
         case plan: RDDScanExec if RDDScanTransformer.isSupportRDDScanExec(plan) =>
           RDDScanTransformer.getRDDScanTransform(plan)

@@ -158,6 +158,9 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   def pushAggregateThroughJoinMaxDepth: Int =
     getConf(PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH)
 
+  def pushAggregateThroughJoinPartialMergeEnabled: Boolean =
+    getConf(PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED)
+
   def forceOrcCharTypeScanFallbackEnabled: Boolean =
     getConf(VELOX_FORCE_ORC_CHAR_TYPE_SCAN_FALLBACK)
 
@@ -783,6 +786,13 @@ object GlutenConfig extends ConfigRegistry {
       .intConf
       .checkValue(_ >= 1, "must be greater than or equal to 1.")
       .createWithDefault(Int.MaxValue)
+
+  val PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED =
+    buildConf("spark.gluten.sql.pushAggregateThroughJoin.partialMerge.enabled")
+      .doc(
+        "Enables a PartialMerge aggregate above each aggregate pushed through a join.")
+      .booleanConf
+      .createWithDefault(false)
 
   val GLUTEN_SOFT_AFFINITY_ENABLED =
     buildConf("spark.gluten.soft-affinity.enabled")
