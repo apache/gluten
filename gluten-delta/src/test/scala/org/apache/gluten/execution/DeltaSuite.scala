@@ -1175,6 +1175,13 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     latest.values().asScala.toSeq
   }
 
+  /**
+   * MERGE's write projection: the per-column CASE WHENs over Delta's row-present flags. Other
+   * projections carry CASE WHENs too, such as Delta 4.0's log replay, so the flag is the marker.
+   */
+  private def isMergeWriteProjection(info: SparkPlanInfo): Boolean =
+    info.simpleString.contains("CASE WHEN") && info.simpleString.contains("_source_row_present_")
+
   private def flattenPlanInfo(info: SparkPlanInfo): Seq[SparkPlanInfo] =
     info +: info.children.flatMap(flattenPlanInfo)
 
@@ -1246,20 +1253,20 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         val nodes = plans.flatMap(flattenPlanInfo)
         val nativeDeltaProjects = nodes.filter(_.nodeName == "DeltaProjectExecTransformer")
         assert(
-          nativeDeltaProjects.exists(_.simpleString.contains("CASE WHEN")),
+          nativeDeltaProjects.exists(isMergeWriteProjection),
           nodes.map(n => s"${n.nodeName}: ${n.simpleString}"))
         assert(
-          !nodes.exists(n => n.nodeName == "Project" && n.simpleString.contains("CASE WHEN")),
+          !nodes.exists(n => n.nodeName == "Project" && isMergeWriteProjection(n)),
           nodes.map(n => s"${n.nodeName}: ${n.simpleString}"))
       } else if (SparkVersionUtil.gteSpark35) {
         val nodes = plans.flatMap(flattenPlanInfo)
         val nativeDeltaProjects = nodes.filter(_.nodeName == "DeltaProjectExecTransformer")
         assert(nativeDeltaProjects.nonEmpty, nodes.map(_.nodeName).distinct)
         assert(
-          nativeDeltaProjects.forall(!_.simpleString.contains("CASE WHEN")),
+          nativeDeltaProjects.forall(!isMergeWriteProjection(_)),
           nativeDeltaProjects.map(_.simpleString))
         assert(
-          nodes.exists(n => n.nodeName == "Project" && n.simpleString.contains("CASE WHEN")),
+          nodes.exists(n => n.nodeName == "Project" && isMergeWriteProjection(n)),
           nodes.map(n => s"${n.nodeName}: ${n.simpleString}"))
         // The filter and column drop Delta stacks above that projection stay on Spark too, so
         // nothing in the same stage converts its rows back into columnar batches. The walk stops
@@ -1269,7 +1276,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
           Seq("WholeStageCodegen", "AdaptiveSparkPlan", "QueryStage", "Exchange", "Shuffle")
         val sameStage = plans.flatMap {
           p =>
-            ancestorsOf(p, n => n.nodeName == "Project" && n.simpleString.contains("CASE WHEN"))
+            ancestorsOf(p, n => n.nodeName == "Project" && isMergeWriteProjection(n))
               .takeWhile(n => !boundaries.exists(n.nodeName.contains))
         }
         assert(sameStage.nonEmpty, plans.map(flattenPlanInfo(_).map(_.nodeName)))
