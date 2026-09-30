@@ -1250,14 +1250,18 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
           nodes.exists(n => n.nodeName == "Project" && n.simpleString.contains("CASE WHEN")),
           nodes.map(n => s"${n.nodeName}: ${n.simpleString}"))
         // The filter and column drop Delta stacks above that projection stay on Spark too, so
-        // nothing between it and the writer converts rows back into columnar batches.
-        val ancestors = plans.flatMap(
+        // nothing in the same stage converts its rows back into columnar batches. The walk stops
+        // at the stage boundary: on Delta 4.0 the whole write query is nested below a native sort
+        // and exchange that consume its rows regardless of this projection.
+        val boundaries =
+          Seq("WholeStageCodegen", "AdaptiveSparkPlan", "QueryStage", "Exchange", "Shuffle")
+        val sameStage = plans.flatMap {
           p =>
-            ancestorsOf(p, n => n.nodeName == "Project" && n.simpleString.contains("CASE WHEN")))
-        assert(ancestors.nonEmpty)
-        assert(
-          !ancestors.exists(_.nodeName == "RowToVeloxColumnar"),
-          ancestors.map(_.nodeName))
+            ancestorsOf(p, n => n.nodeName == "Project" && n.simpleString.contains("CASE WHEN"))
+              .takeWhile(n => !boundaries.exists(n.nodeName.contains))
+        }
+        assert(sameStage.nonEmpty, plans.map(flattenPlanInfo(_).map(_.nodeName)))
+        assert(!sameStage.exists(_.nodeName == "RowToVeloxColumnar"), sameStage.map(_.nodeName))
       }
     }
   }
