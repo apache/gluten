@@ -1177,6 +1177,15 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
   private def flattenPlanInfo(info: SparkPlanInfo): Seq[SparkPlanInfo] =
     info +: info.children.flatMap(flattenPlanInfo)
 
+  /** The nodes above every node matching `target`, nearest first, excluding the node itself. */
+  private def ancestorsOf(
+      info: SparkPlanInfo,
+      target: SparkPlanInfo => Boolean,
+      path: Seq[SparkPlanInfo] = Nil): Seq[SparkPlanInfo] = {
+    val here = if (target(info)) path else Nil
+    here ++ info.children.flatMap(ancestorsOf(_, target, info +: path))
+  }
+
   test("delta: merge metrics count only the rows that take each clause") {
     withTable("merge_metrics_target", "merge_metrics_source") {
       import testImplicits._
@@ -1240,6 +1249,15 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         assert(
           nodes.exists(n => n.nodeName == "Project" && n.simpleString.contains("CASE WHEN")),
           nodes.map(n => s"${n.nodeName}: ${n.simpleString}"))
+        // The filter and column drop Delta stacks above that projection stay on Spark too, so
+        // nothing between it and the writer converts rows back into columnar batches.
+        val ancestors = plans.flatMap(
+          p =>
+            ancestorsOf(p, n => n.nodeName == "Project" && n.simpleString.contains("CASE WHEN")))
+        assert(ancestors.nonEmpty)
+        assert(
+          !ancestors.exists(_.nodeName == "RowToVeloxColumnar"),
+          ancestors.map(_.nodeName))
       }
     }
   }
