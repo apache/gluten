@@ -1373,6 +1373,29 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     )
   }
 
+  override def extraExpressionConverter(
+      substraitExprName: String,
+      expr: Expression,
+      attributeSeq: Seq[Attribute]): Option[ExpressionTransformer] = {
+    expr match {
+      case rc: RoundCeil if rc.child.dataType.isInstanceOf[DecimalType] =>
+        Some(
+          DecimalCeilFloorTransformer(
+            substraitExprName,
+            ExpressionConverter.replaceWithExpressionTransformer(rc.child, attributeSeq),
+            rc,
+            rc.scale))
+      case rf: RoundFloor if rf.child.dataType.isInstanceOf[DecimalType] =>
+        Some(
+          DecimalCeilFloorTransformer(
+            substraitExprName,
+            ExpressionConverter.replaceWithExpressionTransformer(rf.child, attributeSeq),
+            rf,
+            rf.scale))
+      case _ => None
+    }
+  }
+
   override def rewriteSpillPath(path: String): String = {
     val fs = VeloxConfig.get.veloxSpillFileSystem
     fs match {
