@@ -190,7 +190,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: velox-native-lib-${{github.sha}}
-          path: ./cpp/build/
+          path: ./cpp/build/releases
       - name: Prepare
         run: |
           dnf module -y install python39 && \
@@ -240,7 +240,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: velox-native-lib-${{github.sha}}
-          path: ./cpp/build/
+          path: ./cpp/build/releases
       - name: Prepare Spark Resources for Spark 3.5.5 #TODO remove after image update
         run: |
           rm -rf /opt/shims/spark35
@@ -296,12 +296,6 @@ jobs:
           yum install bison -y
           bash dev/ci-velox-buildstatic-centos-8.sh
           ccache -s
-      - name: "Save ccache"
-        uses: actions/cache/save@v4
-        id: ccache
-        with:
-          path: '${{ env.CCACHE_DIR }}'
-          key: ccache-almalinux8-release-default-${{runner.arch}}-${{github.sha}}
       - uses: actions/upload-artifact@v7
         with:
           name: velox-native-lib-centos-8-${{github.sha}}

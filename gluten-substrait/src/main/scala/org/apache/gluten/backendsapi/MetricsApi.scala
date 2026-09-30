@@ -116,6 +116,10 @@ trait MetricsApi extends Serializable {
 
   def genSortTransformerMetricsUpdater(metrics: Map[String, SQLMetric]): MetricsUpdater
 
+  def genTopNTransformerMetrics(sparkContext: SparkContext): Map[String, SQLMetric]
+
+  def genTopNTransformerMetricsUpdater(metrics: Map[String, SQLMetric]): MetricsUpdater
+
   def genSortMergeJoinTransformerMetrics(sparkContext: SparkContext): Map[String, SQLMetric]
 
   def genSortMergeJoinTransformerMetricsUpdater(metrics: Map[String, SQLMetric]): MetricsUpdater

@@ -6,13 +6,12 @@ vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO facebook/folly
     REF "v${VERSION}"
-    SHA512 8ee08591724fb1f6183cc0456c13cd00474e425d41824add2751fd3823e23b95ea69ec1b246bc85c95d30add854ee53dafd2bc1b824d0b555917dcbaf6943a6f
+    SHA512 38032aa0cf88d63dbed8b4330130f71c993ef5e1b3ee640d66a86e56f28b023dff81c762617c2252a79863bfa699c0d95fdb447d64e52d65757a1e874e42193e
     HEAD_REF main
     PATCHES
         fix-deps.patch
         disable-uninitialized-resize-on-new-stl.patch
         fix-unistd-include.patch
-        fix-perf_scoped-target.patch
 )
 file(REMOVE "${SOURCE_PATH}/CMake/FindFastFloat.cmake")
 file(REMOVE "${SOURCE_PATH}/CMake/FindFmt.cmake")
