@@ -14,34 +14,30 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.gluten.connector.write;
+package org.apache.gluten.extension
 
-import com.fasterxml.jackson.annotation.JsonProperty;
+import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.execution.VeloxIcebergWriteDeltaExec
 
-import java.util.List;
+import org.apache.spark.sql.execution.SparkPlan
+import org.apache.spark.sql.execution.datasources.v2.WriteDeltaExec
 
-public class DataFileJson {
-  @JsonProperty public String path;
+object IcebergWriteDeltaOffload {
+  def offload(plan: SparkPlan): SparkPlan = {
+    offload(plan, BackendsApiManager.getSettings.enableEnhancedFeatures())
+  }
 
-  @JsonProperty public MetricsWrapper metrics;
+  private[extension] def offload(
+      plan: SparkPlan,
+      enhancedFeaturesEnabled: Boolean): SparkPlan = {
+    if (!enhancedFeaturesEnabled) {
+      return plan
+    }
 
-  @JsonProperty public List<Long> splitOffsets;
-
-  @JsonProperty public String content;
-
-  @JsonProperty public String referencedDataFile;
-
-  @JsonProperty public Integer partitionSpecJson;
-
-  @JsonProperty public String partitionDataJson;
-
-  @JsonProperty public String fileFormat;
-
-  @JsonProperty public Integer sortOrderId;
-
-  @JsonProperty public Long contentOffset;
-
-  @JsonProperty public Long contentSizeInBytes;
-
-  @JsonProperty public long fileSizeInBytes = -1L;
+    plan match {
+      case writeDelta: WriteDeltaExec =>
+        VeloxIcebergWriteDeltaExec(writeDelta).getOrElse(writeDelta)
+      case other => other
+    }
+  }
 }

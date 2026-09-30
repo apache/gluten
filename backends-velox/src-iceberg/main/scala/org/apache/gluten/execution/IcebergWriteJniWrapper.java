@@ -17,6 +17,7 @@
 package org.apache.gluten.execution;
 
 import org.apache.gluten.metrics.BatchWriteMetrics;
+import org.apache.gluten.proto.IcebergNativeWriteInfo;
 import org.apache.gluten.runtime.Runtime;
 import org.apache.gluten.runtime.RuntimeAware;
 
@@ -27,20 +28,74 @@ public class IcebergWriteJniWrapper implements RuntimeAware {
     this.runtime = runtime;
   }
 
-  // Return the native IcebergWriteJniWrapper handle
-  public native long init(long cSchema, int format,
-                          String directory,
-                          String codec,
-                          int partitionId,
-                          long taskId,
-                          String operationId,
-                          byte[] partitionSpec,
-                          byte[] field);
+  // Return the native IcebergWriteJniWrapper handle.
+  public long init(
+      long cSchema,
+      int format,
+      String directory,
+      String codec,
+      int partitionId,
+      long taskId,
+      String operationId,
+      byte[] partitionSpec,
+      byte[] field) {
+    return init(
+        cSchema,
+        format,
+        directory,
+        codec,
+        partitionId,
+        taskId,
+        operationId,
+        partitionSpec,
+        field,
+        IcebergNativeWriteInfo.getDefaultInstance().toByteArray());
+  }
+
+  public long init(
+      long cSchema,
+      int format,
+      String directory,
+      String codec,
+      int partitionId,
+      long taskId,
+      String operationId,
+      byte[] partitionSpec,
+      byte[] field,
+      byte[] writeInfo) {
+    return initWithWriteInfo(
+        cSchema,
+        format,
+        directory,
+        codec,
+        partitionId,
+        taskId,
+        operationId,
+        partitionSpec,
+        field,
+        writeInfo);
+  }
+
+  private native long initWithWriteInfo(
+      long cSchema,
+      int format,
+      String directory,
+      String codec,
+      int partitionId,
+      long taskId,
+      String operationId,
+      byte[] partitionSpec,
+      byte[] field,
+      byte[] writeInfo);
 
   public native void write(long writerHandle, long batch);
 
   // Returns the json iceberg Datafile represent
   public native String[] commit(long writerHandle);
+
+  public native void abort(long writerHandle);
+
+  public native void close(long writerHandle);
 
   public native BatchWriteMetrics metrics(long writerHandle);
 
