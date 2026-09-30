@@ -974,82 +974,30 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
   }
 
   test("case-sensitive mode: lowercase input_file_name as data column -- platform compatibility") {
-    // The exact name "input_file_name" (all lowercase) collides with the Spark built-in
-    // function of the same name.  Whether a user column with that exact name can be
-    // created in an Iceberg table is a platform question, not a Gluten question:
-    //
-    //  - If Iceberg/Spark rejects the CREATE TABLE: that is expected, the test is cancelled
-    //    (not failed), and Gluten is not involved.
-    //  - If Iceberg/Spark accepts the CREATE TABLE but rejects the INSERT (because the
-    //    query planner resolves "input_file_name" as the built-in expression): that is
-    //    also expected platform behaviour; the test is cancelled.
-    //  - If both succeed: Gluten must read the data column correctly AND the
-    //    input_file_name() function must return a distinct file path.  Using the same
-    //    query to test both guards against the pre-fix bug where the two were conflated.
-    //
-    // Note: only bare Exception (not Throwable/Error) is caught as a platform-rejection signal.
-    // Any Error (OOM, AssertionError inside the SQL engine) is allowed to propagate normally.
+    // Under caseSensitive=true, a column named `input_file_name` (exact match to the metadata
+    // sentinel) can be queried alongside input_file_name(). Gluten detects the Velox column name
+    // collision and falls back to vanilla BatchScanExec, correctly preserving both values.
     withSQLConf("spark.sql.caseSensitive" -> "true") {
       withTable("iceberg_exact_collision") {
-        // -- 1. CREATE TABLE ---------------------------------------------------
-        // Narrow to AnalysisException: that is what the Spark analyzer throws
-        // when a column name conflicts with a reserved function name or catalog
-        // rules.  Any other exception (OOM, Gluten bug, etc.) must propagate.
-        val createException: Option[AnalysisException] =
-          try {
-            spark.sql("""
-                        |CREATE TABLE iceberg_exact_collision
-                        |  (id INT, input_file_name STRING)
-                        |USING iceberg
-                        |""".stripMargin)
-            None
-          } catch {
-            case e: AnalysisException => Some(e)
-          }
-        // If the Spark analyzer rejects this schema, cancel (not fail) the test.
-        assume(
-          createException.isEmpty,
-          s"Spark analyzer rejected CREATE TABLE with column named 'input_file_name' " +
-            s"(expected platform limitation, not a Gluten defect): " +
-            s"${createException.map(_.getMessage).getOrElse("")}"
-        )
+        spark.sql("""
+                    |CREATE TABLE iceberg_exact_collision
+                    |  (id INT, `input_file_name` STRING)
+                    |USING iceberg
+                    |""".stripMargin)
+        spark.sql("""
+                    |INSERT INTO iceberg_exact_collision VALUES
+                    |(1, 'exact-user-value-not-a-path')
+                    |""".stripMargin)
 
-        // -- 2. INSERT ---------------------------------------------------------
-        // Use a value that is clearly not a file path so we can distinguish it
-        // from the result of the input_file_name() function later.
-        // Narrow to AnalysisException: Spark may resolve "input_file_name" as a
-        // built-in function expression during INSERT analysis.
-        val insertException: Option[AnalysisException] =
-          try {
-            spark.sql("""
-                        |INSERT INTO iceberg_exact_collision VALUES
-                        |(1, 'exact-user-value-not-a-path')
-                        |""".stripMargin)
-            None
-          } catch {
-            case e: AnalysisException => Some(e)
-          }
-        // If Spark resolves "input_file_name" as the built-in expression during INSERT,
-        // cancel (not fail) the test.
-        assume(
-          insertException.isEmpty,
-          s"Spark analyzer rejected INSERT INTO table with column named 'input_file_name' " +
-            s"(expected platform limitation, not a Gluten defect): " +
-            s"${insertException.map(_.getMessage).getOrElse("")}"
-        )
-
-        // -- 3. Verify Gluten correctness: data column and function are distinct -
-        // Both CREATE and INSERT succeeded: Gluten must return the user data value
+        // Both CREATE and INSERT succeed: Gluten must return the user data value
         // from the physical column AND a non-empty file path from the function.
-        // They must be different values -- if the pre-fix bug is present the physical
-        // column would be replaced by the function result, making them equal.
         val df = runAndCompare("""
-                                 |SELECT id, input_file_name, input_file_name() AS fname
+                                 |SELECT id, `input_file_name`, input_file_name() AS fname
                                  |FROM iceberg_exact_collision
                                  |ORDER BY id
                                  |""".stripMargin)
-        // The exact lowercase collision "input_file_name" (column) vs input_file_name() (function)
-        // triggers the same Velox conflict detection; the scan falls back to Vanilla BatchScanExec.
+        // The exact lowercase collision `input_file_name` (column) vs input_file_name() (function)
+        // triggers Velox conflict detection; the scan falls back to Vanilla BatchScanExec.
         checkSparkPlan[BatchScanExec](df)
         val rows = df.collect()
         assert(rows.length == 1, s"Expected 1 row, got ${rows.length}")
@@ -1084,79 +1032,27 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
   // ---------------------------------------------------------------------------
 
   // Scenario 1 - Exact column resolution: each column resolves to its own distinct value.
-  // NOTE: Iceberg/Spark will reject a schema with columns that differ only in case when
-  // caseSensitive=false (duplicate column error), so the four-column fixture is only
-  // attempted when it is actually supported (guarded by assume).  The primary assertion -
-  // that exact column names return their own values - is always exercised.
   test("case-sensitivity: exact column resolution (caseSensitive=true)") {
     withSQLConf("spark.sql.caseSensitive" -> "true") {
       withTable("iceberg_cs_exact") {
-        // Attempt to create a table with four case-distinct columns.
-        // Iceberg may reject this at the catalog level even under caseSensitive=true
-        // because many catalog implementations normalize names to lowercase.
-        // Narrow to AnalysisException: other exceptions are unexpected and must propagate.
-        val createEx: Option[AnalysisException] =
-          try {
-            spark.sql("""
-                        |CREATE TABLE iceberg_cs_exact
-                        |  (id INT, ID INT, Id INT, iD INT)
-                        |USING iceberg
-                        |""".stripMargin)
-            None
-          } catch { case e: AnalysisException => Some(e) }
+        spark.sql("""
+                    |CREATE TABLE iceberg_cs_exact (lower_id INT, upper_ID INT)
+                    |USING iceberg
+                    |""".stripMargin)
+        spark.sql("""
+                    |INSERT INTO iceberg_cs_exact VALUES (10, 20), (30, 40)
+                    |""".stripMargin)
 
-        if (createEx.isDefined) {
-          // Four-column case-distinct schema is not supported on this platform.
-          // Fall back to a simpler two-column fixture to still exercise exact name binding.
-          withTable("iceberg_cs_exact_simple") {
-            spark.sql("""
-                        |CREATE TABLE iceberg_cs_exact_simple (lower_id INT, upper_ID INT)
-                        |USING iceberg
-                        |""".stripMargin)
-            spark.sql("""
-                        |INSERT INTO iceberg_cs_exact_simple VALUES (10, 20), (30, 40)
-                        |""".stripMargin)
+        // Each column must resolve to its own distinct value.
+        val df1 = runAndCompare(
+          "SELECT lower_id FROM iceberg_cs_exact ORDER BY lower_id")
+        checkGlutenPlan[IcebergScanTransformer](df1)
+        assert(df1.collect().map(_.getInt(0)).toSeq == Seq(10, 30))
 
-            // Each column must resolve to its own distinct value.
-            val df1 = runAndCompare(
-              "SELECT lower_id FROM iceberg_cs_exact_simple ORDER BY lower_id")
-            checkGlutenPlan[IcebergScanTransformer](df1)
-            assert(df1.collect().map(_.getInt(0)).toSeq == Seq(10, 30))
-
-            val df2 = runAndCompare(
-              "SELECT upper_ID FROM iceberg_cs_exact_simple ORDER BY upper_ID")
-            checkGlutenPlan[IcebergScanTransformer](df2)
-            assert(df2.collect().map(_.getInt(0)).toSeq == Seq(20, 40))
-          }
-        } else {
-          spark.sql("""
-                      |INSERT INTO iceberg_cs_exact VALUES (1, 2, 3, 4)
-                      |""".stripMargin)
-
-          // Each exact column name must return its own distinct value.
-          val cases = Seq(("id", 1), ("ID", 2), ("Id", 3), ("iD", 4))
-          cases.foreach {
-            case (col, expected) =>
-              // Use vanilla Spark as baseline then compare with Gluten.
-              val df = runAndCompare(
-                s"SELECT `$col` FROM iceberg_cs_exact ORDER BY `$col`")
-              checkGlutenPlan[IcebergScanTransformer](df)
-              val vals = df.collect().map(_.getInt(0))
-              assert(
-                vals.contains(expected),
-                s"Column '$col' should contain $expected under caseSensitive=true, " +
-                  s"got: ${vals.mkString(",")}")
-          }
-
-          // Incorrect casing must NOT resolve to a different column's value.
-          // Under caseSensitive=true "ID" is distinct from "id", so selecting "ID"
-          // must return 2, not 1.
-          val dfWrong = runAndCompare("SELECT `ID` FROM iceberg_cs_exact ORDER BY `ID`")
-          val wrongVals = dfWrong.collect().map(_.getInt(0))
-          assert(
-            !wrongVals.contains(1),
-            s"Selecting 'ID' must not return value of 'id' (1) under caseSensitive=true")
-        }
+        val df2 = runAndCompare(
+          "SELECT upper_ID FROM iceberg_cs_exact ORDER BY upper_ID")
+        checkGlutenPlan[IcebergScanTransformer](df2)
+        assert(df2.collect().map(_.getInt(0)).toSeq == Seq(20, 40))
       }
     }
   }
