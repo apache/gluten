@@ -175,7 +175,8 @@ class MathFunctionsValidateSuite extends FunctionsValidateSuite {
           Seq(
             ("ceiling", "99999999999999999999999999999999999999", "decimal(38, 0)", "-1"),
             ("floor", "-99999999999999999999999999999999999999", "decimal(38, 0)", "-1"),
-            ("ceiling", "5", "decimal(10, 2)", "-38")).foreach {
+            ("ceiling", "5", "decimal(10, 2)", "-38")
+          ).foreach {
             case (function, value, decimalType, scale) =>
               val df =
                 spark.sql(s"SELECT $function(cast('$value' as $decimalType), $scale)")
@@ -184,7 +185,8 @@ class MathFunctionsValidateSuite extends FunctionsValidateSuite {
                   .collect { case project: ProjectExecTransformer => project }
                   .isEmpty,
                 s"Expected decimal $function overflow to fall back to Spark:\n" +
-                  df.queryExecution.executedPlan)
+                  df.queryExecution.executedPlan
+              )
               val error = intercept[Exception] {
                 df.collect()
               }
@@ -193,7 +195,8 @@ class MathFunctionsValidateSuite extends FunctionsValidateSuite {
                   .iterate[Throwable](error)(_.getCause)
                   .takeWhile(_ != null)
                   .exists(_.isInstanceOf[ArithmeticException]),
-                s"Expected an arithmetic overflow error but received: $error")
+                s"Expected an arithmetic overflow error but received: $error"
+              )
           }
 
           val df =
@@ -204,9 +207,10 @@ class MathFunctionsValidateSuite extends FunctionsValidateSuite {
               .collect { case project: ProjectExecTransformer => project }
               .isEmpty,
             s"Expected extreme-scale decimal ceiling to fall back to Spark:\n" +
-              df.queryExecution.executedPlan)
+              df.queryExecution.executedPlan
+          )
           assert(df.collect().head.getDecimal(0).signum() == 0)
-      }
+        }
     }
   }
 
@@ -214,7 +218,8 @@ class MathFunctionsValidateSuite extends FunctionsValidateSuite {
     withSQLConf(
       SQLConf.LEGACY_ALLOW_NEGATIVE_SCALE_OF_DECIMAL_ENABLED.key -> "true",
       SQLConf.ANSI_ENABLED.key -> "true",
-      GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false") {
+      GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false"
+    ) {
       val input = spark
         .range(-1L, 2L)
         .select(col("id").cast(DecimalType(1, -256)).as("d"))
@@ -229,13 +234,15 @@ class MathFunctionsValidateSuite extends FunctionsValidateSuite {
                 case _ => false
               }.isDefined),
             s"Expected $expression to remain in the optimized plan:\n" +
-              df.queryExecution.optimizedPlan)
+              df.queryExecution.optimizedPlan
+          )
           assert(
             df.queryExecution.executedPlan
               .collect { case project: ProjectExecTransformer => project }
               .isEmpty,
             s"Expected $expression on a negative-scale decimal to fall back to Spark:\n" +
-              df.queryExecution.executedPlan)
+              df.queryExecution.executedPlan
+          )
           assert(df.collect().forall(_.getDecimal(0).signum() == 0))
       }
     }
