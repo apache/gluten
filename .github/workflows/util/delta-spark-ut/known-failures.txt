@@ -176,44 +176,24 @@ org.apache.spark.sql.delta.HiveConvertToDeltaSuite#convert two external tables p
 org.apache.spark.sql.delta.HiveConvertToDeltaSuite#convert with statistics
 org.apache.spark.sql.delta.HiveConvertToDeltaSuite#convert without statistics
 org.apache.spark.sql.delta.HiveConvertToDeltaSuite#negative case: convert parquet path to delta when there is a database called parquet but no table or path exists
-org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: ARRAY<BIGINT>, targetType: ARRAY<INT> followAnsiEnabled: false, ansiEnabled: false, storeAssignmentPolicy: ANSI
-org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: ARRAY<BIGINT>, targetType: ARRAY<INT> followAnsiEnabled: false, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: ARRAY<BIGINT>, targetType: ARRAY<INT> followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: ARRAY<BIGINT>, targetType: ARRAY<INT> followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
-org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: BIGINT, targetType: DECIMAL(7,2) followAnsiEnabled: false, ansiEnabled: false, storeAssignmentPolicy: ANSI
-org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: BIGINT, targetType: DECIMAL(7,2) followAnsiEnabled: false, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: BIGINT, targetType: DECIMAL(7,2) followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: BIGINT, targetType: DECIMAL(7,2) followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
-org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: BIGINT, targetType: INT followAnsiEnabled: false, ansiEnabled: false, storeAssignmentPolicy: ANSI
-org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: BIGINT, targetType: INT followAnsiEnabled: false, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: BIGINT, targetType: INT followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: BIGINT, targetType: INT followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
-org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: DECIMAL(3,1), targetType: DECIMAL(3,2) followAnsiEnabled: false, ansiEnabled: false, storeAssignmentPolicy: ANSI
-org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: DECIMAL(3,1), targetType: DECIMAL(3,2) followAnsiEnabled: false, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: DECIMAL(3,1), targetType: DECIMAL(3,2) followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: DECIMAL(3,1), targetType: DECIMAL(3,2) followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
-org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: DOUBLE, targetType: BIGINT followAnsiEnabled: false, ansiEnabled: false, storeAssignmentPolicy: ANSI
-org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: DOUBLE, targetType: BIGINT followAnsiEnabled: false, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: DOUBLE, targetType: BIGINT followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: DOUBLE, targetType: BIGINT followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
-org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: INT, targetType: SMALLINT followAnsiEnabled: false, ansiEnabled: false, storeAssignmentPolicy: ANSI
-org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: INT, targetType: SMALLINT followAnsiEnabled: false, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: INT, targetType: SMALLINT followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: INT, targetType: SMALLINT followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
-org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: INT, targetType: TINYINT followAnsiEnabled: false, ansiEnabled: false, storeAssignmentPolicy: ANSI
-org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: INT, targetType: TINYINT followAnsiEnabled: false, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: INT, targetType: TINYINT followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: INT, targetType: TINYINT followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
-org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: MAP<STRING, BIGINT>, targetType: MAP<STRING, INT> followAnsiEnabled: false, ansiEnabled: false, storeAssignmentPolicy: ANSI
-org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: MAP<STRING, BIGINT>, targetType: MAP<STRING, INT> followAnsiEnabled: false, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: MAP<STRING, BIGINT>, targetType: MAP<STRING, INT> followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: MAP<STRING, BIGINT>, targetType: MAP<STRING, INT> followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
-org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: STRING, targetType: INT followAnsiEnabled: false, ansiEnabled: false, storeAssignmentPolicy: ANSI
-org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: STRING, targetType: INT followAnsiEnabled: false, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: STRING, targetType: INT followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: STRING, targetType: INT followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
-org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: Struct<value:BIGINT>, targetType: Struct<value:INT> followAnsiEnabled: false, ansiEnabled: false, storeAssignmentPolicy: ANSI
-org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: Struct<value:BIGINT>, targetType: Struct<value:INT> followAnsiEnabled: false, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: Struct<value:BIGINT>, targetType: Struct<value:INT> followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: Struct<value:BIGINT>, targetType: Struct<value:INT> followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: ARRAY<BIGINT>, targetType: ARRAY<INT> followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
@@ -355,6 +335,74 @@ org.apache.spark.sql.delta.generatedsuites.MergeIntoDVsSQLPathBasedDVsPredPushOf
 org.apache.spark.sql.delta.generatedsuites.MergeIntoDVsSQLPathBasedDVsPredPushOnSuite#Merge with DVs metrics - Incremental Updates
 org.apache.spark.sql.delta.generatedsuites.MergeIntoDVsSQLPathBasedDVsPredPushOnSuite#Merge with DVs metrics - delete entire file
 org.apache.spark.sql.delta.generatedsuites.MergeIntoDVsSQLPathBasedDVsPredPushOnSuite#Verify error is produced when paths are not joined correctly
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedMapStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested map-of-struct - non-null source leaves, non-null target leaves, UPDATE *
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedMapStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested map-of-struct - non-null source leaves, non-null target leaves, UPDATE t.col = s.col
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedMapStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested map-of-struct - non-null source leaves, null source nested map, UPDATE *
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedMapStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested map-of-struct - non-null source leaves, null source nested map, UPDATE t.col = s.col
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedMapStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested map-of-struct - non-null source leaves, null target col, UPDATE *
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedMapStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested map-of-struct - non-null source leaves, null target col, UPDATE t.col = s.col
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedMapStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested map-of-struct - non-null source leaves, null target leaves, UPDATE *
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedMapStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested map-of-struct - non-null source leaves, null target leaves, UPDATE t.col = s.col
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedMapStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested map-of-struct - non-null source leaves, null target nested struct, UPDATE *
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedMapStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested map-of-struct - non-null source leaves, null target nested struct, UPDATE t.col = s.col
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertSQLNameBasedSuite#schema evolution - struct in different order
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertSQLNameBasedSuite#schema evolution - struct in different order - with evolution disabled
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertSQLPathBasedCDCOnDVsPredPushOffSuite#schema evolution - struct in different order
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertSQLPathBasedCDCOnDVsPredPushOffSuite#schema evolution - struct in different order - with evolution disabled
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertSQLPathBasedCDCOnDVsPredPushOnSuite#schema evolution - struct in different order
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertSQLPathBasedCDCOnDVsPredPushOnSuite#schema evolution - struct in different order - with evolution disabled
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertSQLPathBasedCDCOnSuite#schema evolution - struct in different order
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertSQLPathBasedCDCOnSuite#schema evolution - struct in different order - with evolution disabled
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertSQLPathBasedSuite#schema evolution - struct in different order
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertSQLPathBasedSuite#schema evolution - struct in different order - with evolution disabled
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertScalaSuite#schema evolution - struct in different order
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionInsertScalaSuite#schema evolution - struct in different order - with evolution disabled
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested struct - non-null source leaves, non-null target leaves, UPDATE *
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested struct - non-null source leaves, non-null target leaves, UPDATE t.col = s.col
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested struct - non-null source leaves, null target col, UPDATE *
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested struct - non-null source leaves, null target col, UPDATE t.col = s.col
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested struct - non-null source leaves, null target leaves, UPDATE *
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested struct - non-null source leaves, null target leaves, UPDATE t.col = s.col
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested struct - non-null source leaves, null target nested struct, UPDATE *
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionNullnessSQLNameBasedSuite#schema evolution - nested struct - non-null source leaves, null target nested struct, UPDATE t.col = s.col
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLNameBasedSuite#schema evolution - extra nested column in source - update, isPartitioned=false
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLNameBasedSuite#schema evolution - extra nested column in source - update, isPartitioned=true
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLNameBasedSuite#schema evolution - extra nested column in source - update, partition on unused column
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedCDCOnDVsPredPushOffSuite#schema evolution - extra nested column in source - update, isPartitioned=false
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedCDCOnDVsPredPushOffSuite#schema evolution - extra nested column in source - update, isPartitioned=true
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedCDCOnDVsPredPushOffSuite#schema evolution - extra nested column in source - update, partition on unused column
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedCDCOnDVsPredPushOnSuite#schema evolution - extra nested column in source - update, isPartitioned=false
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedCDCOnDVsPredPushOnSuite#schema evolution - extra nested column in source - update, isPartitioned=true
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedCDCOnDVsPredPushOnSuite#schema evolution - extra nested column in source - update, partition on unused column
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedCDCOnSuite#schema evolution - extra nested column in source - update, isPartitioned=false
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedCDCOnSuite#schema evolution - extra nested column in source - update, isPartitioned=true
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedCDCOnSuite#schema evolution - extra nested column in source - update, partition on unused column
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedSuite#schema evolution - extra nested column in source - update, isPartitioned=false
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedSuite#schema evolution - extra nested column in source - update, isPartitioned=true
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlySQLPathBasedSuite#schema evolution - extra nested column in source - update, partition on unused column
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlyScalaSuite#schema evolution - extra nested column in source - update, isPartitioned=false
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlyScalaSuite#schema evolution - extra nested column in source - update, isPartitioned=true
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructEvolutionUpdateOnlyScalaSuite#schema evolution - extra nested column in source - update, partition on unused column
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLNameBasedSuite#schema evolution - new source column in map struct key
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLNameBasedSuite#schema evolution - source nested map struct key contains less columns than target
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLPathBasedCDCOnDVsPredPushOffSuite#schema evolution - new source column in map struct key
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLPathBasedCDCOnDVsPredPushOffSuite#schema evolution - source nested map struct key contains less columns than target
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLPathBasedCDCOnDVsPredPushOnSuite#schema evolution - new source column in map struct key
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLPathBasedCDCOnDVsPredPushOnSuite#schema evolution - source nested map struct key contains less columns than target
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLPathBasedCDCOnSuite#schema evolution - new source column in map struct key
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLPathBasedCDCOnSuite#schema evolution - source nested map struct key contains less columns than target
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLPathBasedDVsPredPushOffSuite#schema evolution - source nested map struct key contains less columns than target
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLPathBasedDVsPredPushOnSuite#schema evolution - source nested map struct key contains less columns than target
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLPathBasedSuite#schema evolution - new source column in map struct key
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionSQLPathBasedSuite#schema evolution - source nested map struct key contains less columns than target
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionScalaSuite#schema evolution - new source column in map struct key
+org.apache.spark.sql.delta.generatedsuites.MergeIntoNestedStructInMapEvolutionScalaSuite#schema evolution - source nested map struct key contains less columns than target
+org.apache.spark.sql.delta.generatedsuites.MergeIntoSchemaEvolutionBaseNewColumnSQLNameBasedSuite#schema evolution - extra nested column in source - update - single target partition
+org.apache.spark.sql.delta.generatedsuites.MergeIntoSchemaEvolutionBaseNewColumnSQLPathBasedCDCOnDVsPredPushOffSuite#schema evolution - extra nested column in source - update - single target partition
+org.apache.spark.sql.delta.generatedsuites.MergeIntoSchemaEvolutionBaseNewColumnSQLPathBasedCDCOnDVsPredPushOnSuite#schema evolution - extra nested column in source - update - single target partition
+org.apache.spark.sql.delta.generatedsuites.MergeIntoSchemaEvolutionBaseNewColumnSQLPathBasedCDCOnSuite#schema evolution - extra nested column in source - update - single target partition
+org.apache.spark.sql.delta.generatedsuites.MergeIntoSchemaEvolutionBaseNewColumnSQLPathBasedSuite#schema evolution - extra nested column in source - update - single target partition
+org.apache.spark.sql.delta.generatedsuites.MergeIntoSchemaEvolutionBaseNewColumnScalaSuite#schema evolution - extra nested column in source - update - single target partition
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLNameBasedSuite#merge with repartition - insert only merge
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOffSuite#merge with repartition - insert only merge
 org.apache.spark.sql.delta.generatedsuites.MergeIntoSuiteBaseMiscSQLPathBasedCDCOnDVsPredPushOffSuite#merge with repartition - partition on multiple columns
