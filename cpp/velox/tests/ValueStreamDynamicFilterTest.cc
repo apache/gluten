@@ -24,6 +24,11 @@
 #include "velox/vector/FlatVector.h"
 #include "velox/vector/tests/utils/VectorTestBase.h"
 
+#ifdef GLUTEN_ENABLE_GPU
+#include "operators/plannodes/CudfVectorStream.h"
+#include "velox/experimental/cudf/vector/CudfVector.h"
+#endif
+
 using namespace facebook::velox;
 using namespace facebook::velox::exec;
 using namespace facebook::velox::common;
@@ -51,6 +56,9 @@ class ValueStreamDynamicFilterTest : public ::testing::Test, public VectorTestBa
  protected:
   static void SetUpTestCase() {
     memory::MemoryManager::testingSetInstance(memory::MemoryManager::Options{});
+#ifdef GLUTEN_ENABLE_GPU
+    Operator::registerOperator(std::make_unique<gluten::CudfVectorStreamOperatorTranslator>());
+#endif
   }
 
   void SetUp() override {
@@ -278,5 +286,87 @@ TEST_F(ValueStreamDynamicFilterTest, canAddDynamicFilter) {
   auto end = task->next(&future);
   ASSERT_EQ(end, nullptr);
 }
+
+#ifdef GLUTEN_ENABLE_GPU
+TEST_F(ValueStreamDynamicFilterTest, cudfValueStreamConvertsHostBatchToCudfVector) {
+  auto batch = makeRowVector({"id"}, {makeFlatVector<int64_t>({10, 20, 30})});
+  auto outputType = asRowType(batch->type());
+  auto iterator =
+      std::make_shared<gluten::ResultIterator>(std::make_unique<TestBatchIterator>(std::vector<RowVectorPtr>{batch}));
+  auto valueStreamNode = std::make_shared<gluten::CudfValueStreamNode>("cudf-vs0", outputType, std::move(iterator));
+
+  auto queryCtx = core::QueryCtx::create();
+  auto task = Task::create(
+      "test-cudf-value-stream-host-batch",
+      core::PlanFragment{valueStreamNode},
+      0,
+      queryCtx,
+      Task::ExecutionMode::kSerial);
+
+  ContinueFuture future = ContinueFuture::makeEmpty();
+  auto output = task->next(&future);
+  ASSERT_NE(output, nullptr);
+  auto cudfVector = std::dynamic_pointer_cast<cudf_velox::CudfVector>(output);
+  ASSERT_NE(cudfVector, nullptr);
+  EXPECT_EQ(cudfVector->size(), 3);
+  EXPECT_EQ(cudfVector->getTableView().num_rows(), 3);
+  EXPECT_EQ(cudfVector->getTableView().num_columns(), 1);
+
+  auto end = task->next(&future);
+  ASSERT_EQ(end, nullptr);
+}
+
+TEST_F(ValueStreamDynamicFilterTest, cudfValueStreamTrimsExtraHostColumns) {
+  auto batch = makeRowVector(
+      {"id", "broadcast_hash"}, {makeFlatVector<int64_t>({10, 20, 30}), makeFlatVector<int64_t>({101, 202, 303})});
+  auto outputType = ROW({"id"}, {BIGINT()});
+  auto iterator =
+      std::make_shared<gluten::ResultIterator>(std::make_unique<TestBatchIterator>(std::vector<RowVectorPtr>{batch}));
+  auto valueStreamNode = std::make_shared<gluten::CudfValueStreamNode>("cudf-vs1", outputType, std::move(iterator));
+
+  auto queryCtx = core::QueryCtx::create();
+  auto task = Task::create(
+      "test-cudf-value-stream-extra-host-columns",
+      core::PlanFragment{valueStreamNode},
+      0,
+      queryCtx,
+      Task::ExecutionMode::kSerial);
+
+  ContinueFuture future = ContinueFuture::makeEmpty();
+  auto output = task->next(&future);
+  ASSERT_NE(output, nullptr);
+  auto cudfVector = std::dynamic_pointer_cast<cudf_velox::CudfVector>(output);
+  ASSERT_NE(cudfVector, nullptr);
+  EXPECT_EQ(cudfVector->type(), outputType);
+  EXPECT_EQ(cudfVector->size(), 3);
+  EXPECT_EQ(cudfVector->getTableView().num_rows(), 3);
+  EXPECT_EQ(cudfVector->getTableView().num_columns(), 1);
+}
+
+TEST_F(ValueStreamDynamicFilterTest, cudfValueStreamPreservesZeroColumnRowCount) {
+  auto outputType = ROW({}, {});
+  auto batch = makeRowVector(outputType, 3);
+  auto iterator =
+      std::make_shared<gluten::ResultIterator>(std::make_unique<TestBatchIterator>(std::vector<RowVectorPtr>{batch}));
+  auto valueStreamNode = std::make_shared<gluten::CudfValueStreamNode>("cudf-vs2", outputType, std::move(iterator));
+
+  auto queryCtx = core::QueryCtx::create();
+  auto task = Task::create(
+      "test-cudf-value-stream-zero-columns",
+      core::PlanFragment{valueStreamNode},
+      0,
+      queryCtx,
+      Task::ExecutionMode::kSerial);
+
+  ContinueFuture future = ContinueFuture::makeEmpty();
+  auto output = task->next(&future);
+  ASSERT_NE(output, nullptr);
+  auto cudfVector = std::dynamic_pointer_cast<cudf_velox::CudfVector>(output);
+  ASSERT_NE(cudfVector, nullptr);
+  EXPECT_EQ(cudfVector->type(), outputType);
+  EXPECT_EQ(cudfVector->size(), 3);
+  EXPECT_EQ(cudfVector->getTableView().num_columns(), 0);
+}
+#endif
 
 } // namespace facebook::velox::test
