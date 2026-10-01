@@ -93,4 +93,137 @@ class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("decimal add overflow") {
+    // Normal decimal add should succeed and match Spark results
+    runQueryAndCompare(
+      "SELECT CAST(1.0 AS DECIMAL(10,2)) + CAST(2.0 AS DECIMAL(10,2))") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+
+    // Overflow: max DECIMAL(38,0) + 1 should throw in ANSI mode
+    if (isSparkVersionGE("4.0")) {
+      intercept[SparkException] {
+        sql("SELECT CAST(99999999999999999999999999999999999999 AS DECIMAL(38,0)) + " +
+          "CAST(1 AS DECIMAL(38,0))").collect()
+      }
+    } else {
+      intercept[ArithmeticException] {
+        sql("SELECT CAST(99999999999999999999999999999999999999 AS DECIMAL(38,0)) + " +
+          "CAST(1 AS DECIMAL(38,0))").collect()
+      }
+    }
+  }
+
+  test("decimal subtract overflow") {
+    // Normal decimal subtract should succeed and match Spark results
+    runQueryAndCompare(
+      "SELECT CAST(5.0 AS DECIMAL(10,2)) - CAST(2.0 AS DECIMAL(10,2))") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+
+    // Overflow: -max DECIMAL(38,0) - 1 should throw in ANSI mode
+    if (isSparkVersionGE("4.0")) {
+      intercept[SparkException] {
+        sql("SELECT CAST(-99999999999999999999999999999999999999 AS DECIMAL(38,0)) - " +
+          "CAST(1 AS DECIMAL(38,0))").collect()
+      }
+    } else {
+      intercept[ArithmeticException] {
+        sql("SELECT CAST(-99999999999999999999999999999999999999 AS DECIMAL(38,0)) - " +
+          "CAST(1 AS DECIMAL(38,0))").collect()
+      }
+    }
+  }
+
+  test("decimal try_add") {
+    // Normal case should match Spark results
+    runQueryAndCompare(
+      "SELECT try_add(CAST(1.0 AS DECIMAL(10,2)), CAST(2.0 AS DECIMAL(10,2)))") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // Overflow should return null
+    runQueryAndCompare(
+      "SELECT try_add(CAST(99999999999999999999999999999999999999 AS DECIMAL(38,0)), " +
+        "CAST(1 AS DECIMAL(38,0)))") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  test("decimal try_subtract") {
+    // Normal case should match Spark results
+    runQueryAndCompare(
+      "SELECT try_subtract(CAST(5.0 AS DECIMAL(10,2)), CAST(2.0 AS DECIMAL(10,2)))") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // Overflow should return null
+    runQueryAndCompare(
+      "SELECT try_subtract(CAST(-99999999999999999999999999999999999999 AS DECIMAL(38,0)), " +
+        "CAST(1 AS DECIMAL(38,0)))") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  test("decimal multiply overflow") {
+    // Normal decimal multiply should succeed and match Spark results
+    runQueryAndCompare(
+      "SELECT CAST(2.0 AS DECIMAL(10,2)) * CAST(3.0 AS DECIMAL(10,2))") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+
+    // Overflow: max DECIMAL(38,0) * 2 should throw in ANSI mode
+    if (isSparkVersionGE("4.0")) {
+      intercept[SparkException] {
+        sql("SELECT CAST(99999999999999999999999999999999999999 AS DECIMAL(38,0)) * " +
+          "CAST(2 AS DECIMAL(38,0))").collect()
+      }
+    } else {
+      intercept[ArithmeticException] {
+        sql("SELECT CAST(99999999999999999999999999999999999999 AS DECIMAL(38,0)) * " +
+          "CAST(2 AS DECIMAL(38,0))").collect()
+      }
+    }
+  }
+
+  test("decimal try_multiply") {
+    // Normal case should match Spark results
+    runQueryAndCompare(
+      "SELECT try_multiply(CAST(2.0 AS DECIMAL(10,2)), CAST(3.0 AS DECIMAL(10,2)))") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // Overflow should return null
+    runQueryAndCompare(
+      "SELECT try_multiply(CAST(99999999999999999999999999999999999999 AS DECIMAL(38,0)), " +
+        "CAST(2 AS DECIMAL(38,0)))") {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  test("decimal overflow with allowPrecisionLoss disabled") {
+    // Uses checked_*_deny_precision_loss. A missing function would fail validation and fall back
+    // to Spark, which also throws on overflow, so check that the query runs on Velox first.
+    withSQLConf(SQLConf.DECIMAL_OPERATIONS_ALLOW_PREC_LOSS.key -> "false") {
+      runQueryAndCompare(
+        "SELECT CAST(1.5 AS DECIMAL(10,2)) + CAST(2.25 AS DECIMAL(10,2)), " +
+          "CAST(1.5 AS DECIMAL(10,2)) - CAST(2.25 AS DECIMAL(10,2)), " +
+          "CAST(1.5 AS DECIMAL(10,2)) * CAST(2.25 AS DECIMAL(10,2))") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+
+      val max = "CAST(99999999999999999999999999999999999999 AS DECIMAL(38,0))"
+      val min = "CAST(-99999999999999999999999999999999999999 AS DECIMAL(38,0))"
+      val one = "CAST(1 AS DECIMAL(38,0))"
+      Seq(s"$max + $one", s"$min - $one", s"$max * CAST(2 AS DECIMAL(38,0))").foreach {
+        expr =>
+          if (isSparkVersionGE("4.0")) {
+            intercept[SparkException] {
+              sql(s"SELECT $expr").collect()
+            }
+          } else {
+            intercept[ArithmeticException] {
+              sql(s"SELECT $expr").collect()
+            }
+          }
+      }
+    }
+  }
 }
