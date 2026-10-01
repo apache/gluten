@@ -134,6 +134,8 @@ void SubstraitParser::parseColumnTypes(
         columnTypes.push_back(ColumnType::kSynthesized);
         break;
       case ::substrait::NamedStruct::ROWINDEX_COL:
+      case ::substrait::NamedStruct::DELTA_ROW_DELETED_COL:
+      case ::substrait::NamedStruct::DELTA_ROW_INDEX_COL:
         columnTypes.push_back(ColumnType::kRowIndex);
         break;
       default:

@@ -159,7 +159,7 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
     doNativeValidation(substraitContext, relNode)
   }
 
-  private def makeColumnTypeNode(attr: Attribute): ColumnTypeNode = {
+  protected def makeColumnTypeNode(attr: Attribute): ColumnTypeNode = {
     if (getPartitionSchema.exists(_.name.equals(attr.name))) {
       new ColumnTypeNode(NamedStruct.ColumnType.PARTITION_COL)
     } else if (BackendsApiManager.getSparkPlanExecApiInstance.isRowIndexMetadataColumn(attr.name)) {
