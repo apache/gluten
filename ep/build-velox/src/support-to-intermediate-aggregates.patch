@@ -1,0 +1,170 @@
+diff --git a/velox/exec/AggregateCompanionAdapter.cpp b/velox/exec/AggregateCompanionAdapter.cpp
+index 9aab4fbac..724aca184 100644
+--- a/velox/exec/AggregateCompanionAdapter.cpp
++++ b/velox/exec/AggregateCompanionAdapter.cpp
+@@ -124,6 +124,18 @@ void AggregateCompanionFunctionBase::extractAccumulators(
+   fn_->extractAccumulators(groups, numGroups, result);
+ }
+ 
++bool AggregateCompanionAdapter::PartialFunction::supportsToIntermediate()
++    const {
++  return fn_->supportsToIntermediate();
++}
++
++void AggregateCompanionAdapter::PartialFunction::toIntermediate(
++    const SelectivityVector& rows,
++    std::vector<VectorPtr>& args,
++    VectorPtr& result) const {
++  fn_->toIntermediate(rows, args, result);
++}
++
+ void AggregateCompanionAdapter::PartialFunction::extractValues(
+     char** groups,
+     int32_t numGroups,
+diff --git a/velox/exec/AggregateCompanionAdapter.h b/velox/exec/AggregateCompanionAdapter.h
+index fc0a5909f..f72172c5e 100644
+--- a/velox/exec/AggregateCompanionAdapter.h
++++ b/velox/exec/AggregateCompanionAdapter.h
+@@ -99,6 +99,13 @@ struct AggregateCompanionAdapter {
+         const TypePtr& resultType)
+         : AggregateCompanionFunctionBase{std::move(fn), resultType} {}
+ 
++    bool supportsToIntermediate() const override;
++
++    void toIntermediate(
++        const SelectivityVector& rows,
++        std::vector<VectorPtr>& args,
++        VectorPtr& result) const override;
++
+     void extractValues(char** groups, int32_t numGroups, VectorPtr* result)
+         override;
+   };
+diff --git a/velox/exec/GroupingSet.cpp b/velox/exec/GroupingSet.cpp
+index 46a9cb57d..936c83843 100644
+--- a/velox/exec/GroupingSet.cpp
++++ b/velox/exec/GroupingSet.cpp
+@@ -1625,6 +1625,8 @@ void GroupingSet::toIntermediate(
+     if (function->supportsToIntermediate()) {
+       populateTempVectors(i, input);
+       VELOX_DCHECK(aggregateVector);
++      TestValue::adjust(
++          "facebook::velox::exec::Aggregate::toIntermediate", function.get());
+       function->toIntermediate(rows, tempVectors_, aggregateVector);
+       continue;
+     }
+diff --git a/velox/functions/lib/aggregates/SumAggregateBase.h b/velox/functions/lib/aggregates/SumAggregateBase.h
+index ed310a6c9..a571199fb 100644
+--- a/velox/functions/lib/aggregates/SumAggregateBase.h
++++ b/velox/functions/lib/aggregates/SumAggregateBase.h
+@@ -45,6 +45,35 @@ class SumAggregateBase
+     return 1;
+   }
+ 
++  bool supportsToIntermediate() const override {
++    return true;
++  }
++
++  void toIntermediate(
++      const SelectivityVector& rows,
++      std::vector<VectorPtr>& args,
++      VectorPtr& result) const override {
++    VELOX_CHECK_EQ(args.size(), 1);
++    if constexpr (std::is_same_v<TInput, TAccumulator>) {
++      this->singleInputAsIntermediate(rows, args, result);
++      return;
++    }
++
++    auto* vector = result->asFlatVector<TAccumulator>();
++    auto* rawNulls = vector->mutableRawNulls();
++    bits::fillBits(rawNulls, 0, rows.size(), bits::kNull);
++    auto* rawValues = vector->mutableRawValues();
++
++    DecodedVector decoded(*args[0], rows);
++    rows.applyToSelected([&](vector_size_t row) {
++      if (!decoded.isNullAt(row)) {
++        bits::clearNull(rawNulls, row);
++        rawValues[row] =
++            static_cast<TAccumulator>(decoded.valueAt<TInput>(row));
++      }
++    });
++  }
++
+   void extractValues(char** groups, int32_t numGroups, VectorPtr* result)
+       override {
+     BaseAggregate::template doExtractValues<ResultType>(
+diff --git a/velox/functions/prestosql/aggregates/CountAggregate.cpp b/velox/functions/prestosql/aggregates/CountAggregate.cpp
+index 93d9a250b..824785c69 100644
+--- a/velox/functions/prestosql/aggregates/CountAggregate.cpp
++++ b/velox/functions/prestosql/aggregates/CountAggregate.cpp
+@@ -34,6 +34,30 @@ class CountAggregate : public SimpleNumericAggregate<bool, int64_t, int64_t> {
+     return sizeof(int64_t);
+   }
+ 
++  bool supportsToIntermediate() const override {
++    return true;
++  }
++
++  void toIntermediate(
++      const SelectivityVector& rows,
++      std::vector<VectorPtr>& args,
++      VectorPtr& result) const override {
++    auto* vector = result->asFlatVector<int64_t>();
++    vector->clearAllNulls();
++    auto* rawValues = vector->mutableRawValues();
++    std::fill_n(rawValues, rows.size(), 0);
++
++    if (args.empty()) {
++      rows.applyToSelected([&](vector_size_t row) { rawValues[row] = 1; });
++      return;
++    }
++
++    DecodedVector decoded(*args[0], rows);
++    rows.applyToSelected([&](vector_size_t row) {
++      rawValues[row] = decoded.isNullAt(row) ? 0 : 1;
++    });
++  }
++
+   void extractValues(char** groups, int32_t numGroups, VectorPtr* result)
+       override {
+     BaseAggregate::doExtractValues(groups, numGroups, result, [&](char* group) {
+diff --git a/velox/functions/sparksql/aggregates/AverageAggregate.cpp b/velox/functions/sparksql/aggregates/AverageAggregate.cpp
+index 7397e1da5..3d27cae7f 100644
+--- a/velox/functions/sparksql/aggregates/AverageAggregate.cpp
++++ b/velox/functions/sparksql/aggregates/AverageAggregate.cpp
+@@ -30,6 +30,36 @@ class AverageAggregate
+   explicit AverageAggregate(TypePtr resultType)
+       : AverageAggregateBase<TInput, TAccumulator, TResult>(resultType) {}
+ 
++  bool supportsToIntermediate() const override {
++    return true;
++  }
++
++  void toIntermediate(
++      const SelectivityVector& rows,
++      std::vector<VectorPtr>& args,
++      VectorPtr& result) const override {
++    VELOX_CHECK_EQ(args.size(), 1);
++    auto* rowVector = result->as<RowVector>();
++    auto* sumVector = rowVector->childAt(0)->asFlatVector<TAccumulator>();
++    auto* countVector = rowVector->childAt(1)->asFlatVector<int64_t>();
++    rowVector->clearAllNulls();
++    sumVector->clearAllNulls();
++    countVector->clearAllNulls();
++
++    auto* rawSums = sumVector->mutableRawValues();
++    auto* rawCounts = countVector->mutableRawValues();
++    std::fill_n(rawSums, rows.size(), TAccumulator{0});
++    std::fill_n(rawCounts, rows.size(), 0);
++
++    DecodedVector decoded(*args[0], rows);
++    rows.applyToSelected([&](vector_size_t row) {
++      if (!decoded.isNullAt(row)) {
++        rawSums[row] = TAccumulator(decoded.valueAt<TInput>(row));
++        rawCounts[row] = 1;
++      }
++    });
++  }
++
+   void extractAccumulators(char** groups, int32_t numGroups, VectorPtr* result)
+       override {
+     auto rowVector = (*result)->as<RowVector>();
