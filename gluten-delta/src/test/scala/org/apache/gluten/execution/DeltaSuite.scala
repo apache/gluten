@@ -632,7 +632,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  test("deletion vector on partitioned table") {
+  testWithMinSparkVersion("deletion vector on partitioned table", "3.4") {
     withTempPath {
       p =>
         import testImplicits._
