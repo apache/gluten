@@ -88,6 +88,43 @@ Error: PermanentRedirect — The bucket you are attempting to access must be add
 spark.hadoop.fs.s3a.endpoint=s3.us-west-2.amazonaws.com
 ```
 
+# Known Issue: Native S3 Access Hangs on Non-RHEL-Family Runtime Images (Hardcoded CA Bundle Path)
+
+With `spark.gluten.sql.columnar.batchscan=true` (native scan enabled), a query reading from an S3-compatible
+object store may hang indefinitely with no error or exception in the driver or executor logs. Disabling Gluten
+(`spark.gluten.enabled=false`), or falling back to the JVM S3A path (`batchscan=false`), makes the exact same
+query complete normally. See [#10670](https://github.com/apache/gluten/issues/10670) and
+[#12711](https://github.com/apache/gluten/issues/12711) for the original reports.
+
+**Root cause:** Gluten's official/nightly native library (`libvelox.so`) is built on a RHEL-family OS
+(CentOS/Rocky Linux) with statically-linked HTTP client libraries (libcurl/OpenSSL, e.g. via vcpkg). These bake
+in a compile-time default CA bundle path, the RHEL-family location `/etc/pki/tls/certs/ca-bundle.crt`. On a
+different runtime distribution (e.g. Debian/Ubuntu, where the CA bundle lives at
+`/etc/ssl/certs/ca-certificates.crt`), that path does not exist, the native TLS handshake fails (`curlCode:
+77`), and an internal retry loop kicks in — which looks exactly like a silent hang from Spark's point of view.
+Plain `SSL_CERT_FILE`/`CURL_CA_BUNDLE` environment variables do **not** help on their own, since they are not
+read automatically by the native curl call inside the AWS SDK C++ layer.
+
+**Fix 1 (no rebuild required):** symlink the RHEL-family path to your runtime image's actual CA bundle at image
+build time, e.g. in your Dockerfile:
+
+```dockerfile
+RUN mkdir -p /etc/pki/tls/certs && \
+    ln -sf /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt
+```
+
+**Fix 2 (config-driven, no symlink needed):** set the CA bundle path explicitly via the
+`spark.hadoop.fs.s3a.ssl.ca-file` config, or via the `SSL_CERT_FILE` environment variable on the executor/driver
+if you'd rather not add a Spark config:
+
+```properties
+spark.hadoop.fs.s3a.ssl.ca-file=/etc/ssl/certs/ca-certificates.crt
+```
+
+Either setting is passed through to `Aws::Client::ClientConfiguration::caFile`, the AWS SDK C++'s documented
+mechanism for overriding the TLS CA bundle (it flows through to libcurl's `CURLOPT_CAINFO`). If neither is set,
+Velox falls back to the HTTP client's compiled-in default path, preserving existing behavior.
+
 # Local Caching support
 
 Velox supports a local cache when reading data from S3 but not strictly tested and there are several limitations. Please refer [Velox Local Cache](VeloxLocalCache.md) part for more detailed configurations.
@@ -188,6 +225,7 @@ Gluten new parameters:
 | iam.role.session.name | gluten-session |
 | endpoint.region | (none) |
 | aws.imds.enabled | true |
+| ssl.ca-file | (none) |
 
 Gluten configures:
 | Name | Default Value | 
