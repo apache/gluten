@@ -18,6 +18,7 @@
 #include <filesystem>
 
 #include "BoltBackend.h"
+#include "jni/JniThreadFactory.h"
 
 #include <bolt/common/memory/sparksql/ConfigurationResolver.h>
 #include <folly/executors/IOThreadPoolExecutor.h>
@@ -267,7 +268,7 @@ void BoltBackend::init(
     auto numDriverCpuThreads = executorCores * boostRatio * 3;
     BOLT_CHECK_GE(numDriverCpuThreads, 1, "numDriverCpuThreads can not be < 1");
     driverExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(
-        numDriverCpuThreads, std::make_shared<folly::NamedThreadFactory>("Driver"));
+        numDriverCpuThreads, std::make_shared<JniThreadFactory>("Driver"));
     LOG(ERROR) << "[multi-thread spark] Set up driver thread pool of size=" << numDriverCpuThreads;
   }
 
@@ -320,7 +321,8 @@ std::unique_ptr<bytedance::bolt::cache::SsdCache> BoltBackend::initSsdCache(uint
   cachePathPrefix_ = ssdCachePathPrefix;
   cacheFilePrefix_ = getCacheFilePrefix();
   std::string ssdCachePath = ssdCachePathPrefix + "/" + cacheFilePrefix_;
-  ssdCacheExecutor_ = std::make_unique<folly::IOThreadPoolExecutor>(ssdCacheIOThreads);
+  ssdCacheExecutor_ = std::make_unique<folly::IOThreadPoolExecutor>(
+      ssdCacheIOThreads, std::make_shared<JniThreadFactory>("IOThreadPool"));
   // TODO sync bolt and uncomment it(https://github.com/apache/incubator-gluten/pull/9228)
   // const cache::SsdCache::Config config(
   //     ssdCachePath,
@@ -432,8 +434,7 @@ void BoltBackend::initConnector(const std::shared_ptr<bolt::config::ConfigBase>&
   mutableConf->set(bolt::connector::hive::HiveConfig::kPrefetchRowGroups, std::to_string(_prefetchRowGroups));
   if (ioThreads > 0) {
     LOG(INFO) << "Init ioExecutor with threads=" << ioThreads << " name:" << kAsyncPreloadThreadName;
-    std::shared_ptr<folly::ThreadFactory> threadFactory =
-        std::make_shared<folly::NamedThreadFactory>(kAsyncPreloadThreadName);
+    std::shared_ptr<folly::ThreadFactory> threadFactory = std::make_shared<JniThreadFactory>(kAsyncPreloadThreadName);
     ioExecutor_ = std::make_unique<folly::IOThreadPoolExecutor>(ioThreads, threadFactory);
 
     if (backendConf_->get<bool>(kDynamicConcurrencyAdjustmentEnabled, kDynamicConcurrencyAdjustmentEnabledDefault)) {

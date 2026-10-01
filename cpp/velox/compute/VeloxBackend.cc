@@ -22,6 +22,7 @@
 #include <folly/executors/task_queue/UnboundedBlockingQueue.h>
 
 #include "compute/delta/DeltaConnector.h"
+#include "jni/JniThreadFactory.h"
 #include "operators/functions/RegistrationAllFunctions.h"
 #include "operators/plannodes/RowVectorStream.h"
 #include "utils/ConfigExtractor.h"
@@ -242,7 +243,8 @@ void VeloxBackend::init(
 
   const auto spillThreadNum = backendConf_->get<uint32_t>(kSpillThreadNum, kSpillThreadNumDefaultValue);
   if (spillThreadNum > 0) {
-    spillExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(spillThreadNum);
+    spillExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(
+        spillThreadNum, std::make_shared<JniThreadFactory>("CPUThreadPool"));
   }
 
   const auto ioThreads = backendConf_->get<int32_t>(kVeloxIOThreads, numTaskSlotsPerExecutor);
@@ -250,8 +252,10 @@ void VeloxBackend::init(
       ioThreads >= 0,
       kVeloxIOThreads + " was set to negative number " + std::to_string(ioThreads) + ", this should not happen.");
   if (ioThreads > 0) {
-    ioExecutor_ =
-        std::make_unique<folly::CPUThreadPoolExecutor>(ioThreads, folly::CPUThreadPoolExecutor::makeLifoSemQueue());
+    ioExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(
+        ioThreads,
+        folly::CPUThreadPoolExecutor::makeLifoSemQueue(),
+        std::make_shared<JniThreadFactory>("CPUThreadPool"));
   }
 
   initJolFilesystem();
@@ -351,7 +355,8 @@ std::unique_ptr<facebook::velox::cache::SsdCache> VeloxBackend::initSsdCache(uin
   cachePathPrefix_ = ssdCachePathPrefix;
   cacheFilePrefix_ = getCacheFilePrefix();
   std::string ssdCachePath = ssdCachePathPrefix + "/" + cacheFilePrefix_;
-  ssdCacheExecutor_ = std::make_unique<folly::IOThreadPoolExecutor>(ssdCacheIOThreads);
+  ssdCacheExecutor_ = std::make_unique<folly::IOThreadPoolExecutor>(
+      ssdCacheIOThreads, std::make_shared<JniThreadFactory>("IOThreadPool"));
   const cache::SsdCache::Config config(
       ssdCachePath,
       ssdCacheSize,

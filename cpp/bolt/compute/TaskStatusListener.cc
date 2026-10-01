@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 #include "TaskStatusListener.h"
+#include "jni/JniThreadAttachment.h"
 
 namespace gluten {
 
@@ -182,7 +183,7 @@ void TaskStatusListener::startListener() {
   }
   LOG(INFO) << "Starting TaskStatusListener thread.";
   status_.store(ThreadStatus::RUNNING, std::memory_order_release);
-  listenerThread_ = std::thread([this]() { this->listen(); });
+  listenerThread_ = std::thread(withJniThreadLifecycle([this]() { this->listen(); }));
 }
 
 } // namespace gluten

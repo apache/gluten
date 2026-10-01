@@ -22,6 +22,7 @@
 #include <jni.h>
 #include <cstdint>
 #include <mutex>
+#include "jni/JniThreadAttachment.h"
 
 namespace gluten {
 class OnHeapMemUsedHookSetter final {
@@ -60,14 +61,9 @@ class OnHeapMemUsedHookSetter final {
       return nullptr;
     }
     JNIEnv* env = nullptr;
-    jint result = vm_->GetEnv((void**)&env, JNI_VERSION_1_8);
-    if (result == JNI_EDETACHED) {
-      if (vm_->AttachCurrentThread((void**)&env, nullptr) != JNI_OK) {
-        LOG(ERROR) << "Can't attach current thread to JVM.";
-        return nullptr;
-      }
-    } else if (result != JNI_OK) {
-      LOG(ERROR) << "Get JNI env failed! failed reason is: " << result;
+    const auto result = getOrAttachCurrentThread(vm_, &env);
+    if (result != JNI_OK) {
+      LOG(ERROR) << "Get or attach JNI env failed! failed reason is: " << result;
       return nullptr;
     }
     return env;

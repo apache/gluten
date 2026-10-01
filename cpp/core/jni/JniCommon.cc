@@ -67,7 +67,8 @@ class JavaInputStreamAdaptor final : public arrow::io::InputStream {
     // libhdfs.so caches JNIEnv* in thread-local storage after AttachCurrentThread.
     // If we detach, libhdfs's TLS cache becomes stale — the next HDFS call via
     // libhdfs returns the stale env, causing SIGSEGV in jni_NewStringUTF.
-    // Daemon-attached threads are safe to leave attached; they won't block JVM shutdown.
+    // Keep the attachment while the worker is reused. On registered native
+    // workers, Gluten releases its own attachments during thread-exit cleanup.
     closed_ = true;
     return arrow::Status::OK();
   }
@@ -279,7 +280,8 @@ gluten::JniColumnarBatchIterator::~JniColumnarBatchIterator() {
   // libhdfs.so caches JNIEnv* in thread-local storage after AttachCurrentThread.
   // If we detach, libhdfs's TLS cache becomes stale — the next HDFS call via
   // libhdfs returns the stale env, causing SIGSEGV in jni_NewStringUTF.
-  // Daemon-attached threads are safe to leave attached; they won't block JVM shutdown.
+  // Keep the attachment while the worker is reused. On registered native
+  // workers, Gluten releases its own attachments during thread-exit cleanup.
 }
 
 std::shared_ptr<gluten::ColumnarBatch> gluten::JniColumnarBatchIterator::next() {

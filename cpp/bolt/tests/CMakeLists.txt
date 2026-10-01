@@ -53,6 +53,28 @@ add_link_options("-Wl,-export-dynamic"
 
 set(BOLT_TEST_COMMON_SRCS JsonToProtoConverter.cc FilePathGenerator.cc)
 
+# Uses the actual header-only memory hook, without pulling in the whole backend.
+add_executable(jni_bolt_onheap_test
+               ${GLUTEN_HOME}/gluten-ut/native/BoltOnHeapUsageTest.cc)
+target_include_directories(
+  jni_bolt_onheap_test
+  PRIVATE ${CMAKE_SOURCE_DIR}/core ${CMAKE_SOURCE_DIR}/bolt
+          ${bolt_INCLUDE_DIRS} ${JNI_INCLUDE_DIRS})
+target_link_libraries(
+  jni_bolt_onheap_test
+  glog::glog
+  gluten
+  folly::folly
+  GTest::gtest
+  GTest::gtest_main
+  Threads::Threads
+  ${JAVA_JVM_LIBRARY})
+# A regression can leave a non-daemon attachment alive and block JVM shutdown.
+gtest_discover_tests(
+  jni_bolt_onheap_test DISCOVERY_MODE PRE_TEST
+  PROPERTIES
+  TIMEOUT 30)
+
 # TODO: ORC is not well supported. add_bolt_test(orc_test SOURCES OrcTest.cc)
 add_bolt_test(
   bolt_operators_test SOURCES BoltColumnarToRowTest.cc BoltRowToColumnarTest.cc

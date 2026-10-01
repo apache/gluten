@@ -32,6 +32,7 @@
 #include "compute/paimon/PaimonPlanUtils.h"
 #include "config/BoltConfig.h"
 #include "connectors/hive/PaimonConnectorSplit.h"
+#include "jni/JniThreadFactory.h"
 #include "memory/BoltGlutenMemoryManager.h"
 #include "memory/BoltMemoryManager.h"
 
@@ -140,7 +141,8 @@ void WholeStageResultIterator::initTask() {
   spillStrategy_ = boltCfg_->get<std::string>(kSpillStrategy, kSpillStrategyDefaultValue);
   auto spillThreadNum = boltCfg_->get<uint32_t>(kSpillThreadNum, kSpillThreadNumDefaultValue);
   if (spillThreadNum > 0) {
-    spillExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(spillThreadNum);
+    spillExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(
+        spillThreadNum, std::make_shared<JniThreadFactory>("CPUThreadPool"));
   }
   getOrderedNodeIds(boltPlan_, orderedNodeIds_);
   parallelEnabled_ = boltCfg_->get<bool>(kGlutenEnableParallel, false);

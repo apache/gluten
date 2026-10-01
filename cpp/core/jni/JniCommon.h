@@ -26,6 +26,7 @@
 
 #include "compute/ProtobufUtils.h"
 #include "compute/Runtime.h"
+#include "jni/JniThreadAttachment.h"
 #include "memory/AllocationListener.h"
 #include "shuffle/ShuffleReader.h"
 #include "shuffle/rss/RssClient.h"
@@ -130,17 +131,7 @@ static inline jmethodID getStaticMethodIdOrError(JNIEnv* env, jclass thisClass, 
 }
 
 static inline void attachCurrentThreadAsDaemonOrThrow(JavaVM* vm, JNIEnv** out) {
-  int getEnvStat = vm->GetEnv(reinterpret_cast<void**>(out), jniVersion);
-  if (getEnvStat == JNI_EDETACHED) {
-    DLOG(INFO) << "JNIEnv was not attached to current thread.";
-    // Reattach current thread to JVM
-    getEnvStat = vm->AttachCurrentThreadAsDaemon(reinterpret_cast<void**>(out), NULL);
-    if (getEnvStat != JNI_OK) {
-      throw gluten::GlutenException("Failed to reattach current thread to JVM.");
-    }
-    DLOG(INFO) << "Succeeded attaching current thread.";
-    return;
-  }
+  const auto getEnvStat = gluten::getOrAttachCurrentThreadAsDaemon(vm, out);
   if (getEnvStat != JNI_OK) {
     throw gluten::GlutenException("Failed to attach current thread to JVM.");
   }

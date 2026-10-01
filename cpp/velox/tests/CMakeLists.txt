@@ -97,6 +97,11 @@ endif()
 
 set(VELOX_TEST_COMMON_SRCS JsonToProtoConverter.cc FilePathGenerator.cc)
 
+add_test_case(
+  jni_thread_factory_test SOURCES
+  ${GLUTEN_HOME}/gluten-ut/native/JniThreadFactoryTest.cc EXTRA_LINK_LIBS
+  Folly::folly ${JAVA_JVM_LIBRARY})
+
 add_velox_test(velox_shuffle_writer_test SOURCES VeloxShuffleWriterTest.cc)
 
 add_velox_test(velox_hash_shuffle_writer_input_encoding_test SOURCES

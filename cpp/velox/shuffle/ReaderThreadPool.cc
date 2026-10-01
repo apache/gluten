@@ -17,13 +17,14 @@
 
 #include "shuffle/ReaderThreadPool.h"
 #include <glog/logging.h>
+#include "jni/JniThreadAttachment.h"
 
 namespace gluten {
 
 ReaderThreadPool::ReaderThreadPool(size_t numThreads) : numThreads_(numThreads) {
   workers_.reserve(numThreads);
   for (size_t i = 0; i < numThreads; ++i) {
-    workers_.emplace_back([this]() { workerThread(); });
+    workers_.emplace_back(withJniThreadLifecycle([this]() { workerThread(); }));
   }
   LOG(WARNING) << "Created ReaderThreadPool with " << numThreads << " threads.";
 }

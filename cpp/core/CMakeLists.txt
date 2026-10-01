@@ -121,6 +121,7 @@ set(SPARK_COLUMNAR_PLUGIN_SRCS
     compute/ResultIterator.cc
     config/GlutenConfig.cc
     jni/JniWrapper.cc
+    jni/JniThreadAttachment.cc
     memory/AllocationListener.cc
     memory/MemoryAllocator.cc
     memory/MemoryManager.cc
@@ -251,7 +252,7 @@ endif()
 
 target_link_libraries(gluten PUBLIC Arrow::arrow
                                     Arrow::arrow_bundled_dependencies)
-target_link_libraries(gluten PRIVATE google::glog)
+target_link_libraries(gluten PRIVATE google::glog Threads::Threads)
 
 install(TARGETS gluten DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
