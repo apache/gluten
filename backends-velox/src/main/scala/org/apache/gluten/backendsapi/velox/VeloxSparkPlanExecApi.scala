@@ -166,9 +166,27 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     }
   }
 
-  override def getDecimalArithmeticExprName(exprName: String, allowPrecisionLoss: Boolean): String =
-    if (!allowPrecisionLoss) { exprName + "_deny_precision_loss" }
-    else { exprName }
+  /**
+   * In ANSI mode, decimal Add, Subtract and Multiply map to Velox's checked_ functions, which throw
+   * on overflow instead of returning null.
+   */
+  override def getDecimalArithmeticExprName(
+      exprName: String,
+      original: BinaryArithmetic,
+      allowPrecisionLoss: Boolean): String = {
+    val name = if (ExpressionUtils.withAnsiEvalMode(original)) {
+      original match {
+        case _: Add => ExpressionNames.CHECKED_ADD
+        case _: Subtract => ExpressionNames.CHECKED_SUBTRACT
+        case _: Multiply => ExpressionNames.CHECKED_MULTIPLY
+        case _ => exprName
+      }
+    } else {
+      exprName
+    }
+    if (!allowPrecisionLoss) { name + "_deny_precision_loss" }
+    else { name }
+  }
 
   /** Transform map_entries to Substrait. */
   override def genMapEntriesTransformer(
