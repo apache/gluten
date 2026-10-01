@@ -78,6 +78,7 @@ trait ColumnarV2TableWriteExec extends V2TableWriteExec with ValidatablePlan {
     // introduce a local var to avoid serializing the whole class
     val task = writingTaskBatch
     val messages = new Array[WriterCommitMessage](rdd.partitions.length)
+    val useCommitCoordinator = batchWrite.useCommitCoordinator
     val totalNumRowsAccumulator = new LongAccumulator()
 
     logInfo(
@@ -99,7 +100,7 @@ trait ColumnarV2TableWriteExec extends V2TableWriteExec with ValidatablePlan {
       sparkContext.runJob(
         rdd,
         (context: TaskContext, iter: Iterator[ColumnarBatch]) =>
-          task.run(factory, context, iter, writeMetrics),
+          task.run(factory, context, iter, useCommitCoordinator, writeMetrics),
         rdd.partitions.indices,
         (index, result: DataWritingColumnarBatchSparkTaskResult) => {
           val commitMessage = result.writerCommitMessage
