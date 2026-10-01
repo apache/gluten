@@ -47,13 +47,11 @@ case class MergeTwoPhasesHashBaseAggregate(session: SparkSession)
   private def isPartialAgg(partialAgg: BaseAggregateExec, finalAgg: BaseAggregateExec): Boolean = {
     // Aggregates with a FILTER clause can be merged as long as the FILTER predicate is carried
     // over to the Complete mode aggregate. Note the physical final aggregate has its FILTER
-    // stripped (Spark's AggUtils.mayRemoveAggFilters only keeps FILTER in Partial/Complete modes),
-    // so the FILTER must be restored from the partial aggregate when merging. Spark's aggregate
-    // planning produces the partial and final aggregate expression lists together and keeps them
-    // positionally aligned (the final phase reads the partial buffer by position), so a
-    // partial/final pair can be matched by position. We cannot match by `resultId`: for a single
-    // distinct aggregate, `AggUtils.planAggregateWithOneDistinct` builds the partial and final
-    // distinct expressions with fresh `AggregateExpression` instances, so their `resultId`s differ.
+    // stripped (Spark's AggUtils.mayRemoveAggFilters only keeps FILTER in Partial/Complete
+    // modes), so the FILTER must be restored from the partial aggregate when merging. Spark's
+    // aggregate planning produces the partial and final aggregate expression lists together and
+    // keeps them positionally aligned (the final phase reads the partial buffer by position), so
+    // a partial/final pair can be matched by position.
     if (
       partialAgg.aggregateExpressions.forall(x => x.mode == Partial) &&
       finalAgg.aggregateExpressions.forall(x => x.mode == Final) &&
