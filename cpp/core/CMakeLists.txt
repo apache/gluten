@@ -251,7 +251,7 @@ endif()
 
 target_link_libraries(gluten PUBLIC Arrow::arrow
                                     Arrow::arrow_bundled_dependencies)
-target_link_libraries(gluten PRIVATE google::glog)
+target_link_libraries(gluten PRIVATE glog::glog)
 
 install(TARGETS gluten DESTINATION ${CMAKE_INSTALL_LIBDIR})
 

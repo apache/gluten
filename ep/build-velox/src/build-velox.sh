@@ -224,6 +224,7 @@ function compile {
         cd googletest-src; cmake . ; sudo make install -j
         #sudo cmake --install googletest-build/
       elif [ $OS == 'Darwin' ]; then
+        cmake --build .. --target gtest gtest_main gmock gmock_main --parallel "${NUM_THREADS:-1}"
         install_cmake_dependency googletest-build/
       fi
     fi
