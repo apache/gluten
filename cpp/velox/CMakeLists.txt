@@ -219,6 +219,11 @@ if(ENABLE_S3)
   find_package(ZLIB)
 endif()
 
+if(ENABLE_KAFKA)
+  list(APPEND VELOX_SRCS operators/reader/KafkaDataSource.cc
+       operators/reader/KafkaConnector.cc)
+endif()
+
 if(ENABLE_GPU)
   list(
     APPEND
@@ -485,6 +490,34 @@ else()
   import_library(external::simdjson
                  ${VELOX_BUILD_PATH}/_deps/simdjson-build/libsimdjson.a)
   target_link_libraries(velox PUBLIC external::simdjson)
+endif()
+
+# Find and link librdkafka for Kafka streaming support
+if(ENABLE_KAFKA)
+  add_definitions(-DENABLE_KAFKA)
+  find_package(RdKafka CONFIG)
+  if(RdKafka_FOUND AND TARGET RdKafka::rdkafka++)
+    message(STATUS "Found RdKafka: ${RdKafka_DIR}")
+    target_link_libraries(velox PUBLIC RdKafka::rdkafka++)
+  else()
+    # Try to find librdkafka using pkg-config
+    find_package(PkgConfig)
+    if(PKG_CONFIG_FOUND)
+      pkg_check_modules(RDKAFKA QUIET rdkafka++)
+      if(RDKAFKA_FOUND)
+        message(STATUS "Found librdkafka via pkg-config: ${RDKAFKA_LIBRARIES}")
+        target_include_directories(velox PUBLIC ${RDKAFKA_INCLUDE_DIRS})
+        target_link_libraries(velox PUBLIC ${RDKAFKA_LIBRARIES})
+      else()
+        message(FATAL_ERROR "ENABLE_KAFKA is ON but librdkafka was not found.")
+      endif()
+    else()
+      message(
+        FATAL_ERROR
+          "ENABLE_KAFKA is ON but pkg-config was not found to locate librdkafka."
+      )
+    endif()
+  endif()
 endif()
 
 set(CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES_BCK})
