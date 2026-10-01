@@ -112,6 +112,10 @@ case class ColumnarShuffleExchangeExec(
       case _: RangePartitioning => ValidationResult.succeeded
       case SinglePartition => ValidationResult.succeeded
       case _: RoundRobinPartitioning => ValidationResult.succeeded
+      case p
+          if BackendsApiManager.getSettings.supportKeyGroupedShuffleExec() &&
+            SparkShimLoader.getSparkShims.getKeyGroupedShuffleInfo(p).nonEmpty =>
+        ValidationResult.succeeded
       case _ =>
         ValidationResult.failed(
           s"Unsupported partitioning ${outputPartitioning.getClass.getSimpleName}")
@@ -209,8 +213,16 @@ object ColumnarShuffleExchangeExec extends Logging {
       plan: ShuffleExchangeExec,
       child: SparkPlan,
       shuffleOutputAttributes: Seq[Attribute]): ColumnarShuffleExchangeExec = {
+    apply(plan, child, shuffleOutputAttributes, plan.outputPartitioning)
+  }
+
+  def apply(
+      plan: ShuffleExchangeExec,
+      child: SparkPlan,
+      shuffleOutputAttributes: Seq[Attribute],
+      outputPartitioning: Partitioning): ColumnarShuffleExchangeExec = {
     ColumnarShuffleExchangeExec(
-      plan.outputPartitioning,
+      outputPartitioning,
       child,
       plan.shuffleOrigin,
       shuffleOutputAttributes,

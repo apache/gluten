@@ -18,7 +18,7 @@ package org.apache.gluten.sql.shims.spark42
 
 import org.apache.gluten.execution.PartitionedFileUtilShim
 import org.apache.gluten.expression.{ExpressionNames, Sig}
-import org.apache.gluten.sql.shims.SparkShims
+import org.apache.gluten.sql.shims.{KeyGroupedShuffleInfo, SparkShims}
 
 import org.apache.spark._
 import org.apache.spark.sql.{AnalysisException, SparkSession}
@@ -59,6 +59,21 @@ class Spark42Shims extends SparkShims {
 
   override def isKeyGroupedPartitioning(partitioning: Partitioning): Boolean =
     partitioning.isInstanceOf[KeyedPartitioning]
+
+  override def getKeyGroupedShuffleInfo(
+      partitioning: Partitioning): Option[KeyGroupedShuffleInfo] = {
+    partitioning match {
+      case p: KeyedPartitioning =>
+        val grouped = p.toGrouped
+        val partitionValues = grouped.partitionKeys.map(_.row)
+        if (partitionValues.isEmpty) {
+          None
+        } else {
+          Some(KeyGroupedShuffleInfo(grouped, grouped.expressions, partitionValues))
+        }
+      case _ => None
+    }
+  }
 
   override def getLocalTableScanStream(plan: LocalTableScanExec): Option[SparkDataStream] =
     plan.stream

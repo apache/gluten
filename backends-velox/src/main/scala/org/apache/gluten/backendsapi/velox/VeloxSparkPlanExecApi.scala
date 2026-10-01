@@ -471,11 +471,16 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
           }
         }
       case p if SparkShimLoader.getSparkShims.isKeyGroupedPartitioning(p) =>
-        FallbackTags.add(
-          shuffle,
-          ValidationResult.failed(
-            "KeyGroupedPartitioning is not supported by Gluten native shuffle"))
-        shuffle.withNewChildren(child :: Nil)
+        SparkShimLoader.getSparkShims.getKeyGroupedShuffleInfo(p) match {
+          case Some(info) =>
+            ColumnarShuffleExchangeExec(shuffle, child, null, info.partitioning)
+          case None =>
+            FallbackTags.add(
+              shuffle,
+              ValidationResult.failed(
+                "Key grouped partitioning requires one distinct value per shuffle partition"))
+            shuffle.withNewChildren(child :: Nil)
+        }
       case _ =>
         ColumnarShuffleExchangeExec(shuffle, child, null)
     }
