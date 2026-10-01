@@ -159,12 +159,20 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
     doNativeValidation(substraitContext, relNode)
   }
 
+  protected def isRowIndexMetadataColumn(attr: Attribute): Boolean = {
+    BackendsApiManager.getSparkPlanExecApiInstance.isRowIndexMetadataColumn(attr.name)
+  }
+
+  protected def isNativeMetadataColumn(attr: Attribute): Boolean = {
+    attr.isMetadataCol || getMetadataColumns().exists(_.exprId == attr.exprId)
+  }
+
   private def makeColumnTypeNode(attr: Attribute): ColumnTypeNode = {
     if (getPartitionSchema.exists(_.name.equals(attr.name))) {
       new ColumnTypeNode(NamedStruct.ColumnType.PARTITION_COL)
-    } else if (BackendsApiManager.getSparkPlanExecApiInstance.isRowIndexMetadataColumn(attr.name)) {
+    } else if (isRowIndexMetadataColumn(attr)) {
       new ColumnTypeNode(NamedStruct.ColumnType.ROWINDEX_COL)
-    } else if (attr.isMetadataCol) {
+    } else if (isNativeMetadataColumn(attr)) {
       new ColumnTypeNode(NamedStruct.ColumnType.METADATA_COL)
     } else {
       new ColumnTypeNode(NamedStruct.ColumnType.NORMAL_COL)

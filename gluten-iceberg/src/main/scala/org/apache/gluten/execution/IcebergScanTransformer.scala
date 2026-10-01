@@ -26,7 +26,7 @@ import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.Partition
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{AttributeReference, DynamicPruningExpression, Expression, Literal}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, DynamicPruningExpression, Expression, Literal}
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.connector.catalog.Table
 import org.apache.spark.sql.connector.read.Scan
@@ -36,7 +36,7 @@ import org.apache.spark.sql.types.{ArrayType, DataType, StructType}
 
 import org.apache.iceberg.{BaseTable, MetadataColumns, SnapshotSummary, TableProperties}
 import org.apache.iceberg.avro.AvroSchemaUtil
-import org.apache.iceberg.spark.source.{GlutenIcebergSourceUtil, SparkTable}
+import org.apache.iceberg.spark.source.GlutenIcebergSourceUtil
 import org.apache.iceberg.spark.source.metrics.NumSplits
 import org.apache.iceberg.types.{Type, Types}
 import org.apache.iceberg.types.Type.TypeID
@@ -92,18 +92,14 @@ case class IcebergScanTransformer(
     }
 
     if (!BackendsApiManager.getSettings.supportIcebergEqualityDeleteRead()) {
-      val notSupport = table match {
-        case t: SparkTable =>
-          t.table() match {
-            case t: BaseTable =>
-              t.operations()
-                .current()
-                .schema()
-                .columns()
-                .stream
-                .anyMatch(c => containsUuidOrFixedType(c.`type`()) || containsMetadataColumn(c))
-            case _ => false
-          }
+      val notSupport = GlutenIcebergSourceUtil.getTable(scan) match {
+        case t: BaseTable =>
+          t.operations()
+            .current()
+            .schema()
+            .columns()
+            .stream
+            .anyMatch(c => containsUuidOrFixedType(c.`type`()) || containsMetadataColumn(c))
         case _ => false
       }
       if (notSupport) {
@@ -111,7 +107,12 @@ case class IcebergScanTransformer(
       }
       // Allow input_file_name() and related metadata functions
       val allowedMetadataColumns =
-        IcebergScanTransformer.InputFileRelatedMetadataColumnNames
+        if (GlutenIcebergSourceUtil.isSparkCopyOnWriteScan(scan)) {
+          IcebergScanTransformer.InputFileRelatedMetadataColumnNames ++
+            IcebergScanTransformer.CopyOnWriteMetadataColumnNames
+        } else {
+          IcebergScanTransformer.InputFileRelatedMetadataColumnNames
+        }
       val hasUnsupportedMetadata = scan.readSchema().fieldNames.exists {
         f =>
           MetadataColumns.isMetadataColumn(f) &&
@@ -120,24 +121,12 @@ case class IcebergScanTransformer(
       if (hasUnsupportedMetadata) {
         return ValidationResult.failed("Read unsupported metadata column")
       }
-      val containsEqualityDelete = table match {
-        case t: SparkTable =>
-          t.table() match {
-            case t: BaseTable =>
-              val snapshot = t
-                .operations()
-                .current()
-                .currentSnapshot()
-              if (snapshot == null) {
-                false
-              } else {
-                snapshot
-                  .summary()
-                  .getOrDefault(SnapshotSummary.TOTAL_EQ_DELETES_PROP, "0")
-                  .toInt > 0
-              }
-            case _ => false
-          }
+      // Row-level operations wrap the Spark table, so use the table held by the scan.
+      val containsEqualityDelete = GlutenIcebergSourceUtil.getTable(scan) match {
+        case t: BaseTable =>
+          val snapshot = t.operations().current().currentSnapshot()
+          snapshot != null &&
+          snapshot.summary().getOrDefault(SnapshotSummary.TOTAL_EQ_DELETES_PROP, "0").toInt > 0
         case _ => false
       }
       if (containsEqualityDelete) {
@@ -150,12 +139,8 @@ case class IcebergScanTransformer(
       }
     }
 
-    val baseTable = table match {
-      case t: SparkTable =>
-        t.table() match {
-          case t: BaseTable => t
-          case _ => null
-        }
+    val baseTable = GlutenIcebergSourceUtil.getTable(scan) match {
+      case t: BaseTable => t
       case _ => null
     }
     if (baseTable == null) {
@@ -206,11 +191,26 @@ case class IcebergScanTransformer(
       !readSchemaFields.contains(name)
   }
 
+  private lazy val copyOnWriteFilePathMetadataColumns = output.filter {
+    attr => IcebergScanTransformer.isCopyOnWriteFilePathColumn(attr.name)
+  }
+
   override def getMetadataColumns(): Seq[AttributeReference] = {
-    val extraMetadataColumns = inputFileRelatedMetadataColumns.filterNot {
-      metadataAttr => metadataColumns.exists(_.name.equalsIgnoreCase(metadataAttr.name))
-    }
+    val extraMetadataColumns =
+      (inputFileRelatedMetadataColumns ++ copyOnWriteFilePathMetadataColumns).filterNot {
+        metadataAttr => metadataColumns.exists(_.name.equalsIgnoreCase(metadataAttr.name))
+      }
     metadataColumns ++ extraMetadataColumns
+  }
+
+  override protected def isRowIndexMetadataColumn(attr: Attribute): Boolean = {
+    IcebergScanTransformer.isCopyOnWriteRowPositionColumn(attr.name) ||
+    super.isRowIndexMetadataColumn(attr)
+  }
+
+  override protected def isNativeMetadataColumn(attr: Attribute): Boolean = {
+    IcebergScanTransformer.isCopyOnWriteFilePathColumn(attr.name) ||
+    super.isNativeMetadataColumn(attr)
   }
 
   override lazy val fileFormat: ReadFileFormat = GlutenIcebergSourceUtil.getFileFormat(scan)
@@ -270,12 +270,8 @@ case class IcebergScanTransformer(
   private[execution] def getKeyGroupPartitioning: Option[Seq[Expression]] = keyGroupedPartitioning
 
   private def hasRenamedColumn: Boolean = {
-    val icebergTable = table match {
-      case t: SparkTable =>
-        t.table() match {
-          case t: BaseTable => t
-          case _ => null
-        }
+    val icebergTable = GlutenIcebergSourceUtil.getTable(scan) match {
+      case t: BaseTable => t
       case _ => null
     }
     if (icebergTable == null) {
@@ -350,6 +346,18 @@ case class IcebergScanTransformer(
 object IcebergScanTransformer {
   private val InputFileRelatedMetadataColumnNames =
     Set("input_file_name", "input_file_block_start", "input_file_block_length")
+
+  private val CopyOnWriteMetadataColumnNames =
+    Set(MetadataColumns.FILE_PATH.name(), MetadataColumns.ROW_POSITION.name())
+      .map(_.toLowerCase(Locale.ROOT))
+
+  private def isCopyOnWriteFilePathColumn(name: String): Boolean = {
+    name.equalsIgnoreCase(MetadataColumns.FILE_PATH.name())
+  }
+
+  private def isCopyOnWriteRowPositionColumn(name: String): Boolean = {
+    name.equalsIgnoreCase(MetadataColumns.ROW_POSITION.name())
+  }
 
   def apply(batchScan: BatchScanExec): IcebergScanTransformer = {
     new IcebergScanTransformer(
