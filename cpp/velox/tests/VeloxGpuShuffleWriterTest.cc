@@ -151,22 +151,24 @@ std::vector<GpuShuffleTestParams> getTestParams() {
       // Local.
       for (const auto mergeBufferSize : mergeBufferSizes) {
         for (const auto enableGpuAsyncReader : {false, true}) {
-          params.push_back(GpuShuffleTestParams{
-              .shuffleWriterType = ShuffleWriterType::kHashShuffle,
-              .partitionWriterType = PartitionWriterType::kLocal,
-              .compressionType = compression,
-              .compressionThreshold = compressionThreshold,
-              .mergeBufferSize = mergeBufferSize,
-              .enableGpuAsyncReader = enableGpuAsyncReader});
+          params.push_back(
+              GpuShuffleTestParams{
+                  .shuffleWriterType = ShuffleWriterType::kHashShuffle,
+                  .partitionWriterType = PartitionWriterType::kLocal,
+                  .compressionType = compression,
+                  .compressionThreshold = compressionThreshold,
+                  .mergeBufferSize = mergeBufferSize,
+                  .enableGpuAsyncReader = enableGpuAsyncReader});
         }
       }
 
       // Rss.
-      params.push_back(GpuShuffleTestParams{
-          .shuffleWriterType = ShuffleWriterType::kHashShuffle,
-          .partitionWriterType = PartitionWriterType::kRss,
-          .compressionType = compression,
-          .compressionThreshold = compressionThreshold});
+      params.push_back(
+          GpuShuffleTestParams{
+              .shuffleWriterType = ShuffleWriterType::kHashShuffle,
+              .partitionWriterType = PartitionWriterType::kRss,
+              .compressionType = compression,
+              .compressionThreshold = compressionThreshold});
     }
   }
 
@@ -314,7 +316,7 @@ class GpuVeloxShuffleWriterTest : public ::testing::TestWithParam<GpuShuffleTest
     const auto reader = std::make_shared<gluten::VeloxShuffleReader>(schema, getDefaultMemoryManager(), options);
 
     const auto iter =
-        reader->read(std::make_shared<TestStreamReader>(std::move(in)), ShuffleReader::OutputType::kCudfTable);
+        reader->read(std::make_shared<TestStreamReader>(std::move(in)), ShuffleReader::OutputType::kCudfTable, 0);
 
     while (iter->hasNext()) {
       auto cb = std::dynamic_pointer_cast<GpuBufferColumnarBatch>(iter->next());
@@ -495,12 +497,7 @@ TEST_P(GpuHashPartitioningShuffleWriterTest, hashPart1Vector) {
         makeFlatVector<int32_t>({232, 34567235, 1212, 4567}),
         makeFlatVector<int32_t>(
             4, [](vector_size_t row) { return row % 2; }, nullEvery(5), DATE()),
-        makeFlatVector<Timestamp>(
-            4,
-            [](vector_size_t row) {
-              return Timestamp{row % 2, 0};
-            },
-            nullEvery(5))};
+        makeFlatVector<Timestamp>(4, [](vector_size_t row) { return Timestamp{row % 2, 0}; }, nullEvery(5))};
 
     const auto vector = makeRowVector(data);
 
