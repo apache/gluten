@@ -177,6 +177,7 @@ set(VELOX_SRCS
     operators/functions/RegistrationAllFunctions.cc
     operators/functions/delta/DeltaBitmapAggregator.cc
     operators/functions/overlay/RegisterFunctionOverlay.cc
+    operators/functions/IncrementMetricFunction.cc
     operators/functions/RowConstructorWithNull.cc
     operators/functions/SparkExprToSubfieldFilterParser.cc
     operators/plannodes/RowVectorStream.cc

@@ -497,17 +497,24 @@ void WholeStageResultIterator::collectMetrics() {
         customStats[customMetric.first] = folly::dynamic::object("sum", customMetric.second.sum)(
             "count", customMetric.second.count)("min", customMetric.second.min)("max", customMetric.second.max);
       }
+      // Rows processed per expression, keyed by function name. Only populated for project and
+      // filter operators, and only used for Delta's per-metric counter functions.
+      folly::dynamic expressionStats = folly::dynamic::object();
+      for (const auto& exprStats : opStats->expressionStats) {
+        expressionStats[exprStats.first] = exprStats.second.numProcessedRows;
+      }
 
-      operatorStats.push_back(folly::dynamic::object("inputRows", opStats->inputRows)(
-          "inputVectors", opStats->inputVectors)("inputBytes", opStats->inputBytes)(
-          "rawInputRows", opStats->rawInputRows)("rawInputBytes", opStats->rawInputBytes)(
-          "outputRows", opStats->outputRows)("outputVectors", opStats->outputVectors)(
-          "outputBytes", opStats->outputBytes)("cpuCount", opStats->cpuWallTiming.count)(
-          "wallNanos", opStats->cpuWallTiming.wallNanos)("peakMemoryBytes", opStats->peakMemoryBytes)(
-          "numMemoryAllocations", opStats->numMemoryAllocations)("spilledInputBytes", opStats->spilledInputBytes)(
-          "spilledBytes", opStats->spilledBytes)("spilledRows", opStats->spilledRows)(
-          "spilledPartitions", opStats->spilledPartitions)("spilledFiles", opStats->spilledFiles)(
-          "physicalWrittenBytes", opStats->physicalWrittenBytes)("customStats", customStats));
+      operatorStats.push_back(
+          folly::dynamic::object("inputRows", opStats->inputRows)("inputVectors", opStats->inputVectors)(
+              "inputBytes", opStats->inputBytes)("rawInputRows", opStats->rawInputRows)(
+              "rawInputBytes", opStats->rawInputBytes)("outputRows", opStats->outputRows)(
+              "outputVectors", opStats->outputVectors)("outputBytes", opStats->outputBytes)(
+              "cpuCount", opStats->cpuWallTiming.count)("wallNanos", opStats->cpuWallTiming.wallNanos)(
+              "peakMemoryBytes", opStats->peakMemoryBytes)("numMemoryAllocations", opStats->numMemoryAllocations)(
+              "spilledInputBytes", opStats->spilledInputBytes)("spilledBytes", opStats->spilledBytes)(
+              "spilledRows", opStats->spilledRows)("spilledPartitions", opStats->spilledPartitions)(
+              "spilledFiles", opStats->spilledFiles)("physicalWrittenBytes", opStats->physicalWrittenBytes)(
+              "customStats", customStats)("expressionStats", expressionStats));
     }
 
     statsNum += static_cast<unsigned int>(operatorStats.size());
@@ -538,6 +545,10 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
       std::to_string(veloxCfg_->get<uint32_t>(kSparkBatchSize, 4096));
   configs[velox::core::QueryConfig::kPreferredOutputBatchBytes] =
       std::to_string(veloxCfg_->get<uint64_t>(kVeloxPreferredBatchBytes, 10L << 20));
+  // Export per-expression processed-row counts from project and filter operators; Delta's
+  // IncrementMetric counters are read from them (see IncrementMetricFunction.h). Velox counts the
+  // rows regardless, this only attaches the counts to the operator stats.
+  configs[velox::core::QueryConfig::kOperatorTrackExpressionStats] = "true";
   try {
     configs[SparkQueryConfig::qualify(SparkQueryConfig::kAnsiEnabled)] =
         veloxCfg_->get<std::string>(kAnsiEnabled, "false");
