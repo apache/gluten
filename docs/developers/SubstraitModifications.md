@@ -24,6 +24,9 @@ because the older practice of grafting local fields onto the next free low numbe
 ## Modifications to algebra.proto
 
 * Added `JsonReadOptions` and `TextReadOptions` in `FileOrFiles`([#1584](https://github.com/apache/gluten/pull/1584)).
+`TextReadOptions` has since been rebased onto upstream's `DelimiterSeparatedTextReadOptions`; the two knobs
+this PR added that are still Gluten-local, `max_block_size` and `empty_as_default`, live at 1000/1001. See the
+rebase entry below.
 * Changed join type `JOIN_TYPE_SEMI` to `JOIN_TYPE_LEFT_SEMI` and `JOIN_TYPE_RIGHT_SEMI`([#408](https://github.com/apache/gluten/pull/408)).
 * Added `WindowRel`, added `column_name` and `window_type` in `WindowFunction`,
 changed `Unbounded` in `WindowFunction` into `Unbounded_Preceding` and `Unbounded_Following`, and added WindowType([#485](https://github.com/apache/gluten/pull/485)).
@@ -44,6 +47,18 @@ separate change. Note that Gluten attaches its writer configuration to `named_ta
 to the new top-level `WriteRel.advanced_extension`, which no Gluten code reads. `WriteRel.common` uses
 Gluten's pre-0.98 `RelCommon` copy (missing `rel_anchor`, `Hint.alias`, `Hint.output_names` and the
 saved/loaded computation messages), so it cannot carry a full 0.98 `common` payload.
+* Rebased the text read options in `FileOrFiles` onto upstream `v0.98.0`: `TextReadOptions` is now
+`DelimiterSeparatedTextReadOptions`, adopting upstream's fields verbatim (`field_delimiter` 1, `max_line_size`
+2, `quote` 3, `header_lines_to_skip` 4, `escape` 5, `value_treated_as_null` 6). `header_lines_to_skip` and
+`value_treated_as_null` are the old `header` (was 5) and `null_value` (was 7) renamed, and the deprecated
+`schema` field is dropped. Gluten's two local knobs are relocated to the 1000 range: `max_block_size` to 1000
+(rows per output block -- distinct from upstream's byte-oriented `max_line_size`, so the two are kept as
+separate fields) and `empty_as_default` to 1001. The `file_format` oneof tag stays at 14, which is also
+upstream's number for it. Note that the reused tags kept their old wire types, so a JAR and a native library
+built from opposite sides of this change mis-read each other silently rather than failing -- in particular old
+tag 6 (`escape`, which Gluten's Hive text path always sets) now parses as `value_treated_as_null` -- and the two must be
+rebuilt together. `JsonReadOptions` keeps its Gluten-local fork until upstream adds equivalent JSON read
+options.
 
 ## Modifications to type.proto
 
