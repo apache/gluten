@@ -110,6 +110,31 @@ case class VeloxHashExpressionTransformer(
   }
 }
 
+case class VeloxPmodExpressionTransformer(
+    left: ExpressionTransformer,
+    right: ExpressionTransformer,
+    original: Pmod)
+  extends ExpressionTransformer {
+  override val substraitExprName: String = "pmod_with_mode"
+  override val children: Seq[ExpressionTransformer] = Seq(
+    left,
+    right,
+    LiteralTransformer(original.evalMode == EvalMode.ANSI),
+    LiteralTransformer(!original.left.nullable && !original.right.nullable))
+
+  override def doTransform(context: SubstraitContext): ExpressionNode = {
+    // These two captured flags are native arguments, not Catalyst children.
+    val functionName = ConverterUtils.makeFuncName(substraitExprName, children.map(_.dataType))
+    val functionId = context.registerFunction(functionName)
+    val nodes = new JArrayList[ExpressionNode]()
+    children.foreach(child => nodes.add(child.doTransform(context)))
+    ExpressionBuilder.makeScalarFunction(
+      functionId,
+      nodes,
+      ConverterUtils.getTypeNode(dataType, nullable))
+  }
+}
+
 case class ToUnixTimestampTransformer(
     substraitExprName: String,
     timeExpTransformer: ExpressionTransformer,

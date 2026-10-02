@@ -105,6 +105,26 @@ class SparkFunctionTest : public SparkFunctionBaseTest {
         {0, -2, 0},
         {-1, -3, 0}};
   }
+
+  template <typename T>
+  void testCapturedPmod() {
+    auto input = makeRowVector({makeNullableFlatVector<T>({T(10), std::nullopt}), makeFlatVector<T>({T(0), T(0)})});
+    auto expected = makeNullableFlatVector<T>({std::nullopt, std::nullopt});
+    queryCtx_->testingOverrideConfigUnsafe({{sparkAnsiEnabledConfigKey(), "true"}});
+    auto legacy = compileExpression("pmod_with_mode(c0, c1, false, false)", input->rowType());
+    queryCtx_->testingOverrideConfigUnsafe({{sparkAnsiEnabledConfigKey(), "false"}});
+    auto ansi = compileExpression("pmod_with_mode(c0, c1, true, false)", input->rowType());
+
+    for (const auto* queryMode : {"false", "true"}) {
+      queryCtx_->testingOverrideConfigUnsafe({{sparkAnsiEnabledConfigKey(), queryMode}});
+      facebook::velox::test::assertEqualVectors(expected, evaluate(*legacy, input));
+      VELOX_ASSERT_THROW(evaluate(*ansi, input), "Division by zero");
+    }
+
+    auto nullInput =
+        makeRowVector({makeNullableFlatVector<T>({std::nullopt, std::nullopt}), makeFlatVector<T>({T(0), T(0)})});
+    facebook::velox::test::assertEqualVectors(expected, evaluate(*ansi, nullInput));
+  }
 };
 
 TEST_F(SparkFunctionTest, round) {
@@ -143,4 +163,24 @@ TEST_F(SparkFunctionTest, expressionLevelLegacyCastIgnoresSessionAnsiOn) {
       std::make_shared<const core::CallTypedExpr>(TINYINT(), std::vector<core::TypedExprPtr>{field}, kSparkLegacyCast);
 
   facebook::velox::test::assertEqualVectors(makeFlatVector<int8_t>({-121}), evaluate(legacyCast, input));
+}
+
+TEST_F(SparkFunctionTest, pmodCapturedMode) {
+  testCapturedPmod<int8_t>();
+  testCapturedPmod<int16_t>();
+  testCapturedPmod<int32_t>();
+  testCapturedPmod<int64_t>();
+  testCapturedPmod<float>();
+  testCapturedPmod<double>();
+}
+
+TEST_F(SparkFunctionTest, pmodSkipsLeftForNullOrLegacyZero) {
+  auto input = makeRowVector(
+      {makeFlatVector<std::string>({"left must not run", "left must not run"}),
+       makeNullableFlatVector<int32_t>({0, std::nullopt})});
+  for (const auto* earlyZero : {"false", "true"}) {
+    auto expression = std::string("pmod_with_mode(cast(raise_error(c0) as integer), c1, false, ") + earlyZero + ")";
+    facebook::velox::test::assertEqualVectors(
+        makeNullableFlatVector<int32_t>({std::nullopt, std::nullopt}), evaluate(expression, input));
+  }
 }
