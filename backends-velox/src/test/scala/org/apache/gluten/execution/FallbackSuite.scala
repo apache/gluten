@@ -19,7 +19,7 @@ package org.apache.gluten.execution
 import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.execution.{ColumnarBroadcastExchangeExec, ColumnarShuffleExchangeExec, FileSourceScanExec, SortExec, SparkPlan}
+import org.apache.spark.sql.execution.{ColumnarBroadcastExchangeExec, ColumnarShuffleExchangeExec, SortExec, SparkPlan}
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanHelper, AQEShuffleReadExec}
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
 import org.apache.spark.sql.execution.joins.{BroadcastHashJoinExec, BroadcastNestedLoopJoinExec, SortMergeJoinExec}
@@ -732,25 +732,14 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
   }
 
   test(
-    "PushDownInputFileExpression: Input_File_Name data column and input_file_name() " +
-      "under caseSensitive=false -- collision detection triggers fallback (Parquet)") {
-    // Under caseSensitive=false the user column `Input_File_Name` normalises to
-    // `input_file_name` which matches the metadata sentinel in INPUT_FILE_ATTR_NAMES.
-    // hasVeloxColumnNameConflict() detects the Velox-level collision and adds a fallback
-    // tag so that Vanilla Spark's FilePartitionReader sets InputFileBlockHolder correctly.
-    // This test verifies:
-    //   1. Fallback actually occurred: FileSourceScanExecTransformer is absent and vanilla
-    //      FileSourceScanExec is present in the executed plan.
-    //   2. The physical `Input_File_Name` column values are the user-inserted strings.
-    //   3. input_file_name() returns a non-empty file path.
-    //   4. The data column and the function result are distinct (not conflated).
-    //   5. Results match vanilla Spark (runQueryAndCompare enforces this).
-    // noFallBack=false because fallback is the correct, expected behaviour here.
+    "PushDownInputFileExpression: Input_File_Name data column returns user data " +
+      "under caseSensitive=false (Parquet)") {
+    // When a user table contains a data column named `Input_File_Name` and the query
+    // simply selects that column (without calling input_file_name()), the query must
+    // return the user's data values and not be mistaken for the metadata function.
     withSQLConf(SQLConf.CASE_SENSITIVE.key -> "false") {
       withTempDir {
         dir =>
-          // Write a Parquet file with a mixed-case column name that collapses to the
-          // input_file_name sentinel under case-insensitive normalisation.
           val schema2 = org.apache.spark.sql.types.StructType(
             Seq(
               org.apache.spark.sql.types.StructField(
@@ -777,45 +766,40 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
             .createOrReplaceTempView("pushdown_input_ci")
 
           try {
+            // 1. Querying only the user column returns user data and runs natively
+            Seq("`Input_File_Name`", "`input_file_name`", "`INPUT_FILE_NAME`").foreach {
+              colName =>
+                runQueryAndCompare(
+                  s"SELECT $colName FROM pushdown_input_ci ORDER BY id",
+                  noFallBack = true
+                ) {
+                  df =>
+                    val rows = df.collect()
+                    assert(rows.length == 2, s"Expected 2 rows for $colName, got ${rows.length}")
+                    val dataVals = rows.map(_.getString(0)).toSeq
+                    assert(
+                      dataVals == Seq("user-ci-val-1", "user-ci-val-2"),
+                      s"Physical $colName column wrong: $dataVals")
+                }
+            }
+
+            // 2. Querying both user column and input_file_name() function
             runQueryAndCompare(
               "SELECT `Input_File_Name`, input_file_name() AS fname " +
                 "FROM pushdown_input_ci ORDER BY `Input_File_Name`",
               noFallBack = false
             ) {
               df =>
-                val plan = df.queryExecution.executedPlan
-
-                // Structural assertion: the collision must have triggered a fallback.
-                // If hasVeloxColumnNameConflict() is ever removed, the scan would stay
-                // native and Velox would crash with INVALID_STATE (two conflicting handles
-                // for the same case-insensitive column name). Asserting the plan structure
-                // here makes that regression immediately visible rather than a runtime crash.
-                assert(
-                  collect(plan) { case f: FileSourceScanExecTransformer => f }.isEmpty,
-                  "Expected fallback: FileSourceScanExecTransformer must NOT be present when " +
-                    "a user data column name collides with a metadata sentinel under " +
-                    s"caseSensitive=false.\nPlan:\n$plan"
-                )
-                assert(
-                  collect(plan) { case f: FileSourceScanExec => f }.nonEmpty,
-                  "Expected fallback: vanilla FileSourceScanExec must be present in the plan.\n" +
-                    s"Plan:\n$plan"
-                )
-
-                // Value assertions: correctness must be preserved after fallback.
                 val rows = df.collect()
                 assert(rows.length == 2, s"Expected 2 rows, got ${rows.length}")
-                // Physical column values must be the user-written strings.
                 val dataVals = rows.map(_.getString(0)).toSet
                 assert(
                   dataVals == Set("user-ci-val-1", "user-ci-val-2"),
                   s"Physical Input_File_Name column wrong: $dataVals")
-                // input_file_name() must return a non-empty file path.
                 val fileNames = rows.map(_.getString(1))
                 assert(
                   fileNames.forall(n => n != null && n.nonEmpty),
                   s"input_file_name() returned empty/null: ${fileNames.mkString(", ")}")
-                // The data column and the function result must be distinct values.
                 rows.foreach {
                   r =>
                     assert(

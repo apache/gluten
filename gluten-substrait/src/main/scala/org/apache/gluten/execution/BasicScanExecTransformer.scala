@@ -117,6 +117,16 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
 
     val metadataFromSpark = getMetadataColumns().map(_.name)
 
+    // In addition to the "proper" Spark metadata columns (FileSourceConstantMetadataAttribute),
+    // PreOffload may have injected plain AttributeReferences whose names exactly match the
+    // input-file function pretty names (e.g. "input_file_name").  These are not tagged with
+    // isMetadataCol but still need to be populated from the split's infoColumns so that Velox
+    // fills them with the file path rather than reading them as missing-column nulls.
+    //
+    // IMPORTANT: use exact (case-sensitive) name comparison here.  The injected attributes
+    // always carry the exact lowercase pretty name ("input_file_name", etc.).  A user data
+    // column like "Input_File_Name" must NOT match -- normalising it to lowercase would
+    // cause Velox to fill the user column with the file path instead of the actual data value.
     val inputFileRelatedMetadataKeys = Seq(
       InputFileName().prettyName,
       InputFileBlockStart().prettyName,
@@ -124,7 +134,7 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
 
     val neededInputFileRelatedMetadataKeys =
       inputFileRelatedMetadataKeys.filter {
-        k => output.exists(a => ConverterUtils.normalizeColName(a.name) == k)
+        k => output.exists(a => a.name == k)
       }
 
     val metadataColumnNames = (metadataFromSpark ++ neededInputFileRelatedMetadataKeys).distinct

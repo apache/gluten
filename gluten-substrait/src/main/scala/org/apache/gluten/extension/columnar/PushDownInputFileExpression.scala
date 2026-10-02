@@ -17,7 +17,6 @@
 package org.apache.gluten.extension.columnar
 
 import org.apache.gluten.execution.{BatchScanExecTransformerBase, FileSourceScanExecTransformer, ProjectExecTransformer}
-import org.apache.gluten.expression.ConverterUtils
 
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Expression, InputFileBlockLength, InputFileBlockStart, InputFileName, NamedExpression}
 import org.apache.spark.sql.catalyst.optimizer.CollapseProjectShim
@@ -25,6 +24,7 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.{DeserializeToObjectExec, FileSourceScanExec, FilterExec, LeafExecNode, ProjectExec, SerializeFromObjectExec, SparkPlan, UnionExec}
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.hive.HiveTableScanExecTransformer
+import org.apache.spark.sql.internal.SQLConf
 
 import scala.collection.mutable
 
@@ -43,9 +43,6 @@ import scala.collection.mutable
  */
 object PushDownInputFileExpression {
 
-  private val INPUT_FILE_ATTR_NAMES =
-    Set("input_file_name", "input_file_block_start", "input_file_block_length")
-
   def containsInputFileFunctionExpr(expr: Expression): Boolean = {
     expr match {
       case _: InputFileName | _: InputFileBlockStart | _: InputFileBlockLength => true
@@ -56,8 +53,6 @@ object PushDownInputFileExpression {
   def containsInputFileRelatedExpr(expr: Expression): Boolean = {
     expr match {
       case _: InputFileName | _: InputFileBlockStart | _: InputFileBlockLength => true
-      case a: AttributeReference =>
-        INPUT_FILE_ATTR_NAMES.contains(ConverterUtils.normalizeColName(a.name))
       case _ => expr.children.exists(containsInputFileRelatedExpr)
     }
   }
@@ -103,24 +98,6 @@ object PushDownInputFileExpression {
         ProjectExec(f.output, FilterExec(newCondition, newChild))
     }
 
-    /**
-     * Returns true when any of the injected metadata attribute names (all lowercase) matches a
-     * column already present in the scan output at the Velox/case-insensitive level.
-     *
-     * Velox is case-insensitive. If the scan has a user data column named e.g. "Input_File_Name"
-     * its lowercase form "input_file_name" collides with the metadata function of the same name.
-     * Velox rejects a TableScan that maps the same lowercase column name to both a Regular handle
-     * (data column) and a PartitionKey/metadata handle (file-path metadata). When this conflict is
-     * detected the scan must fall back to Vanilla so that Spark's own FilePartitionReader sets the
-     * InputFileBlockHolder thread-local and input_file_name() returns the correct file path.
-     */
-    private def hasVeloxColumnNameConflict(
-        scanOutput: Seq[org.apache.spark.sql.catalyst.expressions.Attribute],
-        replacedExprs: mutable.Map[String, Alias]): Boolean = {
-      val scanOutputLowerNames = scanOutput.map(_.name.toLowerCase(java.util.Locale.ROOT)).toSet
-      replacedExprs.keys.exists(k => scanOutputLowerNames.contains(k))
-    }
-
     private def addMetadataCol(
         plan: SparkPlan,
         replacedExprs: mutable.Map[String, Alias]): SparkPlan =
@@ -128,17 +105,20 @@ object PushDownInputFileExpression {
         case p: BatchScanExecTransformerBase =>
           // For BatchScanExecTransformerBase (includes Iceberg scans), add fallback tag
           // to prevent offloading when input_file expressions are present.
-          // Also fall back the scan itself if a Velox name conflict would occur.
-          if (hasVeloxColumnNameConflict(p.output, replacedExprs)) {
-            addFallbackTag(p)
-          }
           addFallbackTag(ProjectExec(p.output ++ replacedExprs.values, p))
         case p: LeafExecNode if shouldAddInputFileExpr(p) =>
-          if (hasVeloxColumnNameConflict(p.output, replacedExprs)) {
-            // The scan has a user data column whose lowercase name equals a metadata function
-            // name. Velox cannot map the same case-insensitive column to both Regular (data)
-            // and PartitionKey (metadata) handles.  Fall back the scan so that Vanilla Spark's
-            // FilePartitionReader correctly sets InputFileBlockHolder for input_file_name().
+          // When a user column in the scan output resolves to the same name as an injected
+          // input-file metadata attribute (case-insensitively when caseSensitive=false),
+          // Velox would receive two output columns with the same lowercased name, triggering:
+          //   "Cannot map from same table column to different outputs in table scan"
+          // To avoid this, we tag the scan itself as fallback so it stays on the JVM.
+          // FileSourceScanExec then sets the thread-local that InputFileName() reads from,
+          // allowing the fallback project above to evaluate input_file_name() correctly.
+          val resolver = SQLConf.get.resolver
+          val hasCollision = replacedExprs.keys.exists {
+            metaName => p.output.exists(attr => resolver(attr.name, metaName))
+          }
+          if (hasCollision) {
             addFallbackTag(p)
           }
           addFallbackTag(ProjectExec(p.output ++ replacedExprs.values, p))
@@ -214,24 +194,9 @@ object PushDownInputFileExpression {
         val inputFileAttrs = replacedExprs.values.toSeq
           .map(_.toAttribute.asInstanceOf[AttributeReference])
           .filterNot(attr => existingExprIds.contains(attr.exprId))
-        // Velox's native scan is case-insensitive: if a user data column in the scan output
-        // has the same lowercase name as a metadata attribute being injected, Velox will see
-        // two conflicting column handles (Regular vs PartitionKey/metadata) for the same
-        // physical column and reject the plan with INVALID_STATE.  When such a name collision
-        // exists the project cannot be collapsed into the scan; fall back instead so that
-        // Velox only sees one representation of the column.
-        val existingLowercaseNames =
-          child.output.map(_.name.toLowerCase(java.util.Locale.ROOT)).toSet
-        val hasVeloxNameConflict = inputFileAttrs.exists {
-          attr => existingLowercaseNames.contains(attr.name.toLowerCase(java.util.Locale.ROOT))
-        }
-        if (hasVeloxNameConflict) {
-          addFallbackTag(p)
-        } else {
-          p.copy(
-            projectList = newProjectList,
-            child = child.withOutput(child.output ++ inputFileAttrs))
-        }
+        p.copy(
+          projectList = newProjectList,
+          child = child.withOutput(child.output ++ inputFileAttrs))
       case p1 @ ProjectExec(_, ProjectExec(childProjectList, scan: BatchScanExecTransformerBase))
           if childProjectList.exists(containsInputFileRelatedExpr) =>
         val newOutput = childProjectList.map(_.toAttribute.asInstanceOf[AttributeReference])

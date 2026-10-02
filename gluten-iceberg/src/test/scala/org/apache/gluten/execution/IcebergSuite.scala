@@ -956,12 +956,6 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
                                  |FROM iceberg_input_file_projection
                                  |ORDER BY id
                                  |""".stripMargin)
-        // When the user table has a column whose lowercase name matches the metadata function
-        // "input_file_name", Velox would see two conflicting column handles (Regular vs
-        // PartitionKey) for the same physical name. Gluten detects this conflict and falls the
-        // scan back to Vanilla BatchScanExec so Spark's own FilePartitionReader sets the
-        // InputFileBlockHolder thread-local and input_file_name() returns the correct path.
-        checkSparkPlan[BatchScanExec](df)
         val rows = df.collect()
         assert(rows.length == 2, s"Expected 2 rows, got ${rows.length}")
         assert(rows(0).getString(1) == "user-data-value")
@@ -974,9 +968,9 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
   }
 
   test("case-sensitive mode: lowercase input_file_name as data column -- platform compatibility") {
-    // Under caseSensitive=true, a column named `input_file_name` (exact match to the metadata
-    // sentinel) can be queried alongside input_file_name(). Gluten detects the Velox column name
-    // collision and falls back to vanilla BatchScanExec, correctly preserving both values.
+    // Under caseSensitive=true, a column named `input_file_name` can be queried alongside
+    // input_file_name(). For BatchScanExecTransformerBase (Iceberg), PushDownInputFileExpression
+    // adds a fallback tag to ProjectExec when input_file expressions are present.
     withSQLConf("spark.sql.caseSensitive" -> "true") {
       withTable("iceberg_exact_collision") {
         spark.sql("""
@@ -996,9 +990,6 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
                                  |FROM iceberg_exact_collision
                                  |ORDER BY id
                                  |""".stripMargin)
-        // The exact lowercase collision `input_file_name` (column) vs input_file_name() (function)
-        // triggers Velox conflict detection; the scan falls back to Vanilla BatchScanExec.
-        checkSparkPlan[BatchScanExec](df)
         val rows = df.collect()
         assert(rows.length == 1, s"Expected 1 row, got ${rows.length}")
         // Physical data column must contain the user-inserted value.
