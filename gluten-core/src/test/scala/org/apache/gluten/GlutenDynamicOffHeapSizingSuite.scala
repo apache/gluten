@@ -19,7 +19,8 @@ package org.apache.gluten
 import org.apache.gluten.component.WithDummyBackend
 import org.apache.gluten.config.GlutenCoreConfig
 
-import org.apache.spark.{SparkConf, SparkContext}
+import org.apache.spark.{SparkConf, SparkContext, SparkEnv}
+import org.apache.spark.memory.SparkMemoryUtil
 
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -50,6 +51,56 @@ class GlutenDynamicOffHeapSizingSuite extends AnyFunSuite with WithDummyBackend 
         sc.getConf.getLong(GlutenCoreConfig.COLUMNAR_TASK_OFFHEAP_SIZE_IN_BYTES.key, -1L) > 0L)
     } finally {
       sc.stop()
+    }
+  }
+
+  // Pure reflection: the pool classes are private[spark] and not referable
+  // from this package at compile time.
+  private def poolFamilyFreeSum(onHeap: Boolean): Long = {
+    val mm = SparkEnv.get.memoryManager
+    def poolFree(fieldName: String): Long = {
+      // scalastyle:off classforname
+      val mmClazz = Class.forName("org.apache.spark.memory.MemoryManager")
+      // scalastyle:on classforname
+      val field = mmClazz.getDeclaredField(fieldName)
+      field.setAccessible(true)
+      val pool = field.get(mm)
+      val memoryFree = pool.getClass.getMethod("memoryFree")
+      memoryFree.setAccessible(true)
+      memoryFree.invoke(pool).asInstanceOf[Long]
+    }
+    poolFree(if (onHeap) "onHeapStorageMemoryPool" else "offHeapStorageMemoryPool") +
+      poolFree(if (onHeap) "onHeapExecutionMemoryPool" else "offHeapExecutionMemoryPool")
+  }
+
+  test("available off-heap metric follows the pool family the dynamic mode reserves from") {
+    val conf = new SparkConf(false)
+      .setAppName("GlutenDynamicOffHeapSizingSuite")
+      .set("spark.master", "local[1]")
+      .set("spark.plugins", classOf[GlutenPlugin].getName)
+      .set("spark.testing", "true")
+      .set("spark.ui.enabled", "false")
+      .set("spark.memory.offHeap.enabled", "true")
+      .set("spark.memory.offHeap.size", "512m")
+    val sc = new SparkContext(conf)
+    try {
+      // Default mode: global reservations are charged to the off-heap pools, so
+      // the metric must equal exactly those pools' free memory.
+      assert(SparkMemoryUtil.getCurrentAvailableOffHeapMemory == poolFamilyFreeSum(false))
+    } finally {
+      sc.stop()
+    }
+
+    val dynamicConf = conf.clone().set(GlutenCoreConfig.DYNAMIC_OFFHEAP_SIZING_ENABLED.key, "true")
+    val dynamicSc = new SparkContext(dynamicConf)
+    try {
+      // Dynamic mode: reservations land in the ON-heap pools
+      // (GlobalOffHeapMemoryTarget), so the metric must equal the on-heap free
+      // sum - reading the off-heap pools (the old behavior) diverges as soon
+      // as any reservation is charged.
+      assert(SparkMemoryUtil.getCurrentAvailableOffHeapMemory == poolFamilyFreeSum(true))
+    } finally {
+      dynamicSc.stop()
     }
   }
 }

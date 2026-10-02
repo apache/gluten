@@ -16,6 +16,7 @@
  */
 package org.apache.spark.memory
 
+import org.apache.gluten.config.GlutenCoreConfig
 import org.apache.gluten.memory.memtarget._
 import org.apache.gluten.memory.memtarget.spark.{RegularMemoryConsumer, TreeMemoryConsumer}
 import org.apache.gluten.proto.MemoryUsageStats
@@ -35,8 +36,9 @@ object SparkMemoryUtil {
   private val mmClazz = classOf[MemoryManager]
   private val smpField = mmClazz.getDeclaredField("offHeapStorageMemoryPool")
   private val empField = mmClazz.getDeclaredField("offHeapExecutionMemoryPool")
-  smpField.setAccessible(true)
-  empField.setAccessible(true)
+  private val onHeapSmpField = mmClazz.getDeclaredField("onHeapStorageMemoryPool")
+  private val onHeapEmpField = mmClazz.getDeclaredField("onHeapExecutionMemoryPool")
+  Seq(smpField, empField, onHeapSmpField, onHeapEmpField).foreach(_.setAccessible(true))
 
   private val tmmClazz = classOf[TaskMemoryManager]
   private val consumersField = tmmClazz.getDeclaredField("consumers")
@@ -50,9 +52,24 @@ object SparkMemoryUtil {
 
   // We assume storage memory can be fully transferred to execution memory so far
   def getCurrentAvailableOffHeapMemory: Long = {
-    val mm = SparkEnv.get.memoryManager
-    val smp = smpField.get(mm).asInstanceOf[StorageMemoryPool]
-    val emp = empField.get(mm).asInstanceOf[ExecutionMemoryPool]
+    val env = SparkEnv.get
+    val mm = env.memoryManager
+    // With dynamic off-heap sizing enabled, Gluten's global reservations are
+    // charged to the ON-heap pools (see GlobalOffHeapMemoryTarget), so the
+    // available figure must be read from the same pools to stay meaningful;
+    // reading the off-heap pools would ignore every reservation.
+    val dynamicSizingEnabled =
+      env.conf.getBoolean(GlutenCoreConfig.DYNAMIC_OFFHEAP_SIZING_ENABLED.key, false)
+    val (smp, emp) =
+      if (dynamicSizingEnabled) {
+        (
+          onHeapSmpField.get(mm).asInstanceOf[StorageMemoryPool],
+          onHeapEmpField.get(mm).asInstanceOf[ExecutionMemoryPool])
+      } else {
+        (
+          smpField.get(mm).asInstanceOf[StorageMemoryPool],
+          empField.get(mm).asInstanceOf[ExecutionMemoryPool])
+      }
     smp.memoryFree + emp.memoryFree
   }
 

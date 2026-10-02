@@ -16,10 +16,17 @@
  */
 package org.apache.gluten.memory.memtarget;
 
+import com.sun.management.VMOption;
 import org.junit.After;
 import org.junit.Assert;
+import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Test;
+
+import javax.management.MBeanServer;
+
+import java.lang.management.ManagementFactory;
+import java.lang.reflect.Method;
 
 /**
  * Ledger-correctness tests for {@link DynamicOffHeapSizingMemoryTarget}.
@@ -60,6 +67,40 @@ public class DynamicOffHeapSizingMemoryTargetTest {
         "static USED_OFF_HEAP_BYTES leaked past a test method",
         0L,
         DynamicOffHeapSizingMemoryTarget.usedOffHeapBytesForTesting());
+  }
+
+  @Test
+  public void shrinkOnHeapMemoryRestoresHeapFreeRatios() throws Exception {
+    final MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
+    final Class<?> beanClass = Class.forName("com.sun.management.HotSpotDiagnosticMXBean");
+    final Object bean =
+        ManagementFactory.newPlatformMXBeanProxy(
+            mbs, "com.sun.management:type=HotSpotDiagnostic", beanClass);
+    final Method getOption = beanClass.getMethod("getVMOption", String.class);
+    final String minBefore = ((VMOption) getOption.invoke(bean, "MinHeapFreeRatio")).getValue();
+    final String maxBefore = ((VMOption) getOption.invoke(bean, "MaxHeapFreeRatio")).getValue();
+
+    // The shrink only lowers the ratios when the original MinHeapFreeRatio is
+    // above the target (5); skip on JVMs configured below it, where there is
+    // nothing to restore. On JVMs where the VM option is not writable (e.g.
+    // JDK 8) the production code leaves the flags untouched and the assertions
+    // below hold trivially.
+    Assume.assumeTrue(
+        "JVM launched with MinHeapFreeRatio <= 5; nothing to restore",
+        Integer.parseInt(minBefore) > 5);
+
+    // isAsyncGc=true runs a single System.gc() and may set the async-GC suspend
+    // flag for the remainder of this fork; no other test reads it.
+    DynamicOffHeapSizingMemoryTarget.shrinkOnHeapMemory(
+        Runtime.getRuntime().totalMemory(), Runtime.getRuntime().freeMemory(), true);
+
+    final String minAfter = ((VMOption) getOption.invoke(bean, "MinHeapFreeRatio")).getValue();
+    final String maxAfter = ((VMOption) getOption.invoke(bean, "MaxHeapFreeRatio")).getValue();
+    // The finally block lowered the heap free ratios for the shrink and must
+    // restore both; leaving MinHeapFreeRatio lowered makes the JVM shrink its
+    // heap aggressively forever after.
+    Assert.assertEquals(minBefore, minAfter);
+    Assert.assertEquals(maxBefore, maxAfter);
   }
 
   @Test
