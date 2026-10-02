@@ -1,0 +1,34 @@
+{
+ "extension_urns": [],
+ "extensions": [],
+ "relations": [
+  {
+   "root": {
+    "input": {
+     "read": {
+      "common": {
+       "direct": {}
+      },
+      "base_schema": {
+       "names": [],
+       "struct": {
+        "types": [],
+        "type_variation_reference": 0,
+        "nullability": "NULLABILITY_NULLABLE"
+       }
+      },
+      "virtual_table": {
+       "expressions": [
+        {
+         "fields": []
+        }
+       ]
+      }
+     }
+    },
+    "names": []
+   }
+  }
+ ],
+ "expected_type_urls": []
+}
