@@ -1,0 +1,35 @@
+VeloxColumnarToRow
+  WholeStageCodegenTransformer (5)
+    SortExecTransformer [custdist,c_count]
+      InputIteratorTransformer
+        InputAdapter
+          ColumnarExchange [custdist,c_count] #1
+            VeloxResizeBatches
+              WholeStageCodegenTransformer (4)
+                RegularHashAggregateExecTransformer [c_count,count] [count(1),custdist,count]
+                  InputIteratorTransformer
+                    InputAdapter
+                      ColumnarExchange [c_count,count] #2
+                        VeloxResizeBatches
+                          WholeStageCodegenTransformer (3)
+                            ProjectExecTransformer [c_count,count]
+                              FlushableHashAggregateExecTransformer [c_count] [count,count]
+                                ProjectExecTransformer [count(o_orderkeyL)]
+                                  RegularHashAggregateExecTransformer [c_custkey,count] [count(o_orderkeyL),count]
+                                    InputIteratorTransformer
+                                      InputAdapter
+                                        ColumnarExchange [c_custkey,count] #3
+                                          VeloxResizeBatches
+                                            WholeStageCodegenTransformer (2)
+                                              ProjectExecTransformer [c_custkey,count]
+                                                FlushableHashAggregateExecTransformer [c_custkey,o_orderkey] [count,count]
+                                                  ProjectExecTransformer [c_custkey,o_orderkey]
+                                                    BroadcastHashJoinExecTransformer [c_custkey,o_custkey]
+                                                      FileSourceScanExecTransformer parquet spark_catalog.default.customer [c_custkey]
+                                                      InputIteratorTransformer
+                                                        InputAdapter
+                                                          ColumnarBroadcastExchange #4
+                                                            WholeStageCodegenTransformer (1)
+                                                              ProjectExecTransformer [o_orderkey,o_custkey]
+                                                                FilterExecTransformer [o_comment,o_custkey]
+                                                                  FileSourceScanExecTransformer parquet spark_catalog.default.orders [o_orderkey,o_custkey,o_comment]
