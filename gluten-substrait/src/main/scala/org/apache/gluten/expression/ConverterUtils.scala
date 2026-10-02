@@ -292,6 +292,8 @@ object ConverterUtils extends Logging {
         DecimalType(d.precision, d.scale)
       case _: TimestampTypeNode =>
         TimestampType
+      case _: TimestampNTZTypeNode =>
+        TimestampNTZType
       case m: MapNode =>
         val keyType = parseFromTypeNode(m.getKeyType)
         val valueType = parseFromTypeNode(m.getValueType)

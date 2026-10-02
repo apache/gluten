@@ -47,6 +47,7 @@ class VeloxToSubstraitExprConvertor {
   /// @param constExpr Velox Constant expression needed to be converted.
   /// @param litValue The Nested.Struct the converted literals are appended to, each wrapped in an
   /// Expression. Substrait models struct-valued expressions as Expression.Nested.Struct.
+  /// If null, converts only the constant value at index zero.
   /// @return A pointer to Substrait Literal expression object allocated on
   /// the arena and representing the input Velox Constant expression.
   const ::substrait::Expression_Literal& toSubstraitExpr(
@@ -67,6 +68,7 @@ class VeloxToSubstraitExprConvertor {
 
   /// Convert Velox vector to Substrait literal. One literal per row is appended to litValue,
   /// each wrapped in an Expression so it fits Substrait's Expression.Nested.Struct container.
+  /// If litValue is null, converts only the scalar value at index zero.
   const ::substrait::Expression_Literal& toSubstraitLiteral(
       google::protobuf::Arena& arena,
       const velox::VectorPtr& vectorValue,
@@ -86,9 +88,8 @@ class VeloxToSubstraitExprConvertor {
       const RowTypePtr& inputType);
 
   /// Convert Velox variant to Substrait Literal Expression.
-  const ::substrait::Expression_Literal& toSubstraitLiteral(
-      google::protobuf::Arena& arena,
-      const velox::variant& variantValue);
+  const ::substrait::Expression_Literal&
+  toSubstraitLiteral(google::protobuf::Arena& arena, const velox::variant& variantValue, const velox::TypePtr& type);
 
   /// Convert values in Velox array vector to Substrait Literal List.
   const ::substrait::Expression_Literal_List&
