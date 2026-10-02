@@ -219,6 +219,11 @@ if(ENABLE_S3)
   find_package(ZLIB)
 endif()
 
+if(ENABLE_KAFKA)
+  list(APPEND VELOX_SRCS operators/reader/KafkaDataSource.cc
+       operators/reader/KafkaConnector.cc)
+endif()
+
 if(ENABLE_GPU)
   list(
     APPEND
