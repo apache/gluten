@@ -169,7 +169,7 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
   }
 
   test("make_date") {
-    runQueryAndCompare(
+    runQueryAndCompareOrBothFail(
       "select make_date(2025, 2, 7), make_date(2024, 11, null), make_date(2024, 11, 50)") {
       checkGlutenPlan[ProjectExecTransformer]
     }

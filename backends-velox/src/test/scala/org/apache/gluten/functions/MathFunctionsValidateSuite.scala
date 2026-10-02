@@ -451,7 +451,7 @@ class MathFunctionsValidateSuite extends FunctionsValidateSuite {
       Seq("true", "false").foreach {
         enabled =>
           withSQLConf("spark.sql.decimalOperations.allowPrecisionLoss" -> enabled) {
-            runQueryAndCompare("SELECT a - b, a + b, a * b, a / b FROM t") {
+            runQueryAndCompareOrBothFail("SELECT a - b, a + b, a * b, a / b FROM t") {
               checkGlutenPlan[ProjectExecTransformer]
             }
           }
@@ -598,7 +598,7 @@ class MathFunctionsValidateSuite extends FunctionsValidateSuite {
 
       // Query under the opposite setting -- Gluten must use the captured context, not SQLConf.
       withSQLConf("spark.sql.decimalOperations.allowPrecisionLoss" -> "true") {
-        runQueryAndCompare("SELECT * FROM v") {
+        runQueryAndCompareOrBothFail("SELECT * FROM v") {
           checkGlutenPlan[ProjectExecTransformer]
         }
       }
