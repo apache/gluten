@@ -24,9 +24,8 @@ import org.apache.gluten.runtime.Runtimes
 import org.apache.gluten.utils.ArrowAbiUtil
 
 import org.apache.spark.sql.connector.write.DataWriter
-import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.StructType
-import org.apache.spark.sql.utils.SparkArrowUtil
+import org.apache.spark.sql.utils.SparkSchemaUtil
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 import org.apache.arrow.c.ArrowSchema
@@ -101,7 +100,7 @@ case class IcebergDataWriteFactory(
       partitionSpec: IcebergPartitionSpec,
       field: IcebergNestedField,
       icebergProperties: util.HashMap[String, String]): (Long, IcebergWriteJniWrapper) = {
-    val schema = SparkArrowUtil.toArrowSchema(localSchema, SQLConf.get.sessionLocalTimeZone)
+    val schema = SparkSchemaUtil.toArrowSchema(localSchema)
     val arrowAlloc = ArrowBufferAllocators.contextInstance()
     val cSchema = ArrowSchema.allocateNew(arrowAlloc)
     ArrowAbiUtil.exportSchema(arrowAlloc, schema, cSchema)

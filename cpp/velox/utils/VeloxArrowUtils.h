@@ -35,9 +35,12 @@ namespace gluten {
 
 class ArrowUtils {
  public:
-  static ArrowOptions getBridgeOptions() {
+  static ArrowOptions getBridgeOptions(bool exportToLargeVarTypes = false) {
     ArrowOptions options;
     options.timestampUnit = static_cast<TimestampUnit>(6);
+    if (exportToLargeVarTypes) {
+      options.varTypeLayout = ArrowOptions::VarTypeLayout::kLarge;
+    }
     return options;
   }
 };
