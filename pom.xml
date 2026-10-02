@@ -124,6 +124,7 @@
     <scala.release.version>${java.version}</scala.release.version>
     <!-- For unit tests -->
     <fasterxml.version>2.22</fasterxml.version>
+    <fasterxml.annotations.version>${fasterxml.version}</fasterxml.annotations.version>
     <junit.version>4.13.1</junit.version>
     <!-- Maven version for build/mvn wrapper script -->
     <maven.version>3.9.16</maven.version>
@@ -462,7 +463,7 @@
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
         <artifactId>jackson-annotations</artifactId>
-        <version>${fasterxml.version}</version>
+        <version>${fasterxml.annotations.version}</version>
         <scope>provided</scope>
       </dependency>
       <dependency>
@@ -1451,6 +1452,9 @@
         <sparkbundle.version>4.2</sparkbundle.version>
         <sparkshim.artifactId>spark-sql-columnar-shims-spark42</sparkshim.artifactId>
         <spark.version>4.2.0</spark.version>
+        <!-- Spark 4.2.0 uses Scala 2.13.18; override the shared scala-2.13
+             profile (2.13.17) for Spark 4.2 builds only. -->
+        <scala.version>2.13.18</scala.version>
         <!-- No Spark 4.2 artifacts published for Iceberg/Delta/Hudi yet. These values are
              placeholders inherited from spark-4.1; the delta/iceberg/hudi profiles are
              opt-in (activeByDefault=false) and are NOT enabled on the Spark 4.2 CI lane. -->
@@ -1459,15 +1463,18 @@
         <delta.version>4.1.0</delta.version>
         <delta.binary.version>40</delta.binary.version>
         <hudi.version>1.2.0</hudi.version>
-        <fasterxml.version>2.18.2</fasterxml.version>
-        <fasterxml.jackson.version>2.18.2</fasterxml.jackson.version>
-        <fasterxml.jackson.databind.version>2.18.2</fasterxml.jackson.databind.version>
-        <hadoop.version>3.4.1</hadoop.version>
+        <!-- Spark 4.2.0 ships Jackson 2.21.2; jackson-annotations has no 2.21.2
+             patch release, so it is pinned separately to 2.21. -->
+        <fasterxml.version>2.21.2</fasterxml.version>
+        <fasterxml.annotations.version>2.21</fasterxml.annotations.version>
+        <fasterxml.jackson.version>2.21.2</fasterxml.jackson.version>
+        <fasterxml.jackson.databind.version>2.21.2</fasterxml.jackson.databind.version>
+        <hadoop.version>3.5.0</hadoop.version>
         <antlr4.version>4.13.1</antlr4.version>
-        <guava.version>33.4.0-jre</guava.version>
-        <slf4j.version>2.0.16</slf4j.version>
-        <log4j.version>2.24.3</log4j.version>
-        <commons-lang3.version>3.17.0</commons-lang3.version>
+        <guava.version>33.6.0-jre</guava.version>
+        <slf4j.version>2.0.17</slf4j.version>
+        <log4j.version>2.25.4</log4j.version>
+        <commons-lang3.version>3.20.0</commons-lang3.version>
         <!-- Must track Spark 4.2's own Arrow (19.0.0): scope is provided and Gluten
              deliberately lets Spark's Arrow through. -->
         <arrow.version>19.0.0</arrow.version>
