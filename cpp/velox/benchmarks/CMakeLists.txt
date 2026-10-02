@@ -19,8 +19,7 @@ target_include_directories(
   velox_benchmark_common PUBLIC ${CMAKE_SOURCE_DIR}/velox
                                 ${CMAKE_SOURCE_DIR}/core)
 target_link_libraries(velox_benchmark_common PUBLIC velox benchmark::benchmark
-                                                    google::glog)
-
+                                                    glog::glog)
 function(add_velox_benchmark BM_EXEC BM_FILE)
   add_executable(${BM_EXEC} ${BM_FILE})
   target_link_libraries(${BM_EXEC} PRIVATE velox_benchmark_common)
