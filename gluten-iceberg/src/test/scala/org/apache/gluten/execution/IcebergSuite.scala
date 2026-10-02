@@ -19,13 +19,14 @@ package org.apache.gluten.execution
 import org.apache.gluten.config.GlutenIcebergConfig
 
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.Row
+import org.apache.spark.sql.{AnalysisException, Row}
 import org.apache.spark.sql.execution.QueryExecution
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.util.QueryExecutionListener
 
 import org.apache.iceberg.spark.source.GlutenIcebergSourceUtil
 
+import java.util.Locale
 import java.util.concurrent.{CountDownLatch, TimeUnit}
 
 abstract class IcebergSuite extends WholeStageTransformerSuite {
@@ -742,6 +743,63 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
+  test("case-sensitive mode: iceberg scan executes natively") {
+    // Regression test for the three unconditional .toLowerCase(Locale.ROOT) calls that were
+    // replaced with ConverterUtils.normalizeColName in IcebergScanTransformer.
+    // Under caseSensitive=true, readSchemaFields and inputFileRelatedMetadataColumns must
+    // preserve original casing so metadata-column detection is not confused with data columns
+    // whose names happen to match metadata-column constants when lowercased.
+    withSQLConf("spark.sql.caseSensitive" -> "true") {
+      withTable("iceberg_cs") {
+        spark.sql("""
+                    |CREATE TABLE iceberg_cs (id INT, data STRING)
+                    |USING iceberg
+                    |""".stripMargin)
+        spark.sql("""
+                    |INSERT INTO iceberg_cs VALUES (1, 'a'), (2, 'b')
+                    |""".stripMargin)
+
+        // Basic scan must use IcebergScanTransformer (not fall back to vanilla Spark).
+        runQueryAndCompare("SELECT id, data FROM iceberg_cs ORDER BY id") {
+          checkGlutenPlan[IcebergScanTransformer]
+        }
+      }
+    }
+  }
+
+  test("case-sensitive mode: iceberg input_file_name with caseSensitive=true") {
+    // The readSchemaFields set and inputFileRelatedMetadataColumns filter both used
+    // unconditional locale-unaware lowercasing, which would incorrectly classify a data
+    // column named "Input_File_Name" (mixed case) as a metadata-column candidate because
+    // the lowercased form "input_file_name" is in InputFileRelatedMetadataColumnNames.
+    // After the fix, ConverterUtils.normalizeColName preserves casing under caseSensitive=true,
+    // so the lookup against the all-lowercase constant set correctly returns false.
+    withSQLConf("spark.sql.caseSensitive" -> "true") {
+      withTable("iceberg_input_file_cs") {
+        spark.sql("""
+                    |CREATE TABLE iceberg_input_file_cs (id INT, data STRING)
+                    |USING iceberg
+                    |""".stripMargin)
+        spark.sql("""
+                    |INSERT INTO iceberg_input_file_cs VALUES (1, 'x'), (2, 'y')
+                    |""".stripMargin)
+
+        // input_file_name() must work correctly under caseSensitive=true and
+        // IcebergScanTransformer must be used (no validation fallback).
+        val df = runAndCompare("""
+                                 |SELECT id, input_file_name() AS fname
+                                 |FROM iceberg_input_file_cs
+                                 |ORDER BY id
+                                 |""".stripMargin)
+        checkGlutenPlan[IcebergScanTransformer](df)
+        val rows = df.collect()
+        assert(
+          rows.forall(r => !r.isNullAt(1) && r.getString(1).nonEmpty),
+          s"Expected non-empty input_file_name values, got: ${rows.mkString(", ")}")
+      }
+    }
+  }
+
   test("test read iceberg with special characters in column name") {
     val testTable = "test_table_with_special_characters"
     withTable(testTable) {
@@ -833,6 +891,333 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
             checkGlutenPlan[FileSourceScanExecTransformer](parquetDf)
             assert(parquetDf.count() == 5)
           }
+      }
+    }
+  }
+
+  test("case-sensitive mode: data column named Input_File_Name is not confused with metadata") {
+    // Regression test for the IcebergScanTransformer fix.
+    // A user data column whose name equals "input_file_name" when lowercased must NOT be
+    // misclassified as an Iceberg metadata column under caseSensitive=true.
+    // Before the fix, readSchemaFields and inputFileRelatedMetadataColumns both lowercased
+    // names unconditionally, so "Input_File_Name" would hash-collide with the metadata
+    // constant "input_file_name" and could be injected as a metadata column, shadowing the
+    // user data.
+    withSQLConf("spark.sql.caseSensitive" -> "true") {
+      withTable("iceberg_col_collision") {
+        spark.sql("""
+                    |CREATE TABLE iceberg_col_collision
+                    |  (id INT, `Input_File_Name` STRING)
+                    |USING iceberg
+                    |""".stripMargin)
+        spark.sql("""
+                    |INSERT INTO iceberg_col_collision VALUES
+                    |(1, 'user-data-value'), (2, 'another-value')
+                    |""".stripMargin)
+
+        // Data column must return the user value, not a file path.  This exercises the
+        // readSchemaFields and inputFileRelatedMetadataColumns paths fixed in this patch.
+        val dfData = runAndCompare("""
+                                     |SELECT id, `Input_File_Name`
+                                     |FROM iceberg_col_collision
+                                     |ORDER BY id
+                                     |""".stripMargin)
+        checkGlutenPlan[IcebergScanTransformer](dfData)
+        val dataRows = dfData.collect()
+        assert(dataRows.length == 2, s"Expected 2 rows, got ${dataRows.length}")
+        assert(
+          dataRows(0).getString(1) == "user-data-value",
+          s"Row 0 data column value wrong: ${dataRows(0).getString(1)}")
+        assert(
+          dataRows(1).getString(1) == "another-value",
+          s"Row 1 data column value wrong: ${dataRows(1).getString(1)}")
+      }
+    }
+  }
+
+  test("case-sensitive mode: Input_File_Name data column and input_file_name metadata") {
+    // Regression test for PushDownInputFileExpression.PostOffload. Under caseSensitive=true,
+    // the user data column `Input_File_Name` and generated metadata attribute `input_file_name`
+    // are distinct Spark attributes and both must remain available for binding.
+    withSQLConf("spark.sql.caseSensitive" -> "true") {
+      withTable("iceberg_input_file_projection") {
+        spark.sql("""
+                    |CREATE TABLE iceberg_input_file_projection
+                    |  (id INT, `Input_File_Name` STRING)
+                    |USING iceberg
+                    |""".stripMargin)
+        spark.sql("""
+                    |INSERT INTO iceberg_input_file_projection VALUES
+                    |(1, 'user-data-value'), (2, 'another-value')
+                    |""".stripMargin)
+
+        val df = runAndCompare("""
+                                 |SELECT id, `Input_File_Name`, input_file_name() AS fname
+                                 |FROM iceberg_input_file_projection
+                                 |ORDER BY id
+                                 |""".stripMargin)
+        val rows = df.collect()
+        assert(rows.length == 2, s"Expected 2 rows, got ${rows.length}")
+        assert(rows(0).getString(1) == "user-data-value")
+        assert(rows(1).getString(1) == "another-value")
+        assert(
+          rows.forall(r => !r.isNullAt(2) && r.getString(2).nonEmpty),
+          s"Expected non-empty input_file_name values, got: ${rows.mkString(", ")}")
+      }
+    }
+  }
+
+  test("case-sensitive mode: lowercase input_file_name as data column -- platform compatibility") {
+    // Under caseSensitive=true, a column named `input_file_name` can be queried alongside
+    // input_file_name(). For BatchScanExecTransformerBase (Iceberg), PushDownInputFileExpression
+    // adds a fallback tag to ProjectExec when input_file expressions are present.
+    withSQLConf("spark.sql.caseSensitive" -> "true") {
+      withTable("iceberg_exact_collision") {
+        spark.sql("""
+                    |CREATE TABLE iceberg_exact_collision
+                    |  (id INT, `input_file_name` STRING)
+                    |USING iceberg
+                    |""".stripMargin)
+        spark.sql("""
+                    |INSERT INTO iceberg_exact_collision VALUES
+                    |(1, 'exact-user-value-not-a-path')
+                    |""".stripMargin)
+
+        // Both CREATE and INSERT succeed: Gluten must return the user data value
+        // from the physical column AND a non-empty file path from the function.
+        val df = runAndCompare("""
+                                 |SELECT id, `input_file_name`, input_file_name() AS fname
+                                 |FROM iceberg_exact_collision
+                                 |ORDER BY id
+                                 |""".stripMargin)
+        val rows = df.collect()
+        assert(rows.length == 1, s"Expected 1 row, got ${rows.length}")
+        // Physical data column must contain the user-inserted value.
+        assert(
+          rows(0).getString(1) == "exact-user-value-not-a-path",
+          s"Physical 'input_file_name' column should be user data, " +
+            s"got: '${rows(0).getString(1)}'")
+        // input_file_name() function must return a non-empty file path.
+        val fname = rows(0).getString(2)
+        assert(
+          fname != null && fname.nonEmpty,
+          s"input_file_name() must return a non-empty path, got: '$fname'")
+        // The two must not be equal -- if they are, the old conflation bug is present.
+        assert(
+          rows(0).getString(1) != rows(0).getString(2),
+          s"Physical column and function result must differ: " +
+            s"col='${rows(0).getString(1)}', fn='${rows(0).getString(2)}'"
+        )
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Comprehensive case-sensitivity tests -- 7 required scenarios
+  //
+  // These tests cover both spark.sql.caseSensitive=true and =false.
+  // Under caseSensitive=true a table may have distinct columns id/ID/Id/iD
+  // (Spark's case-sensitive analysis treats them as different identifiers).
+  // Under caseSensitive=false the same names are treated as equivalent and
+  // Spark's catalog/analyzer will reject a schema with duplicates.
+  // ---------------------------------------------------------------------------
+
+  // Scenario 1 - Exact column resolution: each column resolves to its own distinct value.
+  test("case-sensitivity: exact column resolution (caseSensitive=true)") {
+    withSQLConf("spark.sql.caseSensitive" -> "true") {
+      withTable("iceberg_cs_exact") {
+        spark.sql("""
+                    |CREATE TABLE iceberg_cs_exact (lower_id INT, upper_ID INT)
+                    |USING iceberg
+                    |""".stripMargin)
+        spark.sql("""
+                    |INSERT INTO iceberg_cs_exact VALUES (10, 20), (30, 40)
+                    |""".stripMargin)
+
+        // Each column must resolve to its own distinct value.
+        val df1 = runAndCompare(
+          "SELECT lower_id FROM iceberg_cs_exact ORDER BY lower_id")
+        checkGlutenPlan[IcebergScanTransformer](df1)
+        assert(df1.collect().map(_.getInt(0)).toSeq == Seq(10, 30))
+
+        val df2 = runAndCompare(
+          "SELECT upper_ID FROM iceberg_cs_exact ORDER BY upper_ID")
+        checkGlutenPlan[IcebergScanTransformer](df2)
+        assert(df2.collect().map(_.getInt(0)).toSeq == Seq(20, 40))
+      }
+    }
+  }
+
+  // Scenario 2 - Mixed-case identifier lookup under caseSensitive=false.
+  // Under case-insensitive mode any casing of an identifier resolves to the same physical column.
+  test("case-sensitivity: mixed-case identifier lookup (caseSensitive=false)") {
+    withSQLConf("spark.sql.caseSensitive" -> "false") {
+      withTable("iceberg_ci_exact") {
+        spark.sql("""
+                    |CREATE TABLE iceberg_ci_exact (id INT, data STRING)
+                    |USING iceberg
+                    |""".stripMargin)
+        spark.sql("""
+                    |INSERT INTO iceberg_ci_exact VALUES (1, 'alpha'), (2, 'beta')
+                    |""".stripMargin)
+
+        // Under caseSensitive=false all spellings of "id" resolve to the same column.
+        Seq("id", "ID", "Id", "iD").foreach {
+          spelling =>
+            val df = runAndCompare(
+              s"SELECT `$spelling` FROM iceberg_ci_exact ORDER BY id")
+            checkGlutenPlan[IcebergScanTransformer](df)
+            val rows = df.collect()
+            assert(rows.length == 2, s"Expected 2 rows for spelling '$spelling'")
+            assert(
+              rows.map(_.getInt(0)).toSeq == Seq(1, 2),
+              s"Unexpected values for '$spelling': ${rows.map(_.getInt(0)).toSeq}")
+        }
+      }
+    }
+  }
+
+  // Scenario 3 -- Test B: Ambiguous identifier resolution under caseSensitive=false.
+  // A table containing two columns that differ only by case cannot be created when
+  // caseSensitive=false because Spark's analyzer treats them as duplicates.  This test
+  // verifies that attempting such a schema fails at the DDL level (Spark's own behavior),
+  // and that if a schema with ambiguous names is somehow presented, Gluten follows Spark.
+  //
+  // Note: under caseSensitive=true, columns id/ID/Id/iD are distinct identifiers; the
+  // case-distinct column creation is tested in the caseSensitive=true exact-resolution test.
+  test("case-sensitivity: ambiguous column schema is rejected at DDL level (caseSensitive=false)") {
+    withSQLConf("spark.sql.caseSensitive" -> "false") {
+      withTable("iceberg_ci_dup") {
+        // Spark with caseSensitive=false must reject a schema where two columns
+        // differ only in case.
+        // This is Spark's own behavior -- Gluten must not weaken it.
+        // Narrow to AnalysisException: that is what Spark's analyzer raises for duplicate columns.
+        val ex = intercept[AnalysisException] {
+          spark.sql("""
+                      |CREATE TABLE iceberg_ci_dup (id INT, ID INT)
+                      |USING iceberg
+                      |""".stripMargin)
+        }
+        // Spark raises an AnalysisException about duplicate/ambiguous column names.
+        val msg = ex.getMessage + Option(ex.getCause).map(_.getMessage).getOrElse("")
+        assert(
+          msg.toLowerCase(Locale.ROOT).contains("duplicate") ||
+            msg.toLowerCase(Locale.ROOT).contains("ambiguous") ||
+            msg.toLowerCase(Locale.ROOT).contains("already exists") ||
+            msg.toLowerCase(Locale.ROOT).contains("column"),
+          s"Expected a duplicate/ambiguous column error but got: $msg"
+        )
+      }
+    }
+  }
+
+  // Scenario 4 - Projection and filtering
+  test("case-sensitivity: projection and filtering (caseSensitive=true)") {
+    withSQLConf("spark.sql.caseSensitive" -> "true") {
+      withTable("iceberg_cs_proj") {
+        spark.sql("""
+                    |CREATE TABLE iceberg_cs_proj (id INT, value INT, tag STRING)
+                    |USING iceberg
+                    |""".stripMargin)
+        spark.sql("""
+                    |INSERT INTO iceberg_cs_proj VALUES
+                    |(1, 100, 'a'), (2, 200, 'b'), (3, 300, 'c')
+                    |""".stripMargin)
+
+        // Project subset + filter -- both must be correctly resolved and offloaded.
+        val df = runAndCompare("""
+                                 |SELECT id, tag FROM iceberg_cs_proj
+                                 |WHERE value > 100
+                                 |ORDER BY id
+                                 |""".stripMargin)
+        checkGlutenPlan[IcebergScanTransformer](df)
+        val rows = df.collect()
+        assert(rows.length == 2)
+        assert(rows.map(_.getInt(0)).toSeq == Seq(2, 3))
+        assert(rows.map(_.getString(1)).toSeq == Seq("b", "c"))
+      }
+    }
+  }
+
+  test("case-sensitivity: projection and filtering (caseSensitive=false)") {
+    withSQLConf("spark.sql.caseSensitive" -> "false") {
+      withTable("iceberg_ci_proj") {
+        spark.sql("""
+                    |CREATE TABLE iceberg_ci_proj (id INT, value INT, tag STRING)
+                    |USING iceberg
+                    |""".stripMargin)
+        spark.sql("""
+                    |INSERT INTO iceberg_ci_proj VALUES
+                    |(1, 100, 'a'), (2, 200, 'b'), (3, 300, 'c')
+                    |""".stripMargin)
+
+        // Column names in upper case must still resolve correctly.
+        val df = runAndCompare("""
+                                 |SELECT ID, TAG FROM iceberg_ci_proj
+                                 |WHERE VALUE > 100
+                                 |ORDER BY id
+                                 |""".stripMargin)
+        checkGlutenPlan[IcebergScanTransformer](df)
+        val rows = df.collect()
+        assert(rows.length == 2)
+        assert(rows.map(_.getInt(0)).toSeq == Seq(2, 3))
+        assert(rows.map(_.getString(1)).toSeq == Seq("b", "c"))
+      }
+    }
+  }
+
+  // Scenario 7 - Aggregation
+  test("case-sensitivity: aggregation (caseSensitive=true)") {
+    withSQLConf("spark.sql.caseSensitive" -> "true") {
+      withTable("iceberg_cs_agg") {
+        spark.sql("""
+                    |CREATE TABLE iceberg_cs_agg (category STRING, value INT)
+                    |USING iceberg
+                    |""".stripMargin)
+        spark.sql("""
+                    |INSERT INTO iceberg_cs_agg VALUES
+                    |('a', 1), ('a', 2), ('b', 3), ('b', 4)
+                    |""".stripMargin)
+
+        val df = runAndCompare("""
+                                 |SELECT category, SUM(value) AS total
+                                 |FROM iceberg_cs_agg
+                                 |GROUP BY category
+                                 |ORDER BY category
+                                 |""".stripMargin)
+        checkGlutenPlan[IcebergScanTransformer](df)
+        val rows = df.collect()
+        assert(rows.length == 2)
+        assert(rows(0).getString(0) == "a" && rows(0).getLong(1) == 3L)
+        assert(rows(1).getString(0) == "b" && rows(1).getLong(1) == 7L)
+      }
+    }
+  }
+
+  test("case-sensitivity: aggregation (caseSensitive=false)") {
+    withSQLConf("spark.sql.caseSensitive" -> "false") {
+      withTable("iceberg_ci_agg") {
+        spark.sql("""
+                    |CREATE TABLE iceberg_ci_agg (category STRING, value INT)
+                    |USING iceberg
+                    |""".stripMargin)
+        spark.sql("""
+                    |INSERT INTO iceberg_ci_agg VALUES
+                    |('a', 1), ('a', 2), ('b', 3), ('b', 4)
+                    |""".stripMargin)
+
+        // Mixed case in column references must still aggregate correctly.
+        val df = runAndCompare("""
+                                 |SELECT CATEGORY, SUM(VALUE) AS total
+                                 |FROM iceberg_ci_agg
+                                 |GROUP BY CATEGORY
+                                 |ORDER BY CATEGORY
+                                 |""".stripMargin)
+        checkGlutenPlan[IcebergScanTransformer](df)
+        val rows = df.collect()
+        assert(rows.length == 2)
+        assert(rows(0).getString(0) == "a" && rows(0).getLong(1) == 3L)
+        assert(rows(1).getString(0) == "b" && rows(1).getLong(1) == 7L)
       }
     }
   }

@@ -40,6 +40,7 @@ import org.apache.spark.sql.delta.util.BinPackingUtils
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.exchange.ENSURE_REQUIREMENTS
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLShuffleWriteMetricsReporter}
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.metric.SQLColumnarShuffleReadMetricsReporter
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.storage.{BlockId, BlockManagerId, ShuffleBlockFetcherIterator, ShuffleBlockId}
@@ -107,7 +108,7 @@ case class DeltaOptimizedWriterTransformer(
   @transient private var cachedShuffleRDD: ShuffledColumnarBatchRDD = _
 
   @transient override def outputPartitioning: Partitioning = {
-    val resolver = org.apache.spark.sql.catalyst.analysis.caseInsensitiveResolution
+    val resolver = SQLConf.get.resolver
     val saltedPartitioning = HashPartitioning(
       partitionColumns.map(
         p =>
@@ -122,7 +123,7 @@ case class DeltaOptimizedWriterTransformer(
 
   private def getShuffleRDD: ShuffledColumnarBatchRDD = {
     if (cachedShuffleRDD == null) {
-      val resolver = org.apache.spark.sql.catalyst.analysis.caseInsensitiveResolution
+      val resolver = SQLConf.get.resolver
       val saltedPartitioning = HashPartitioning(
         partitionColumns.map(
           p =>

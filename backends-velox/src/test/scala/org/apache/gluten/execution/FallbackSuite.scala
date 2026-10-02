@@ -427,7 +427,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
     withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
       GlutenSuiteUtils.withFallbackEventListener(spark.sparkContext) {
         events =>
-          // Execute a query with gluten disabled — this mimics what runQueryAndCompare does for
+          // Execute a query with gluten disabled -- this mimics what runQueryAndCompare does for
           // the vanilla baseline run. No GlutenPlanFallbackEvent should be emitted at all.
           spark.sql("SELECT c1, count(*) FROM tmp1 GROUP BY c1").collect()
           GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
@@ -562,5 +562,364 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
           "tmp5_wide.c2 AS 5c2, tmp5_wide.c3 AS 5c3 " +
           "FROM tmp4_wide JOIN tmp5_wide ON tmp4_wide.c1 = tmp5_wide.c1")
     )
+  }
+
+  // ---------------------------------------------------------------------------
+  // Case-sensitive mode: Gluten/Velox must execute natively and produce correct
+  // results when spark.sql.caseSensitive=true.  The general correctness fix was
+  // committed in 2023 (GLUTEN-1577) via ConverterUtils.normalizeColName; these
+  // tests guard that the fix remains effective.
+  // ---------------------------------------------------------------------------
+
+  test("case-sensitive mode: native execution produces correct results (top-level columns)") {
+    // Use a parquet-backed table so FileSourceScanExecTransformer is exercised.
+    // An in-memory createDataFrame does not go through the file-source path.
+    withSQLConf(SQLConf.CASE_SENSITIVE.key -> "true") {
+      // tmp1 was written under case-insensitive defaults; column names are already
+      // lowercase so re-reading under caseSensitive=true is safe and exercises the
+      // native scan + filter path.
+      runQueryAndCompare(
+        "SELECT c1, c2 FROM tmp1 WHERE c2 > 10",
+        noFallBack = false // mixed plans acceptable; check correctness + native presence
+      ) {
+        df =>
+          val hasNative = collect(df.queryExecution.executedPlan) {
+            case h: HashAggregateExecTransformer => h
+            case f: FilterExecTransformer => f
+            case s: FileSourceScanExecTransformer => s
+          }.nonEmpty
+          assert(
+            hasNative,
+            s"Expected at least one Gluten native transformer but got:\n" +
+              df.queryExecution.executedPlan.toString)
+      }
+    }
+  }
+
+  test("case-sensitive mode: aggregate with GROUP BY executes natively") {
+    withSQLConf(SQLConf.CASE_SENSITIVE.key -> "true") {
+      // tmp1 was written under case-insensitive defaults; re-reading under
+      // case-sensitive=true is safe because the column names are already lowercase.
+      runQueryAndCompare(
+        "SELECT c1, count(*) AS cnt FROM tmp1 GROUP BY c1",
+        noFallBack = false
+      ) {
+        df =>
+          // Two-phase hash-agg transformers must be present.
+          val aggCount = collect(df.queryExecution.executedPlan) {
+            case h: HashAggregateExecTransformer => h
+          }.size
+          assert(aggCount == 2, s"Expected 2 HashAggregateExecTransformer, got $aggCount")
+      }
+    }
+  }
+
+  test("case-sensitive mode: default case-insensitive path is unchanged") {
+    // Verify that disabling case-sensitive mode (the default) still produces
+    // native execution -- the fix must not accidentally degrade the happy path.
+    withSQLConf(SQLConf.CASE_SENSITIVE.key -> "false") {
+      runQueryAndCompare(
+        "SELECT c1, count(*) AS cnt FROM tmp1 GROUP BY c1"
+      ) {
+        df =>
+          val aggCount = collect(df.queryExecution.executedPlan) {
+            case h: HashAggregateExecTransformer => h
+          }.size
+          assert(aggCount == 2, s"Expected 2 HashAggregateExecTransformer, got $aggCount")
+      }
+    }
+  }
+
+  test("case-sensitive mode: join executes natively") {
+    withSQLConf(SQLConf.CASE_SENSITIVE.key -> "true") {
+      runQueryAndCompare(
+        "SELECT tmp1.c1, tmp2.c1 AS c1_2 FROM tmp1 JOIN tmp2 ON tmp1.c1 = tmp2.c1",
+        noFallBack = false
+      ) {
+        df =>
+          // A native join transformer (BHJ or SHJ) or at least a native scan must be present.
+          val nativeJoin = collect(df.queryExecution.executedPlan) {
+            case b: BroadcastHashJoinExecTransformer => b
+            case s: ShuffledHashJoinExecTransformer => s
+            case sm: SortMergeJoinExecTransformer => sm
+          }
+          assert(
+            nativeJoin.nonEmpty,
+            s"Expected a native join transformer, got:\n${df.queryExecution.executedPlan}")
+      }
+    }
+  }
+
+  // scalastyle:off caselocale
+  // PushDownInputFileExpression regression -- generic Parquet file-source path.
+  // These tests verify the two PostOffload bugs fixed in commit b7568172a:
+  //   1. containsInputFileRelatedExpr: SQLConf.get.resolver gate
+  //   2. PostOffload dedup: exprId identity instead of name.toLowerCase
+  // scalastyle:on caselocale
+
+  test(
+    "PushDownInputFileExpression: Input_File_Name data column distinct from input_file_name() " +
+      "under caseSensitive=true (Parquet)") {
+    // Regression for two bugs in PushDownInputFileExpression:
+    //
+    // 1. PreOffload (hasVeloxColumnNameConflict): the old code used unconditional
+    //    toLowerCase(Locale.ROOT) to detect name collisions.  Under caseSensitive=true,
+    //    "Input_File_Name" and "input_file_name" are DISTINCT names (Velox receives them
+    //    as-is because ConverterUtils.normalizeColName does not lowercase in case-sensitive
+    //    mode), so the old code caused an unnecessary scan fallback.
+    //    Fix: use SQLConf.get.resolver which honours caseSensitiveAnalysis.
+    //    Result: under caseSensitive=true no collision is detected, FileSourceScanExec is
+    //    offloaded to FileSourceScanExecTransformer (native scan).
+    //
+    // 2. PostOffload (BatchScanExecTransformerBase dedup): the old code lowercased names to
+    //    deduplicate the injected metadata attr, causing it to be dropped while the rewritten
+    //    project list still held a reference -- IllegalStateException / wrong result.
+    //    Fix: exprId dedup -- injected alias has a fresh exprId, never collides.
+    withSQLConf(SQLConf.CASE_SENSITIVE.key -> "true") {
+      withTable("pushdown_input_cs") {
+        withTempDir {
+          dir =>
+            // Write a two-row Parquet file with a mixed-case column.
+            val schema = org.apache.spark.sql.types.StructType(
+              Seq(
+                org.apache.spark.sql.types.StructField(
+                  "id",
+                  org.apache.spark.sql.types.IntegerType),
+                org.apache.spark.sql.types.StructField(
+                  "Input_File_Name",
+                  org.apache.spark.sql.types.StringType)
+              ))
+            spark
+              .createDataFrame(
+                java.util.Arrays.asList(
+                  org.apache.spark.sql.Row(1, "user-value-1"),
+                  org.apache.spark.sql.Row(2, "user-value-2")),
+                schema)
+              .write
+              .mode("overwrite")
+              .format("parquet")
+              .save(dir.getAbsolutePath)
+
+            spark.read
+              .format("parquet")
+              .load(dir.getAbsolutePath)
+              .createOrReplaceTempView("pushdown_input_cs")
+
+            // noFallBack=false: the outer ProjectExec (which projects away the injected
+            // metadata alias) stays on the JVM; but the underlying scan must be native.
+            runQueryAndCompare(
+              "SELECT `Input_File_Name`, input_file_name() AS fname " +
+                "FROM pushdown_input_cs ORDER BY `Input_File_Name`",
+              noFallBack = false
+            ) {
+              df =>
+                val plan = df.queryExecution.executedPlan
+                // The scan itself must be native -- no unnecessary scan-level fallback.
+                assert(
+                  collect(plan) { case s: FileSourceScanExecTransformer => s }.nonEmpty,
+                  s"Expected FileSourceScanExecTransformer (native scan) under caseSensitive=true" +
+                    s" but plan was:\n$plan"
+                )
+                val rows = df.collect()
+                assert(rows.length == 2, s"Expected 2 rows, got ${rows.length}")
+                // User data column must contain the user-inserted values.
+                val dataVals = rows.map(_.getString(0)).toSet
+                assert(
+                  dataVals == Set("user-value-1", "user-value-2"),
+                  s"User data column wrong: $dataVals")
+                // input_file_name() must be a non-empty file path.
+                val fileNames = rows.map(_.getString(1))
+                assert(
+                  fileNames.forall(n => n != null && n.nonEmpty),
+                  s"input_file_name() returned empty/null: ${fileNames.mkString(", ")}")
+                // The two columns must not have the same value (data != file path).
+                rows.foreach {
+                  r =>
+                    assert(
+                      r.getString(0) != r.getString(1),
+                      "Data column and file-name column should differ " +
+                        s"but got: ${r.getString(0)}")
+                }
+            }
+        }
+      }
+    }
+  }
+
+  test(
+    "PushDownInputFileExpression: Input_File_Name data column returns user data " +
+      "under caseSensitive=false (Parquet)") {
+    // When a user table contains a data column named `Input_File_Name` and the query
+    // simply selects that column (without calling input_file_name()), the query must
+    // return the user's data values and not be mistaken for the metadata function.
+    withSQLConf(SQLConf.CASE_SENSITIVE.key -> "false") {
+      withTempDir {
+        dir =>
+          val schema2 = org.apache.spark.sql.types.StructType(
+            Seq(
+              org.apache.spark.sql.types.StructField(
+                "id",
+                org.apache.spark.sql.types.IntegerType),
+              org.apache.spark.sql.types.StructField(
+                "Input_File_Name",
+                org.apache.spark.sql.types.StringType)
+            ))
+          spark
+            .createDataFrame(
+              java.util.Arrays.asList(
+                org.apache.spark.sql.Row(1, "user-ci-val-1"),
+                org.apache.spark.sql.Row(2, "user-ci-val-2")),
+              schema2)
+            .write
+            .mode("overwrite")
+            .format("parquet")
+            .save(dir.getAbsolutePath)
+
+          spark.read
+            .format("parquet")
+            .load(dir.getAbsolutePath)
+            .createOrReplaceTempView("pushdown_input_ci")
+
+          try {
+            // 1. Querying only the user column returns user data and runs natively
+            Seq("`Input_File_Name`", "`input_file_name`", "`INPUT_FILE_NAME`").foreach {
+              colName =>
+                runQueryAndCompare(
+                  s"SELECT $colName FROM pushdown_input_ci ORDER BY id",
+                  noFallBack = true
+                ) {
+                  df =>
+                    val rows = df.collect()
+                    assert(rows.length == 2, s"Expected 2 rows for $colName, got ${rows.length}")
+                    val dataVals = rows.map(_.getString(0)).toSeq
+                    assert(
+                      dataVals == Seq("user-ci-val-1", "user-ci-val-2"),
+                      s"Physical $colName column wrong: $dataVals")
+                }
+            }
+
+            // 2. Querying both user column and input_file_name() function.
+            // After the mangled-alias fix, the collision is avoided and the scan runs natively.
+            runQueryAndCompare(
+              "SELECT `Input_File_Name`, input_file_name() AS fname " +
+                "FROM pushdown_input_ci ORDER BY `Input_File_Name`",
+              noFallBack = true
+            ) {
+              df =>
+                val rows = df.collect()
+                assert(rows.length == 2, s"Expected 2 rows, got ${rows.length}")
+                val dataVals = rows.map(_.getString(0)).toSet
+                assert(
+                  dataVals == Set("user-ci-val-1", "user-ci-val-2"),
+                  s"Physical Input_File_Name column wrong: $dataVals")
+                val fileNames = rows.map(_.getString(1))
+                assert(
+                  fileNames.forall(n => n != null && n.nonEmpty),
+                  s"input_file_name() returned empty/null: ${fileNames.mkString(", ")}")
+                rows.foreach {
+                  r =>
+                    assert(
+                      r.getString(0) != r.getString(1),
+                      s"Data column and file-name column should differ, got: ${r.getString(0)}")
+                }
+            }
+          } finally {
+            spark.catalog.dropTempView("pushdown_input_ci")
+          }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Comprehensive case-sensitivity scenarios for the Parquet / FileSource path
+  // (Scenarios 3, 6, 7 from the review requirements that are not covered above)
+  // ---------------------------------------------------------------------------
+
+  // Scenario 3 - Ambiguous identifier: caseSensitive=false uses case-insensitive resolution
+  test("case-sensitive mode: ambiguous identifier -- caseSensitive=false case-insensitive lookup") {
+    withSQLConf(SQLConf.CASE_SENSITIVE.key -> "false") {
+      // tmp1 has lowercase columns c1, c2 written under case-insensitive defaults.
+      // Under caseSensitive=false, C1/c1/C2/c2 all resolve to the same columns.
+      // tmp1 has c1 in range [0,2] and c2=id, so "c1 > 0" always returns some rows.
+      Seq("c1", "C1", "c2", "C2").foreach {
+        colRef =>
+          runQueryAndCompare(
+            s"SELECT `$colRef` FROM tmp1 LIMIT 5",
+            noFallBack = false
+          ) {
+            df =>
+              val rows = df.collect()
+              assert(rows.nonEmpty, s"Expected rows for case-insensitive ref '$colRef'")
+          }
+      }
+    }
+  }
+
+  // Scenario 6 - input_file_name() expression under both caseSensitive modes (FileSource)
+  test("case-sensitive mode: input_file_name() returns non-empty paths (caseSensitive=true)") {
+    // tmp1 is a Parquet-backed table with lowercase columns.
+    // Under caseSensitive=true the column names are already lowercase so there is
+    // no collision with the "input_file_name" metadata sentinel -- the function must work.
+    withSQLConf(SQLConf.CASE_SENSITIVE.key -> "true") {
+      runQueryAndCompare(
+        "SELECT c1, input_file_name() AS fname FROM tmp1 LIMIT 5",
+        noFallBack = false
+      ) {
+        df =>
+          val rows = df.collect()
+          assert(rows.nonEmpty, "Expected at least one row")
+          assert(
+            rows.forall(r => r.getString(1) != null && r.getString(1).nonEmpty),
+            s"input_file_name() must be non-empty, got: ${rows.map(_.getString(1)).mkString(", ")}"
+          )
+      }
+    }
+  }
+
+  test("case-sensitive mode: input_file_name() returns non-empty paths (caseSensitive=false)") {
+    withSQLConf(SQLConf.CASE_SENSITIVE.key -> "false") {
+      runQueryAndCompare(
+        "SELECT c1, input_file_name() AS fname FROM tmp1 LIMIT 5",
+        noFallBack = false
+      ) {
+        df =>
+          val rows = df.collect()
+          assert(rows.nonEmpty, "Expected at least one row")
+          assert(
+            rows.forall(r => r.getString(1) != null && r.getString(1).nonEmpty),
+            s"input_file_name() must be non-empty, got: ${rows.map(_.getString(1)).mkString(", ")}"
+          )
+      }
+    }
+  }
+
+  // Scenario 7 - Aggregation under both caseSensitive modes
+  test("case-sensitive mode: aggregation produces correct results (caseSensitive=true)") {
+    withSQLConf(SQLConf.CASE_SENSITIVE.key -> "true") {
+      runQueryAndCompare(
+        "SELECT c1, count(*) AS cnt, sum(c2) AS total FROM tmp1 GROUP BY c1 ORDER BY c1"
+      ) {
+        df =>
+          val aggCount = collect(df.queryExecution.executedPlan) {
+            case h: HashAggregateExecTransformer => h
+          }.size
+          assert(aggCount == 2, s"Expected 2 HashAggregateExecTransformer, got $aggCount")
+      }
+    }
+  }
+
+  test("case-sensitive mode: aggregation produces correct results (caseSensitive=false)") {
+    withSQLConf(SQLConf.CASE_SENSITIVE.key -> "false") {
+      // Same query but with upper-case column refs -- must still use native aggregation.
+      runQueryAndCompare(
+        "SELECT C1, count(*) AS cnt, sum(C2) AS total FROM tmp1 GROUP BY C1 ORDER BY C1"
+      ) {
+        df =>
+          val aggCount = collect(df.queryExecution.executedPlan) {
+            case h: HashAggregateExecTransformer => h
+          }.size
+          assert(aggCount == 2, s"Expected 2 HashAggregateExecTransformer, got $aggCount")
+      }
+    }
   }
 }

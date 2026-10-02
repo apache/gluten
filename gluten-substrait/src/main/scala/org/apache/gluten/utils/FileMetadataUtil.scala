@@ -32,17 +32,40 @@ object FileMetadataUtil {
    * Collects the values of the requested metadata columns for one file. `metadataColumnNames`
    * carries both the `input_file_*` function names and the `_metadata` field names, so the two
    * groups are resolved separately.
+   *
+   * @param injectedFileColAliases
+   *   Map from schema column name to canonical input-file function prettyName for attributes
+   *   injected by PushDownInputFileExpression.PreOffload. When a caseSensitive=false name collision
+   *   forced the injected attribute to use a mangled schema name (e.g.
+   *   "__gluten_input_file_col__input_file_name__"), this map tells generateMetadataColumns which
+   *   file-path/start/length value to populate for that schema name. When schema name equals the
+   *   canonical prettyName (no collision), the entry is redundant but harmless.
    */
   def generateMetadataColumns(
       file: PartitionedFile,
-      metadataColumnNames: Seq[String] = Seq.empty): Map[String, String] = {
-    val requested = metadataColumnNames.toSet
-    val originMetadataColumn = Seq(
+      metadataColumnNames: Seq[String] = Seq.empty,
+      injectedFileColAliases: Map[String, String] = Map.empty): Map[String, String] = {
+    // Build the canonical-prettyName → value table once.
+    val canonicalValues = Map(
       InputFileName().prettyName -> file.filePath.toString,
       InputFileBlockStart().prettyName -> file.start.toString,
       InputFileBlockLength().prettyName -> file.length.toString
-    ).collect { case (name, value) if requested.contains(name) => name -> value }.toMap
-    val metadataColumn: mutable.Map[String, String] = mutable.Map(originMetadataColumn.toSeq: _*)
+    )
+
+    val requested = metadataColumnNames.toSet
+    // Standard path: schema name IS the canonical prettyName (no mangling).
+    val originMetadataColumn = canonicalValues.collect {
+      case (name, value) if requested.contains(name) => name -> value
+    }
+    // Alias path: schema name differs from canonical prettyName (mangled under caseSensitive=false
+    // collision). Look up the canonical value and emit it under the schema name so that Velox can
+    // find it by the column name it has in its NamedStruct schema.
+    val aliasedMetadataColumn = injectedFileColAliases.collect {
+      case (schemaName, canonName) if requested.contains(schemaName) =>
+        canonicalValues.get(canonName).map(schemaName -> _)
+    }.flatten
+    val metadataColumn: mutable.Map[String, String] =
+      mutable.Map((originMetadataColumn ++ aliasedMetadataColumn).toSeq: _*)
     val path = new Path(file.filePath.toString)
     for (columnName <- metadataColumnNames) {
       columnName match {
