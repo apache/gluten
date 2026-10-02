@@ -68,7 +68,12 @@ class PlannerModule {
                   // also, we should make it loaded by owner classloader,
                   // otherwise, it'll throw class not found exception
                   // when initialize HiveParser which requires hadoop
-                  "org.apache.hadoop"))
+                  "org.apache.hadoop",
+                  // source/sink factories (e.g. NexmarkSourceFactory) use
+                  // jackson at plan time; the component jars do not bundle
+                  // it, and unlisted packages are component-only, so it
+                  // must be owner-first
+                  "com.fasterxml.jackson"))
           .toArray(String[]::new);
 
   private static final String[] COMPONENT_CLASSPATH =
