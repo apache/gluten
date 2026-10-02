@@ -23,6 +23,7 @@
 #include <boost/uuid/uuid_io.hpp>
 #include <folly/executors/ThreadPoolExecutor.h>
 #include <filesystem>
+#include <mutex>
 
 #include "velox/common/caching/AsyncDataCache.h"
 #include "velox/common/config/Config.h"
@@ -52,6 +53,12 @@ class VeloxBackend {
   facebook::velox::cache::AsyncDataCache* getAsyncDataCache() const;
 
   ReaderThreadPool* getReaderThreadPool();
+
+  /// A dedicated CPU thread pool for the parallel broadcast hash-table build. The build is
+  /// CPU-bound, so it must not share ioExecutor() which is reserved for async IO tasks.
+  folly::Executor* hashTableBuildExecutor() const {
+    return hashTableBuildExecutor_.get();
+  }
 
   std::shared_ptr<facebook::velox::config::ConfigBase> getBackendConf() const {
     return backendConf_;
@@ -135,6 +142,7 @@ class VeloxBackend {
   std::shared_ptr<facebook::velox::config::ConfigBase> backendConf_;
 
   std::unique_ptr<ReaderThreadPool> readerThreadPool_;
+  std::unique_ptr<folly::Executor> hashTableBuildExecutor_;
 };
 
 } // namespace gluten

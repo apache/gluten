@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <algorithm>
 #include <filesystem>
 
 #include "VeloxBackend.h"
@@ -254,6 +255,10 @@ void VeloxBackend::init(
         std::make_unique<folly::CPUThreadPoolExecutor>(ioThreads, folly::CPUThreadPoolExecutor::makeLifoSemQueue());
   }
 
+  const auto hashTableBuildThreads =
+      std::max<int32_t>(1, backendConf_->get<int32_t>(kHashTableBuildThreads, numTaskSlotsPerExecutor));
+  hashTableBuildExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(hashTableBuildThreads);
+
   initJolFilesystem();
 
   velox::dwio::common::registerFileSinks();
@@ -472,6 +477,7 @@ void VeloxBackend::tearDown() {
   spillExecutor_.reset();
   ioExecutor_.reset();
   ssdCacheExecutor_.reset();
+  hashTableBuildExecutor_.reset();
   globalMemoryManager_.reset();
 
   // dump cache stats on exit if enabled
