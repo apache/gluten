@@ -1,0 +1,23 @@
+# Known Iceberg-on-Gluten unit test failures -- Spark 4.0 / Scala 2.13.
+#
+# Baseline of Apache Iceberg's own `spark` + `spark-extensions` test classes
+# EXPECTED to fail under Gluten/Velox. The Iceberg Spark UT (Gluten) workflow
+# enforces this list: a failing test NOT listed here is a regression (fails CI);
+# a listed test that now passes should be removed. Format:
+# <fully.qualified.TestClass>#<test name>. Lines starting with '#' are comments.
+# See README.md in this directory.
+#
+# ---------------------------------------------------------------------------
+# NOT YET BOOTSTRAPPED. While this file has no entries the gate runs in `seed`
+# mode instead of enforcing, so the first runs are never spuriously red. Seed it
+# from a real run before relying on the signal:
+#
+#   1. Run the workflow via workflow_dispatch with update_baseline=true (pick a
+#      single spark_versions value to seed one target at a time).
+#   2. Download the `iceberg-spark-ut-known-failures-4.0` artifact from the
+#      iceberg-spark-aggregate job and commit it over this file.
+#
+# IMPORTANT: regenerate the baseline under the SAME shard x fork configuration
+# the gate runs with (see ICEBERG_NUM_SHARDS / ICEBERG_FORK_COUNT in
+# iceberg_spark_ut.yml) -- failures that depend on memory pressure differ
+# between configurations and would otherwise be flagged as regressions.
