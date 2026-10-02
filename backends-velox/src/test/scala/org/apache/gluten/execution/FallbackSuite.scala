@@ -375,25 +375,29 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
   }
 
   test("fallback when nested loop join has unsupported expression") {
-    GlutenSuiteUtils.withFallbackEventListener(spark.sparkContext) {
-      events =>
-        val df = spark.sql("""
-                             |select tmp1.c1, tmp1.c2 from tmp1
-                             |left join tmp2 on (
-                             |  tmp1.c1 = regexp_extract(tmp2.c1, '(?<=@)[^.]+(?=\.)', 0)
-                             |  or tmp2.c1 > 10
-                             |)
-                             |""".stripMargin)
-        df.collect()
-        GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
+    // The join condition casts strings such as '' to bigint, which fails in ANSI mode. This test
+    // checks the fallback reason, so run it with ANSI mode disabled.
+    withSQLConf(SQLConf.ANSI_ENABLED.key -> "false") {
+      GlutenSuiteUtils.withFallbackEventListener(spark.sparkContext) {
+        events =>
+          val df = spark.sql("""
+                               |select tmp1.c1, tmp1.c2 from tmp1
+                               |left join tmp2 on (
+                               |  tmp1.c1 = regexp_extract(tmp2.c1, '(?<=@)[^.]+(?=\.)', 0)
+                               |  or tmp2.c1 > 10
+                               |)
+                               |""".stripMargin)
+          df.collect()
+          GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
 
-        val nestedLoopJoin = find(df.queryExecution.executedPlan) {
-          _.isInstanceOf[BroadcastNestedLoopJoinExec]
-        }
-        assert(nestedLoopJoin.isDefined)
-        val fallbackReasons = events.flatMap(_.fallbackNodeToReason.values)
-        assert(fallbackReasons.nonEmpty)
-        assert(fallbackReasons.forall(_.contains("regexp_extract due to Pattern")))
+          val nestedLoopJoin = find(df.queryExecution.executedPlan) {
+            _.isInstanceOf[BroadcastNestedLoopJoinExec]
+          }
+          assert(nestedLoopJoin.isDefined)
+          val fallbackReasons = events.flatMap(_.fallbackNodeToReason.values)
+          assert(fallbackReasons.nonEmpty)
+          assert(fallbackReasons.forall(_.contains("regexp_extract due to Pattern")))
+      }
     }
   }
 
