@@ -487,6 +487,33 @@ else()
   target_link_libraries(velox PUBLIC external::simdjson)
 endif()
 
+# Find and link librdkafka for Kafka streaming support
+if(ENABLE_KAFKA)
+  target_compile_definitions(velox PUBLIC ENABLE_KAFKA)
+  find_package(RdKafka CONFIG QUIET)
+  if(RdKafka_FOUND AND TARGET RdKafka::rdkafka++)
+    message(STATUS "Found RdKafka: ${RdKafka_DIR}")
+    target_link_libraries(velox PUBLIC RdKafka::rdkafka++)
+  else()
+    # Try to find librdkafka using pkg-config
+    find_package(PkgConfig QUIET)
+    if(PKG_CONFIG_FOUND)
+      pkg_check_modules(RDKAFKA QUIET IMPORTED_TARGET rdkafka++)
+      if(RDKAFKA_FOUND)
+        message(STATUS "Found librdkafka via pkg-config: ${RDKAFKA_LIBRARIES}")
+        target_link_libraries(velox PUBLIC PkgConfig::RDKAFKA)
+      else()
+        message(FATAL_ERROR "ENABLE_KAFKA is ON but librdkafka was not found.")
+      endif()
+    else()
+      message(
+        FATAL_ERROR
+          "ENABLE_KAFKA is ON but pkg-config was not found to locate librdkafka."
+      )
+    endif()
+  endif()
+endif()
+
 set(CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES_BCK})
 
 # Adopted from Velox's CMakeLists.txt.

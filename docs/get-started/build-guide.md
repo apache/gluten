@@ -20,6 +20,7 @@ Please set them via `--`, e.g. `--build_type=Release`.
 | enable_gcs             | Build with GCS support.                                                                       | OFF     |
 | enable_hdfs            | Build with HDFS support.                                                                      | OFF     |
 | enable_abfs            | Build with ABFS support.                                                                      | OFF     |
+| enable_kafka           | Build with Kafka streaming read support (librdkafka).                                          | OFF     |
 | enable_vcpkg           | Enable vcpkg for static build.                                                                | OFF     |
 | run_setup_script       | Run setup script to install Velox dependencies.                                               | ON      |
 | velox_repo             | Specify your own Velox repo to build.                                                         | ""      |
@@ -29,6 +30,10 @@ Please set them via `--`, e.g. `--build_type=Release`.
 | build_velox_benchmarks | Build Velox benchmarks (velox_tests and connectors will be disabled if ON)                    | OFF     |
 | build_arrow            | Build arrow java/cpp and install the libs in local. Can turn it OFF after first build.        | ON      |
 | spark_version          | Build for specified version of Spark(3.4, 3.5, 4.0, 4.1, ALL). `ALL` means build for all versions. | ALL     |
+
+Use `--enable_kafka=ON --enable_vcpkg=ON` to install librdkafka and enable Kafka
+streaming reads. Without vcpkg, install librdkafka separately and make its CMake
+package or `rdkafka++` pkg-config metadata available to the build.
 
 ### Environment variables for build
 These environment variables can be set before running build scripts to control build behavior.
