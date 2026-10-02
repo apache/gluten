@@ -19,4 +19,25 @@ package org.apache.gluten.udf;
 public class UdfJniWrapper {
 
   public static native void registerFunctionSignatures();
+
+  /**
+   * Resolves the return type of a registry-declared scalar UDF against the Velox function registry.
+   *
+   * @param name the function name
+   * @param argTypes a serialized substrait Type holding a struct of the actual argument types
+   * @return a serialized substrait Type holding {returnType, coercions}, or null if no signature
+   *     binds
+   */
+  public static native byte[] resolveUdfType(String name, byte[] argTypes);
+
+  /**
+   * Resolves the return and intermediate types of a registry-declared UDAF against the Velox
+   * aggregate registry.
+   *
+   * @param name the function name
+   * @param argTypes a serialized substrait Type holding a struct of the actual argument types
+   * @return a serialized substrait Type holding {returnType, intermediateType, coercions}, or null
+   *     if no signature binds
+   */
+  public static native byte[] resolveUdafTypes(String name, byte[] argTypes);
 }

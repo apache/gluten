@@ -17,7 +17,9 @@
 package org.apache.gluten.expression
 
 import org.apache.gluten.config.VeloxConfig
+import org.apache.gluten.exception.GlutenNotSupportException
 
+import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.expression.UDFResolver
 
 import org.scalatest.BeforeAndAfterEach
@@ -25,17 +27,30 @@ import org.scalatest.funsuite.AnyFunSuite
 
 class UDFResolverSuite extends AnyFunSuite with BeforeAndAfterEach {
 
-  // UDFNames is JVM-global and populated once per JVM, so it is restored rather than cleared.
-  private var savedNames: Set[String] = Set.empty
+  // These are JVM-global and populated once per JVM, so they are restored rather than cleared.
+  // All four, not just UDFNames: registering a function by name writes a Registry* set as well,
+  // and a name left in one of those stays visible to getUdfExpression / getUdafExpression after
+  // the test that registered it, which would send a later test into native resolution with no
+  // library loaded.
+  private val nameSets = Seq(
+    UDFResolver.UDFNames,
+    UDFResolver.UDAFNames,
+    UDFResolver.RegistryUDFNames,
+    UDFResolver.RegistryUDAFNames)
+
+  private var savedNames: Seq[Set[String]] = Seq.empty
 
   override protected def beforeEach(): Unit = {
-    savedNames = UDFResolver.UDFNames.toSet
-    UDFResolver.UDFNames.clear()
+    savedNames = nameSets.map(_.toSet)
+    nameSets.foreach(_.clear())
   }
 
   override protected def afterEach(): Unit = {
-    UDFResolver.UDFNames.clear()
-    UDFResolver.UDFNames ++= savedNames
+    nameSets.zip(savedNames).foreach {
+      case (names, saved) =>
+        names.clear()
+        names ++= saved
+    }
   }
 
   private def describedNames(): Seq[String] =
@@ -73,5 +88,33 @@ class UDFResolverSuite extends AnyFunSuite with BeforeAndAfterEach {
   test("names are described in sorted order") {
     UDFResolver.UDFNames ++= Seq("b_udf", "a_udf")
     assert(describedNames() == Seq("a_udf", "b_udf"))
+  }
+
+  // Looking up an unregistered name used to fail inside UDFMap.getOrElse. A function declared
+  // by name alone has no UDFMap entry, so the lookup no longer throws there and the miss has to
+  // be caught after binding instead.
+  test("an unregistered udf is not supported") {
+    intercept[GlutenNotSupportException] {
+      UDFResolver.getUdfExpression("not_registered", "not_registered")(Seq(Literal(1)))
+    }
+  }
+
+  test("an unregistered udaf is not supported") {
+    intercept[GlutenNotSupportException] {
+      UDFResolver.getUdafExpression("not_registered")(Seq(Literal(1)))
+    }
+  }
+
+  // A function declared by name alone is offloaded through the same UDFNames / UDAFNames gates
+  // as one with a stated signature; only where its types come from differs.
+  test("a udf declared by name alone is registered") {
+    UDFResolver.registerRegistryUDF("myudf_map_cardinality")
+    assert(UDFResolver.UDFNames.contains("myudf_map_cardinality"))
+    assert(describedNames() == Seq("myudf_map_cardinality"))
+  }
+
+  test("a udaf declared by name alone is registered") {
+    UDFResolver.registerRegistryUDAF("myudaf_arbitrary")
+    assert(UDFResolver.UDAFNames.contains("myudaf_arbitrary"))
   }
 }
