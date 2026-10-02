@@ -660,11 +660,21 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
   test(
     "PushDownInputFileExpression: Input_File_Name data column distinct from input_file_name() " +
       "under caseSensitive=true (Parquet)") {
-    // Regression for the PostOffload unconditional toLowerCase dedup bug.
-    // Before the fix, the user data column `Input_File_Name` would be lowercased
-    // to `input_file_name` and incorrectly match the injected metadata attribute,
-    // causing the injected attr to be dropped from the scan output while
-    // newProjectList still held a reference to it -- IllegalStateException / wrong result.
+    // Regression for two bugs in PushDownInputFileExpression:
+    //
+    // 1. PreOffload (hasVeloxColumnNameConflict): the old code used unconditional
+    //    toLowerCase(Locale.ROOT) to detect name collisions.  Under caseSensitive=true,
+    //    "Input_File_Name" and "input_file_name" are DISTINCT names (Velox receives them
+    //    as-is because ConverterUtils.normalizeColName does not lowercase in case-sensitive
+    //    mode), so the old code caused an unnecessary scan fallback.
+    //    Fix: use SQLConf.get.resolver which honours caseSensitiveAnalysis.
+    //    Result: under caseSensitive=true no collision is detected, FileSourceScanExec is
+    //    offloaded to FileSourceScanExecTransformer (native scan).
+    //
+    // 2. PostOffload (BatchScanExecTransformerBase dedup): the old code lowercased names to
+    //    deduplicate the injected metadata attr, causing it to be dropped while the rewritten
+    //    project list still held a reference -- IllegalStateException / wrong result.
+    //    Fix: exprId dedup -- injected alias has a fresh exprId, never collides.
     withSQLConf(SQLConf.CASE_SENSITIVE.key -> "true") {
       withTable("pushdown_input_cs") {
         withTempDir {
@@ -695,16 +705,21 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
               .load(dir.getAbsolutePath)
               .createOrReplaceTempView("pushdown_input_cs")
 
-            // OLD CODE: existingNames lowercased "Input_File_Name" to "input_file_name",
-            // matched the injected alias, dropped it from inputFileAttrs, leaving a
-            // dangling reference in newProjectList -- IllegalStateException / wrong result.
-            // NEW CODE: exprId dedup -- injected alias has fresh exprId, never collides.
+            // noFallBack=false: the outer ProjectExec (which projects away the injected
+            // metadata alias) stays on the JVM; but the underlying scan must be native.
             runQueryAndCompare(
               "SELECT `Input_File_Name`, input_file_name() AS fname " +
                 "FROM pushdown_input_cs ORDER BY `Input_File_Name`",
               noFallBack = false
             ) {
               df =>
+                val plan = df.queryExecution.executedPlan
+                // The scan itself must be native -- no unnecessary scan-level fallback.
+                assert(
+                  collect(plan) { case s: FileSourceScanExecTransformer => s }.nonEmpty,
+                  s"Expected FileSourceScanExecTransformer (native scan) under caseSensitive=true" +
+                    s" but plan was:\n$plan"
+                )
                 val rows = df.collect()
                 assert(rows.length == 2, s"Expected 2 rows, got ${rows.length}")
                 // User data column must contain the user-inserted values.
@@ -783,11 +798,12 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
                 }
             }
 
-            // 2. Querying both user column and input_file_name() function
+            // 2. Querying both user column and input_file_name() function.
+            // After the mangled-alias fix, the collision is avoided and the scan runs natively.
             runQueryAndCompare(
               "SELECT `Input_File_Name`, input_file_name() AS fname " +
                 "FROM pushdown_input_ci ORDER BY `Input_File_Name`",
-              noFallBack = false
+              noFallBack = true
             ) {
               df =>
                 val rows = df.collect()

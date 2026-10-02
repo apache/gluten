@@ -137,7 +137,8 @@ class CHIteratorApi extends IteratorApi with Logging with LogLevelUtil {
       dataSchema: StructType,
       fileFormat: ReadFileFormat,
       metadataColumnNames: Seq[String],
-      properties: Map[String, String]): SplitInfo = {
+      properties: Map[String, String],
+      injectedFileColAliases: Map[String, String] = Map.empty): SplitInfo = {
     // todo: support multi partitions
     assert(partitions.size == 1)
     val partition = partitions.head
@@ -183,7 +184,7 @@ class CHIteratorApi extends IteratorApi with Logging with LogLevelUtil {
             val metadataColumn =
               if (needMetadataColumns) {
                 FileMetadataUtil
-                  .generateMetadataColumns(file, metadataColumnNames)
+                  .generateMetadataColumns(file, metadataColumnNames, injectedFileColAliases)
                   .asJava
               } else {
                 emptyMetadataColumn
