@@ -110,6 +110,25 @@ case class VeloxHashExpressionTransformer(
   }
 }
 
+case class VeloxRoundingExpressionTransformer(
+    substraitExprName: String,
+    children: Seq[ExpressionTransformer],
+    original: Expression)
+  extends ExpressionTransformer {
+
+  override def doTransform(context: SubstraitContext): ExpressionNode = {
+    // Captured ANSI mode is a native argument, not a child of the Spark expression.
+    val functionName = ConverterUtils.makeFuncName(substraitExprName, children.map(_.dataType))
+    val functionId = context.registerFunction(functionName)
+    val nodes = new JArrayList[ExpressionNode]()
+    children.foreach(child => nodes.add(child.doTransform(context)))
+    ExpressionBuilder.makeScalarFunction(
+      functionId,
+      nodes,
+      ConverterUtils.getTypeNode(dataType, nullable))
+  }
+}
+
 case class ToUnixTimestampTransformer(
     substraitExprName: String,
     timeExpTransformer: ExpressionTransformer,
