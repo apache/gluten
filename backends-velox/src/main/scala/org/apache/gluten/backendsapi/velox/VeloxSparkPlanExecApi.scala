@@ -1151,6 +1151,30 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     GenericExpressionTransformer(substraitExprName, children, expr)
   }
 
+  override def genFormatNumberTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      expr: Expression): ExpressionTransformer = {
+    // Velox registers format_number only for integral and floating-point input with an integer
+    // number of decimal places. Reject the other Spark forms here so the fallback reason names
+    // the documented restriction instead of a generic native validation failure.
+    expr.children.head.dataType match {
+      case _: DecimalType =>
+        GlutenExceptionUtil.throwsNotFullySupported(
+          ExpressionNames.FORMAT_NUMBER,
+          FormatNumberRestrictions.NOT_SUPPORT_DECIMAL_INPUT)
+      case _ =>
+    }
+    expr.children(1).dataType match {
+      case _: StringType =>
+        GlutenExceptionUtil.throwsNotFullySupported(
+          ExpressionNames.FORMAT_NUMBER,
+          FormatNumberRestrictions.NOT_SUPPORT_STRING_FORMAT)
+      case _ =>
+    }
+    GenericExpressionTransformer(substraitExprName, children, expr)
+  }
+
   /** Generate an expression transformer to transform JsonToStructs to Substrait. */
   override def genFromJsonTransformer(
       substraitExprName: String,

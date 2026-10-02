@@ -18,9 +18,11 @@ package org.apache.gluten.functions
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.{BatchScanExecTransformer, FilterExecTransformer, ProjectExecTransformer}
+import org.apache.gluten.expression.FormatNumberRestrictions
+import org.apache.gluten.extension.columnar.FallbackTags
 
 import org.apache.spark.SparkException
-import org.apache.spark.sql.Row
+import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.catalyst.optimizer.NullPropagation
 import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.internal.SQLConf
@@ -31,6 +33,18 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
   disableFallbackCheck
 
   import testImplicits._
+
+  // Collects the fallback reasons recorded on the executed plan. GlutenFallbackReporter moves the
+  // tag from the physical node to its logical link, so read both places like the reporter does.
+  private def fallbackReasons(df: DataFrame): Seq[String] = {
+    getExecutedPlan(df).flatMap {
+      p =>
+        FallbackTags
+          .getOption(p)
+          .orElse(p.logicalLink.flatMap(FallbackTags.getOption))
+          .map(_.reason())
+    }
+  }
 
   // Test "SELECT ..." without a from clause.
   test("isnull") {
@@ -801,16 +815,25 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
       "SELECT format_number(cast(l_discount as double), 3) FROM lineitem limit 50") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    // Velox format_number only supports tinyint/smallint/integer/bigint/float/double.
-    // Decimal input has no matching signature, so it must fall back to vanilla Spark.
+    // Velox format_number only supports tinyint/smallint/integer/bigint/float/double. Decimal
+    // input is rejected on the JVM side, so it falls back to vanilla Spark and the fallback
+    // reason names the documented restriction instead of a generic native validation failure.
     runQueryAndCompare("SELECT format_number(l_quantity, 1) FROM lineitem limit 50") {
-      checkSparkPlan[ProjectExec]
+      df =>
+        checkSparkPlan[ProjectExec](df)
+        assert(
+          fallbackReasons(df).exists(
+            _.contains(FormatNumberRestrictions.NOT_SUPPORT_DECIMAL_INPUT)))
     }
     // Velox only implements the integer decimal-places form. The string-format form
-    // (e.g. '#,###.##') has no matching signature, so it must fall back to vanilla Spark.
+    // (e.g. '#,###.##') is rejected on the JVM side in the same way.
     runQueryAndCompare(
       "SELECT format_number(cast(l_quantity as double), '#,###.##') FROM lineitem limit 50") {
-      checkSparkPlan[ProjectExec]
+      df =>
+        checkSparkPlan[ProjectExec](df)
+        assert(
+          fallbackReasons(df).exists(
+            _.contains(FormatNumberRestrictions.NOT_SUPPORT_STRING_FORMAT)))
     }
   }
 

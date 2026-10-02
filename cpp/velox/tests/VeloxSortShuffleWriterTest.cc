@@ -45,6 +45,14 @@ class FakeBufferRssClient : public RssClient {
 
 class VeloxSortShuffleWriterTest : public VeloxShuffleWriterTestBase, public testing::Test {
  protected:
+  static size_t numPages(const VeloxSortShuffleWriter& writer) {
+    return writer.pageAddresses_.size();
+  }
+
+  static uint64_t rowIdAt(const VeloxSortShuffleWriter& writer, size_t index) {
+    return writer.arrayPtr_[index];
+  }
+
   static void SetUpTestSuite() {
     setUpVeloxBackend();
   }
@@ -95,6 +103,32 @@ TEST_F(VeloxSortShuffleWriterTest, pushCompleteRows) {
 
   // numRows should equal to push data times in rss client.
   EXPECT_EQ(10, rssClient->getReceiveTimes());
+}
+
+TEST_F(VeloxSortShuffleWriterTest, rollsOverPageBeforeCompactRowOffsetOverflows) {
+  constexpr uint32_t kCompactRowOffsetLimit = 1U << 27;
+  std::string largeValue(kCompactRowOffsetLimit + 1024 * 1024, 'x');
+  auto values = std::vector<StringView>{StringView(largeValue), StringView("small")};
+  auto rowVector = makeRowVector({makeFlatVector<StringView>(values)});
+  auto writeOptions = std::make_shared<SortShuffleWriterOptions>();
+  auto rssClient = std::make_shared<FakeBufferRssClient>();
+  auto shuffleWriter =
+      std::dynamic_pointer_cast<VeloxSortShuffleWriter>(createShuffleWriter(1, writeOptions, rssClient));
+
+  auto status = shuffleWriter->write(std::make_shared<VeloxColumnarBatch>(rowVector), ShuffleWriter::kMinMemLimit);
+  ASSERT_TRUE(status.ok()) << status.ToString();
+
+  // The second row must start on a new page because its offset would exceed the 27-bit row ID field.
+  ASSERT_EQ(2, numPages(*shuffleWriter));
+  constexpr uint64_t kOffsetMask = (1ULL << 27) - 1;
+  constexpr uint64_t kPageMask = ((1ULL << 40) - 1) >> 27;
+  EXPECT_EQ(0, rowIdAt(*shuffleWriter, 0) & kOffsetMask);
+  EXPECT_EQ(0, (rowIdAt(*shuffleWriter, 0) >> 27) & kPageMask);
+  EXPECT_EQ(0, rowIdAt(*shuffleWriter, 1) & kOffsetMask);
+  EXPECT_EQ(1, (rowIdAt(*shuffleWriter, 1) >> 27) & kPageMask);
+
+  ASSERT_TRUE(shuffleWriter->stop().ok());
+  EXPECT_EQ(2, rssClient->getReceiveTimes());
 }
 
 } // namespace gluten

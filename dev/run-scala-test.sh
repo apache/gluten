@@ -164,6 +164,7 @@ declare -A MODULE_MAP=(
   ["spark-sql-columnar-shims-spark35"]="shims/spark35:java"
   ["spark-sql-columnar-shims-spark40"]="shims/spark40:java"
   ["spark-sql-columnar-shims-spark41"]="shims/spark41:java"
+  ["spark-sql-columnar-shims-spark42"]="shims/spark42:java"
 
   # Unit test modules
   ["gluten-ut-common"]="gluten-ut/common:scala"

@@ -240,6 +240,7 @@
                 <exclude>*spark3.5*</exclude>
                 <exclude>*spark4.0*</exclude>
                 <exclude>*spark4.1*</exclude>
+                <exclude>*spark4.2*</exclude>
               </excludes>
               <followSymlinks>false</followSymlinks>
             </fileset>
