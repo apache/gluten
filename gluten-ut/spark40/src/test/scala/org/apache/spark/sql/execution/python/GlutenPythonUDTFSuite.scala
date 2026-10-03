@@ -18,6 +18,4 @@ package org.apache.spark.sql.execution.python
 
 import org.apache.spark.sql.GlutenSQLTestsTrait
 
-// TODO: 4.x extends PythonUDTFSuite, currently PythonUDTFSuite requires Python executable
-//  [python3] and pyspark to be available, which are not present in the 4.0 CI environment.
-class GlutenPythonUDTFSuite extends GlutenSQLTestsTrait {}
+class GlutenPythonUDTFSuite extends PythonUDTFSuite with GlutenSQLTestsTrait {}
