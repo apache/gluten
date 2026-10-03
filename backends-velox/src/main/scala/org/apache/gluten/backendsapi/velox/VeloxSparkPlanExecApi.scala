@@ -283,7 +283,15 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       substraitExprName: String,
       children: Seq[ExpressionTransformer],
       expr: Expression): ExpressionTransformer = {
-    GenericExpressionTransformer(substraitExprName, children, expr)
+    // try_make_timestamp and try_make_timestamp_ltz return NULL for invalid input even in ANSI
+    // mode, while Velox's make_timestamp throws when ANSI mode is enabled. Velox registers
+    // try_make_timestamp for TIMESTAMP results only.
+    val functionName = expr match {
+      case m: MakeTimestamp if !m.failOnError && m.dataType == TimestampType =>
+        ExpressionNames.TRY_MAKE_TIMESTAMP
+      case _ => substraitExprName
+    }
+    GenericExpressionTransformer(functionName, children, expr)
   }
 
   override def genDateDiffTransformer(
