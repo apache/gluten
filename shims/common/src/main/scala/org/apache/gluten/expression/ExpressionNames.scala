@@ -237,6 +237,7 @@ object ExpressionNames {
   final val UNIX_DATE = "unix_date"
   final val MAKE_DATE = "make_date"
   final val MAKE_TIMESTAMP = "make_timestamp"
+  final val TRY_MAKE_TIMESTAMP = "try_make_timestamp"
   final val MAKE_YM_INTERVAL = "make_ym_interval"
   final val TO_UTC_TIMESTAMP = "to_utc_timestamp"
   final val FROM_UTC_TIMESTAMP = "from_utc_timestamp"
