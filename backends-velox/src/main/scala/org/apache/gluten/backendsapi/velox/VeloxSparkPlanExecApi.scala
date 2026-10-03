@@ -214,7 +214,13 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       argument: ExpressionTransformer,
       function: ExpressionTransformer,
       expr: ArraySort): ExpressionTransformer = {
-    GenericExpressionTransformer(substraitExprName, Seq(argument, function), expr)
+    val children = expr.function match {
+      case LambdaFunction(functionBody, Seq(left, right), _)
+          if functionBody.semanticEquals(ArraySort.comparator(left, right)) =>
+        Seq(argument)
+      case _ => Seq(argument, function)
+    }
+    GenericExpressionTransformer(substraitExprName, children, expr)
   }
 
   /** Transform array exists to Substrait */
