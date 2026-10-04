@@ -321,6 +321,7 @@ function setup_dependencies {
     setup_linux
   elif [ $OS == 'Darwin' ]; then
     setup_macos
+    export OPENSSL_ROOT_DIR="${OPENSSL_ROOT_DIR:-$(brew --prefix openssl@3)}"
   else
     echo "Unsupported kernel: $OS"
     exit 1
