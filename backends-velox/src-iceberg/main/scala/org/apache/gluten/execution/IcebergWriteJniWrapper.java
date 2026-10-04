@@ -28,19 +28,67 @@ public class IcebergWriteJniWrapper implements RuntimeAware {
   }
 
   // Return the native IcebergWriteJniWrapper handle
-  public native long init(long cSchema, int format,
-                          String directory,
-                          String codec,
-                          int partitionId,
-                          long taskId,
-                          String operationId,
-                          byte[] partitionSpec,
-                          byte[] field);
+  public long init(
+      long cSchema,
+      int format,
+      String directory,
+      String codec,
+      int partitionId,
+      long taskId,
+      String operationId,
+      byte[] partitionSpec,
+      byte[] field) {
+    return initInternal(
+        cSchema, format, directory, codec, partitionId, taskId, operationId, partitionSpec, field, null);
+  }
+
+  public long initEqualityDeletes(
+      long cSchema,
+      int format,
+      String directory,
+      String codec,
+      int partitionId,
+      long taskId,
+      String operationId,
+      byte[] partitionSpec,
+      byte[] field,
+      int[] equalityFieldIds) {
+    if (equalityFieldIds == null || equalityFieldIds.length == 0) {
+      throw new IllegalArgumentException("Equality field IDs cannot be empty");
+    }
+    return initInternal(
+        cSchema,
+        format,
+        directory,
+        codec,
+        partitionId,
+        taskId,
+        operationId,
+        partitionSpec,
+        field,
+        equalityFieldIds);
+  }
+
+  private native long initInternal(
+      long cSchema,
+      int format,
+      String directory,
+      String codec,
+      int partitionId,
+      long taskId,
+      String operationId,
+      byte[] partitionSpec,
+      byte[] field,
+      int[] equalityFieldIds);
 
   public native void write(long writerHandle, long batch);
 
   // Returns the json iceberg Datafile represent
   public native String[] commit(long writerHandle);
+
+  public native void abort(long writerHandle);
+
+  public native void close(long writerHandle);
 
   public native BatchWriteMetrics metrics(long writerHandle);
 

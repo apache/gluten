@@ -24,6 +24,8 @@ class GlutenIcebergConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   def enableNativeRead: Boolean = getConf(ENABLE_NATIVE_READ)
 
   def enableNativeWrite: Boolean = getConf(ENABLE_NATIVE_WRITE)
+
+  def enableNativeEqualityDelete: Boolean = getConf(ENABLE_NATIVE_EQUALITY_DELETE)
 }
 
 object GlutenIcebergConfig extends ConfigRegistry {
@@ -42,8 +44,16 @@ object GlutenIcebergConfig extends ConfigRegistry {
   val ENABLE_NATIVE_WRITE: ConfigEntry[Boolean] =
     buildConf("spark.gluten.sql.columnar.iceberg.enableNativeWrite")
       .doc("Enable offloading Iceberg writes to the native backend. When disabled, Iceberg" +
-        " writes fall back to vanilla Spark. Note the Velox backend additionally requires" +
-        " spark.gluten.sql.enable.enhancedFeatures to be enabled.")
+        " writes fall back to vanilla Spark. Native data writes in the Velox backend additionally" +
+        " require spark.gluten.sql.enable.enhancedFeatures to be enabled.")
       .booleanConf
       .createWithDefault(true)
+
+  val ENABLE_NATIVE_EQUALITY_DELETE: ConfigEntry[Boolean] =
+    buildConf("spark.gluten.sql.columnar.iceberg.enableNativeEqualityDelete")
+      .doc("Write equality-delete files for supported merge-on-read SQL DELETE, UPDATE and MERGE." +
+        " Requires native Iceberg writes to be enabled. Equality-delete files use the native" +
+        " Parquet writer. Unsupported encodings retain Iceberg's normal row-level write plan.")
+      .booleanConf
+      .createWithDefault(false)
 }

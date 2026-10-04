@@ -67,6 +67,7 @@ case class IcebergColumnarBatchDataWriter(
 
   private def parseDataFile(json: String, spec: PartitionSpec, sortOrder: SortOrder): DataFile = {
     val dataFile = mapper.readValue(json, classOf[DataFileJson])
+    require(dataFile.content == "DATA", s"Expected a data file, received ${dataFile.content}")
     val builder = DataFiles
       .builder(spec)
       .withPath(dataFile.path)

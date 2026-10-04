@@ -49,6 +49,19 @@ object GlutenIcebergSourceUtil {
 
   def isSparkStagedScan(sparkScan: Scan): Boolean = sparkScan.isInstanceOf[SparkStagedScan]
 
+  def hasEqualityDeletes(sparkScan: Scan): Boolean =
+    asFileScanTask(getScanTasks(sparkScan)).exists {
+      task => task.deletes().asScala.exists(_.content() == FileContent.EQUALITY_DELETES)
+    }
+
+  def hasUnsupportedDeleteFormats(sparkScan: Scan): Boolean =
+    asFileScanTask(getScanTasks(sparkScan)).exists {
+      task =>
+        task.deletes().asScala.exists {
+          file => file.format() != FileFormat.PARQUET && file.format() != FileFormat.ORC
+        }
+    }
+
   def deleteExists(p: SparkDataSourceRDDPartition): Boolean = {
     p.inputPartitions.exists {
       case ip: SparkInputPartition =>

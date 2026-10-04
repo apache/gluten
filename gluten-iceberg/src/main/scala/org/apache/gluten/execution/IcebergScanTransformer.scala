@@ -34,7 +34,7 @@ import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.execution.metric.SQLMetrics
 import org.apache.spark.sql.types.{ArrayType, DataType, StructType}
 
-import org.apache.iceberg.{BaseTable, MetadataColumns, SnapshotSummary, TableProperties}
+import org.apache.iceberg.{BaseTable, MetadataColumns, TableProperties}
 import org.apache.iceberg.avro.AvroSchemaUtil
 import org.apache.iceberg.spark.source.{GlutenIcebergSourceUtil, SparkTable}
 import org.apache.iceberg.spark.source.metrics.NumSplits
@@ -91,6 +91,11 @@ case class IcebergScanTransformer(
       return validationResult
     }
 
+    // A vanilla write may produce delete formats that the native split protocol cannot encode.
+    if (GlutenIcebergSourceUtil.hasUnsupportedDeleteFormats(scan)) {
+      return ValidationResult.failed("Contains delete files in an unsupported native format")
+    }
+
     if (!BackendsApiManager.getSettings.supportIcebergEqualityDeleteRead()) {
       val notSupport = table match {
         case t: SparkTable =>
@@ -120,27 +125,8 @@ case class IcebergScanTransformer(
       if (hasUnsupportedMetadata) {
         return ValidationResult.failed("Read unsupported metadata column")
       }
-      val containsEqualityDelete = table match {
-        case t: SparkTable =>
-          t.table() match {
-            case t: BaseTable =>
-              val snapshot = t
-                .operations()
-                .current()
-                .currentSnapshot()
-              if (snapshot == null) {
-                false
-              } else {
-                snapshot
-                  .summary()
-                  .getOrDefault(SnapshotSummary.TOTAL_EQ_DELETES_PROP, "0")
-                  .toInt > 0
-              }
-            case _ => false
-          }
-        case _ => false
-      }
-      if (containsEqualityDelete) {
+      // The main snapshot's summary does not cover branch or time-travel scans.
+      if (GlutenIcebergSourceUtil.hasEqualityDeletes(scan)) {
         return ValidationResult.failed("Contains equality delete files")
       }
 

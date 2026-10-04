@@ -45,7 +45,8 @@ case class IcebergDataWriteFactory(
     sortOrder: SortOrder,
     field: IcebergNestedField,
     icebergProperties: util.HashMap[String, String],
-    queryId: String)
+    queryId: String,
+    equalityDeleteMetrics: Option[IcebergEqualityDeleteMetrics] = None)
   extends ColumnarBatchDataWriterFactory
   with ColumnarStreamingDataWriterFactory {
 
@@ -64,6 +65,25 @@ case class IcebergDataWriteFactory(
       partitionId: Int,
       taskId: Long,
       epochId: Long): DataWriter[ColumnarBatch] = {
+    createWriter(partitionId, taskId, epochId, None)
+  }
+
+  def createEqualityDeleteWriter(
+      partitionId: Int,
+      taskId: Long,
+      equalityFieldIds: Seq[Int],
+      epochId: Long = 0): DataWriter[ColumnarBatch] = {
+    require(equalityFieldIds.nonEmpty, "Equality field IDs cannot be empty")
+    require(equalityFieldIds.forall(_ > 0), "Equality field IDs must be positive")
+    require(equalityFieldIds.distinct.size == equalityFieldIds.size, "Duplicate equality field IDs")
+    createWriter(partitionId, taskId, epochId, Some(equalityFieldIds))
+  }
+
+  private def createWriter(
+      partitionId: Int,
+      taskId: Long,
+      epochId: Long,
+      equalityFieldIds: Option[Seq[Int]]): DataWriter[ColumnarBatch] = {
     val fields = partitionSpec
       .fields()
       .stream()
@@ -86,8 +106,20 @@ case class IcebergDataWriteFactory(
         operationId,
         specProto,
         field,
-        icebergProperties)
-    IcebergColumnarBatchDataWriter(writerHandle, jniWrapper, format, partitionSpec, sortOrder)
+        icebergProperties,
+        equalityFieldIds)
+    equalityFieldIds match {
+      case Some(ids) =>
+        new IcebergColumnarBatchEqualityDeleteWriter(
+          writerHandle,
+          jniWrapper,
+          format,
+          partitionSpec,
+          ids,
+          equalityDeleteMetrics)
+      case None =>
+        IcebergColumnarBatchDataWriter(writerHandle, jniWrapper, format, partitionSpec, sortOrder)
+    }
   }
 
   private def getJniWrapper(
@@ -100,7 +132,8 @@ case class IcebergDataWriteFactory(
       operationId: String,
       partitionSpec: IcebergPartitionSpec,
       field: IcebergNestedField,
-      icebergProperties: util.HashMap[String, String]): (Long, IcebergWriteJniWrapper) = {
+      icebergProperties: util.HashMap[String, String],
+      equalityFieldIds: Option[Seq[Int]]): (Long, IcebergWriteJniWrapper) = {
     val schema = SparkArrowUtil.toArrowSchema(localSchema, SQLConf.get.sessionLocalTimeZone)
     val arrowAlloc = ArrowBufferAllocators.contextInstance()
     val cSchema = ArrowSchema.allocateNew(arrowAlloc)
@@ -113,17 +146,35 @@ case class IcebergDataWriteFactory(
     val jniWrapper = new IcebergWriteJniWrapper(runtime)
 
     val writer =
-      jniWrapper.init(
-        cSchema.memoryAddress(),
-        format,
-        directory,
-        codec,
-        partitionId,
-        taskId,
-        operationId,
-        partitionSpec.toByteArray,
-        field.toByteArray)
-    cSchema.close()
+      try {
+        equalityFieldIds match {
+          case Some(ids) =>
+            jniWrapper.initEqualityDeletes(
+              cSchema.memoryAddress(),
+              format,
+              directory,
+              codec,
+              partitionId,
+              taskId,
+              operationId,
+              partitionSpec.toByteArray,
+              field.toByteArray,
+              ids.toArray)
+          case None =>
+            jniWrapper.init(
+              cSchema.memoryAddress(),
+              format,
+              directory,
+              codec,
+              partitionId,
+              taskId,
+              operationId,
+              partitionSpec.toByteArray,
+              field.toByteArray)
+        }
+      } finally {
+        cSchema.close()
+      }
     (writer, jniWrapper)
   }
 }

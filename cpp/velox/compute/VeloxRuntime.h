@@ -82,7 +82,8 @@ class VeloxRuntime final : public Runtime {
       const std::string& operationId,
       std::shared_ptr<const facebook::velox::connector::hive::iceberg::IcebergPartitionSpec> spec,
       const gluten::IcebergNestedField& protoField,
-      const std::unordered_map<std::string, std::string>& sparkConfs);
+      const std::unordered_map<std::string, std::string>& sparkConfs,
+      std::optional<std::vector<int32_t>> equalityFieldIds = std::nullopt);
 
   std::shared_ptr<ShuffleWriter> createShuffleWriter(
       int numPartitions,
