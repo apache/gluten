@@ -199,6 +199,8 @@ abstract class FileSourceScanExecTransformerBase(
     s"${getClass.getSimpleName} $relation ${tableIdentifier.map(_.unquotedString).getOrElse("")}"
   }
 
+  override def getReadOptions: Map[String, String] = relation.options
+
   override def getProperties: Map[String, String] = {
     this.fileFormat match {
       case ReadFileFormat.TextReadFormat =>

@@ -22,11 +22,13 @@ import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.utils.VeloxFileSystemValidationJniWrapper
 
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.Row
+import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.catalyst.expressions.GreaterThan
 import org.apache.spark.sql.execution.ScalarSubquery
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
+
+import org.apache.hadoop.fs.{FileSystem, Path}
 
 import scala.reflect.ClassTag
 
@@ -328,6 +330,56 @@ class VeloxScanSuite extends VeloxWholeStageTransformerSuite {
               Seq(Row(null, "10", 0L), Row(null, "11", 1L)))
           }
       }
+    }
+  }
+
+  test("ignoreMissingFiles read option overrides the session conf") {
+    // Reads two parquet dirs, then deletes the files of the first dir before running the query.
+    def readWithMissingFile(basePath: String, options: Map[String, String]): DataFrame = {
+      val path1 = new Path(basePath, "first")
+      val path2 = new Path(basePath, "second")
+      spark.range(1).toDF("a").write.parquet(path1.toString)
+      spark.range(1, 2).toDF("a").write.parquet(path2.toString)
+      val df = spark.read.options(options).parquet(path1.toString, path2.toString)
+      val fs = FileSystem.get(spark.sessionState.newHadoopConf())
+      fs.listStatus(path1)
+        .filter(f => f.isFile && !f.getPath.getName.startsWith("_"))
+        .foreach(f => fs.delete(f.getPath, false))
+      df
+    }
+
+    def isOffloaded(df: DataFrame): Boolean =
+      df.queryExecution.executedPlan.collect { case s: BasicScanExecTransformer => s }.nonEmpty
+
+    // (spark.sql.files.ignoreMissingFiles, read options, expected to ignore the missing file)
+    val cases = Seq(
+      ("true", Map.empty[String, String], true),
+      ("false", Map("ignoreMissingFiles" -> "true"), true),
+      ("false", Map.empty[String, String], false),
+      ("true", Map("ignoreMissingFiles" -> "false"), false)
+    )
+    // "parquet" uses the V1 scan, "" uses the V2 scan.
+    Seq("parquet", "").foreach {
+      v1Sources =>
+        cases.foreach {
+          case (conf, options, ignored) =>
+            withTempDir {
+              dir =>
+                withSQLConf(
+                  SQLConf.USE_V1_SOURCE_LIST.key -> v1Sources,
+                  SQLConf.IGNORE_MISSING_FILES.key -> conf) {
+                  val df = readWithMissingFile(dir.getCanonicalPath, options)
+                  if (ignored) {
+                    checkAnswer(df, Seq(Row(1)))
+                  } else {
+                    intercept[Exception](df.collect())
+                  }
+                  // The native scan only reads the session conf, so it must fall back when
+                  // the read option is set to a different value.
+                  assert(isOffloaded(df) == options.isEmpty)
+                }
+            }
+        }
     }
   }
 }

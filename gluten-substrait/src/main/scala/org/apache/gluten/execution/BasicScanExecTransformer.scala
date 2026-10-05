@@ -26,8 +26,10 @@ import org.apache.gluten.substrait.rel.{ReadRelNode, RelBuilder, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.Partition
+import org.apache.spark.sql.catalyst.FileSourceOptions
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.execution.adaptive.InputStats
+import org.apache.spark.sql.internal.SQLConf
 
 import com.google.protobuf.StringValue
 import io.substrait.proto.NamedStruct
@@ -95,6 +97,9 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
   /** Returns the file format properties. */
   def getProperties: Map[String, String] = Map.empty
 
+  /** Returns the options given to this read, e.g. `spark.read.option(...)`. */
+  def getReadOptions: Map[String, String] = Map.empty
+
   def getInputStats: Option[InputStats] = Option.empty
 
   override def getSplitInfos: Seq[SplitInfo] = {
@@ -139,6 +144,16 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
   }
 
   override protected def doValidateInternal(): ValidationResult = {
+    // The native scan only gets spark.sql.files.ignoreMissingFiles from the session conf.
+    // Spark also accepts ignoreMissingFiles as a read option, and the option wins over the conf.
+    // When the two differ, the native scan would use the wrong value, so fall back.
+    val ignoreMissingFiles = new FileSourceOptions(getReadOptions).ignoreMissingFiles
+    if (ignoreMissingFiles != SQLConf.get.ignoreMissingFiles) {
+      return ValidationResult.failed(
+        s"The ignoreMissingFiles read option ($ignoreMissingFiles) is different from " +
+          s"${SQLConf.IGNORE_MISSING_FILES.key} (${SQLConf.get.ignoreMissingFiles}).")
+    }
+
     val validationResult = BackendsApiManager.getSettings
       .validateScanExec(
         fileFormat,
