@@ -16,7 +16,8 @@
 #
 # Verify the bundled gluten-velox jar's Arrow C-Data classes reference the
 # *unshaded* Apache Arrow API — both in their method signatures and in their
-# constant pools.
+# constant pools — and that no unshaded Arrow class anywhere in the bundle calls
+# a relocated Arrow class (a half-relocated Arrow copy).
 #
 # Background: org.apache.arrow.c.* must NOT be relocated (its native JNI binds
 # to the original class names), but it reaches into three other Arrow packages:
@@ -54,8 +55,9 @@
 #
 # Exit codes:
 #   0 — bundle is well-shaded (Arrow C-Data API uses public Apache Arrow API)
-#   1 — bundle is broken (Arrow C-Data references gluten-shaded types, OR
-#       Arrow content does not match the declared arrow-deps-scope)
+#   1 — bundle is broken (Arrow C-Data references gluten-shaded types, an
+#       unshaded Arrow class references a relocated one, OR Arrow content
+#       does not match the declared arrow-deps-scope)
 #   2 — usage / setup error
 
 set -euo pipefail
@@ -145,6 +147,37 @@ if compgen -G "$WORKDIR/all/org/apache/arrow/c/**/*.class" > /dev/null ||
   fi
 fi
 
+# Fourth check: the bundled Arrow must not be half-relocated. Every Arrow class
+# that kept its original name (anything under org/apache/arrow/ in the jar,
+# whatever the subpackage) must not reference a relocated Arrow class.
+#
+# The first two checks only look at org.apache.arrow.c, which misses a subpackage
+# that is relocated while its unshaded callers are not. That is exactly what
+# happened with org.apache.arrow.flatbuf: the unshaded org.apache.arrow.vector
+# classes were rewritten to call ${SHADE_PACKAGE}.org.apache.arrow.flatbuf, so
+# e.g. MessageMetadataResult.getMessage() returned the relocated Message. Those
+# vector classes shadow Spark's own copy on Spark 3.x, and Spark's
+# ArrowConverters, compiled against vanilla Arrow, then fails with
+# `NoSuchMethodError`. Scanning every unshaded Arrow class catches any future
+# subpackage that ends up in the same state, not just flatbuf.
+mkdir -p "$WORKDIR/unshaded"
+unzip -qo "$JAR" 'org/apache/arrow/*' -d "$WORKDIR/unshaded" 2>/dev/null || true
+if [[ -d "$WORKDIR/unshaded/org/apache/arrow" ]]; then
+  # One "<referring package> -> <relocated package>" line per distinct pair, so
+  # the report names the subpackages to fix rather than hundreds of classes.
+  mixed=$(cd "$WORKDIR/unshaded" && grep -raoE \
+    "${SHADE_SLASHES}/org/apache/arrow/[a-zA-Z0-9_$/-]+" org/apache/arrow 2>/dev/null \
+    | sed -E "s#^(.*)/[^/]+\.class:${SHADE_SLASHES}/(.*)/[^/]+\$#\1 -> \2#" \
+    | sort -u || true)
+  if [[ -n "$mixed" ]]; then
+    echo "  FAIL org/apache/arrow/** — unshaded Arrow classes call relocated Arrow:"
+    echo "$mixed" | sed 's/^/    /'
+    failures=$((failures + 1))
+  else
+    echo "  OK   org/apache/arrow/** is not half-relocated"
+  fi
+fi
+
 # Third check: the bundle's Arrow content must match ${arrow.deps.scope}.
 # This is the regression guard for #12737 — if any Arrow dependency ever slips
 # from `provided`/`runtime` back to `compile` on a Spark 4.x profile, the memory
@@ -203,7 +236,8 @@ if (( failures > 0 )); then
   echo "Bundle has $failures Arrow shading/content problem(s)."
   echo "For shading failures, see gluten#12225 and update package/pom.xml's"
   echo "<relocation org.apache.arrow> excludes so every package reachable"
-  echo "from org.apache.arrow.c stays unshaded (memory, vector, util)."
+  echo "from org.apache.arrow.c stays unshaded (memory, vector, util), and so"
+  echo "does every package an unshaded Arrow class calls (e.g. flatbuf)."
   echo "For content failures, see gluten#12737 and check each Arrow"
   echo "dependency's <scope> against \${arrow.deps.scope} for this profile."
   exit 1

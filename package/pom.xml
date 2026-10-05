@@ -143,6 +143,20 @@
                     sites live in the constant pool of the unshaded classes all
                     the same, and there is no unshaded copy to bind to once
                     arrow-memory-core stops being bundled.
+
+                    org.apache.arrow.flatbuf.** must stay unshaded for a
+                    different reason: the unshaded org.apache.arrow.vector.**
+                    above calls into it. Relocating only flatbuf leaves the
+                    bundled arrow-vector half-renamed, e.g.
+                    MessageMetadataResult.getMessage() returns
+                    ${gluten.shade.packageName}.org.apache.arrow.flatbuf.Message.
+                    On Spark 3.x (${arrow.deps.scope} == compile) that copy
+                    shadows Spark's own Arrow, so Spark's ArrowConverters,
+                    compiled against vanilla Arrow, fails with
+                    `NoSuchMethodError`. Keeping every org.apache.arrow
+                    subpackage unshaded keeps the bundled Arrow a faithful
+                    copy. dev/check-arrow-c-shading.sh fails the build if any
+                    unshaded Arrow class references a relocated one.
                   -->
                   <excludes>
                     <exclude>org.apache.arrow.c.*</exclude>
@@ -150,6 +164,7 @@
                     <exclude>org.apache.arrow.memory.**</exclude>
                     <exclude>org.apache.arrow.vector.**</exclude>
                     <exclude>org.apache.arrow.util.**</exclude>
+                    <exclude>org.apache.arrow.flatbuf.**</exclude>
                   </excludes>
                 </relocation>
                 <relocation>
