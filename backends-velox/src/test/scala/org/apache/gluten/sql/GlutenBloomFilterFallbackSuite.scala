@@ -24,8 +24,8 @@ import org.apache.gluten.expression.aggregate.VeloxBloomFilterAggregate
 
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.FunctionIdentifier
+import org.apache.spark.sql.catalyst.catalog.CatalogFunction
 import org.apache.spark.sql.catalyst.expressions.BloomFilterMightContain
-import org.apache.spark.sql.catalyst.expressions.ExpressionInfo
 import org.apache.spark.sql.catalyst.expressions.aggregate.BloomFilterAggregate
 import org.apache.spark.sql.execution.aggregate.{BaseAggregateExec, ObjectHashAggregateExec}
 import org.apache.spark.sql.internal.SQLConf
@@ -59,26 +59,31 @@ class GlutenBloomFilterFallbackSuite extends WholeStageTransformerSuite {
 
   override def beforeAll(): Unit = {
     super.beforeAll()
-    spark.sessionState.functionRegistry.registerFunction(
-      funcIdBloomFilterAgg,
-      new ExpressionInfo(classOf[BloomFilterAggregate].getName, "bloom_filter_agg"),
-      args =>
-        args.size match {
-          case 1 => new BloomFilterAggregate(args(0))
-          case 2 => new BloomFilterAggregate(args(0), args(1))
-          case 3 => new BloomFilterAggregate(args(0), args(1), args(2))
-          case _ => throw new IllegalArgumentException("bloom_filter_agg requires 1-3 arguments")
-        }
+    // Register through SessionCatalog: since Spark 4.2 (SPARK-55964) FunctionRegistry rejects
+    // unqualified identifiers, while SessionCatalog qualifies them on every Spark version.
+    spark.sessionState.catalog.registerFunction(
+      CatalogFunction(funcIdBloomFilterAgg, classOf[BloomFilterAggregate].getName, Seq.empty),
+      overrideIfExists = true,
+      Some(
+        args =>
+          args.size match {
+            case 1 => new BloomFilterAggregate(args(0))
+            case 2 => new BloomFilterAggregate(args(0), args(1))
+            case 3 => new BloomFilterAggregate(args(0), args(1), args(2))
+            case _ =>
+              throw new IllegalArgumentException("bloom_filter_agg requires 1-3 arguments")
+          })
     )
-    spark.sessionState.functionRegistry.registerFunction(
-      funcIdMightContain,
-      new ExpressionInfo(classOf[BloomFilterMightContain].getName, "might_contain"),
-      args => BloomFilterMightContain(args(0), args(1)))
+    spark.sessionState.catalog.registerFunction(
+      CatalogFunction(funcIdMightContain, classOf[BloomFilterMightContain].getName, Seq.empty),
+      overrideIfExists = true,
+      Some(args => BloomFilterMightContain(args(0), args(1)))
+    )
   }
 
   override def afterAll(): Unit = {
-    spark.sessionState.functionRegistry.dropFunction(funcIdBloomFilterAgg)
-    spark.sessionState.functionRegistry.dropFunction(funcIdMightContain)
+    spark.sessionState.catalog.unregisterFunction(funcIdBloomFilterAgg)
+    spark.sessionState.catalog.unregisterFunction(funcIdMightContain)
     super.afterAll()
   }
 

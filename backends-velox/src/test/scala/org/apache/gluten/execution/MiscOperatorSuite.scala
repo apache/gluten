@@ -47,11 +47,11 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
   override def beforeAll(): Unit = {
     super.beforeAll()
     createTPCHNotNullTables()
-    VeloxDummyExpression.registerFunctions(spark.sessionState.functionRegistry)
+    VeloxDummyExpression.registerFunctions(spark.sessionState.catalog)
   }
 
   override def afterAll(): Unit = {
-    VeloxDummyExpression.unregisterFunctions(spark.sessionState.functionRegistry)
+    VeloxDummyExpression.unregisterFunctions(spark.sessionState.catalog)
     super.afterAll()
   }
 
