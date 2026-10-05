@@ -22,10 +22,13 @@ import org.apache.gluten.execution.ProjectExecTransformer
 import org.apache.spark.SparkConf
 import org.apache.spark.SparkException
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.Decimal
 
 class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
 
   disableFallbackCheck
+
+  import testImplicits._
 
   override protected def sparkConf: SparkConf = {
     super.sparkConf
@@ -93,4 +96,27 @@ class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  testWithMinSparkVersion("try_make_timestamp returns NULL for invalid input", "4.0") {
+    withTempPath {
+      path =>
+        Seq((2024, 13, 1, 0, 0, Decimal(0, 18, 6)), (2024, 1, 1, 6, 30, Decimal(45678000, 18, 6)))
+          .toDF("year", "month", "day", "hour", "min", "sec")
+          .write
+          .parquet(path.getCanonicalPath)
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("try_make_timestamp_tbl")
+
+        runQueryAndCompare("""
+                             |select try_make_timestamp(year, month, day, hour, min, sec),
+                             |  try_make_timestamp_ltz(year, month, day, hour, min, sec)
+                             |from try_make_timestamp_tbl
+                             |""".stripMargin) {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+
+        intercept[SparkException] {
+          sql("select make_timestamp(year, month, day, hour, min, sec) from try_make_timestamp_tbl")
+            .collect()
+        }
+    }
+  }
 }
