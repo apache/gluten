@@ -175,10 +175,9 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
     val typeNodes = ConverterUtils.collectAttributeTypeNodes(output)
     val nameList = ConverterUtils.collectAttributeNamesWithoutExprId(output)
     val columnTypeNodes = output.map(makeColumnTypeNode).asJava
-    // Will put all filter expressions into an AND expression
-    val exprNode = filterExprs()
-      .map(ExpressionConverter.replaceAttributeReference)
-      .reduceLeftOption(And)
+    // Substrait's ReadRel has a single filter expression, so put all filters into one AND.
+    val exprNode = FilterHandler
+      .combineConjuncts(filterExprs().map(ExpressionConverter.replaceAttributeReference))
       .map(ExpressionConverter.replaceWithExpressionTransformer(_, output))
       .map(_.doTransform(context))
       .orNull
