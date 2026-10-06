@@ -688,7 +688,7 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
         })
   }
 
-  test("Broadcast fails with Spark's error condition when the table exceeds maxBroadcastTableSize") {
+  test("Broadcast over maxBroadcastTableSize fails with Spark's error condition") {
     withSQLConf("spark.sql.maxBroadcastTableSize" -> "100") {
       val df = spark.range(1000).toDF()
       val ex = intercept[SparkException] {
