@@ -1,6 +1,9 @@
 # Window Functions Support Status
 
-**Out of 9 window functions in Spark 3.5, Gluten currently fully supports 9 functions.**
+**Out of 9 window functions in Spark 4.1, Gluten currently fully supports 9 functions.**
+
+The status applies to `spark.sql.ansi.enabled=false`. When ANSI mode is enabled, Gluten falls back to vanilla Spark
+(see `spark.gluten.sql.ansiFallback.enabled`).
 
 ## Window Functions
 

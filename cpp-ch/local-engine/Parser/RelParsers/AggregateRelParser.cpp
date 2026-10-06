@@ -100,7 +100,7 @@ AggregateRelParser::parse(DB::QueryPlanPtr query_plan, const substrait::Rel & re
     }
 
     /// If the groupings is empty, we still need to return one row with default values even if the input is empty.
-    if ((rel.aggregate().groupings().empty() || rel.aggregate().groupings()[0].grouping_expressions().empty())
+    if ((rel.aggregate().groupings().empty() || rel.aggregate().groupings()[0].expression_references().empty())
         && (has_final_stage || has_complete_stage || rel.aggregate().measures().empty()))
     {
         LOG_TRACE(&Poco::Logger::get("AggregateRelParser"), "default aggregate result step");
@@ -185,8 +185,10 @@ void AggregateRelParser::setup(DB::QueryPlanPtr query_plan, const substrait::Rel
 
     if (aggregate_rel->groupings_size() == 1)
     {
-        for (const auto & expr : aggregate_rel->groupings(0).grouping_expressions())
+        /// Grouping expressions live in the rel-level pool; the grouping references them by index.
+        for (const auto & ref : aggregate_rel->groupings(0).expression_references())
         {
+            const auto & expr = aggregate_rel->grouping_expressions(ref);
             auto field_index = SubstraitParserUtils::getStructFieldIndex(expr);
             if (field_index)
                 grouping_keys.push_back(input_header.getByPosition(*field_index).name);

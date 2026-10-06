@@ -26,7 +26,7 @@ import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression}
 import org.apache.spark.sql.catalyst.plans.{ExistenceJoin, FullOuter, InnerLike, JoinType, LeftAnti, LeftOuter, LeftSemi, RightOuter}
 
 import com.google.protobuf.{Any, DoubleValue, Int32Value, Int64Value, Message, StringValue}
-import io.substrait.proto.{CrossRel, JoinRel, NamedStruct, Type}
+import io.substrait.proto.{JoinRel, NamedStruct, NestedLoopJoinRel, Type}
 
 import java.lang.{Double => JDouble, Long => JLong}
 import java.util.{Collections, List => JList}
@@ -53,20 +53,20 @@ object SubstraitUtil {
       JoinRel.JoinType.UNRECOGNIZED
   }
 
-  def toCrossRelSubstrait(sparkJoin: JoinType): CrossRel.JoinType = sparkJoin match {
+  def toNestedLoopJoinSubstrait(sparkJoin: JoinType): NestedLoopJoinRel.JoinType = sparkJoin match {
     case _: InnerLike =>
-      CrossRel.JoinType.JOIN_TYPE_INNER
+      NestedLoopJoinRel.JoinType.JOIN_TYPE_INNER
     case LeftOuter | RightOuter =>
       // since we always assume build right side in substrait,
       // the left and right relations are exchanged and the
       // join type is reverted.
-      CrossRel.JoinType.JOIN_TYPE_LEFT
+      NestedLoopJoinRel.JoinType.JOIN_TYPE_LEFT
     case LeftSemi | ExistenceJoin(_) =>
-      CrossRel.JoinType.JOIN_TYPE_LEFT_SEMI
+      NestedLoopJoinRel.JoinType.JOIN_TYPE_LEFT_SEMI
     case FullOuter =>
-      CrossRel.JoinType.JOIN_TYPE_OUTER
+      NestedLoopJoinRel.JoinType.JOIN_TYPE_OUTER
     case _ =>
-      CrossRel.JoinType.UNRECOGNIZED
+      NestedLoopJoinRel.JoinType.UNRECOGNIZED
   }
 
   def createEnhancement(output: Seq[Attribute]): com.google.protobuf.Any = {

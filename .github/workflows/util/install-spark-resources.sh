@@ -95,11 +95,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   mkdir -p ${INSTALL_DIR}
 
   case "$1" in
-  3.3)
-      # Spark-3.3
-      cd ${INSTALL_DIR} && \
-      install_spark "3.3.1" "3" "2.12"
-      ;;
   3.4)
       # Spark-3.4
       cd ${INSTALL_DIR} && \
@@ -126,6 +121,13 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
       cd ${INSTALL_DIR} && \
       install_spark "4.1.1" "3" "2.12"
       mv /opt/shims/spark41/spark_home/assembly/target/scala-2.12 /opt/shims/spark41/spark_home/assembly/target/scala-2.13
+      ;;
+  4.2)
+      # Spark-4.x, scala 2.12 // using 2.12 as a hack as 4.2 does not have a 2.13 suffix
+      cd ${INSTALL_DIR} && \
+      install_spark "4.2.0" "3" "2.12"
+      mv "${INSTALL_DIR}/shims/spark42/spark_home/assembly/target/scala-2.12" \
+         "${INSTALL_DIR}/shims/spark42/spark_home/assembly/target/scala-2.13"
       ;;
   *)
       echo "Spark version is expected to be specified."

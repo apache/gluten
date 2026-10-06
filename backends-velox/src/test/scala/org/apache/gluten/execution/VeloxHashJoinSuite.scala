@@ -116,10 +116,7 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
       // The computing is combined into one single whole stage transformer.
       val wholeStages = plan.collect { case wst: WholeStageTransformer => wst }
 
-      if (
-        SparkShimLoader.getSparkVersion.startsWith("3.3.") ||
-        SparkShimLoader.getSparkVersion.startsWith("3.4.")
-      ) {
+      if (SparkShimLoader.getSparkVersion.startsWith("3.4.")) {
         assert(wholeStages.length == 3)
       } else {
         assert(wholeStages.length == 5)
@@ -263,6 +260,41 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
 
             assert(metrics.contains("hashProbeDynamicFiltersProduced"))
             assert(metrics("hashProbeDynamicFiltersProduced").value == 1)
+        }
+      }
+    }
+  }
+
+  test("Hash probe uses build-side bloom filter for left outer join misses") {
+    withSQLConf(
+      "spark.sql.autoBroadcastJoinThreshold" -> "-1",
+      "spark.sql.adaptive.enabled" -> "false",
+      GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key -> "true",
+      VeloxConfig.HASH_PROBE_DYNAMIC_FILTER_PUSHDOWN_ENABLED.key -> "true",
+      VeloxConfig.HASH_PROBE_BLOOM_FILTER_PUSHDOWN_MAX_SIZE.key -> "1TB",
+      VeloxConfig.HASH_PROBE_BLOOM_FILTER_BYPASS_MIN_ROWS.key -> "100",
+      VeloxConfig.HASH_PROBE_BLOOM_FILTER_BYPASS_MIN_PCT.key -> "85"
+    ) {
+      val probe = spark.range(200000).selectExpr("id * 1000 + 1 AS probe_key")
+      val build = spark.range(200000).selectExpr("id * 1000 AS build_key")
+
+      withTempView("probe_table", "build_table") {
+        probe.createOrReplaceTempView("probe_table")
+        build.createOrReplaceTempView("build_table")
+
+        runQueryAndCompare(
+          "SELECT probe_key, build_key FROM probe_table " +
+            "LEFT OUTER JOIN build_table ON probe_key = build_key"
+        ) {
+          df =>
+            val join = df.queryExecution.executedPlan.collectFirst {
+              case shj: ShuffledHashJoinExecTransformer => shj
+            }
+            assert(join.isDefined)
+            val metrics = join.get.metrics
+            assert(metrics("hashProbeBloomFilterTestedRows").value == 200000)
+            assert(metrics("hashProbeBloomFilterAcceptedRows").value < 20000)
+            assert(metrics("hashProbeBloomFilterBypassed").value == 0)
         }
       }
     }

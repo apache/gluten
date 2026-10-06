@@ -40,7 +40,7 @@ public:
 private:
     struct WindowInfo
     {
-        const substrait::WindowRel::Measure * measure = nullptr;
+        const substrait::ConsistentPartitionWindowRel::WindowRelFunction * window_function = nullptr;
         String result_column_name;
         DB::Strings arg_column_names;
         DB::DataTypes arg_column_types;
@@ -69,8 +69,8 @@ private:
     // function may have different window frame in CH and spark.
     DB::WindowDescription parseWindowDescription(const WindowInfo & win_info);
     DB::WindowFrame parseWindowFrame(const WindowInfo & win_info);
-    DB::WindowFrame::FrameType
-    parseWindowFrameType(const std::string & function_name, const substrait::Expression::WindowFunction & window_function);
+    DB::WindowFrame::FrameType parseWindowFrameType(
+        const std::string & function_name, const substrait::ConsistentPartitionWindowRel::WindowRelFunction & window_function);
     static void parseBoundType(
         const substrait::Expression::WindowFunction::Bound & bound,
         bool is_begin_or_end,
@@ -79,12 +79,12 @@ private:
         bool & preceding);
     DB::WindowFunctionDescription parseWindowFunctionDescription(
         const String & ch_function_name,
-        const substrait::Expression::WindowFunction & window_function,
+        const substrait::ConsistentPartitionWindowRel::WindowRelFunction & window_function,
         const DB::Names & arg_names,
         const DB::DataTypes & arg_types,
         const DB::Array & params);
 
-    void initWindowsInfos(const substrait::WindowRel & win_rel);
+    void initWindowsInfos(const substrait::ConsistentPartitionWindowRel & win_rel);
     void tryAddProjectionBeforeWindow();
     void tryAddProjectionAfterWindow();
 };

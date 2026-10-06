@@ -32,6 +32,7 @@ import org.apache.spark.sql.execution.SparkPlan
  */
 class HeuristicApplier(
     session: SparkSession,
+    preBuilders: Seq[ColumnarRuleCall => Rule[SparkPlan]],
     transformBuilders: Seq[ColumnarRuleCall => Rule[SparkPlan]],
     fallbackPolicyBuilders: Seq[ColumnarRuleCall => SparkPlan => Rule[SparkPlan]],
     postBuilders: Seq[ColumnarRuleCall => Rule[SparkPlan]],
@@ -47,10 +48,15 @@ class HeuristicApplier(
 
   private def makeRule(call: ColumnarRuleCall): Rule[SparkPlan] = {
     originalPlan =>
-      val suggestedPlan = transformPlan("transform", transformRules(call), originalPlan)
+      // `rewrittenPlan` (not `originalPlan`) is what `fallbackPolicies` uses as its reference
+      // plan, so a whole-stage fallback reverts to the already-`pre`-rewritten plan instead of
+      // the raw vanilla one. Rules registered here are therefore immune to being reverted away
+      // by whole-stage fallback.
+      val rewrittenPlan = transformPlan("pre", preRules(call), originalPlan)
+      val suggestedPlan = transformPlan("transform", transformRules(call), rewrittenPlan)
       val finalPlan = transformPlan(
         "fallback",
-        fallbackPolicies(call).map(_(originalPlan)),
+        fallbackPolicies(call).map(_(rewrittenPlan)),
         suggestedPlan) match {
         case FallbackNode(fallbackPlan) =>
           // we should use vanilla c2r rather than native c2r,
@@ -72,6 +78,15 @@ class HeuristicApplier(
         rules.map(wrapper)
     }
     new ColumnarRuleExecutor(phase, wrappedRules).execute(plan)
+  }
+
+  /**
+   * Rules applying to the plan before any offload decision is made. Unlike `transformRules`,
+   * `preRules` are consistently baked into the plan that `fallbackPolicies` reverts to on
+   * whole-stage fallback, so their effects cannot be reverted away.
+   */
+  private def preRules(call: ColumnarRuleCall): Seq[Rule[SparkPlan]] = {
+    preBuilders.map(b => b.apply(call))
   }
 
   /**

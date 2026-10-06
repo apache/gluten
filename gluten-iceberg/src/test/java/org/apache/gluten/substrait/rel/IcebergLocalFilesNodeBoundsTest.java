@@ -59,7 +59,9 @@ public class IcebergLocalFilesNodeBoundsTest {
             LocalFilesNode.ReadFileFormat.ParquetReadFormat,
             Collections.emptyList(),
             Collections.singletonList(Collections.singletonList(deleteFile)),
-            Collections.singletonList(Collections.emptyMap()));
+            Collections.singletonList(Collections.emptyMap()),
+            Collections.emptyMap(),
+            Collections.emptyMap());
 
     ReadRel.LocalFiles.FileOrFiles.Builder fileBuilder =
         ReadRel.LocalFiles.FileOrFiles.newBuilder();

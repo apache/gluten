@@ -1,8 +1,7 @@
-<img src="docs/image/gluten-logo.svg" alt="Gluten" width="200">
+<img src="docs/image/gluten-logo.svg" alt="Gluten" width="260">
 
-# Apache Gluten
 
-**A Middle Layer for Offloading JVM-based SQL Engines' Execution to Native Engines**
+**A Middle Layer for Offloading JVM-Based SQL Execution to Native Engines**
 
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/8452/badge)](https://www.bestpractices.dev/projects/8452)
 
@@ -27,7 +26,7 @@ data processing, these engines can outperform Spark’s JVM-based SQL engine. Ho
 
 The basic design principle is to reuse Spark’s control flow, while offloading compute-intensive data processing to the native side. More specifically:
 
-* Transform Spark’s physical plan to Substrait plan, then transform it to native engine's plan.
+* Transform Spark’s physical plan into a Substrait plan, then transform it into the native engine's plan.
 * Offload performance-critical data processing to native engine.
 * Define clear JNI interfaces for native SQL engines.
 * Allow easy switching between available native backends.
@@ -47,7 +46,7 @@ and Spark’s Columnar API (introduced in Spark 3.0) is used during execution. G
 <p align="center">
 <img src="https://user-images.githubusercontent.com/47296334/199617207-1140698a-4d53-462d-9bc7-303d14be060b.png" width="700">
 </p>
-Currently, Gluten supports only ClickHouse and Velox backends. Velox is a C++ database acceleration library which provides reusable, extensible and high-performance data processing components. In addition, Gluten is designed to be extensible,
+Currently, Gluten supports only the ClickHouse and Velox backends. Velox is a C++ database acceleration library that provides reusable, extensible, and high-performance data processing components. In addition, Gluten is designed to be extensible,
 allowing support for additional backends in the future.
 
 Gluten's key components:
@@ -56,7 +55,7 @@ Gluten's key components:
 * **Columnar Shuffle**: Handles shuffling of Gluten's columnar data. The shuffle service of Spark core is reused, while a columnar exchange operator is implemented to support Gluten's columnar data format.
 * **Fallback Mechanism**: Provides fallback to vanilla Spark for unsupported operators. Gluten's ColumnarToRow (C2R) and RowToColumnar (R2C) convert data between Gluten's columnar format and Spark's internal row format to support fallback transitions.
 * **Metrics**: Collected from Gluten native engine to help monitor execution, identify bugs, and diagnose performance bottlenecks. The metrics are displayed in Spark UI.
-* **Shim Layer**: Ensures compatibility with multiple Spark versions. Gluten supports the latest 3–4 Spark releases during its development cycle, and currently supports Spark 3.3, 3.4, 3.5, 4.0, and 4.1.
+* **Shim Layer**: Ensures compatibility with multiple Spark versions. Gluten supports the latest 3–4 Spark releases during its development cycle, and currently supports Spark 3.4, 3.5, 4.0, and 4.1.
 
 ## 3. User Guide
 
@@ -79,7 +78,7 @@ There are two ways to acquire Gluten jar for the above configuration.
 
 ### Use Released JAR
 
-Please download the tar package [here](https://gluten.apache.org/downloads/), then extract Gluten JAR from it.
+Please download the tar package [here](https://gluten.apache.org/downloads/), then extract the Gluten JAR from it.
 Additionally, Gluten provides nightly builds based on the main branch for early testing. The nightly build JARs are available at [Apache Gluten Nightlies](https://nightlies.apache.org/gluten/).
 They have been verified on Centos 7/8/9, Ubuntu 20.04/22.04.
 
@@ -113,7 +112,7 @@ Welcome to contribute to the Gluten project! See [CONTRIBUTING.md](CONTRIBUTING.
 
 ## 6. Community
 
-Gluten successfully became an Apache Incubator project in March 2024 and graduated as an Apache Top-Level Project in March 2026. Here are several ways to connect with the community.
+Here are several ways to connect with the community.
 
 ### GitHub
 
@@ -154,6 +153,60 @@ ClickHouse backend demonstrated an average speedup of 2.12x, with up to 3.48x sp
 
 <sub>Test environment: a 8-nodes AWS cluster with 1TB data, using Spark 3.1.1 as the baseline and with Gluten integrated into the same Spark version.</sub>
 
+### Bolt Backend
+#### Prerequisites
+* Linux operating system
+* GCC 10/11/12 or Clang 16
+* python 3 (virtualenv or Conda) for conan
+
+Linux with kernel version(>5.4) is preferred, since Bolt will enable io-uring when the kernel supports.
+
+if the system gcc version is too older, it is recommended to install GCC from source code:
+```shell
+# run with root privilege
+bash ./dev/install-gcc.sh 12.5.0
+```
+
+Bolt adopts Conan as its package manager. Conan is an open-source, cross-platform package management tool.
+We provide dedicated scripts to assist developers in setting up and installing Bolt's dependencies.
+```shell
+bash ./dev/install-conan.sh
+```
+
+We also provide a Dockerfile to build a Docker image for the **Bolt** backend, it includes all the prerequisites required to build Gluten with Bolt backend.
+```shell
+docker buildx build -t bolt -f dev/docker/Dockerfile.centos8-bolt .
+```
+
+#### Build Bolt Backend
+To install bolt recipe for Gluten:
+```shell
+# Install the recipes of Bolt and its third-party dependencies
+make bolt-recipe
+
+# specific a version of Bolt (release or branch)
+# `main` branch is the default
+make bolt-recipe  BOLT_BUILD_VERSION=main
+```
+
+To build bolt backend:
+```shell
+make release
+
+# or specific the version for Bolt, and the version for Gluten
+make release BOLT_BUILD_VERSION=main GLUTEN_BUILD_VERSION=main
+```
+Note that, the missing third-parties binaries will be built from source for the first time.
+
+To build gluten:
+
+```shell
+# install arrow dependency for gluten
+make arrow
+
+make jar_spark35
+```
+
 ## 8. Qualification Tool
 
 The [Qualification Tool](./tools/qualification-tool/README.md) is a utility to analyze Spark event log files and assess the compatibility and performance of SQL workloads with Gluten. This tool helps users understand how their workloads can benefit from Gluten.
@@ -164,7 +217,8 @@ Gluten is licensed under [Apache License Version 2.0](https://www.apache.org/lic
 
 ## 10. Acknowledgements
 
-Gluten was initiated by Intel and Kyligence in 2022. Several other companies are also actively contributing to its development, including BIGO, Meituan, Alibaba Cloud, NetEase, Baidu, Microsoft, IBM, Google, etc.
+Gluten was initiated by Intel and Kyligence in 2022 and became an Apache Top-Level Project in March 2026.
+Several other companies are also actively contributing to its development, including BIGO, Meituan, Alibaba Cloud, NetEase, Baidu, Microsoft, IBM, Google, and others.
 
 <a href="https://github.com/apache/gluten/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=apache/gluten&columns=25" />

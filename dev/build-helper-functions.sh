@@ -232,8 +232,10 @@ function setup_linux {
   export SIMDJSON_SKIPUTF8VALIDATION=ON
 
   if [[ "$LINUX_DISTRIBUTION" == "ubuntu" || "$LINUX_DISTRIBUTION" == "debian" || "$LINUX_DISTRIBUTION" == "pop" ]]; then
+    source scripts/setup-ubuntu.sh
     scripts/setup-ubuntu.sh
   elif [[ "$LINUX_DISTRIBUTION" == "centos" ]]; then
+    source scripts/setup-centos-adapters.sh 
     case "$LINUX_VERSION_ID" in
     9) scripts/setup-centos9.sh ;;
     8) $GLUTEN_VELOX_SCRIPT_HOME/setup-centos8.sh ;;
@@ -252,6 +254,7 @@ function setup_linux {
   elif [[ "$LINUX_DISTRIBUTION" == "openEuler" ]]; then
     case "$LINUX_VERSION_ID" in
       24.03)
+        source $GLUTEN_VELOX_SCRIPT_HOME/setup-openeuler24.sh
         $GLUTEN_VELOX_SCRIPT_HOME/setup-openeuler24.sh ;;
       *)
         echo "Unsupported openEuler version: $LINUX_VERSION_ID"

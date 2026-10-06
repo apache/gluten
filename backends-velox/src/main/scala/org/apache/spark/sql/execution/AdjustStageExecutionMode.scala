@@ -27,9 +27,9 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.trees.TreeNodeTag
 import org.apache.spark.sql.execution.AdjustStageExecutionMode.{adjustExecutionMode, unsetTag}
 import org.apache.spark.sql.execution.adaptive.{AQEShuffleReadExec, ColumnarAQEShuffleReadExec, ShuffleQueryStageExec}
+import org.apache.spark.sql.execution.joins.BaseJoinExec
 import org.apache.spark.util.SparkTestUtil
 
-// For ShuffleStage, the resource profile is set to ColumnarShuffleExchangeExec.inputColumnarRDD.
 @Experimental
 case class AdjustStageExecutionMode(
     glutenConf: GlutenConfig,
@@ -51,30 +51,22 @@ case class AdjustStageExecutionMode(
   }
 
   private def adjustExecutionModeForGPU(plan: SparkPlan): SparkPlan = {
-    val transformers = plan.collect { case t: WholeStageTransformer => t }
-    if (transformers.isEmpty) {
-      return plan
-    }
-    if (transformers.size > 1) {
-      logWarning(s"Not offloading GPU because multiple WholeStageTransformer exist. Remove tags.")
-      unsetTag(plan, CudfTag.CudfTag)
+    if (!AdjustStageExecutionMode.offloadCuda(plan, glutenConf)) {
+      unsetTag(plan, CudfTag.CudfValidationTag)
       return plan
     }
 
-    val transformer = transformers.head
-    if (transformer.isCudf) {
-      val gpuStageMode = if (SparkTestUtil.isTesting) {
-        // Only unset for transformer.
-        transformer.unsetTagValue(CudfTag.CudfTag)
-        MockGPUStageMode
-      } else {
-        GPUStageMode
+    val gpuStageMode = if (SparkTestUtil.isTesting) {
+      unsetTag(plan, CudfTag.CudfValidationTag)
+      plan.collect { case t: WholeStageTransformer => t }.foreach {
+        _.setTagValue(CudfTag.CudfTestingTag, true)
       }
-
-      adjustExecutionMode(plan, gpuStageMode)
+      MockGPUStageMode
     } else {
-      plan
+      GPUStageMode
     }
+
+    adjustExecutionMode(plan, gpuStageMode)
   }
 }
 
@@ -85,21 +77,21 @@ object AdjustStageExecutionMode extends Logging {
       // TODO: support BroadcastQueryStageExec.
       case aqeShuffleRead @ AQEShuffleReadExec(s @ ShuffleQueryStageExec(_, _, _), _)
           if s.shuffle.isInstanceOf[ColumnarShuffleExchangeExec] =>
-        ColumnarAQEShuffleReadExec(
-          Left(aqeShuffleRead),
-          stageExecutionMode)
+        ColumnarAQEShuffleReadExec(aqeShuffleRead, stageExecutionMode)
       case queryStageExec: ShuffleQueryStageExec
           if queryStageExec.shuffle.isInstanceOf[ColumnarShuffleExchangeExec] =>
-        ColumnarAQEShuffleReadExec(
-          Right(queryStageExec),
-          stageExecutionMode)
+        ColumnarAQEShuffleReadExec(queryStageExec, stageExecutionMode)
       case shuffle: ColumnarShuffleExchangeExec =>
         shuffle
           .copy(mapperStageMode = Some(stageExecutionMode))
           .withNewChildren(Seq(adjustExecutionMode(shuffle.child, stageExecutionMode)))
-      case resizeBatches: VeloxResizeBatchesExec =>
+      case r: VeloxResizeBatchesExec
+          // TODO: This should be removed after merging resize into native shuffle read.
+          // Only change the execution mode for shuffle reader.
+          if r.child.isInstanceOf[ShuffleQueryStageExec] ||
+            r.child.isInstanceOf[AQEShuffleReadExec] =>
         VeloxResizeBatchesExec(
-          adjustExecutionMode(resizeBatches.child, stageExecutionMode),
+          adjustExecutionMode(r.child, stageExecutionMode),
           Some(stageExecutionMode))
       case _ =>
         plan.withNewChildren(plan.children.map(adjustExecutionMode(_, stageExecutionMode)))
@@ -112,5 +104,34 @@ object AdjustStageExecutionMode extends Logging {
         t.unsetTagValue(tag)
       case _ =>
     }
+  }
+
+  def offloadCuda(plan: SparkPlan, glutenConf: GlutenConfig): Boolean = {
+    if (glutenConf.gpuOnlyOffloadJoinStage) {
+      if (!plan.exists(_.isInstanceOf[BaseJoinExec])) {
+        logWarning(s"Not offloading GPU because missing offload condition.")
+        return false
+      }
+    }
+
+    val transformers = plan.collect { case t: WholeStageTransformer => t }
+
+    if (transformers.isEmpty) {
+      logWarning(s"Not offloading GPU because no WholeStageTransformer.")
+      return false
+    }
+
+    if (transformers.size > 1) {
+      // Do not offload GPU if the whole stage is broken down into multiple native pipelines.
+      logWarning(s"Not offloading GPU because multiple WholeStageTransformer exist.")
+      return false
+    }
+
+    if (!transformers.head.offloadCuda) {
+      logWarning(s"Not offloading GPU because WholeStageTransformer is not tagged cudf.")
+      return false
+    }
+
+    true
   }
 }

@@ -1,0 +1,14 @@
+# Flaky-error signatures for the Delta Spark UT (Gluten) gate.
+#
+# Each non-comment line is a Python regex matched (re.search, case-sensitive)
+# against a failed test's JUnit <failure>/<error> text (message + stack). A
+# failure that matches is QUARANTINED by root cause: it never counts as a
+# regression, and is dropped from the shard's failures list so it can't leak
+# into the regenerated baseline -- regardless of WHICH test it landed on.
+#
+# Use this (instead of flaky-tests.txt) when a known nondeterministic bug
+# surfaces on a different test each run, so matching by test name is
+# whack-a-mole. Prefer fixing the underlying bug and REMOVING the entry.
+#
+# There are currently no quarantined error signatures. Add one below when a
+# nondeterministic bug starts landing on a different test each run.

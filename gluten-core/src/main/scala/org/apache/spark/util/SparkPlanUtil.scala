@@ -18,6 +18,7 @@ package org.apache.spark.util
 
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.command.DataWritingCommandExec
+import org.apache.spark.sql.execution.datasources.V1WriteCommand
 import org.apache.spark.sql.internal.SQLConf
 
 object SparkPlanUtil {
@@ -27,14 +28,8 @@ object SparkPlanUtil {
   }
 
   def isPlannedV1Write(plan: DataWritingCommandExec): Boolean = {
-    if (SparkVersionUtil.eqSpark33) {
-      return false
-    }
-
-    val v1WriteCommandClass =
-      Utils.classForName("org.apache.spark.sql.execution.datasources.V1WriteCommand")
     val plannedWriteEnabled =
       SQLConf.get.getConfString("spark.sql.optimizer.plannedWrite.enabled", "true").toBoolean
-    v1WriteCommandClass.isAssignableFrom(plan.cmd.getClass) && plannedWriteEnabled
+    plan.cmd.isInstanceOf[V1WriteCommand] && plannedWriteEnabled
   }
 }

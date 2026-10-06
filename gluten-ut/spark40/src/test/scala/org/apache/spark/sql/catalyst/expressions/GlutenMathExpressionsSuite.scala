@@ -20,6 +20,8 @@ import org.apache.spark.sql.GlutenExpressionOffloadTracker
 import org.apache.spark.sql.catalyst.dsl.expressions._
 import org.apache.spark.sql.types._
 
+import java.nio.charset.StandardCharsets
+
 class GlutenMathExpressionsSuite extends MathExpressionsSuite with GlutenExpressionOffloadTracker {
   override protected def offloadCategory: String = "math"
   testGluten("round/bround/floor/ceil") {
@@ -277,5 +279,23 @@ class GlutenMathExpressionsSuite extends MathExpressionsSuite with GlutenExpress
     checkEvaluation(checkDataTypeAndCast(RoundCeil(Literal(5), Literal(0))), Decimal(5))
     checkEvaluation(checkDataTypeAndCast(RoundCeil(Literal(3.1411), Literal(-3))), Decimal(1000))
     checkEvaluation(checkDataTypeAndCast(RoundCeil(Literal(135.135), Literal(-2))), Decimal(200))
+  }
+
+  testGluten("unhex") {
+    checkEvaluation(Unhex(Literal.create(null, StringType)), null)
+    checkEvaluation(Unhex(Literal("737472696E67")), "string".getBytes(StandardCharsets.UTF_8))
+    checkEvaluation(Unhex(Literal("")), new Array[Byte](0))
+    checkEvaluation(Unhex(Literal("F")), Array[Byte](15))
+    checkEvaluation(Unhex(Literal("ff")), Array[Byte](-1))
+
+//    checkEvaluation(Unhex(Literal("GG")), null)
+    checkEvaluation(Unhex(Literal("123")), Array[Byte](1, 35))
+    checkEvaluation(Unhex(Literal("12345")), Array[Byte](1, 35, 69))
+    // scalastyle:off
+    // Turn off scala style for non-ascii chars
+    checkEvaluation(Unhex(Literal("E4B889E9878DE79A84")), "三重的".getBytes(StandardCharsets.UTF_8))
+//    checkEvaluation(Unhex(Literal("三重的")), null)
+    // scalastyle:on
+    checkConsistencyBetweenInterpretedAndCodegen((e: Expression) => Unhex(e), StringType)
   }
 }

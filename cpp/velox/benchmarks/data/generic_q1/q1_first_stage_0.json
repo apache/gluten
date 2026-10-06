@@ -190,24 +190,28 @@
                                 },
                                 "groupings": [
                                     {
-                                        "groupingExpressions": [
-                                            {
-                                                "selection": {
-                                                    "directReference": {
-                                                        "structField": {}
-                                                    }
-                                                }
-                                            },
-                                            {
-                                                "selection": {
-                                                    "directReference": {
-                                                        "structField": {
-                                                            "field": 1
-                                                        }
-                                                    }
+                                        "expressionReferences": [
+                                            0,
+                                            1
+                                        ]
+                                    }
+                                ],
+                                "groupingExpressions": [
+                                    {
+                                        "selection": {
+                                            "directReference": {
+                                                "structField": {}
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "selection": {
+                                            "directReference": {
+                                                "structField": {
+                                                    "field": 1
                                                 }
                                             }
-                                        ]
+                                        }
                                     }
                                 ]
                             }

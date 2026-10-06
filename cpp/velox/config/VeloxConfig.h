@@ -35,6 +35,7 @@ const std::string kWindowSpillEnabled = "spark.gluten.sql.columnar.backend.velox
 // https://github.com/facebookincubator/velox/blob/95f3e80e77d046c12fbc79dc529366be402e9c2b/velox/docs/configs.rst#spilling
 const std::string kMaxSpillLevel = "spark.gluten.sql.columnar.backend.velox.maxSpillLevel";
 const std::string kMaxSpillFileSize = "spark.gluten.sql.columnar.backend.velox.maxSpillFileSize";
+const std::string kSpillNumMaxMergeFiles = "spark.gluten.sql.columnar.backend.velox.spillNumMaxMergeFiles";
 const std::string kSpillStartPartitionBit = "spark.gluten.sql.columnar.backend.velox.spillStartPartitionBit";
 const std::string kSpillPartitionBits = "spark.gluten.sql.columnar.backend.velox.spillPartitionBits";
 const std::string kMaxSpillRunRows = "spark.gluten.sql.columnar.backend.velox.MaxSpillRunRows";
@@ -84,6 +85,9 @@ const std::string kSparkBloomFilterExpectedNumItems = "spark.sql.optimizer.runti
 const std::string kSparkBloomFilterNumBits = "spark.sql.optimizer.runtime.bloomFilter.numBits";
 const std::string kSparkBloomFilterMaxNumBits = "spark.sql.optimizer.runtime.bloomFilter.maxNumBits";
 const std::string kSparkBloomFilterMaxNumItems = "spark.sql.optimizer.runtime.bloomFilter.maxNumItems";
+const std::string kScanBloomFilterPushdownEnabled =
+    "spark.gluten.sql.columnar.backend.velox.scan.bloomFilterPushdown.enabled";
+const bool kScanBloomFilterPushdownEnabledDefault = false;
 const std::string kVeloxSplitPreloadPerDriver = "spark.gluten.sql.columnar.backend.velox.SplitPreloadPerDriver";
 
 const std::string kHashProbeDynamicFilterPushdownEnabled =
@@ -91,6 +95,14 @@ const std::string kHashProbeDynamicFilterPushdownEnabled =
 
 const std::string kHashProbeBloomFilterPushdownMaxSize =
     "spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilterPushdown.maxSize";
+
+const std::string kHashProbeBloomFilterBypassMinRows =
+    "spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilter.bypassMinRows";
+const int32_t kHashProbeBloomFilterBypassMinRowsDefault = 0;
+
+const std::string kHashProbeBloomFilterBypassMinPct =
+    "spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilter.bypassMinPct";
+const int32_t kHashProbeBloomFilterBypassMinPctDefault = 85;
 
 const std::string kValueStreamDynamicFilterEnabled =
     "spark.gluten.sql.columnar.backend.velox.valueStream.dynamicFilter.enabled";
@@ -126,6 +138,8 @@ const std::string kIcebergConnectorId = "test-iceberg";
 const std::string kVeloxCacheEnabled = "spark.gluten.sql.columnar.backend.velox.cacheEnabled";
 
 const std::string kExprMaxCompiledRegexes = "spark.gluten.sql.columnar.backend.velox.maxCompiledRegexes";
+
+const std::string kDecimalToFloatHighPrecisionCastEnabled = "spark.gluten.velox.decimalToFloatHighPrecisionCastEnabled";
 
 // memory cache
 const std::string kVeloxMemCacheSize = "spark.gluten.sql.columnar.backend.velox.memCacheSize";
@@ -184,8 +198,6 @@ const std::string kMaxCoalescedBytes = "spark.gluten.sql.columnar.backend.velox.
 const std::string kCachePrefetchMinPct = "spark.gluten.sql.columnar.backend.velox.cachePrefetchMinPct";
 const std::string kMemoryPoolCapacityTransferAcrossTasks =
     "spark.gluten.sql.columnar.backend.velox.memoryPoolCapacityTransferAcrossTasks";
-const std::string kOrcForcePositionalEvolution = "spark.gluten.sql.columnar.backend.velox.orcForcePositionalEvolution";
-const std::string kParquetUseColumnNames = "spark.gluten.sql.columnar.backend.velox.parquetUseColumnNames";
 const std::string kAllowInt32Narrowing = "spark.gluten.sql.columnar.backend.velox.allowInt32Narrowing";
 
 // write files

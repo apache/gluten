@@ -31,6 +31,8 @@ import java.util.List;
 import java.util.Map;
 
 public class LocalFilesNode implements SplitInfo {
+  public static final String COLUMN_MAPPING_MODE_METADATA_KEY = "__gluten.column_mapping_mode";
+
   private final Integer index;
   private final List<String> paths = new ArrayList<>();
   private final List<Long> starts = new ArrayList<>();
@@ -55,10 +57,29 @@ public class LocalFilesNode implements SplitInfo {
     UnknownFormat()
   }
 
+  // This is fully aligned with mapping modes defined in Velox: velox/dwio/common/Options.cpp.
+  public enum ColumnMappingMode {
+    POSITION("POSITION"),
+    NAME("NAME"),
+    PARQUET_FIELD_ID("PARQUET_FIELD_ID"),
+    FIELD_ID("FIELD_ID");
+
+    private final String nativeName;
+
+    ColumnMappingMode(String nativeName) {
+      this.nativeName = nativeName;
+    }
+
+    public String nativeName() {
+      return nativeName;
+    }
+  }
+
   protected ReadFileFormat fileFormat = ReadFileFormat.UnknownFormat;
   private Boolean iterAsInput = false;
   private StructType fileSchema;
   private Map<String, String> fileReadProperties;
+  private ColumnMappingMode columnMappingMode;
 
   LocalFilesNode(
       Integer index,
@@ -114,6 +135,7 @@ public class LocalFilesNode implements SplitInfo {
     this.fileReadProperties = other.fileReadProperties;
     this.iterAsInput = other.iterAsInput;
     this.fileSchema = other.fileSchema;
+    this.columnMappingMode = other.columnMappingMode;
     this.otherMetadataColumns.addAll(otherMetadataColumns);
   }
 
@@ -128,6 +150,14 @@ public class LocalFilesNode implements SplitInfo {
 
   public void setFileSchema(StructType schema) {
     this.fileSchema = schema;
+  }
+
+  public void clearFileSchema() {
+    this.fileSchema = null;
+  }
+
+  public void setColumnMappingMode(ColumnMappingMode columnMappingMode) {
+    this.columnMappingMode = columnMappingMode;
   }
 
   private NamedStruct buildNamedStruct() {
@@ -235,6 +265,14 @@ public class LocalFilesNode implements SplitInfo {
                 fileBuilder.addOtherConstMetadataColumns(builder.build());
               });
         }
+      }
+      if (columnMappingMode != null) {
+        ReadRel.LocalFiles.FileOrFiles.otherConstantMetadataColumnValues.Builder builder =
+            ReadRel.LocalFiles.FileOrFiles.otherConstantMetadataColumnValues.newBuilder();
+        builder
+            .setKey(COLUMN_MAPPING_MODE_METADATA_KEY)
+            .setValue(SubstraitUtil.convertJavaObjectToAny(columnMappingMode.nativeName()));
+        fileBuilder.addOtherConstMetadataColumns(builder.build());
       }
 
       switch (fileFormat) {

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "SubstraitToVeloxExpr.h"
 #include "TypeUtils.h"
 #include "compute/VeloxConnectorIds.h"
@@ -68,6 +70,10 @@ struct SplitInfo {
   /// The schema of the table being scanned.
   RowTypePtr tableSchema;
 
+  /// Optional scan-level column mapping mode. Gluten may set this differently
+  /// for different scans or partitions in the same Velox QueryCtx.
+  std::optional<dwio::common::ColumnMappingMode> columnMappingMode;
+
   /// Make SplitInfo polymorphic
   virtual ~SplitInfo() = default;
 
@@ -104,8 +110,8 @@ class SubstraitToVeloxPlanConverter {
   /// Used to convert Substrait GenerateRel into Velox PlanNode.
   core::PlanNodePtr toVeloxPlan(const ::substrait::GenerateRel& generateRel);
 
-  /// Used to convert Substrait WindowRel into Velox PlanNode.
-  core::PlanNodePtr toVeloxPlan(const ::substrait::WindowRel& windowRel);
+  /// Used to convert Substrait ConsistentPartitionWindowRel into Velox PlanNode.
+  core::PlanNodePtr toVeloxPlan(const ::substrait::ConsistentPartitionWindowRel& windowRel);
 
   /// Used to convert Substrait WindowGroupLimitRel into Velox PlanNode.
   core::PlanNodePtr toVeloxPlan(const ::substrait::WindowGroupLimitRel& windowGroupLimitRel);
@@ -116,8 +122,8 @@ class SubstraitToVeloxPlanConverter {
   /// Used to convert Substrait JoinRel into Velox PlanNode.
   core::PlanNodePtr toVeloxPlan(const ::substrait::JoinRel& joinRel);
 
-  /// Used to convert Substrait CrossRel into Velox PlanNode.
-  core::PlanNodePtr toVeloxPlan(const ::substrait::CrossRel& crossRel);
+  /// Used to convert Substrait NestedLoopJoinRel into Velox PlanNode.
+  core::PlanNodePtr toVeloxPlan(const ::substrait::NestedLoopJoinRel& nestedLoopJoinRel);
 
   /// Used to convert Substrait AggregateRel into Velox PlanNode.
   core::PlanNodePtr toVeloxPlan(const ::substrait::AggregateRel& aggRel);
@@ -277,7 +283,7 @@ class SubstraitToVeloxPlanConverter {
   const core::WindowNode::Frame createWindowFrame(
       const ::substrait::Expression_WindowFunction_Bound& lower_bound,
       const ::substrait::Expression_WindowFunction_Bound& upper_bound,
-      const ::substrait::WindowType& type,
+      const ::substrait::Expression_WindowFunction_BoundsType& type,
       const RowTypePtr& inputType);
 
   /// The unique identification for each PlanNode.

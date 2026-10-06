@@ -569,7 +569,7 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  testWithMinSparkVersion("read as timestamp_ntz", "3.4") {
+  test("read as timestamp_ntz") {
     val inputs: Seq[String] = Seq(
       "1970-01-01",
       "1970-01-01 00:00:00-02:00",
@@ -610,6 +610,109 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
         // second(timestamp_ntz) runs natively; output is int (no NTZ propagation).
         runQueryAndCompare("select second(ts) from view") {
           checkGlutenPlan[ProjectExecTransformer]
+        }
+        // timestampadd(timestamp_ntz) runs natively; output stays timestamp_ntz.
+        runQueryAndCompare("select timestampadd(hour, 1, ts) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        // convert_timezone(timestamp_ntz) runs natively; output stays timestamp_ntz.
+        runQueryAndCompare("select convert_timezone('America/Los_Angeles', ts) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        runQueryAndCompare(
+          "select convert_timezone('America/Los_Angeles', 'Asia/Shanghai', ts) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+
+        // cast(timestamp_ntz as timestamp)
+        runQueryAndCompare("select cast(ts as timestamp) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+
+        // cast(timestamp_ntz as date)
+        runQueryAndCompare("select cast(ts as date) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+
+        // cast(timestamp_ntz as string)
+        runQueryAndCompare("select cast(ts as string) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+
+        withSQLConf("spark.sql.session.timeZone" -> "Asia/Hong_Kong") {
+          val dstPath = dir.getAbsolutePath + "/dst_gap"
+          spark
+            .createDataset(Seq("1941-12-25 00:00:00"))
+            .toDF("input")
+            .selectExpr("cast(input as timestamp_ntz) as ts")
+            .coalesce(1)
+            .write
+            .mode("overwrite")
+            .parquet(dstPath)
+          spark.read.parquet(dstPath).createOrReplaceTempView("dst_gap_view")
+          runQueryAndCompare("select cast(ts as timestamp) from dst_gap_view") {
+            checkGlutenPlan[ProjectExecTransformer]
+          }
+        }
+    }
+
+    withTempPath {
+      dir =>
+        val path = dir.getAbsolutePath
+        spark
+          .createDataset(inputs)
+          .toDF("input")
+          .selectExpr("cast(input as timestamp) as ts")
+          .coalesce(1)
+          .write
+          .mode("overwrite")
+          .parquet(path)
+        spark.read.parquet(path).createOrReplaceTempView("ts_view")
+
+        // cast(timestamp as timestamp_ntz)
+        runQueryAndCompare("select cast(ts as timestamp_ntz) from ts_view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+
+        withSQLConf("spark.sql.session.timeZone" -> "UTC") {
+          runQueryAndCompare("select cast(ts as timestamp_ntz) from ts_view") {
+            checkGlutenPlan[ProjectExecTransformer]
+          }
+        }
+
+        val strPath = dir.getAbsolutePath + "/str_view"
+        spark
+          .createDataset(inputs)
+          .toDF("str")
+          .coalesce(1)
+          .write
+          .mode("overwrite")
+          .parquet(strPath)
+        spark.read.parquet(strPath).createOrReplaceTempView("str_view")
+
+        // cast(varchar as timestamp_ntz)
+        runQueryAndCompare("select cast(str as timestamp_ntz) from str_view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+
+        val datePath = dir.getAbsolutePath + "/date_view"
+        Seq(
+          java.sql.Date.valueOf("1969-12-31"),
+          java.sql.Date.valueOf("1970-01-01"),
+          java.sql.Date.valueOf("2000-01-01")
+        ).toDF("d").coalesce(1).write.mode("overwrite").parquet(datePath)
+        spark.read.parquet(datePath).createOrReplaceTempView("date_view")
+
+        // cast(date as timestamp_ntz)
+        runQueryAndCompare("select cast(d as timestamp_ntz) from date_view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+
+        // Ensure native execution works under a non-UTC session timezone.
+        withSQLConf("spark.sql.session.timeZone" -> "America/Los_Angeles") {
+          runQueryAndCompare("select cast(d as timestamp_ntz) from date_view") {
+            checkGlutenPlan[ProjectExecTransformer]
+          }
         }
     }
   }

@@ -16,19 +16,28 @@
  */
 package org.apache.gluten.memory.memtarget;
 
-import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
+import com.google.common.annotations.VisibleForTesting;
+
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class MemoryTargetUtil {
   private MemoryTargetUtil() {}
 
-  private static final Map<String, Integer> UNIQUE_NAME_LOOKUP = new ConcurrentHashMap<>();
+  // One sequence shared by every name. The suffix only has to make the name unique, since
+  // TreeMemoryConsumer#newChild keys siblings by name and rejects a collision, and a shared
+  // sequence does that while holding no per-name state. Callers pass names that are not drawn from
+  // a fixed set, so a counter per name accumulated an entry per distinct name for the lifetime of
+  // the JVM.
+  private static final AtomicLong SEQUENCE = new AtomicLong(0L);
 
   public static String toUniqueName(String name) {
-    int nextId =
-        UNIQUE_NAME_LOOKUP.compute(
-            name, (s, integer) -> Optional.ofNullable(integer).map(id -> id + 1).orElse(0));
-    return String.format("%s.%d", name, nextId);
+    return name + "." + SEQUENCE.getAndIncrement();
+  }
+
+  // Lets a test assert that naming holds no state beyond this counter. Not for production use;
+  // @VisibleForTesting flags any accidental same-package caller.
+  @VisibleForTesting
+  static long sequenceForTesting() {
+    return SEQUENCE.get();
   }
 }

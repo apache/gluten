@@ -171,4 +171,24 @@ class GlutenHiveSQLQuerySuite extends GlutenHiveSQLQuerySuiteBase {
       }
     }
   }
+
+  testGluten("avoid unnecessary filter binding for subfield during scan") {
+    withSQLConf(
+      "spark.sql.hive.convertMetastoreParquet" -> "false") {
+      sql("DROP TABLE IF EXISTS test_subfield")
+      sql(
+        "CREATE TABLE test_subfield (name STRING, favorite_color STRING," +
+          " label STRUCT<label_1:STRING, label_2:STRING>) USING hive OPTIONS(fileFormat 'parquet')")
+      sql(
+        "INSERT INTO test_subfield VALUES('test_1', 'red', named_struct('label_1', 'label-a'," +
+          "'label_2', 'label-b'))")
+      val df = spark.sql("select * from test_subfield where name='test_1'")
+      checkAnswer(df, Seq(Row("test_1", "red", Row("label-a", "label-b"))))
+      checkOperatorMatch[HiveTableScanExecTransformer](df)
+    }
+    spark.sessionState.catalog.dropTable(
+      TableIdentifier("test_subfield"),
+      ignoreIfNotExists = true,
+      purge = false)
+  }
 }

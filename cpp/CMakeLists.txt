@@ -13,6 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+if(ENABLE_BOLT)
+  include(bolt.CMakeLists.cmake)
+  return()
+endif()
+
 cmake_minimum_required(VERSION 3.16)
 message(STATUS "Building using CMake version: ${CMAKE_VERSION}")
 
@@ -23,6 +28,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # from the current scope https://cmake.org/cmake/help/latest/policy/CMP0126.html
 if(POLICY CMP0126)
   cmake_policy(SET CMP0126 NEW)
+endif()
+
+if(POLICY CMP0069)
+  cmake_policy(SET CMP0069 NEW)
 endif()
 
 if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
@@ -42,6 +51,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS
 
 project(gluten)
 
+include(CheckIPOSupported)
+
 option(BUILD_VELOX_BACKEND "Build Velox backend" ON)
 option(BUILD_TESTS "Build Tests" OFF)
 option(BUILD_EXAMPLES "Build Examples" OFF)
@@ -57,6 +68,7 @@ option(ENABLE_ORC "Enable ORC" OFF)
 option(ENABLE_ABFS "Enable ABFS" OFF)
 option(ENABLE_GPU "Enable GPU" OFF)
 option(ENABLE_ENHANCED_FEATURES "Enable enhanced features" OFF)
+option(ENABLE_LTO "Enable IPO/LTO" OFF)
 
 set(root_directory ${PROJECT_BINARY_DIR})
 get_filename_component(GLUTEN_HOME ${CMAKE_SOURCE_DIR} DIRECTORY)
@@ -68,6 +80,7 @@ endif()
 
 set(GLUTEN_PREFIX_INCLUDE_DIRS)
 if(CMAKE_INSTALL_PREFIX
+   AND NOT ENABLE_GLUTEN_VCPKG
    AND NOT CMAKE_INSTALL_PREFIX STREQUAL "/usr/local"
    AND IS_DIRECTORY "${CMAKE_INSTALL_PREFIX}/include")
   list(APPEND GLUTEN_PREFIX_INCLUDE_DIRS "${CMAKE_INSTALL_PREFIX}/include")
@@ -179,6 +192,23 @@ endif()
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SCRIPT_CXX_FLAGS}")
 
+if(ENABLE_LTO)
+  check_ipo_supported(
+    RESULT GLUTEN_IPO_SUPPORTED
+    OUTPUT GLUTEN_IPO_ERROR
+    LANGUAGES CXX)
+  if(NOT GLUTEN_IPO_SUPPORTED)
+    message(
+      FATAL_ERROR
+        "ENABLE_LTO requested, but IPO/LTO is not supported: ${GLUTEN_IPO_ERROR}"
+    )
+  endif()
+
+  set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+
+  message(STATUS "ENABLE_LTO enabled for ${CMAKE_BUILD_TYPE} builds")
+endif()
+
 #
 # Dependencies
 #
@@ -218,7 +248,7 @@ function(ADD_TEST_CASE TEST_NAME)
   endif()
 
   add_executable(${TEST_NAME} ${SOURCES})
-  target_link_libraries(${TEST_NAME} gluten google::glog GTest::gtest
+  target_link_libraries(${TEST_NAME} gluten glog::glog GTest::gtest
                         GTest::gtest_main Threads::Threads)
   target_include_directories(${TEST_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/core)
 

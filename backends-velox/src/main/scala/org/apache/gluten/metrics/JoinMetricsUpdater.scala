@@ -101,6 +101,9 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
     metrics("hashProbeDynamicFiltersProduced")
 
   val bloomFilterBlocksByteSize: SQLMetric = metrics("bloomFilterBlocksByteSize")
+  val hashProbeBloomFilterTestedRows: SQLMetric = metrics("hashProbeBloomFilterTestedRows")
+  val hashProbeBloomFilterAcceptedRows: SQLMetric = metrics("hashProbeBloomFilterAcceptedRows")
+  val hashProbeBloomFilterBypassed: SQLMetric = metrics("hashProbeBloomFilterBypassed")
 
   val streamPreProjectionCpuCount: SQLMetric = metrics("streamPreProjectionCpuCount")
   val streamPreProjectionWallNanos: SQLMetric = metrics("streamPreProjectionWallNanos")
@@ -129,6 +132,9 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
     hashProbeSpilledPartitions += hashProbeMetrics.spilledPartitions
     hashProbeSpilledFiles += hashProbeMetrics.spilledFiles
     hashProbeReplacedWithDynamicFilterRows += hashProbeMetrics.numReplacedWithDynamicFilterRows
+    hashProbeBloomFilterTestedRows += hashProbeMetrics.bloomFilterTestedRows
+    hashProbeBloomFilterAcceptedRows += hashProbeMetrics.bloomFilterAcceptedRows
+    hashProbeBloomFilterBypassed += hashProbeMetrics.bloomFilterBypassed
 
     // Only skip these metrics when this join actually reuses a pre-built serialized
     // hash table from driver-side build. Fallbacks still build on executors and

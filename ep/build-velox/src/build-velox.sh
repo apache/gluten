@@ -28,6 +28,8 @@ ENABLE_HDFS=OFF
 ENABLE_ABFS=OFF
 # Enable GPU support
 ENABLE_GPU=OFF
+# Enable LTO/IPO support.
+ENABLE_LTO=OFF
 # CMake build type for Velox.
 BUILD_TYPE=release
 # May be deprecated in Gluten build.
@@ -68,6 +70,10 @@ for arg in "$@"; do
     ;;
   --enable_gpu=*)
     ENABLE_GPU=("${arg#*=}")
+    shift # Remove argument name from processing
+    ;;
+  --enable_lto=*)
+    ENABLE_LTO=("${arg#*=}")
     shift # Remove argument name from processing
     ;;
   --build_type=*)
@@ -114,7 +120,7 @@ function compile {
     -Wno-error=uninitialized -Wno-unknown-warning-option -Wno-deprecated-declarations'
   if [[ "$(uname)" == "Darwin" ]]; then
     CXX_FLAGS="$CXX_FLAGS -Wno-inconsistent-missing-override -Wno-macro-redefined"
-    if [[ -n "${INSTALL_PREFIX:-}" && "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]]; then
+    if [[ -z "${GLUTEN_VCPKG_ENABLED:-}" && -n "${INSTALL_PREFIX:-}" && "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]]; then
       # Add the dependency prefix as a system include: this finds deps that only
       # publish loose headers (e.g. xsimd) and demotes warnings in vendored
       # dependency headers (abseil's __is_trivially_relocatable, arrow's vendored
@@ -128,7 +134,10 @@ function compile {
       -DVELOX_MONO_LIBRARY=ON -DVELOX_BUILD_RUNNER=OFF -DVELOX_SIMDJSON_SKIPUTF8VALIDATION=ON \
       -DVELOX_ENABLE_GEO=OFF"
   if [ -n "${INSTALL_PREFIX:-}" ]; then
-    COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_PREFIX_PATH=${INSTALL_PREFIX} -DCMAKE_INSTALL_PREFIX=${INSTALL_PREFIX}"
+    COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_INSTALL_PREFIX=${INSTALL_PREFIX}"
+    if [ -z "${GLUTEN_VCPKG_ENABLED:-}" ]; then
+      COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_PREFIX_PATH=${INSTALL_PREFIX}"
+    fi
   fi
   if [[ "$(uname)" == "Darwin" && -n "${INSTALL_PREFIX:-}" && "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]]; then
     COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_IGNORE_PREFIX_PATH=/usr/local"
@@ -138,6 +147,9 @@ function compile {
     # at /opt/homebrew/lib/cmake/fmt/ wins the AUTO find_package probe ahead of
     # INSTALL_PREFIX, producing a version mismatch. BUNDLED skips find_package.
     COMPILE_OPTION="$COMPILE_OPTION -Dfmt_SOURCE=BUNDLED"
+  fi
+  if [ $ENABLE_LTO == "ON" ]; then
+    COMPILE_OPTION="$COMPILE_OPTION -DVELOX_ENABLE_LTO=ON"
   fi
   if [ $BUILD_TEST_UTILS == "ON" ]; then
     COMPILE_OPTION="$COMPILE_OPTION -DVELOX_BUILD_TEST_UTILS=ON"
@@ -168,9 +180,16 @@ function compile {
     echo "enable GPU support."
     COMPILE_OPTION="$COMPILE_OPTION -DVELOX_ENABLE_CUDF=ON -DCMAKE_CUDA_ARCHITECTURES=75 \
         -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc"
+    # TODO: Remove once cudf builds with CUDA 13.1. cudf 26.10 (Velox pin 456580f)
+    # made cudf::ast::literal::ast_scalar a private nested struct, and nvcc 13.1 +
+    # gcc 14 wrongly rejects join/filter_join_indices/filter_join_indices.cu with
+    # "'struct cudf::ast::literal::ast_scalar' is private within this context".
+    # Velox CI does not hit this because its adapters image ships CUDA 12.9.
+    COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_CUDA_FLAGS=-Xcompiler=-fno-access-control"
   fi
   if [ -n "${GLUTEN_VCPKG_ENABLED:-}" ]; then
     COMPILE_OPTION="$COMPILE_OPTION -DVELOX_GFLAGS_TYPE=static"
+    COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=OFF"
   fi
 
   COMPILE_OPTION="$COMPILE_OPTION -DCMAKE_BUILD_TYPE=${BUILD_TYPE}"
@@ -183,8 +202,14 @@ function compile {
   fi
   echo "NUM_THREADS_OPTS: $NUM_THREADS_OPTS"
 
-  export simdjson_SOURCE=AUTO
-  export Arrow_SOURCE=AUTO
+  if [ -n "${GLUTEN_VCPKG_ENABLED:-}" ]; then
+    export VELOX_DEPENDENCY_SOURCE=SYSTEM
+    export simdjson_SOURCE=SYSTEM
+    export Arrow_SOURCE=SYSTEM
+  else
+    export simdjson_SOURCE=AUTO
+    export Arrow_SOURCE=AUTO
+  fi
   if [ $ARCH == 'x86_64' ]; then
     make $COMPILE_TYPE $NUM_THREADS_OPTS EXTRA_CMAKE_FLAGS="${COMPILE_OPTION}"
   elif [[ "$ARCH" == 'arm64' || "$ARCH" == 'aarch64' || "$ARCH" == "ppc64le" ]]; then
@@ -246,6 +271,7 @@ echo "ENABLE_GCS=${ENABLE_GCS}"
 echo "ENABLE_HDFS=${ENABLE_HDFS}"
 echo "ENABLE_ABFS=${ENABLE_ABFS}"
 echo "ENABLE_GPU=${ENABLE_GPU}"
+echo "ENABLE_LTO=${ENABLE_LTO}"
 echo "BUILD_TYPE=${BUILD_TYPE}"
 
 cd ${VELOX_HOME}

@@ -29,7 +29,12 @@ export VCPKG="$SCRIPT_ROOT/.vcpkg/vcpkg"
 export VCPKG_TRIPLET=$([ "${CPU_TARGET:-}" = "aarch64" ] && echo "arm64-linux-neon" || echo "x64-linux-avx")
 export VCPKG_TRIPLET_INSTALL_DIR=${SCRIPT_ROOT}/vcpkg_installed/${VCPKG_TRIPLET}
 
-${SCRIPT_ROOT}/init.sh "$@"
+unset PKG_CONFIG_PATH
+export PKG_CONFIG_LIBDIR=${VCPKG_TRIPLET_INSTALL_DIR}/lib/pkgconfig:${VCPKG_TRIPLET_INSTALL_DIR}/share/pkgconfig
+
+if [ "${1:-}" != "--skip-install" ]; then
+    ${SCRIPT_ROOT}/init.sh "$@"
+fi
 
 if [ "${GLUTEN_VCPKG_ENABLED:-}" != "${VCPKG_ROOT}" ]; then
     EXPORT_TOOLS_PATH="${VCPKG_TRIPLET_INSTALL_DIR}/tools/protobuf"
@@ -45,9 +50,7 @@ if [ "${GLUTEN_VCPKG_ENABLED:-}" != "${VCPKG_ROOT}" ]; then
     export VCPKG_ROOT=${VCPKG_ROOT}
     export VCPKG_MANIFEST_DIR=${SCRIPT_ROOT}
     export VCPKG_TRIPLET=${VCPKG_TRIPLET}
-
     export CMAKE_TOOLCHAIN_FILE=${SCRIPT_ROOT}/toolchain.cmake
-    export PKG_CONFIG_PATH=${VCPKG_TRIPLET_INSTALL_DIR}/lib/pkgconfig:${VCPKG_TRIPLET_INSTALL_DIR}/share/pkgconfig:${PKG_CONFIG_PATH:-}
     export PATH="${EXPORT_TOOLS_PATH}:$PATH"
 
     export GLUTEN_VCPKG_ENABLED=${VCPKG_ROOT}

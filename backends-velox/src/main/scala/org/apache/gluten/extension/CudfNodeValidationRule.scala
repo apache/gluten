@@ -58,16 +58,16 @@ object CudfNodeValidationRule {
           transformer.foreach {
             case _: LeafTransformSupport =>
             case t: TransformSupport =>
-              t.setTagValue(CudfTag.CudfTag, true)
+              t.setTagValue(CudfTag.CudfValidationTag, true)
             case _ =>
           }
-          transformer.setTagValue(CudfTag.CudfTag, true)
+          transformer.setTagValue(CudfTag.CudfValidationTag, true)
         }
       } else {
-        transformer.setTagValue(CudfTag.CudfTag, !hasLeaf)
+        transformer.setTagValue(CudfTag.CudfValidationTag, !hasLeaf)
       }
     } else {
-      transformer.setTagValue(CudfTag.CudfTag, true)
+      transformer.setTagValue(CudfTag.CudfValidationTag, true)
     }
   }
 }

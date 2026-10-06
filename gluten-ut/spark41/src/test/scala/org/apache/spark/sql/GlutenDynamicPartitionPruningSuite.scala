@@ -711,3 +711,38 @@ class GlutenDynamicPartitionPruningV2SuiteAEOffDisableScan
     super.sparkConf.set(GlutenConfig.COLUMNAR_BATCHSCAN_ENABLED.key, "false")
   }
 }
+
+// Test DPP with project disabled by user for some reason, which can also mock the situation
+// that project is not transformable.
+class GlutenDynamicPartitionPruningV1SuiteAEOffWSCGOnDisableProject
+  extends GlutenDynamicPartitionPruningV2SuiteAEOff {
+  override def sparkConf: SparkConf = {
+    super.sparkConf.set(GlutenConfig.COLUMNAR_PROJECT_ENABLED.key, "false")
+  }
+}
+
+// Same as above except whole-stage codegen is off.
+class GlutenDynamicPartitionPruningV1SuiteAEOffWSCGOffDisableProject
+  extends GlutenDynamicPartitionPruningV2SuiteAEOff {
+  override def sparkConf: SparkConf = {
+    super.sparkConf
+      .set(GlutenConfig.COLUMNAR_PROJECT_ENABLED.key, "false")
+      .set(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key, "false")
+  }
+}
+
+class GlutenDynamicPartitionPruningV2SuiteAEOffWSCGOnDisableProject
+  extends GlutenDynamicPartitionPruningV2SuiteAEOff {
+  override def sparkConf: SparkConf = {
+    super.sparkConf.set(GlutenConfig.COLUMNAR_PROJECT_ENABLED.key, "false")
+  }
+}
+
+class GlutenDynamicPartitionPruningV2SuiteAEOffWSCGOffDisableProject
+  extends GlutenDynamicPartitionPruningV2SuiteAEOff {
+  override def sparkConf: SparkConf = {
+    super.sparkConf
+      .set(GlutenConfig.COLUMNAR_PROJECT_ENABLED.key, "false")
+      .set(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key, "false")
+  }
+}

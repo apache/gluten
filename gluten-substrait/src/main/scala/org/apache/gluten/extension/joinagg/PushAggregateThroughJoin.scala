@@ -91,12 +91,12 @@ case class PushAggregateThroughJoin(spark: SparkSession)
             !hasDistinctAggExpr(agg.aggregateExpressions) =>
         // 1) Aggregate+Join => FinalWrapperAgg(PartialWrapperAgg(...Join...))
         splitAggregate(agg) match {
-          case Some(newAgg) =>
+          case Some((finalAgg, lowerPartialAgg)) =>
             splitCount += 1
             // 2) Exhaustively push PartialWrapperAgg through join edges.
-            val pushed = pushPartialWrapperAggregate(newAgg)
+            val pushed = pushPartialWrapperAggregate(lowerPartialAgg)
             // 3) Return rewritten plan with pushed partial wrapper aggregates.
-            pushed
+            finalAgg.copy(child = pushed)
           case None => agg
         }
     }
@@ -113,7 +113,10 @@ case class PushAggregateThroughJoin(spark: SparkSession)
 
   private def maxDepth: Int = GlutenConfig.get.pushAggregateThroughJoinMaxDepth
 
-  private def splitAggregate(agg: Aggregate): Option[Aggregate] = {
+  private def partialMergeEnabled: Boolean =
+    GlutenConfig.get.pushAggregateThroughJoinPartialMergeEnabled
+
+  private def splitAggregate(agg: Aggregate): Option[(Aggregate, Aggregate)] = {
     // Split is intentionally child-agnostic. It only rewrites:
     //
     //   Aggregate(resultExprs, child)
@@ -166,29 +169,30 @@ case class PushAggregateThroughJoin(spark: SparkSession)
 
       rewriteAggregateExpressions(agg.aggregateExpressions, partialRefs).map {
         rewrittenAggExprs =>
-          agg.copy(
-            aggregateExpressions = rewrittenAggExprs,
-            child = partialAgg
-          )
+          (agg.copy(aggregateExpressions = rewrittenAggExprs, child = partialAgg), partialAgg)
       }
     }
   }
 
-  private def pushPartialWrapperAggregate(agg: Aggregate): LogicalPlan = {
+  private def pushPartialWrapperAggregate(lowerPartialAgg: Aggregate): LogicalPlan = {
     // Push one join edge per iteration. This keeps the rewrite local and lets `maxDepth` bound
     // how far a pushed aggregate is allowed to travel through a multi-join subtree.
-    var current: LogicalPlan = agg
+    var current: LogicalPlan = lowerPartialAgg
     var changed = true
     var pushCount = 0
     while (changed && pushCount < maxDepth) {
       changed = false
       current = current.transformUp {
         case partialAgg: Aggregate if isPurePartialWrapperAggregate(partialAgg) =>
-          pushOnce(
-            partialAgg,
-            partialAgg.groupingExpressions,
-            partialAgg.aggregateExpressions,
-            partialAgg.child) match {
+          val pushed = if (partialMergeEnabled) {
+            val (partialMergeAgg, freshLowerPartialAgg) = splitPartialAggregateForMerge(partialAgg)
+            pushOnce(freshLowerPartialAgg).map {
+              pushedPlan => partialMergeAgg.copy(child = pushedPlan)
+            }
+          } else {
+            pushOnce(partialAgg)
+          }
+          pushed match {
             case Some(newPlan) =>
               pushCount += 1
               changed = true
@@ -202,22 +206,17 @@ case class PushAggregateThroughJoin(spark: SparkSession)
     current
   }
 
-  private def pushOnce(
-      partialAgg: Aggregate,
-      groupingExprs: Seq[Expression],
-      aggExprs: Seq[NamedExpression],
-      child: LogicalPlan): Option[LogicalPlan] = {
-    extractJoin(child).flatMap {
+  private def pushOnce(partialAgg: Aggregate): Option[LogicalPlan] = {
+    extractJoin(partialAgg.child).flatMap {
       case (join, wrapperRequiredAttrs, rebuild) =>
         Seq(JoinLeft, JoinRight).iterator
           .flatMap {
             side =>
               val maybePushedJoin =
-                pushPartialAggToJoinSide(join, groupingExprs, aggExprs, wrapperRequiredAttrs, side)
+                pushPartialAggToJoinSide(partialAgg, join, wrapperRequiredAttrs, side)
               maybePushedJoin match {
                 case Some(pushedJoin) =>
-                  val requiredAttrs = partialAgg.output.collect { case a: Attribute => a }
-                  Some(rebuild(pushedJoin, requiredAttrs))
+                  Some(rebuild(pushedJoin, partialAgg.output.collect { case a: Attribute => a }))
                 case None => None
               }
           }
@@ -227,9 +226,8 @@ case class PushAggregateThroughJoin(spark: SparkSession)
   }
 
   private def pushPartialAggToJoinSide(
+      partialAgg: Aggregate,
       join: Join,
-      groupingExprs: Seq[Expression],
-      aggExprs: Seq[NamedExpression],
       wrapperRequiredAttrs: Seq[Attribute],
       side: JoinSide): Option[Join] = {
     // A pushed wrapper aggregate may move to a join side only when all of its aggregate inputs
@@ -242,7 +240,7 @@ case class PushAggregateThroughJoin(spark: SparkSession)
     //
     // The pushed grouping must *not* include pure measure inputs of the pushed aggregate such as
     // `ss_net_profit`, otherwise the pre-aggregation becomes over-constrained and ineffective.
-    val wrapperAliases = collectPartialWrapperAliases(aggExprs)
+    val wrapperAliases = collectPartialWrapperAliases(partialAgg.aggregateExpressions)
     if (wrapperAliases.isEmpty) {
       return None
     }
@@ -255,7 +253,7 @@ case class PushAggregateThroughJoin(spark: SparkSession)
       return None
     }
 
-    val sideGroupingAttrs = groupingExprs
+    val sideGroupingAttrs = partialAgg.groupingExpressions
       .flatMap(referencedAttrsInOrder)
       .collect { case a: Attribute if sideOutputSet.contains(a) => a }
     val sideJoinKeys = join.condition.toSeq.flatMap(splitConjunctivePredicates).collect {
@@ -273,7 +271,7 @@ case class PushAggregateThroughJoin(spark: SparkSession)
     // These attrs belong to aggregate subexpressions that stay above the pushed aggregate. They
     // must survive subtree rebuild, but they are not themselves proof that the pushed aggregate
     // needs to group by those measures.
-    val sideNonPushableAggAttrs = dedupeAttrs(aggExprs.flatMap {
+    val sideNonPushableAggAttrs = dedupeAttrs(partialAgg.aggregateExpressions.flatMap {
       case Alias(expr, _) if !isPushableExpr(expr) && !containsWrapperAggregateExpr(expr) =>
         referencedAttrsInOrder(expr).collect {
           case a: Attribute if sideOutputSet.contains(a) => a
@@ -312,18 +310,8 @@ case class PushAggregateThroughJoin(spark: SparkSession)
       return None
     }
 
-    val pushedWrapperAliases = wrapperAliases.map {
-      case (alias, wrapper) =>
-        val wrapped = JoinAggregateFunctionWrapper
-          .wrapperPartial(wrapper.innerAgg, wrapper.wrapperKey)
-          .toAggregateExpression()
-        Alias(wrapped, alias.name)(
-          exprId = alias.exprId,
-          qualifier = alias.qualifier,
-          explicitMetadata = alias.explicitMetadata,
-          nonInheritableMetadataKeys = alias.nonInheritableMetadataKeys
-        )
-    }
+    // Move the existing Partial expressions unchanged, including their ExprIds.
+    val pushedWrapperAliases = wrapperAliases.map(_._1)
 
     val pushedAgg = Aggregate(
       groupingExpressions = pushedGrouping,
@@ -333,6 +321,50 @@ case class PushAggregateThroughJoin(spark: SparkSession)
 
     val pushedJoin = side.replace(join, pushedAgg)
     Some(pushedJoin)
+  }
+
+  // Retain the current buffer IDs above a fresh lower Partial. The lower Partial is then the
+  // only aggregate pushed through the next join edge.
+  private def splitPartialAggregateForMerge(partialAgg: Aggregate): (Aggregate, Aggregate) = {
+    val wrapperAliases = collectPartialWrapperAliases(partialAgg.aggregateExpressions)
+    val lowerAliases = wrapperAliases.map {
+      case (alias, wrapper) =>
+        Alias(
+          JoinAggregateFunctionWrapper
+            .wrapperPartial(wrapper.innerAgg, wrapper.wrapperKey)
+            .toAggregateExpression(),
+          alias.name)()
+    }
+    val lowerGroupingOutputs =
+      partialAgg.aggregateExpressions.take(partialAgg.groupingExpressions.size)
+    val lowerAgg = Aggregate(
+      groupingExpressions = partialAgg.groupingExpressions,
+      aggregateExpressions = lowerGroupingOutputs ++ lowerAliases,
+      child = partialAgg.child)
+    val lowerBuffersByExprId = wrapperAliases.zip(
+      lowerAgg.output.drop(lowerGroupingOutputs.size))
+      .map { case ((alias, _), attr) => alias.exprId.id -> cleanAttr(attr) }
+      .toMap
+    val partialMergeExpressions = partialAgg.aggregateExpressions.map {
+      case alias @ Alias(
+            AggregateExpression(wrapper: JoinAggregateFunctionWrapper, _, _, _, _),
+            _)
+          if wrapper.targetPhase == JoinAggregateFunctionWrapper.PartialPhase =>
+        val lowerBuffer = lowerBuffersByExprId.getOrElse(
+          alias.exprId.id,
+          throw new IllegalStateException(s"Cannot resolve pushed buffer for ${alias.sql}"))
+        val partialMerge = JoinAggregateFunctionWrapper
+          .wrapperPartialMerge(wrapper.innerAgg, lowerBuffer, wrapper.wrapperKey)
+          .toAggregateExpression()
+        Alias(partialMerge, alias.name)(
+          exprId = alias.exprId,
+          qualifier = alias.qualifier,
+          explicitMetadata = alias.explicitMetadata,
+          nonInheritableMetadataKeys = alias.nonInheritableMetadataKeys
+        )
+      case other => other
+    }
+    (partialAgg.copy(aggregateExpressions = partialMergeExpressions, child = lowerAgg), lowerAgg)
   }
 
   private def isPurePartialWrapperAggregate(agg: Aggregate): Boolean = {

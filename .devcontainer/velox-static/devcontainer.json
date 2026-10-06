@@ -1,0 +1,64 @@
+// Static-link environment for packaging and vcpkg issue reproduction.
+// See docs/developers/dev-container.md for build instructions and limitations.
+{
+    "name": "Gluten Velox Backend (centos-9, static link)",
+
+    "image": "apache/gluten:vcpkg-centos-9",
+
+    // Static linking needs substantially more memory than daily development.
+    "hostRequirements": {
+        "cpus": 8,
+        "memory": "64gb",
+        "storage": "64gb"
+    },
+
+    "containerEnv": {
+        "CCACHE_DIR": "/root/.ccache",
+        "CCACHE_MAXSIZE": "10G",
+        "GLUTEN_DEV_CONTAINER_VARIANT": "velox-static"
+    },
+
+    // Keep the compiler aligned with the toolchain used to build the vcpkg cache.
+    "remoteEnv": {
+        "PATH": "/opt/rh/gcc-toolset-12/root/usr/bin:${containerEnv:PATH}",
+        "LD_LIBRARY_PATH": "/opt/rh/gcc-toolset-12/root/usr/lib64:/opt/rh/gcc-toolset-12/root/usr/lib",
+        "PKG_CONFIG_PATH": "/opt/rh/gcc-toolset-12/root/usr/lib64/pkgconfig"
+    },
+
+    "mounts": [
+        "source=gluten-vcpkg-ccache,target=/root/.ccache,type=volume",
+        "source=gluten-vcpkg-m2,target=/root/.m2,type=volume",
+        "source=gluten-vcpkg-binary-cache,target=/var/cache/vcpkg,type=volume"
+    ],
+
+    "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "scalameta.metals",
+                "ms-vscode.cpptools",
+                "ms-python.python"
+            ],
+            "settings": {
+                "files.watcherExclude": {
+                    "**/target/**": true,
+                    "**/cpp/build/**": true,
+                    "**/ep/_ep/**": true,
+                    "**/ep/build-velox/build/**": true,
+                    "**/dev/vcpkg/.vcpkg/**": true,
+                    "**/dev/vcpkg/vcpkg_installed/**": true
+                },
+                "search.exclude": {
+                    "**/target/**": true,
+                    "**/cpp/build/**": true,
+                    "**/ep/_ep/**": true,
+                    "**/ep/build-velox/build/**": true,
+                    "**/dev/vcpkg/.vcpkg/**": true,
+                    "**/dev/vcpkg/vcpkg_installed/**": true
+                },
+                "C_Cpp.default.compileCommands": "${workspaceFolder}/cpp/build/compile_commands.json"
+            }
+        }
+    }
+}

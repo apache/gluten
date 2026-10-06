@@ -102,6 +102,9 @@ add_velox_test(velox_shuffle_writer_test SOURCES VeloxShuffleWriterTest.cc)
 add_velox_test(velox_hash_shuffle_writer_input_encoding_test SOURCES
                VeloxHashShuffleWriterInputEncodingTest.cc)
 
+add_velox_test(velox_hash_shuffle_writer_buffer_sizing_test SOURCES
+               VeloxHashShuffleWriterBufferSizingTest.cc)
+
 add_velox_test(velox_shuffle_writer_spill_test SOURCES
                VeloxShuffleWriterSpillTest.cc)
 
@@ -110,6 +113,8 @@ add_velox_test(velox_rss_sort_shuffle_writer_test SOURCES
 
 add_velox_test(velox_sort_shuffle_writer_test SOURCES
                VeloxSortShuffleWriterTest.cc)
+
+add_velox_test(velox_shuffle_reader_test SOURCES VeloxShuffleReaderTest.cc)
 
 # TODO: ORC is not well supported. add_velox_test(orc_test SOURCES OrcTest.cc)
 add_velox_test(

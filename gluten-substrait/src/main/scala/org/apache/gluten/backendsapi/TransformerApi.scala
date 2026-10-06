@@ -74,6 +74,13 @@ trait TransformerApi {
 
   def packPBMessage(message: Message): Any
 
+  /** Packs Iceberg column initial defaults into a backend-specific read extension. */
+  def packIcebergReadExtension(
+      fieldIds: util.Map[String, Integer],
+      initialDefaults: util.Map[String, String]): Any = {
+    throw new UnsupportedOperationException("Iceberg initial-default reads are not supported")
+  }
+
   /** This method is only used for CH backend tests */
   def invalidateSQLExecutionResource(executionId: String): Unit = {}
 

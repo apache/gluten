@@ -474,7 +474,7 @@ class GlutenParquetFilterSuite
   tpchQueries.zipWithIndex.foreach {
     case (q, i) =>
       if (q == "q2" || q == "q9") {
-        testSparkVersionLE33(q) {
+        ignoreSpark33OnlyCase(q) {
           runTest(i)
         }
       } else {

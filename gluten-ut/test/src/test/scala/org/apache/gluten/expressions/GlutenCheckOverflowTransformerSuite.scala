@@ -37,13 +37,7 @@ class GlutenCheckOverflowTransformerSuite extends GlutenQueryTest with SharedSpa
       .set("spark.ui.enabled", "false")
   }
 
-  testWithSpecifiedSparkVersion(
-    "CheckOverflow transformer casts transformed child type",
-    "3.3",
-    "3.4",
-    "3.5",
-    "4.0",
-    "4.1") {
+  test("CheckOverflow transformer casts transformed child type") {
     assume(BackendTestUtils.isVeloxBackendLoaded())
 
     val targetType = DecimalType(38, 17)

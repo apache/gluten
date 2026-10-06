@@ -304,7 +304,7 @@ class GlutenClickHouseMergeTreeOptimizeSuite extends CreateMergeTreeSuite {
     assertResult(600572)(ret.apply(0).get(0))
   }
 
-  testSparkVersionLE33("test mergetree optimize table with partition and bucket") {
+  ignoreSpark33OnlyCase("test mergetree optimize table with partition and bucket") {
     spark.sql(s"""
                  |DROP TABLE IF EXISTS lineitem_mergetree_optimize_p6;
                  |""".stripMargin)

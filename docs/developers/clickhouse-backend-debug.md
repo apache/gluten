@@ -18,7 +18,7 @@ parent: /developer-overview/
 
 2. Maven Build Gluten ClickHouse with Profile
    ```
-   mvn clean install -DskipTests -P delta -Pbackends-clickhouse -Pspark-3.3 -Pspark-ut
+   mvn clean install -DskipTests -P delta -Pbackends-clickhouse -Pspark-3.5 -Pspark-ut
    ```
    
 3. Set Maven Profiles in IntelliJ IDEA
@@ -31,9 +31,9 @@ parent: /developer-overview/
    ![gluten-debug-idea-config.png](../image/ClickHouse/gluten-debug-idea-config.png)
 
    VM Options: 
-   `-Dgluten.test.data.path=/data -Dspark.gluten.sql.columnar.libpath=/path/to/gluten/cpp-ch/build/utils/extern-local-engine/libch.so -Dspark.test.home=/path/to/spark33`
+   `-Dgluten.test.data.path=/data -Dspark.gluten.sql.columnar.libpath=/path/to/gluten/cpp-ch/build/utils/extern-local-engine/libch.so -Dspark.test.home=/tmp/spark35`
    > Download tpcds-data in https://gluten-nginx.kyligence.com/dataset/
-   > Download spark33 using `git clone --depth 1 --branch v3.3.1 https://github.com/apache/spark.git /tmp/spark33`
+   > Download spark35 using `git clone --depth 1 --branch v3.5.5 https://github.com/apache/spark.git /tmp/spark35`
    
    Environment Variables: 
    `LD_PRELOAD=/path/to/gluten/cpp-ch/build/utils/extern-local-engine/libch.so:/usr/lib/jvm/java-1.8.0-openjdk-amd64/jre/lib/amd64/libjsig.so`

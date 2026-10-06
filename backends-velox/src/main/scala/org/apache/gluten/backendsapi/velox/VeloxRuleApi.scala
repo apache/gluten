@@ -17,7 +17,7 @@
 package org.apache.gluten.backendsapi.velox
 
 import org.apache.gluten.backendsapi.{BackendsApiManager, RuleApi}
-import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.extension._
 import org.apache.gluten.extension.columnar._
 import org.apache.gluten.extension.columnar.MiscColumnarRules.{PreventBatchTypeMismatchInTableCache, RemoveGlutenTableCacheColumnarToRow, RemoveTopmostColumnarToRow, RewriteSubqueryBroadcast}
@@ -34,7 +34,7 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.datasources.noop.GlutenNoopWriterRule
-import org.apache.spark.util.SparkVersionUtil
+import org.apache.spark.sql.expression.UDFResolver
 
 class VeloxRuleApi extends RuleApi {
   import VeloxRuleApi._
@@ -68,6 +68,10 @@ object VeloxRuleApi {
     if (BackendsApiManager.getSettings.supportAppendDataExec()) {
       injector.injectPlannerStrategy(SparkShimLoader.getSparkShims.getRewriteCreateTableAsSelect(_))
     }
+
+    if (VeloxConfig.nativeUDFBypassRegistration) {
+      UDFResolver.getFunctionDescriptions.foreach(injector.injectFunction)
+    }
   }
 
   /**
@@ -75,18 +79,26 @@ object VeloxRuleApi {
    * columnar query planning.
    */
   private def injectLegacy(injector: LegacyInjector): Unit = {
+    // Registered at injectPre rather than injectPreTransform so the rewrite is baked into the
+    // plan that ExpandFallbackPolicy reverts to when it promotes a stage fallback to a
+    // whole-stage fallback (GLUTEN-12013). A rewrite applied at injectPreTransform is stripped
+    // by that reversion, which can leave a vanilla-reverted stage producing Spark-format bloom
+    // filter bytes while another stage still consumes them as Velox-format, crashing with
+    // "Unsupported BloomFilter version".
+    injector.injectPre(
+      c =>
+        BloomFilterMightContainJointRewriteRule.apply(
+          c.session,
+          c.caller.isBloomFilterStatFunction()))
+
     // Legacy: Pre-transform rules.
     injector.injectPreTransform(_ => RemoveTransitions)
+    injector.injectPreTransform(_ => VeloxBroadcastNestedLoopJoinRewriteRule())
     injector.injectPreTransform(_ => PushDownInputFileExpression.PreOffload)
     injector.injectPreTransform(c => FallbackOnANSIMode.apply(c.session))
     injector.injectPreTransform(c => FallbackMultiCodegens.apply(c.session))
     injector.injectPreTransform(c => MergeTwoPhasesHashBaseAggregate(c.session))
     injector.injectPreTransform(_ => RewriteSubqueryBroadcast())
-    injector.injectPreTransform(
-      c =>
-        BloomFilterMightContainJointRewriteRule.apply(
-          c.session,
-          c.caller.isBloomFilterStatFunction()))
     injector.injectPreTransform(_ => EliminateRedundantGetTimestamp)
 
     // Legacy: The legacy transform rule.
@@ -97,12 +109,10 @@ object VeloxRuleApi {
       Seq(
         RewriteIn,
         RewriteMultiChildrenCount,
-        RewriteJoin) ++
-        (if (SparkVersionUtil.eqSpark33) Seq(AlignExpandOutputTypes) else Seq.empty) ++
-        Seq(
-          PullOutPreProject,
-          PullOutPostProject,
-          ProjectColumnPruning)
+        RewriteJoin,
+        PullOutPreProject,
+        PullOutPostProject,
+        ProjectColumnPruning)
     injector.injectTransform(
       c =>
         HeuristicTransform.WithRewrites(
@@ -131,9 +141,6 @@ object VeloxRuleApi {
 
     // Gluten columnar: Post rules.
     injector.injectPost(c => RemoveTopmostColumnarToRow(c.session, c.caller.isAqe()))
-    SparkShimLoader.getSparkShims
-      .getExtendedColumnarPostRules()
-      .foreach(each => injector.injectPost(c => each(c.session)))
     injector.injectPost(c => ColumnarCollapseTransformStages(new GlutenConfig(c.sqlConf)))
     injector.injectPost(_ => GenerateTransformStageId())
     injector.injectPost(c => CudfNodeValidationRule(new GlutenConfig(c.sqlConf)))
@@ -145,9 +152,9 @@ object VeloxRuleApi {
     injector.injectFinal(
       c => PreventBatchTypeMismatchInTableCache(c.caller.isCache(), Set(VeloxBatchType)))
     injector.injectFinal(
-      c => GlutenAutoAdjustStageResourceProfile(new GlutenConfig(c.sqlConf), c.session))
-    injector.injectFinal(
       c => AdjustStageExecutionMode(new GlutenConfig(c.sqlConf), c.session, c.caller.isAqe()))
+    injector.injectFinal(
+      c => GlutenAutoAdjustStageResourceProfile(new GlutenConfig(c.sqlConf), c.session))
     injector.injectFinal(c => GlutenFallbackReporter(new GlutenConfig(c.sqlConf), c.session))
     injector.injectFinal(_ => RemoveFallbackTagRule())
   }

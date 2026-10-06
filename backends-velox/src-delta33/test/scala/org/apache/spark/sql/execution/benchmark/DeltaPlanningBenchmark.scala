@@ -30,9 +30,9 @@ import org.apache.hadoop.fs.Path
  *
  * Measures two hot paths that our performance optimizations target:
  *
- *   1. '''DV Materialization''' (`DeltaDeletionVectorScanInfo.normalize`): resolves table paths,
- *      loads DV bitmaps from storage, and serializes them into split metadata. Our optimizations
- *      (caching table path, Hadoop conf, DV store across files) target this path.
+ *   1. '''DV descriptor handoff''' (`DeltaDeletionVectorScanInfo.normalize`): parses descriptors
+ *      and creates executor-materialized payload sources without loading on-disk DV bytes on the
+ *      driver.
  *   2. '''Post-transform rule application''' (`DeltaPostTransformRules.rules`): traverses the
  *      physical plan to strip DV synthetic columns, push down input_file_name, and apply column
  *      mapping. Our optimizations (early-exit guard, shallow child check, pre-computed names,
@@ -78,32 +78,41 @@ object DeltaPlanningBenchmark extends SqlBasedBenchmark {
     spark.sparkContext.conf.getInt("spark.gluten.benchmark.iterations", 5)
 
   override def runBenchmarkSuite(mainArgs: Array[String]): Unit = {
-    runDvMaterializationBenchmark()
+    runDvDescriptorHandoffBenchmark()
     runPostTransformRulesBenchmark()
     runNonDeltaRulesOverheadBenchmark()
   }
 
   /**
-   * Benchmarks DeltaDeletionVectorScanInfo.normalize() -- the critical path that loads DVs from
-   * storage on the driver. Measures how caching table path + DV store reduces overhead.
+   * Benchmarks DeltaDeletionVectorScanInfo.normalize() -- the planning path that constructs
+   * executor-deferred DV descriptors. This deliberately does not access serialized payload bytes,
+   * which would model executor work rather than driver planning.
    */
-  private def runDvMaterializationBenchmark(): Unit = {
+  private def runDvDescriptorHandoffBenchmark(): Unit = {
     val benchmark = new Benchmark(
-      s"DV Materialization (normalize) - $numFiles files",
+      s"DV Descriptor Handoff (normalize) - $numFiles files",
       numFiles.toLong,
       minNumIters = benchmarkIters,
       output = output)
 
     withDeltaTableWithDVs(numFiles, rowsPerFile) {
       (path, partitionedFiles) =>
+        var latestResult =
+          DeltaDeletionVectorScanInfo.normalize(partitionedFiles, new Path(path))
+        assert(
+          latestResult.exists(
+            _._2.forall(options => !options.isDeletionVectorPayloadMaterialized)))
+
         benchmark.addCase(s"normalize() - $numFiles DV files", benchmarkIters) {
           _ =>
-            DeltaDeletionVectorScanInfo.normalize(
-              partitionColumnCount = 0,
-              partitionFiles = partitionedFiles)
+            latestResult =
+              DeltaDeletionVectorScanInfo.normalize(partitionedFiles, new Path(path))
         }
 
         benchmark.run()
+        assert(
+          latestResult.exists(
+            _._2.forall(options => !options.isDeletionVectorPayloadMaterialized)))
     }
   }
 

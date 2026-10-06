@@ -51,6 +51,7 @@
 #include "shuffle/ArrowShuffleDictionaryWriter.h"
 #include "udf/UdfLoader.h"
 #include "utils/Exception.h"
+#include "utils/VeloxWriterUtils.h"
 #include "velox/common/caching/SsdCache.h"
 #include "velox/common/file/FileSystems.h"
 #include "velox/connectors/hive/BufferedInputBuilder.h"
@@ -63,7 +64,6 @@
 #include "velox/connectors/hive/storage_adapters/hdfs/RegisterHdfsFileSystem.h" // @manual
 #include "velox/dwio/orc/reader/OrcReader.h"
 #include "velox/dwio/parquet/RegisterParquetReader.h"
-#include "velox/dwio/parquet/RegisterParquetWriter.h"
 #include "velox/serializers/PrestoSerializer.h"
 
 DECLARE_bool(velox_exception_user_stacktrace_enabled);
@@ -119,6 +119,16 @@ ThreadManager* veloxThreadManagerFactory(const std::string& kind, std::unique_pt
 
 void veloxThreadManagerReleaser(ThreadManager* threadManager) {
   delete threadManager;
+}
+
+bool hasCudaDevice() {
+#ifdef GLUTEN_ENABLE_GPU
+  int count = 0;
+  cudaError_t err = cudaGetDeviceCount(&count);
+  return err == cudaSuccess && count > 0;
+#else
+  return false;
+#endif
 }
 } // namespace
 
@@ -195,22 +205,26 @@ void VeloxBackend::init(
 
 #ifdef GLUTEN_ENABLE_GPU
   if (backendConf_->get<bool>(kCudfEnabled, kCudfEnabledDefault)) {
-    configureGpuTaskConcurrency(backendConf_->get<uint32_t>(kCudfConcurrentGpuTasks, kCudfConcurrentGpuTasksDefault));
-    std::unordered_map<std::string, std::string> options = {
-        {velox::cudf_velox::CudfConfig::kCudfEnabled, "true"},
-        {velox::cudf_velox::CudfConfig::kCudfDebugEnabled, backendConf_->get(kDebugCudf, kDebugCudfDefault)},
-        {velox::cudf_velox::CudfConfig::kCudfMemoryResource,
-         backendConf_->get(kCudfMemoryResource, kCudfMemoryResourceDefault)},
-        {velox::cudf_velox::CudfConfig::kCudfMemoryPercent,
-         backendConf_->get(kCudfMemoryPercent, kCudfMemoryPercentDefault)},
-        {velox::cudf_velox::CudfConfig::kCudfAllowCpuFallback,
-         backendConf_->get(kCudfAllowCpuFallback, kCudfAllowCpuFallbackDefault)}};
-    auto& cudfConfig = velox::cudf_velox::CudfConfig::getInstance();
-    cudfConfig.initialize(std::move(options));
-    velox::cudf_velox::registerCudf();
-    velox::exec::Operator::registerOperator(std::make_unique<CudfVectorStreamOperatorTranslator>());
-    velox::cudf_velox::registerSparkFunctions("");
-    velox::cudf_velox::registerSparkAggregateFunctions("");
+    if (hasCudaDevice()) {
+      configureGpuTaskConcurrency(backendConf_->get<uint32_t>(kCudfConcurrentGpuTasks, kCudfConcurrentGpuTasksDefault));
+      std::unordered_map<std::string, std::string> options = {
+          {velox::cudf_velox::CudfConfig::kCudfEnabled, "true"},
+          {velox::cudf_velox::CudfConfig::kCudfDebugEnabled, backendConf_->get(kDebugCudf, kDebugCudfDefault)},
+          {velox::cudf_velox::CudfConfig::kCudfMemoryResource,
+           backendConf_->get(kCudfMemoryResource, kCudfMemoryResourceDefault)},
+          {velox::cudf_velox::CudfConfig::kCudfMemoryPercent,
+           backendConf_->get(kCudfMemoryPercent, kCudfMemoryPercentDefault)},
+          {velox::cudf_velox::CudfConfig::kCudfAllowCpuFallback,
+           backendConf_->get(kCudfAllowCpuFallback, kCudfAllowCpuFallbackDefault)}};
+      auto& cudfConfig = velox::cudf_velox::CudfConfig::getInstance();
+      cudfConfig.initialize(std::move(options));
+      velox::cudf_velox::registerCudf();
+      velox::exec::Operator::registerOperator(std::make_unique<CudfVectorStreamOperatorTranslator>());
+      velox::cudf_velox::registerSparkFunctions("");
+      velox::cudf_velox::registerSparkAggregateFunctions("");
+    } else {
+      LOG(WARNING) << "No Cuda device found. Skip Cudf initialization.";
+    }
   }
 #endif
 
@@ -244,9 +258,10 @@ void VeloxBackend::init(
 
   velox::dwio::common::registerFileSinks();
   velox::parquet::registerParquetReaderFactory();
-  velox::parquet::registerParquetWriterFactory();
+  velox::dwio::common::registerWriterFactory(std::make_shared<GlutenParquetWriterFactory>());
   velox::orc::registerOrcReaderFactory();
-  velox::exec::ExprToSubfieldFilterParser::registerParser(std::make_unique<SparkExprToSubfieldFilterParser>());
+  velox::exec::ExprToSubfieldFilterParser::registerParser(std::make_unique<SparkExprToSubfieldFilterParser>(
+      backendConf_->get<bool>(kScanBloomFilterPushdownEnabled, kScanBloomFilterPushdownEnabledDefault)));
   velox::connector::hive::BufferedInputBuilder::registerBuilder(std::make_shared<GlutenBufferedInputBuilder>());
 
   // Register Velox functions

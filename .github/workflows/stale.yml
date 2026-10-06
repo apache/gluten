@@ -23,7 +23,7 @@ jobs:
     if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/stale@v10
+      - uses: actions/stale@v11
         with:
           days-before-pr-stale: 45
           days-before-pr-close: 10

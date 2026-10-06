@@ -11,6 +11,11 @@ option java_multiple_files = true;
 option java_package = "io.substrait.proto";
 
 message Type {
+  // 14/17/29 held the pre-0.98 Timestamp/Time/TimestampTZ types (now
+  // PrecisionTimestamp/PrecisionTime/PrecisionTimestampTZ); 31 held the
+  // deprecated user_defined_type_reference.
+  reserved 14, 17, 29, 31;
+
   oneof kind {
     Boolean bool = 1;
     I8 i8 = 2;
@@ -21,18 +26,18 @@ message Type {
     FP64 fp64 = 11;
     String string = 12;
     Binary binary = 13;
-    Timestamp timestamp = 14;
     Date date = 16;
-    Time time = 17;
     IntervalYear interval_year = 19;
     IntervalDay interval_day = 20;
-    TimestampTZ timestamp_tz = 29;
     UUID uuid = 32;
 
     FixedChar fixed_char = 21;
     VarChar varchar = 22;
     FixedBinary fixed_binary = 23;
     Decimal decimal = 24;
+    PrecisionTime precision_time = 36;
+    PrecisionTimestamp precision_timestamp = 33;
+    PrecisionTimestampTZ precision_timestamp_tz = 34; // value is since UNIX epoch in UTC
 
     Struct struct = 25;
     List list = 27;
@@ -40,13 +45,11 @@ message Type {
 
     UserDefined user_defined = 30;
 
-    // Deprecated in favor of user_defined, which allows nullability and
-    // variations to be specified. If user_defined_type_reference is
-    // encountered, treat it as being non-nullable and having the default
-    // variation.
-    uint32 user_defined_type_reference = 31 [deprecated = true];
-
-    Nothing nothing = 33;
+    // Gluten fork: a bottom type used to carry Spark's NullType. Relocated off
+    // field 33 (which is precision_timestamp in Substrait 0.98). Pending
+    // removal in a follow-up that maps NullType to a typed null (i32); see the
+    // Substrait consolidation plan.
+    Nothing nothing = 40;
   }
 
   enum Nullability {
@@ -104,22 +107,7 @@ message Type {
     Nullability nullability = 2;
   }
 
-  message Timestamp {
-    uint32 type_variation_reference = 1;
-    Nullability nullability = 2;
-  }
-
   message Date {
-    uint32 type_variation_reference = 1;
-    Nullability nullability = 2;
-  }
-
-  message Time {
-    uint32 type_variation_reference = 1;
-    Nullability nullability = 2;
-  }
-
-  message TimestampTZ {
     uint32 type_variation_reference = 1;
     Nullability nullability = 2;
   }
@@ -163,6 +151,27 @@ message Type {
     int32 precision = 2;
     uint32 type_variation_reference = 3;
     Nullability nullability = 4;
+  }
+
+  message PrecisionTime {
+    // Sub-second precision, 0 means the value given is in seconds, 3 is milliseconds, 6 microseconds, 9 is nanoseconds, 12 is picoseconds
+    int32 precision = 1;
+    uint32 type_variation_reference = 2;
+    Nullability nullability = 3;
+  }
+
+  message PrecisionTimestamp {
+    // Sub-second precision, 0 means the value given is in seconds, 3 is milliseconds, 6 microseconds, 9 is nanoseconds, 12 is picoseconds
+    int32 precision = 1;
+    uint32 type_variation_reference = 2;
+    Nullability nullability = 3;
+  }
+
+  message PrecisionTimestampTZ {
+    // Sub-second precision, 0 means the value given is in seconds, 3 is milliseconds, 6 microseconds, 9 is nanoseconds, 12 is picoseconds
+    int32 precision = 1;
+    uint32 type_variation_reference = 2;
+    Nullability nullability = 3;
   }
 
   message Struct {

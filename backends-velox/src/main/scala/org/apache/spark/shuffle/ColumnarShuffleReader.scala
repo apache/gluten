@@ -73,9 +73,15 @@ class ColumnarShuffleReader[K, C](
 
   /** Read the combined key-values for this reduce task */
   override def read(): Iterator[Product2[K, C]] = {
-    val recordIter = dep match {
-      // If the dependency is a ColumnarShuffleDependency, we use the columnar serializer.
-      case columnarDep: ColumnarShuffleDependency[K, _, C] =>
+    // Dispatch on the concrete serializer instance type rather than the dependency type.
+    // A ColumnarShuffleDependency does not always carry Gluten's ColumnarBatchSerializerInstance:
+    // when the CelebornShuffleManager falls back to the local ColumnarShuffleManager (celeborn
+    // service unavailable / fallback policy), the dependency was already bound to the Celeborn
+    // serializer at plan build time, so testing the dependency type would wrongly take the
+    // columnar path and crash with a ClassCastException.
+    val recordIter = dep.serializer.newInstance() match {
+      // Gluten's own columnar serializer deserializes all streams in one batch.
+      case columnarSerializer: ColumnarBatchSerializerInstance =>
         val shuffleBlockFetcherIterator =
           SparkShimLoader.getSparkShims.getShuffleBlockFetcherIterator(
             ShuffleBlockFetcherIteratorParams(
@@ -98,15 +104,17 @@ class ColumnarShuffleReader[K, C](
               readMetrics,
               fetchContinuousBlocksInBatch
             ))
-        columnarDep.serializer
-          .newInstance()
-          .asInstanceOf[ColumnarBatchSerializerInstance]
+        columnarSerializer
           .deserializeStreams(
             shuffleBlockFetcherIterator,
             shuffleBlockFetcherIterator.onComplete,
             executionMode)
           .asKeyValueIterator
-      case _ =>
+      case serializerInstance =>
+        // The dependency's serializer is not Gluten's ColumnarBatchSerializerInstance. This
+        // covers the CelebornShuffleManager fallback case (dependency bound to the Celeborn
+        // serializer) as well as row-based dependencies. Fall back to the per-stream path,
+        // which the standard SerializerInstance (including the Celeborn one) supports.
         val wrappedStreams = new ShuffleBlockFetcherIterator(
           context,
           blockManager.blockStoreClient,
@@ -127,8 +135,6 @@ class ColumnarShuffleReader[K, C](
           readMetrics,
           fetchContinuousBlocksInBatch
         ).toCompletionIterator
-
-        val serializerInstance = dep.serializer.newInstance()
 
         // Create a key/value iterator for each stream
         wrappedStreams.flatMap {

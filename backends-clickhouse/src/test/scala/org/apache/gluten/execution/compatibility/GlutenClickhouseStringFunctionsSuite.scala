@@ -161,7 +161,7 @@ class GlutenClickhouseStringFunctionsSuite extends GlutenClickHouseWholeStageTra
     }
   }
 
-  testSparkVersionLE33("base64") {
+  ignoreSpark33OnlyCase("base64") {
     // fallback on Spark-352, see https://github.com/apache/spark/pull/47303
     val tableName = "base64_table"
     withTable(tableName) {

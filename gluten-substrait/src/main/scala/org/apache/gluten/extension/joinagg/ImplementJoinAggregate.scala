@@ -97,6 +97,8 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
       phase match {
         case JoinAggregateFunctionWrapper.PartialPhase =>
           planPartialPhase(grouping, aggExpressions, resultExpressions, childPlan)
+        case JoinAggregateFunctionWrapper.PartialMergePhase =>
+          planPartialMergePhase(grouping, aggExpressions, resultExpressions, childPlan)
         case JoinAggregateFunctionWrapper.FinalPhase =>
           planFinalPhase(grouping, aggExpressions, resultExpressions, childPlan)
       }
@@ -109,20 +111,100 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
       aggregateExpressions: Seq[AggregateExpression],
       resultExpressions: Seq[NamedExpression],
       childPlan: SparkPlan): Option[SparkPlan] = {
-    // The pushed logical aggregate exposes one wrapper-typed output per pushed aggregate. Spark
-    // physically computes ordinary aggregate buffers, so this phase runs a normal HashAggregateExec
-    // first and then repacks those buffers into the struct-valued wrapper outputs expected by the
-    // logical plan above.
-    val rewrittenAggExprs = aggregateExpressions.map {
+    planPhase(
+      grouping,
+      aggregateExpressions,
+      resultExpressions,
+      childPlan,
+      unpackInputBuffers = false,
+      packOutputBuffers = true)
+  }
+
+  private def planPartialMergePhase(
+      grouping: Seq[NamedExpression],
+      aggregateExpressions: Seq[AggregateExpression],
+      resultExpressions: Seq[NamedExpression],
+      childPlan: SparkPlan): Option[SparkPlan] = {
+    planPhase(
+      grouping,
+      aggregateExpressions,
+      resultExpressions,
+      childPlan,
+      unpackInputBuffers = true,
+      packOutputBuffers = true)
+  }
+
+  private def planPhase(
+      grouping: Seq[NamedExpression],
+      aggregateExpressions: Seq[AggregateExpression],
+      resultExpressions: Seq[NamedExpression],
+      childPlan: SparkPlan,
+      unpackInputBuffers: Boolean,
+      packOutputBuffers: Boolean): Option[SparkPlan] = {
+    val rewrittenAggExprs = rewriteWrapperAggregates(aggregateExpressions)
+    if (rewrittenAggExprs.isEmpty) {
+      return None
+    }
+    val preparedChild = if (unpackInputBuffers) {
+      unpackInputBufferFields(childPlan, aggregateExpressions, rewrittenAggExprs)
+    } else {
+      childPlan
+    }
+    if (packOutputBuffers) {
+      planBufferPhase(
+        grouping,
+        aggregateExpressions,
+        resultExpressions,
+        preparedChild,
+        rewrittenAggExprs)
+    } else {
+      planFinalOutput(grouping, resultExpressions, preparedChild, rewrittenAggExprs)
+    }
+  }
+
+  private def unpackInputBufferFields(
+      childPlan: SparkPlan,
+      aggregateExpressions: Seq[AggregateExpression],
+      rewrittenAggExprs: Seq[AggregateExpression]): SparkPlan = {
+    // Recreate the wrapped aggregate's physical input-buffer attributes from the struct payload.
+    val unpackAliases = ArrayBuffer.empty[Alias]
+    val seenExprIds = scala.collection.mutable.HashSet.empty[Long]
+    rewrittenAggExprs.zip(aggregateExpressions).foreach {
+      case (rewrittenAe, AggregateExpression(wrapper: JoinAggregateFunctionWrapper, _, _, _, _)) =>
+        val bufferExpr = wrapper.children.head
+        rewrittenAe.aggregateFunction.inputAggBufferAttributes.zipWithIndex.foreach {
+          case (bufferAttr, index) if seenExprIds.add(bufferAttr.exprId.id) =>
+            unpackAliases += Alias(
+              GetStructField(bufferExpr, index, Some(bufferAttr.name)),
+              s"_joinagg_buf_${bufferAttr.exprId.id}_$index"
+            )(exprId = bufferAttr.exprId, qualifier = bufferAttr.qualifier)
+          case _ =>
+        }
+      case _ =>
+    }
+    if (unpackAliases.nonEmpty) {
+      ProjectExec(childPlan.output ++ unpackAliases, childPlan)
+    } else {
+      childPlan
+    }
+  }
+
+  private def rewriteWrapperAggregates(
+      aggregateExpressions: Seq[AggregateExpression]): Seq[AggregateExpression] = {
+    aggregateExpressions.map {
       case ae @ AggregateExpression(_: JoinAggregateFunctionWrapper, _, _, _, _) =>
         rewriteSingleAggregateExpression(ae)
       case ae =>
         ae
     }
-    if (rewrittenAggExprs.isEmpty) {
-      return None
-    }
+  }
 
+  private def planBufferPhase(
+      grouping: Seq[NamedExpression],
+      aggregateExpressions: Seq[AggregateExpression],
+      resultExpressions: Seq[NamedExpression],
+      childPlan: SparkPlan,
+      rewrittenAggExprs: Seq[AggregateExpression]): Option[SparkPlan] = {
     val hashAgg = HashAggregateExec(
       requiredChildDistributionExpressions = None,
       isStreaming = false,
@@ -199,50 +281,20 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
       aggregateExpressions: Seq[AggregateExpression],
       resultExpressions: Seq[NamedExpression],
       childPlan: SparkPlan): Option[SparkPlan] = {
-    // Lower the final wrapper phase by first unpacking the wrapper struct into the wrapped
-    // aggregate's input buffer attributes, then running a normal Spark final / merge aggregate.
-    val wrapperWithRewritten: Seq[(JoinAggregateFunctionWrapper, AggregateExpression)] =
-      aggregateExpressions.flatMap {
-        case originalAe @ AggregateExpression(wrapper: JoinAggregateFunctionWrapper, _, _, _, _) =>
-          Some((wrapper, rewriteSingleAggregateExpression(originalAe)))
-        case _ =>
-          None
-      }
+    planPhase(
+      grouping,
+      aggregateExpressions,
+      resultExpressions,
+      childPlan,
+      unpackInputBuffers = true,
+      packOutputBuffers = false)
+  }
 
-    val unpackAliases = ArrayBuffer.empty[Alias]
-    val seenExprIds = scala.collection.mutable.HashSet.empty[Long]
-    wrapperWithRewritten.foreach {
-      case (wrapper, rewrittenAe) =>
-        val bufferExpr = wrapper.children.head
-        rewrittenAe.aggregateFunction.inputAggBufferAttributes.zipWithIndex.foreach {
-          case (bufferAttr, idx) if seenExprIds.add(bufferAttr.exprId.id) =>
-            // Keep exprId for binding correctness, but avoid dotted names (e.g. a.b) in the
-            // temporary unpack projection. This projection only recreates the physical buffer attrs
-            // that Spark's final / merge aggregate expects to read from the wrapper struct.
-            val safeName = s"_joinagg_buf_${bufferAttr.exprId.id}_$idx"
-            unpackAliases += Alias(
-              GetStructField(bufferExpr, idx, Some(bufferAttr.name)),
-              safeName
-            )(exprId = bufferAttr.exprId, qualifier = bufferAttr.qualifier)
-          case _ =>
-        }
-    }
-
-    val childWithUnpacked = if (unpackAliases.nonEmpty) {
-      ProjectExec(childPlan.output ++ unpackAliases, childPlan)
-    } else {
-      childPlan
-    }
-
-    val rewrittenAggExprs = aggregateExpressions.map {
-      case ae @ AggregateExpression(_: JoinAggregateFunctionWrapper, _, _, _, _) =>
-        rewriteSingleAggregateExpression(ae)
-      case ae =>
-        ae
-    }
-    if (rewrittenAggExprs.isEmpty) {
-      return None
-    }
+  private def planFinalOutput(
+      grouping: Seq[NamedExpression],
+      resultExpressions: Seq[NamedExpression],
+      childPlan: SparkPlan,
+      rewrittenAggExprs: Seq[AggregateExpression]): Option[SparkPlan] = {
     val aggregateAttrs = rewrittenAggExprs.map(_.resultAttribute)
     val rewrittenResultExpressions =
       rewriteResultAsAggregateAttributes(resultExpressions, rewrittenAggExprs)
@@ -257,7 +309,7 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
         aggregateAttributes = aggregateAttrs,
         initialInputBufferOffset = 0,
         resultExpressions = rewrittenResultExpressions,
-        child = childWithUnpacked
+        child = childPlan
       ))
   }
 

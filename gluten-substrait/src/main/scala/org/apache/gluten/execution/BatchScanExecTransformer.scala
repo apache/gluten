@@ -70,6 +70,8 @@ case class BatchScanExecTransformer(
       runtimeFilters = QueryPlan.normalizePredicates(
         runtimeFilters.filterNot(_ == DynamicPruningExpression(Literal.TrueLiteral)),
         output),
+      keyGroupedPartitioning = keyGroupedPartitioning.map(
+        _.map(QueryPlan.normalizeExpressions(_, output))),
       pushDownFilters = pushDownFilters.map(QueryPlan.normalizePredicates(_, output))
     )
   }
@@ -110,10 +112,6 @@ abstract class BatchScanExecTransformerBase(
   @transient override lazy val metrics: Map[String, SQLMetric] =
     BackendsApiManager.getMetricsApiInstance.genBatchScanTransformerMetrics(
       sparkContext) ++ customMetrics
-
-  def doPostDriverMetrics(): Unit = {
-    postDriverMetrics()
-  }
 
   override def scanFilters: Seq[Expression] = scan match {
     case fileScan: FileScan => fileScan.dataFilters
@@ -216,12 +214,15 @@ abstract class BatchScanExecTransformerBase(
 
   override def equals(other: Any): Boolean = other match {
     case other: BatchScanExecTransformerBase =>
-      this.pushDownFilters == other.pushDownFilters && super.equals(other)
+      this.keyGroupedPartitioning == other.keyGroupedPartitioning &&
+      this.pushDownFilters == other.pushDownFilters &&
+      super.equals(other)
     case _ =>
       false
   }
 
-  override def hashCode(): Int = Objects.hashCode(batch, runtimeFilters, pushDownFilters)
+  override def hashCode(): Int =
+    Objects.hashCode(batch, runtimeFilters, keyGroupedPartitioning, pushDownFilters)
 
   /** Return a copy of this scan with a new output schema. */
   def withOutput(newOutput: Seq[AttributeReference]): BatchScanExecTransformerBase
