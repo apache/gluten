@@ -75,8 +75,7 @@ void registerIncrementMetricFunctions() {
   // Not deterministic: keeps Velox from constant-folding, sharing or dictionary-peeling the call,
   // any of which would change how many rows it is evaluated on. No default null behavior: a null
   // input still counts, as it does on Spark.
-  const auto metadata =
-      exec::VectorFunctionMetadataBuilder().deterministic(false).defaultNullBehavior(false).build();
+  const auto metadata = exec::VectorFunctionMetadataBuilder().deterministic(false).defaultNullBehavior(false).build();
   for (int32_t slot = 0; slot < kIncrementMetricFunctionSlots; ++slot) {
     exec::registerVectorFunction(
         incrementMetricFunctionName(slot),
