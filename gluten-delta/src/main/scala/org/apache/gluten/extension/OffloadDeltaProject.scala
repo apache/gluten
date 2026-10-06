@@ -27,12 +27,16 @@ case class OffloadDeltaProject() extends OffloadSingleNode {
   override def offload(plan: SparkPlan): SparkPlan = plan match {
     case project @ ProjectExec(projectList, child)
         if projectList.exists(containsIncrementMetricExpr) =>
-      if (
-        IncrementMetricOffload.canOffloadProject(projectList, IncrementMetricOffload.nativeCounting)
-      ) {
+      val nativeCounting = IncrementMetricOffload.nativeCounting
+      if (IncrementMetricOffload.canOffloadProject(projectList, nativeCounting)) {
         DeltaProjectExecTransformer(projectList, child)
       } else {
-        FallbackTags.add(project, IncrementMetricOffload.conditionalProjectReason)
+        val reason = if (nativeCounting) {
+          IncrementMetricOffload.nativeConjunctionProjectReason
+        } else {
+          IncrementMetricOffload.conditionalProjectReason
+        }
+        FallbackTags.add(project, reason)
         project
       }
     case p => p

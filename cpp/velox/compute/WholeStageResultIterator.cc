@@ -545,10 +545,6 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
       std::to_string(veloxCfg_->get<uint32_t>(kSparkBatchSize, 4096));
   configs[velox::core::QueryConfig::kPreferredOutputBatchBytes] =
       std::to_string(veloxCfg_->get<uint64_t>(kVeloxPreferredBatchBytes, 10L << 20));
-  // Export per-expression processed-row counts from project and filter operators; Delta's
-  // IncrementMetric counters are read from them (see IncrementMetricFunction.h). Velox counts the
-  // rows regardless, this only attaches the counts to the operator stats.
-  configs[velox::core::QueryConfig::kOperatorTrackExpressionStats] = "true";
   try {
     configs[SparkQueryConfig::qualify(SparkQueryConfig::kAnsiEnabled)] =
         veloxCfg_->get<std::string>(kAnsiEnabled, "false");
@@ -704,6 +700,13 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
     setIfExists(kOpTraceDirectoryCreateConfig, velox::core::QueryConfig::kOpTraceDirectoryCreateConfig);
 
     overwriteVeloxConf(veloxCfg_.get(), configs, kDynamicBackendConfPrefix);
+
+    // Export per-expression processed-row counts from project and filter operators; Delta's
+    // IncrementMetric counters are read from them (see IncrementMetricFunction.h). Velox counts the
+    // rows regardless, this only attaches the counts to the operator stats. Set after the user
+    // overrides: disabling it would report zero modified rows and could suppress valid
+    // change-data-feed rows.
+    configs[velox::core::QueryConfig::kOperatorTrackExpressionStats] = "true";
   } catch (const std::invalid_argument& err) {
     std::string errDetails = err.what();
     throw std::runtime_error("Invalid conf arg: " + errDetails);

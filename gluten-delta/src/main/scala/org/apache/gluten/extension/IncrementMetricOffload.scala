@@ -20,7 +20,7 @@ import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.expression.IncrementMetricCall
 import org.apache.gluten.extension.DeltaPostTransformRules.containsIncrementMetricExpr
 
-import org.apache.spark.sql.catalyst.expressions.{Alias, Expression, Literal, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.{Alias, And, Expression, Literal, NamedExpression, Or}
 import org.apache.spark.sql.types.BooleanType
 
 import java.util.Locale
@@ -44,8 +44,9 @@ import java.util.Locale
  * ([[org.apache.gluten.backendsapi.BackendSettingsApi.supportNativeIncrementMetric]]) evaluates
  * each counter as a pass-through function named after its metric and reports how many rows that
  * function processed, which is the exact evaluation count: inside a `CASE WHEN` branch only the
- * rows that took the branch reach it. Such backends offload every projection. Others keep the
- * conditional shapes on Spark.
+ * rows that took the branch reach it. Counters inside `AND` or `OR` still stay on Spark: native
+ * evaluation may reorder the operands and change how many rows reach a counter. Other backends keep
+ * all conditional shapes on Spark.
  */
 object IncrementMetricOffload {
 
@@ -59,7 +60,7 @@ object IncrementMetricOffload {
     if (isIncrementMetric(expr)) peelIncrementMetrics(expr.children.head) else expr
   }
 
-  /** Whether the backend counts natively; then every projection shape can be offloaded. */
+  /** Whether the backend can count an expression's evaluations natively. */
   def nativeCounting: Boolean = BackendsApiManager.getSettings.supportNativeIncrementMetric()
 
   /**
@@ -75,14 +76,22 @@ object IncrementMetricOffload {
   }
 
   /**
-   * True when the backend counts natively (`nativeCounting`), or when every `IncrementMetric` in
-   * `projectList` sits at the root of its alias (a stack of them counts as the root), so crediting
-   * each with the operator's output rows is exact.
+   * Native counters can be offloaded unless an enclosing `AND` or `OR` may reorder their
+   * evaluation. Without native counting, every `IncrementMetric` must sit at the root of its alias
+   * (a stack of them counts as the root), so crediting it with the output row count is exact.
    */
   def canOffloadProject(projectList: Seq[NamedExpression], nativeCounting: Boolean): Boolean = {
-    nativeCounting || projectList.forall {
-      case alias: Alias => !containsIncrementMetricExpr(peelIncrementMetrics(alias.child))
-      case other => !containsIncrementMetricExpr(other)
+    if (nativeCounting) {
+      !projectList.exists(_.exists {
+        case and: And => containsIncrementMetricExpr(and)
+        case or: Or => containsIncrementMetricExpr(or)
+        case _ => false
+      })
+    } else {
+      projectList.forall {
+        case alias: Alias => !containsIncrementMetricExpr(peelIncrementMetrics(alias.child))
+        case other => !containsIncrementMetricExpr(other)
+      }
     }
   }
 
@@ -100,6 +109,10 @@ object IncrementMetricOffload {
   private[gluten] val conditionalProjectReason: String =
     "IncrementMetric below a conditional expression must be evaluated by Spark; the native " +
       "project would credit it with every output row (GLUTEN-9003)"
+
+  private[gluten] val nativeConjunctionProjectReason: String =
+    "IncrementMetric inside AND or OR must be evaluated by Spark; native operand reordering " +
+      "could change its evaluation count (GLUTEN-9003)"
 
   private[gluten] val conditionalFilterReason: String =
     "IncrementMetric filter condition is not a literal true, so the native filter's output rows " +

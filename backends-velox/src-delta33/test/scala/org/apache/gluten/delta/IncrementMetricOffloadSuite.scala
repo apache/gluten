@@ -20,7 +20,7 @@ import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.execution.{DeltaFilterExecTransformer, DeltaProjectExecTransformer}
 import org.apache.gluten.extension.IncrementMetricOffload
 
-import org.apache.spark.sql.catalyst.expressions.{Alias, And, AttributeReference, CaseWhen, EqualTo, Expression, GreaterThan, If, Literal, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.{Alias, And, AttributeReference, CaseWhen, EqualTo, Expression, GreaterThan, If, Literal, NamedExpression, Or}
 import org.apache.spark.sql.delta.metric.IncrementMetric
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.types.IntegerType
@@ -28,9 +28,9 @@ import org.apache.spark.sql.types.IntegerType
 import org.scalatest.funsuite.AnyFunSuite
 
 /**
- * Delta's `IncrementMetric` may only be offloaded where Spark would evaluate it once per output
- * row: at the root of a projection alias or as a filter condition that keeps every row. Anything
- * conditional stays on Spark (GLUTEN-9003).
+ * Delta's `IncrementMetric` needs either native evaluation counts or an unconditional shape whose
+ * output row count is exact. Native counters under AND/OR still fall back because operand
+ * reordering can change their evaluation count (GLUTEN-9003).
  */
 class IncrementMetricOffloadSuite extends AnyFunSuite {
 
@@ -77,7 +77,7 @@ class IncrementMetricOffloadSuite extends AnyFunSuite {
       Some(increment(Literal.FalseLiteral, copied)))
     val projectList = Seq(id, alias(rowDropped))
     assert(!IncrementMetricOffload.canOffloadProject(projectList, nativeCounting = false))
-    // A backend that counts natively takes any shape; the counters become named function calls.
+    // A backend that counts natively supports CASE branches as named counter function calls.
     assert(IncrementMetricOffload.canOffloadProject(projectList, nativeCounting = true))
     intercept[GlutenNotSupportException] {
       DeltaProjectExecTransformer.stripIncrementMetrics(projectList, nativeCounting = false)
@@ -96,6 +96,35 @@ class IncrementMetricOffloadSuite extends AnyFunSuite {
     assert(!IncrementMetricOffload.canOffloadProject(projectList, nativeCounting = false))
     intercept[GlutenNotSupportException] {
       DeltaProjectExecTransformer.stripIncrementMetrics(projectList, nativeCounting = false)
+    }
+  }
+
+  test("native counters inside AND or OR fall back before metric naming") {
+    val counter = increment(Literal.TrueLiteral, newMetric())
+    val predicate = GreaterThan(id, Literal(1))
+    Seq[Expression](
+      And(counter, predicate),
+      Or(counter, predicate),
+      And(predicate, If(predicate, counter, Literal.FalseLiteral)),
+      increment(Or(predicate, counter), newMetric())
+    ).foreach {
+      expr =>
+        val projectList = Seq(alias(expr))
+        assert(!IncrementMetricOffload.canOffloadProject(projectList, nativeCounting = true))
+        // These metrics are unnamed. The shape must be rejected before native naming starts.
+        val error = intercept[GlutenNotSupportException] {
+          DeltaProjectExecTransformer.stripIncrementMetrics(projectList, nativeCounting = true)
+        }
+        assert(error.getMessage === IncrementMetricOffload.nativeConjunctionProjectReason)
+    }
+  }
+
+  test("native counters around AND or OR remain offloadable") {
+    val predicate = GreaterThan(id, Literal(1))
+    Seq[Expression](And(predicate, predicate), Or(predicate, predicate)).foreach {
+      expr =>
+        val projectList = Seq(alias(increment(expr, newMetric())))
+        assert(IncrementMetricOffload.canOffloadProject(projectList, nativeCounting = true))
     }
   }
 

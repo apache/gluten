@@ -101,7 +101,8 @@ object DeltaProjectExecTransformer {
    * With `nativeCounting`, every [[IncrementMetric]] becomes an [[IncrementMetricCall]] named after
    * its metric, so the backend counts the rows it is evaluated on wherever it sits. A metric
    * without a usable name, or two different metrics sharing one name in the same projection, cannot
-   * be told apart in the backend's stats and make the projection fall back.
+   * be told apart in the backend's stats and make the projection fall back. Counters inside `AND`
+   * or `OR` also fall back because native operand reordering can change their evaluation count.
    *
    * Without it, only the stack of [[IncrementMetric]] at the root of an alias is removed and
    * credited with the output row count. An [[IncrementMetric]] anywhere else is evaluated only for
@@ -113,6 +114,9 @@ object DeltaProjectExecTransformer {
       projectList: Seq[NamedExpression],
       nativeCounting: Boolean): (Seq[NamedExpression], Seq[(String, SQLMetric)]) = {
     if (nativeCounting) {
+      if (!IncrementMetricOffload.canOffloadProject(projectList, nativeCounting = true)) {
+        throw new GlutenNotSupportException(IncrementMetricOffload.nativeConjunctionProjectReason)
+      }
       return rewriteToNativeCounters(projectList)
     }
     val metrics = mutable.ArrayBuffer.empty[(String, SQLMetric)]

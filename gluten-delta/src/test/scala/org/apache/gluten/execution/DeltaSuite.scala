@@ -21,11 +21,11 @@ import org.apache.gluten.extension.DeltaPostTransformRules
 
 import org.apache.spark.SparkConf
 import org.apache.spark.scheduler.{SparkListener, SparkListenerEvent}
-import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.{DataFrame, GlutenDeltaTestUtils, Row}
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.delta.DeltaLog
 import org.apache.spark.sql.execution.SparkPlanInfo
-import org.apache.spark.sql.execution.ui.{SparkListenerSQLAdaptiveExecutionUpdate, SparkListenerSQLExecutionEnd, SparkListenerSQLExecutionStart}
+import org.apache.spark.sql.execution.ui.{SparkListenerSQLAdaptiveExecutionUpdate, SparkListenerSQLExecutionStart}
 import org.apache.spark.sql.types._
 import org.apache.spark.util.SparkVersionUtil
 
@@ -1149,26 +1149,23 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
    */
   private def collectExecutedPlanInfos(body: => Unit): Seq[SparkPlanInfo] = {
     val latest = new java.util.concurrent.ConcurrentHashMap[Long, SparkPlanInfo]()
-    val ended = new java.util.concurrent.atomic.AtomicInteger()
     val listener = new SparkListener {
       override def onOtherEvent(event: SparkListenerEvent): Unit = event match {
         case start: SparkListenerSQLExecutionStart =>
           latest.put(start.executionId, start.sparkPlanInfo)
         case update: SparkListenerSQLAdaptiveExecutionUpdate =>
           latest.put(update.executionId, update.sparkPlanInfo)
-        case _: SparkListenerSQLExecutionEnd => ended.incrementAndGet()
         case _ =>
       }
     }
+    // Queued events from setup would otherwise reach the newly registered listener.
+    GlutenDeltaTestUtils.waitForListenerBus(spark.sparkContext)
     spark.sparkContext.addSparkListener(listener)
     try {
       body
-      // The listener bus is asynchronous: wait until every started execution has also ended.
-      val deadline = System.nanoTime() + 30L * 1000 * 1000 * 1000
-      while ((latest.isEmpty || ended.get() < latest.size()) && System.nanoTime() < deadline) {
-        Thread.sleep(50)
-      }
-      assert(!latest.isEmpty && ended.get() >= latest.size(), "SQL execution events not seen")
+      // Drain every execution's final plan update before inspecting the captured plans.
+      GlutenDeltaTestUtils.waitForListenerBus(spark.sparkContext)
+      assert(!latest.isEmpty, "SQL execution events not seen")
     } finally {
       spark.sparkContext.removeSparkListener(listener)
     }
@@ -1210,14 +1207,19 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
                   |(3, 's3'), (4, 's4'), (5, 's5'), (6, 's6'), (7, 's7'), (8, 's8')
                   |""".stripMargin)
       val plans = collectExecutedPlanInfos {
-        spark.sql("""
-                    |merge into merge_metrics_target t
-                    |using merge_metrics_source s
-                    |on t.id = s.id
-                    |when matched and s.id = 3 then delete
-                    |when matched then update set name = s.name
-                    |when not matched then insert *
-                    |""".stripMargin)
+        // Native counters need expression stats for correctness even when the user disables
+        // diagnostic stats. The backend must preserve them after applying user overrides.
+        withSQLConf(
+          "spark.gluten.sql.columnar.backend.velox.operator_track_expression_stats" -> "false") {
+          spark.sql("""
+                      |merge into merge_metrics_target t
+                      |using merge_metrics_source s
+                      |on t.id = s.id
+                      |when matched and s.id = 3 then delete
+                      |when matched then update set name = s.name
+                      |when not matched then insert *
+                      |""".stripMargin)
+        }
       }
       checkAnswer(
         spark.sql("select * from merge_metrics_target order by id"),
@@ -1316,6 +1318,88 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
       val mergeVersion = latestVersion("noop_merge_target", "MERGE")
       val changes = spark.sql(s"select * from table_changes('noop_merge_target', $mergeVersion)")
       assert(changes.count() === 0, changes.collect().toSeq)
+    }
+  }
+
+  test("delta: merge with change data feed keeps exact metrics and change rows") {
+    withTable("cdf_merge_target", "cdf_merge_source") {
+      spark.sql("""
+                  |create table cdf_merge_target (id int, name string) using delta
+                  |tblproperties ("delta.enableChangeDataFeed" = "true")
+                  |""".stripMargin)
+      spark.sql("insert into cdf_merge_target values (1, 'a'), (2, 'b'), (3, 'c'), (4, 'd')")
+      spark.sql("create table cdf_merge_source (id int, name string) using delta")
+      spark.sql("insert into cdf_merge_source values (1, 'a'), (2, 'x'), (3, 'c'), (5, 'e')")
+      val plans = collectExecutedPlanInfos {
+        spark.sql("""
+                    |merge into cdf_merge_target t
+                    |using cdf_merge_source s
+                    |on t.id = s.id
+                    |when matched and s.id = 3 then delete
+                    |when matched and t.name <> s.name then update set name = s.name
+                    |when not matched then insert *
+                    |""".stripMargin)
+      }
+      checkAnswer(
+        spark.sql("select * from cdf_merge_target order by id"),
+        Seq(Row(1, "a"), Row(2, "x"), Row(4, "d"), Row(5, "e")))
+
+      // Row 1 matches without a clause taking it and row 4 has no source row: both are copied.
+      val metrics = lastOperationMetrics("cdf_merge_target", "MERGE")
+      assert(metrics("numTargetRowsDeleted") === "1", metrics)
+      assert(metrics("numTargetRowsUpdated") === "1", metrics)
+      assert(metrics("numTargetRowsInserted") === "1", metrics)
+      assert(metrics("numTargetRowsCopied") === "2", metrics)
+
+      // With change data feed on, the counters sit inside the packed change rows that Delta
+      // explodes above the write projection. Each change must appear exactly once.
+      val mergeVersion = latestVersion("cdf_merge_target", "MERGE")
+      val changes = spark
+        .sql(s"""
+                |select _change_type, count(*) from table_changes('cdf_merge_target', $mergeVersion)
+                |group by _change_type
+                |""".stripMargin)
+        .collect()
+        .map(r => r.getString(0) -> r.getLong(1))
+        .toMap
+      assert(
+        changes === Map(
+          "insert" -> 1L,
+          "update_preimage" -> 1L,
+          "update_postimage" -> 1L,
+          "delete" -> 1L),
+        changes)
+
+      if (SparkVersionUtil.gteSpark35) {
+        val nodes = plans.flatMap(flattenPlanInfo)
+        if (BackendsApiManager.getSettings.supportNativeIncrementMetric()) {
+          // The write projection and the whole explode chain above it stay native, so no
+          // row-to-columnar transition sits between the projection and the writer.
+          val nativeDeltaProjects = nodes.filter(_.nodeName == "DeltaProjectExecTransformer")
+          assert(
+            nativeDeltaProjects.exists(isMergeWriteProjection),
+            nodes.map(n => s"${n.nodeName}: ${n.simpleString}"))
+          assert(
+            !nodes.exists(n => n.nodeName == "Project" && isMergeWriteProjection(n)),
+            nodes.map(n => s"${n.nodeName}: ${n.simpleString}"))
+          val boundaries =
+            Seq("WholeStageCodegen", "AdaptiveSparkPlan", "QueryStage", "Exchange", "Shuffle")
+          val sameStage = plans.flatMap {
+            p =>
+              ancestorsOf(
+                p,
+                n => n.nodeName == "DeltaProjectExecTransformer" && isMergeWriteProjection(n))
+                .takeWhile(n => !boundaries.exists(n.nodeName.contains))
+          }
+          assert(!sameStage.exists(_.nodeName == "RowToVeloxColumnar"), sameStage.map(_.nodeName))
+        } else {
+          // Without native counting the write projection stays on Spark. Delta's explode chain
+          // above it is native, so this shape keeps one row-to-columnar transition.
+          assert(
+            nodes.exists(n => n.nodeName == "Project" && isMergeWriteProjection(n)),
+            nodes.map(n => s"${n.nodeName}: ${n.simpleString}"))
+        }
+      }
     }
   }
 
