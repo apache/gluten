@@ -17,13 +17,10 @@
 package org.apache.gluten.extension
 
 import org.apache.gluten.backendsapi.BackendsApiManager
-import org.apache.gluten.expression.IncrementMetricCall
 import org.apache.gluten.extension.DeltaPostTransformRules.containsIncrementMetricExpr
 
 import org.apache.spark.sql.catalyst.expressions.{Alias, And, Expression, Literal, NamedExpression, Or}
 import org.apache.spark.sql.types.BooleanType
-
-import java.util.Locale
 
 /**
  * Decides whether a project or filter carrying Delta's `IncrementMetric` may be offloaded.
@@ -62,18 +59,6 @@ object IncrementMetricOffload {
 
   /** Whether the backend can count an expression's evaluations natively. */
   def nativeCounting: Boolean = BackendsApiManager.getSettings.supportNativeIncrementMetric()
-
-  /**
-   * The counter function name for a metric, derived from the metric's display name (Delta's metric
-   * keys are not carried by the expression). None when the metric has no usable name, in which case
-   * the projection stays on Spark.
-   */
-  def nativeFunctionName(metricName: Option[String]): Option[String] = {
-    metricName
-      .map(_.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "_").replaceAll("^_+|_+$", ""))
-      .filter(_.nonEmpty)
-      .map(IncrementMetricCall.functionNamePrefix + _)
-  }
 
   /**
    * Native counters can be offloaded unless an enclosing `AND` or `OR` may reorder their

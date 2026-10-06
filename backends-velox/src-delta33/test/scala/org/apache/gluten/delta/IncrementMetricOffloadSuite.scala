@@ -18,6 +18,7 @@ package org.apache.gluten.delta
 
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.execution.{DeltaFilterExecTransformer, DeltaProjectExecTransformer}
+import org.apache.gluten.expression.IncrementMetricCall
 import org.apache.gluten.extension.IncrementMetricOffload
 
 import org.apache.spark.sql.catalyst.expressions.{Alias, And, AttributeReference, CaseWhen, EqualTo, Expression, GreaterThan, If, Literal, NamedExpression, Or}
@@ -99,7 +100,7 @@ class IncrementMetricOffloadSuite extends AnyFunSuite {
     }
   }
 
-  test("native counters inside AND or OR fall back before metric naming") {
+  test("native counters inside AND or OR fall back") {
     val counter = increment(Literal.TrueLiteral, newMetric())
     val predicate = GreaterThan(id, Literal(1))
     Seq[Expression](
@@ -111,7 +112,7 @@ class IncrementMetricOffloadSuite extends AnyFunSuite {
       expr =>
         val projectList = Seq(alias(expr))
         assert(!IncrementMetricOffload.canOffloadProject(projectList, nativeCounting = true))
-        // These metrics are unnamed. The shape must be rejected before native naming starts.
+        // The shape is rejected before any slot is assigned.
         val error = intercept[GlutenNotSupportException] {
           DeltaProjectExecTransformer.stripIncrementMetrics(projectList, nativeCounting = true)
         }
@@ -163,28 +164,55 @@ class IncrementMetricOffloadSuite extends AnyFunSuite {
     }
   }
 
-  test("a counter function name is derived from the metric's display name") {
-    assert(
-      IncrementMetricOffload.nativeFunctionName(Some("number of target rows copied")) ===
-        Some("increment_metric_number_of_target_rows_copied"))
-    assert(
-      IncrementMetricOffload.nativeFunctionName(Some("number of rows deleted.")) ===
-        Some("increment_metric_number_of_rows_deleted"))
-    assert(IncrementMetricOffload.nativeFunctionName(Some(" -- ")).isEmpty)
-    assert(IncrementMetricOffload.nativeFunctionName(None).isEmpty)
+  test("native counting gives each distinct metric one slot, in order of first appearance") {
+    val updated = newMetric()
+    val copied = newMetric()
+    val predicate = GreaterThan(id, Literal(1))
+    // `copied` appears twice: inside a branch and at another alias root. Both calls share a slot.
+    val projectList = Seq(
+      id,
+      alias(CaseWhen(Seq(predicate -> increment(id, updated)), increment(id, copied))),
+      alias(increment(Literal.TrueLiteral, copied)))
+    val (rewritten, metrics) =
+      DeltaProjectExecTransformer.stripIncrementMetrics(projectList, nativeCounting = true)
+    assert(rewritten.head eq id)
+    val calls = rewritten.flatMap(_.collect { case call: IncrementMetricCall => call })
+    assert(calls.map(_.functionName) === Seq(
+      "increment_metric_0",
+      "increment_metric_1",
+      "increment_metric_1"))
+    assert(rewritten.flatMap(_.collect { case m: IncrementMetric => m }).isEmpty)
+    assert(metrics.map(_._1) === Seq("increment_metric_0", "increment_metric_1"))
+    assert(metrics.map(_._2).zip(Seq(updated, copied)).forall { case (a, b) => a eq b })
   }
 
-  test("native counting refuses a metric it cannot name and leaves other aliases untouched") {
-    // An accumulator that was never registered has no name, so it cannot get a counter function.
+  test("native counting does not need a metric name") {
+    // An accumulator that was never registered has no name; the slot stands in for it.
     val projectList = Seq(id, alias(increment(Literal.TrueLiteral, newMetric())))
-    intercept[GlutenNotSupportException] {
-      DeltaProjectExecTransformer.stripIncrementMetrics(projectList, nativeCounting = true)
-    }
-    val plain = Seq(id, alias(GreaterThan(id, Literal(1))))
     val (rewritten, metrics) =
+      DeltaProjectExecTransformer.stripIncrementMetrics(projectList, nativeCounting = true)
+    assert(rewritten.head eq id)
+    assert(metrics.map(_._1) === Seq("increment_metric_0"))
+    val plain = Seq(id, alias(GreaterThan(id, Literal(1))))
+    val (untouched, none) =
       DeltaProjectExecTransformer.stripIncrementMetrics(plain, nativeCounting = true)
-    assert(rewritten.zip(plain).forall { case (a, b) => a eq b })
-    assert(metrics.isEmpty)
+    assert(untouched.zip(plain).forall { case (a, b) => a eq b })
+    assert(none.isEmpty)
+  }
+
+  test("native counting falls back above the slot limit") {
+    val projectList = (0 until IncrementMetricCall.maxCounters).map {
+      _ => alias(increment(Literal.TrueLiteral, newMetric()))
+    }
+    assert(
+      DeltaProjectExecTransformer
+        .stripIncrementMetrics(projectList, nativeCounting = true)
+        ._2
+        .size === IncrementMetricCall.maxCounters)
+    val oneTooMany = projectList :+ alias(increment(Literal.TrueLiteral, newMetric()))
+    intercept[GlutenNotSupportException] {
+      DeltaProjectExecTransformer.stripIncrementMetrics(oneTooMany, nativeCounting = true)
+    }
   }
 
   test("a filter condition without IncrementMetric is returned untouched") {

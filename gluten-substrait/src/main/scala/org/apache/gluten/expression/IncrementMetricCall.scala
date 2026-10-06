@@ -22,9 +22,10 @@ import org.apache.spark.sql.types.DataType
 /**
  * A native pass-through call that makes the backend count how many rows reached this point of an
  * expression tree. Delta's transformers emit it in place of `IncrementMetric` when the backend
- * supports native counting. `functionName` is unique to one SQL metric: the backend keys its
- * per-expression statistics by function name, and the metrics updater credits the metric from that
- * entry. Never evaluated on Spark; it only exists in the expression list handed to the backend.
+ * supports native counting. `functionName` is one of the backend's fixed counter slots and is
+ * unique to one SQL metric within its projection: the backend keys its per-expression statistics by
+ * function name, and the metrics updater credits the metric from that entry. Never evaluated on
+ * Spark; it only exists in the expression list handed to the backend.
  */
 case class IncrementMetricCall(child: Expression, functionName: String)
   extends UnaryExpression
@@ -47,6 +48,19 @@ case class IncrementMetricCall(child: Expression, functionName: String)
 
 object IncrementMetricCall {
 
-  /** Prefix of every counter function name; the backend registers such names on first sight. */
+  /** Prefix of every counter slot name. */
   val functionNamePrefix: String = "increment_metric_"
+
+  /**
+   * Number of counter slots the backend registers at startup (`increment_metric_0` to
+   * `increment_metric_31`). Mirrors `kIncrementMetricFunctionSlots` in the Velox backend. A
+   * projection with more distinct metrics than this falls back.
+   */
+  val maxCounters: Int = 32
+
+  /** Name of the counter slot `slot`, which must be below [[maxCounters]]. */
+  def functionName(slot: Int): String = {
+    require(slot >= 0 && slot < maxCounters, s"counter slot $slot out of range")
+    functionNamePrefix + slot
+  }
 }

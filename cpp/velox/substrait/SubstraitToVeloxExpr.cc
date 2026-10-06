@@ -17,7 +17,6 @@
 
 #include "SubstraitToVeloxExpr.h"
 #include "TypeUtils.h"
-#include "operators/functions/IncrementMetricFunction.h"
 #include "velox/functions/sparksql/specialforms/SparkCastExpr.h"
 #include "velox/type/Timestamp.h"
 #include "velox/vector/FlatVector.h"
@@ -373,10 +372,6 @@ core::TypedExprPtr SubstraitVeloxExprConverter::toVeloxExpr(
   const auto& veloxFunction = SubstraitParser::findVeloxFunction(functionMap_, substraitFunc.function_reference());
   const auto& outputType = SubstraitParser::parseType(substraitFunc.output_type());
 
-  if (isIncrementMetricFunction(veloxFunction)) {
-    // Delta counters are named per metric and registered on first sight.
-    ensureIncrementMetricFunctionRegistered(veloxFunction);
-  }
   if (veloxFunction == "lambdafunction") {
     return toLambdaExpr(substraitFunc, inputType);
   }

@@ -34,7 +34,6 @@ import org.apache.spark.sql.execution.metric.SQLMetric
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
-import scala.util.Try
 
 case class DeltaProjectExecTransformer(projectList: Seq[NamedExpression], child: SparkPlan)
   extends ProjectExecTransformerBase(projectList, child) {
@@ -98,11 +97,11 @@ object DeltaProjectExecTransformer {
    * Rewrites the project list for the backend and returns it together with the metrics it carries,
    * keyed the way the metrics updater credits them.
    *
-   * With `nativeCounting`, every [[IncrementMetric]] becomes an [[IncrementMetricCall]] named after
-   * its metric, so the backend counts the rows it is evaluated on wherever it sits. A metric
-   * without a usable name, or two different metrics sharing one name in the same projection, cannot
-   * be told apart in the backend's stats and make the projection fall back. Counters inside `AND`
-   * or `OR` also fall back because native operand reordering can change their evaluation count.
+   * With `nativeCounting`, every [[IncrementMetric]] becomes an [[IncrementMetricCall]] on one of
+   * the backend's counter slots, one slot per distinct metric of the projection, so the backend
+   * counts the rows it is evaluated on wherever it sits. A projection with more distinct metrics
+   * than slots falls back. Counters inside `AND` or `OR` also fall back because native operand
+   * reordering can change their evaluation count.
    *
    * Without it, only the stack of [[IncrementMetric]] at the root of an alias is removed and
    * credited with the output row count. An [[IncrementMetric]] anywhere else is evaluated only for
@@ -143,22 +142,22 @@ object DeltaProjectExecTransformer {
 
   private def rewriteToNativeCounters(
       projectList: Seq[NamedExpression]): (Seq[NamedExpression], Seq[(String, SQLMetric)]) = {
-    val metricsByName = mutable.LinkedHashMap.empty[String, SQLMetric]
+    // One slot per distinct metric, in order of first appearance. SQLMetric has identity equality,
+    // so the same metric reached from several places shares its slot and the backend sums the rows
+    // of every call to it, which is how Spark increments it too.
+    val slots = mutable.LinkedHashMap.empty[SQLMetric, String]
     def toCall(expr: Expression): Expression = expr.transformUp {
       case increment: IncrementMetric =>
-        // `name` throws on an accumulator that was never registered; treat it as unnamed.
-        val metricName = Try(increment.metric.name).getOrElse(None)
-        val functionName = IncrementMetricOffload.nativeFunctionName(metricName).getOrElse {
-          throw new GlutenNotSupportException(
-            "IncrementMetric without a metric name cannot be counted natively")
-        }
-        metricsByName.get(functionName) match {
-          case Some(other) if other ne increment.metric =>
-            throw new GlutenNotSupportException(
-              s"Two different metrics named ${metricName.get} in one projection cannot be " +
-                "counted natively")
-          case _ => metricsByName.update(functionName, increment.metric)
-        }
+        val functionName = slots.getOrElseUpdate(
+          increment.metric, {
+            if (slots.size >= IncrementMetricCall.maxCounters) {
+              throw new GlutenNotSupportException(
+                s"More than ${IncrementMetricCall.maxCounters} distinct metrics in one projection " +
+                  "cannot be counted natively")
+            }
+            IncrementMetricCall.functionName(slots.size)
+          }
+        )
         IncrementMetricCall(increment.child, functionName)
     }
     val rewritten = projectList.map {
@@ -167,6 +166,6 @@ object DeltaProjectExecTransformer {
         if (child eq alias.child) alias else alias.withNewChildren(Seq(child)).asInstanceOf[Alias]
       case other => other
     }
-    (rewritten, metricsByName.toSeq)
+    (rewritten, slots.toSeq.map { case (metric, name) => (name, metric) })
   }
 }

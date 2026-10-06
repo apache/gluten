@@ -17,24 +17,39 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
+
+#include "velox/core/PlanNode.h"
 
 namespace gluten {
 
-/// Prefix of the Velox function names that carry a Delta `IncrementMetric` counter. Every Delta
-/// metric gets its own name (`increment_metric_<metric>`), because Velox keys its per-expression
-/// statistics by function name. The function returns its argument unchanged; what the query wants
-/// is Velox's `numProcessedRows` for that name, read back through the operator's expression stats.
-/// Inside a CASE WHEN branch that is the number of rows that took the branch, at the top of a
-/// projection it is every row, which is exactly how Spark evaluates `IncrementMetric`.
+/// Delta's `IncrementMetric` counts how many rows an expression is evaluated on. Velox already
+/// keeps that count per expression (`ExprStats::numProcessedRows`) and project and filter operators
+/// export it per function name, so a counter is a pass-through function whose name is the key the
+/// JVM credits the metric from. Inside a CASE WHEN branch that is the number of rows that took the
+/// branch, at the top of a projection it is every row, which is exactly how Spark evaluates
+/// `IncrementMetric`.
+///
+/// The names are fixed slots, `increment_metric_<slot>`, registered once at startup. The JVM
+/// assigns one slot per distinct metric of a projection, so a metric needs no name of its own and
+/// nothing is registered while queries run.
 constexpr const char* kIncrementMetricFunctionPrefix = "increment_metric_";
 
-/// True if `functionName` is a Delta counter that must be registered before use.
+/// Number of counter slots registered. Mirrored by `IncrementMetricCall.maxCounters` on the JVM.
+constexpr int32_t kIncrementMetricFunctionSlots = 32;
+
+/// Name of the counter function for `slot`.
+std::string incrementMetricFunctionName(int32_t slot);
+
+/// True if `functionName` is a counter slot.
 bool isIncrementMetricFunction(const std::string& functionName);
 
-/// Registers `functionName` as a counter pass-through if it is not registered yet. Idempotent and
-/// safe to call from plan conversion on any thread; the set of names is bounded by the distinct
-/// Delta metrics the process has seen.
-void ensureIncrementMetricFunctionRegistered(const std::string& functionName);
+/// Registers every counter slot. Called from registerAllFunctions().
+void registerIncrementMetricFunctions();
+
+/// True if a project or filter in `plan` calls a counter, which is when the query must export
+/// per-expression statistics.
+bool usesIncrementMetricFunctions(const facebook::velox::core::PlanNode& plan);
 
 } // namespace gluten

@@ -17,12 +17,10 @@
 
 #include "operators/functions/IncrementMetricFunction.h"
 
-#include <folly/Synchronized.h>
-
 #include <memory>
-#include <unordered_set>
 #include <vector>
 
+#include "velox/core/Expressions.h"
 #include "velox/expression/EvalCtx.h"
 #include "velox/expression/FunctionSignature.h"
 #include "velox/expression/VectorFunction.h"
@@ -46,46 +44,66 @@ class IncrementMetricFunction : public exec::VectorFunction {
   }
 };
 
-std::vector<std::shared_ptr<exec::FunctionSignature>> incrementMetricSignatures() {
-  return {exec::FunctionSignatureBuilder().typeVariable("T").returnType("T").argumentType("T").build()};
-}
-
-exec::VectorFunctionMetadata incrementMetricMetadata() {
-  // Not deterministic: keeps Velox from constant-folding, sharing or dictionary-peeling the call,
-  // any of which would change how many rows it is evaluated on. No default null behavior: a null
-  // input still counts, as it does on Spark.
-  return exec::VectorFunctionMetadataBuilder().deterministic(false).defaultNullBehavior(false).build();
-}
-
-folly::Synchronized<std::unordered_set<std::string>>& registeredIncrementMetricFunctions() {
-  static folly::Synchronized<std::unordered_set<std::string>> names;
-  return names;
+bool callsIncrementMetric(const core::ITypedExpr& expr) {
+  if (const auto* call = dynamic_cast<const core::CallTypedExpr*>(&expr)) {
+    if (isIncrementMetricFunction(call->name())) {
+      return true;
+    }
+  }
+  if (const auto* lambda = dynamic_cast<const core::LambdaTypedExpr*>(&expr)) {
+    return lambda->body() != nullptr && callsIncrementMetric(*lambda->body());
+  }
+  for (const auto& input : expr.inputs()) {
+    if (input != nullptr && callsIncrementMetric(*input)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 } // namespace
+
+std::string incrementMetricFunctionName(int32_t slot) {
+  return std::string(kIncrementMetricFunctionPrefix) + std::to_string(slot);
+}
 
 bool isIncrementMetricFunction(const std::string& functionName) {
   return functionName.rfind(kIncrementMetricFunctionPrefix, 0) == 0;
 }
 
-void ensureIncrementMetricFunctionRegistered(const std::string& functionName) {
-  {
-    auto names = registeredIncrementMetricFunctions().rlock();
-    if (names->count(functionName) != 0) {
-      return;
+void registerIncrementMetricFunctions() {
+  // Not deterministic: keeps Velox from constant-folding, sharing or dictionary-peeling the call,
+  // any of which would change how many rows it is evaluated on. No default null behavior: a null
+  // input still counts, as it does on Spark.
+  const auto metadata =
+      exec::VectorFunctionMetadataBuilder().deterministic(false).defaultNullBehavior(false).build();
+  for (int32_t slot = 0; slot < kIncrementMetricFunctionSlots; ++slot) {
+    exec::registerVectorFunction(
+        incrementMetricFunctionName(slot),
+        {exec::FunctionSignatureBuilder().typeVariable("T").returnType("T").argumentType("T").build()},
+        std::make_unique<IncrementMetricFunction>(),
+        metadata);
+  }
+}
+
+bool usesIncrementMetricFunctions(const core::PlanNode& plan) {
+  if (const auto* project = dynamic_cast<const core::ProjectNode*>(&plan)) {
+    for (const auto& projection : project->projections()) {
+      if (projection != nullptr && callsIncrementMetric(*projection)) {
+        return true;
+      }
+    }
+  } else if (const auto* filter = dynamic_cast<const core::FilterNode*>(&plan)) {
+    if (filter->filter() != nullptr && callsIncrementMetric(*filter->filter())) {
+      return true;
     }
   }
-  auto names = registeredIncrementMetricFunctions().wlock();
-  if (names->count(functionName) != 0) {
-    return;
+  for (const auto& source : plan.sources()) {
+    if (source != nullptr && usesIncrementMetricFunctions(*source)) {
+      return true;
+    }
   }
-  exec::registerVectorFunction(
-      functionName,
-      incrementMetricSignatures(),
-      std::make_unique<IncrementMetricFunction>(),
-      incrementMetricMetadata(),
-      /*overwrite=*/false);
-  names->insert(functionName);
+  return false;
 }
 
 } // namespace gluten
