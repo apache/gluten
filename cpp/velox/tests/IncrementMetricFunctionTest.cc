@@ -56,9 +56,11 @@ TEST_F(IncrementMetricFunctionTest, passesInputThroughIncludingNulls) {
 TEST_F(IncrementMetricFunctionTest, countsOnlyRowsThatReachTheCall) {
   // Rows 2, 3 and 4 take the branch; row 1 does not. The counter must see three rows, and the
   // unconditional counter all four, exactly as Spark evaluates IncrementMetric.
-  auto data = makeRowVector({makeFlatVector<int64_t>({1, 2, 3, 4})});
+  // Spark function names: the parser's `>` and `+` map to Presto names that Gluten does not register.
+  auto data = makeRowVector({makeFlatVector<int32_t>({1, 2, 3, 4})});
   auto exprSet = compileExpression(
-      "if(c0 > 1, increment_metric_1(c0), increment_metric_2(c0)) + increment_metric_3(0)", asRowType(data->type()));
+      "add(if(greaterthan(c0, 1), increment_metric_1(c0), increment_metric_2(c0)), increment_metric_3(c0))",
+      asRowType(data->type()));
   evaluate(*exprSet, data);
   auto stats = exprSet->stats();
   ASSERT_EQ(stats.at("increment_metric_1").numProcessedRows, 3);
@@ -74,18 +76,19 @@ TEST_F(IncrementMetricFunctionTest, nullInputStillCounts) {
 }
 
 TEST_F(IncrementMetricFunctionTest, detectsCountersInAPlan) {
-  auto data = makeRowVector({makeFlatVector<int64_t>({1, 2})});
+  auto data = makeRowVector({makeFlatVector<int32_t>({1, 2})});
   auto withCounter = exec::test::PlanBuilder().values({data}).project({"increment_metric_5(c0) AS c0"}).planNode();
   ASSERT_TRUE(usesIncrementMetricFunctions(*withCounter));
 
   auto nestedCounter = exec::test::PlanBuilder()
                            .values({data})
-                           .project({"if(c0 > 1, increment_metric_6(c0), c0) AS c0"})
-                           .filter("c0 > 0")
+                           .project({"if(greaterthan(c0, 1), increment_metric_6(c0), c0) AS c0"})
+                           .filter("greaterthan(c0, 0)")
                            .planNode();
   ASSERT_TRUE(usesIncrementMetricFunctions(*nestedCounter));
 
-  auto plain = exec::test::PlanBuilder().values({data}).project({"c0 + 1 AS c0"}).filter("c0 > 0").planNode();
+  auto plain =
+      exec::test::PlanBuilder().values({data}).project({"add(c0, 1) AS c0"}).filter("greaterthan(c0, 0)").planNode();
   ASSERT_FALSE(usesIncrementMetricFunctions(*plain));
 }
 
