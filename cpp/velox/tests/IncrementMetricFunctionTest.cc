@@ -45,12 +45,12 @@ TEST_F(IncrementMetricFunctionTest, slotNames) {
 TEST_F(IncrementMetricFunctionTest, passesInputThroughIncludingNulls) {
   auto input = makeNullableFlatVector<int64_t>({1, std::nullopt, 3});
   auto result = evaluate("increment_metric_0(c0)", makeRowVector({input}));
-  assertEqualVectors(input, result);
+  facebook::velox::test::assertEqualVectors(input, result);
 
   auto last = incrementMetricFunctionName(kIncrementMetricFunctionSlots - 1);
   auto strings = makeFlatVector<StringView>({"a", "bb", "ccc"});
   auto stringResult = evaluate(last + "(c0)", makeRowVector({strings}));
-  assertEqualVectors(strings, stringResult);
+  facebook::velox::test::assertEqualVectors(strings, stringResult);
 }
 
 TEST_F(IncrementMetricFunctionTest, countsOnlyRowsThatReachTheCall) {
