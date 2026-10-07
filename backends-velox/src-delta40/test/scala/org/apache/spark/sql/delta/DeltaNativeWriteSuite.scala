@@ -468,6 +468,120 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
     }
   }
 
+  test(
+    "GlutenDeltaOptimizedWriterExec partition column lookup is case-insensitive " +
+      "(caseSensitive=true, table Part / DataFrame part)") {
+    // Regression for PR #12726: the partition-column resolver was changed from
+    // caseInsensitiveResolution to SQLConf.get.resolver, which broke optimized writes when
+    // caseSensitive=true and the incoming DataFrame column case differs from the Delta metadata
+    // name.  E.g. table partitioned by "Part" + DataFrame column "part" threw:
+    //   [DELTA_FAILED_FIND_PARTITION_COLUMN_IN_OUTPUT_PLAN] Could not find Part in output plan.
+    // The lookup must always be case-insensitive: Delta matches partition columns by canonical
+    // name regardless of the session's caseSensitive setting.
+    withNativeWriteOffloadConf {
+      withSQLConf(SQLConf.CASE_SENSITIVE.key -> "true") {
+        withTempDir {
+          dir =>
+            val path = dir.getCanonicalPath
+            spark
+              .range(0, 4, 1, 2)
+              .selectExpr("id", "cast(id % 2 as int) AS Part")
+              .write
+              .format("delta")
+              .partitionBy("Part")
+              .mode("overwrite")
+              .save(path)
+
+            spark
+              .range(4, 8, 1, 2)
+              .selectExpr("id", "cast(id % 2 as int) AS part")
+              .write
+              .format("delta")
+              .mode("append")
+              .option("optimizeWrite", "true")
+              .save(path)
+
+            val result = spark.read.format("delta").load(path)
+            assert(
+              result.select("id").collect().map(_.getLong(0)).toSet == (0L until 8L).toSet,
+              "All rows must be readable after the case-mismatched optimized write")
+        }
+      }
+    }
+  }
+
+  test(
+    "GlutenDeltaOptimizedWriterExec partition column lookup is case-insensitive " +
+      "(caseSensitive=false, table Part / DataFrame part)") {
+    withNativeWriteOffloadConf {
+      withSQLConf(SQLConf.CASE_SENSITIVE.key -> "false") {
+        withTempDir {
+          dir =>
+            val path = dir.getCanonicalPath
+            spark
+              .range(0, 4, 1, 2)
+              .selectExpr("id", "cast(id % 2 as int) AS Part")
+              .write
+              .format("delta")
+              .partitionBy("Part")
+              .mode("overwrite")
+              .save(path)
+
+            spark
+              .range(4, 8, 1, 2)
+              .selectExpr("id", "cast(id % 2 as int) AS part")
+              .write
+              .format("delta")
+              .mode("append")
+              .option("optimizeWrite", "true")
+              .save(path)
+
+            val result = spark.read.format("delta").load(path)
+            assert(
+              result.select("id").collect().map(_.getLong(0)).toSet == (0L until 8L).toSet,
+              "All rows must be readable after the optimized write under caseSensitive=false"
+            )
+        }
+      }
+    }
+  }
+
+  test(
+    "GlutenDeltaOptimizedWriterExec partition column lookup with matching case " +
+      "(caseSensitive=true, table Part / DataFrame Part)") {
+    withNativeWriteOffloadConf {
+      withSQLConf(SQLConf.CASE_SENSITIVE.key -> "true") {
+        withTempDir {
+          dir =>
+            val path = dir.getCanonicalPath
+            spark
+              .range(0, 4, 1, 2)
+              .selectExpr("id", "cast(id % 2 as int) AS Part")
+              .write
+              .format("delta")
+              .partitionBy("Part")
+              .mode("overwrite")
+              .save(path)
+
+            spark
+              .range(4, 8, 1, 2)
+              .selectExpr("id", "cast(id % 2 as int) AS Part")
+              .write
+              .format("delta")
+              .mode("append")
+              .option("optimizeWrite", "true")
+              .save(path)
+
+            val result = spark.read.format("delta").load(path)
+            assert(
+              result.select("id").collect().map(_.getLong(0)).toSet == (0L until 8L).toSet,
+              "All rows must be readable after the exact-case optimized write under caseSensitive=true"
+            )
+        }
+      }
+    }
+  }
+
   test("delta optimize command should not be offloaded when native write is disabled") {
     withNativeWriteOffloadConf {
       withTempDir {

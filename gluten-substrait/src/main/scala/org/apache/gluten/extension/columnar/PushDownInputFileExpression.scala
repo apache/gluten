@@ -277,8 +277,16 @@ object PushDownInputFileExpression {
           val newOtherChildren = children.tail.map {
             child =>
               // Make sure exprId is unique in each child of Union.
+              // IMPORTANT: preserve the original alias's explicitMetadata (which carries
+              // INPUT_FILE_COL_METADATA and, when mangling was needed, also
+              // GLUTEN_INPUT_FILE_CANON_KEY).  The default Alias(...)() constructor uses
+              // Metadata.empty, which strips these keys, causing isInjectedInputFileAttr to
+              // return false for the tail-branch attributes and breaking the infoColumns lookup
+              // in BasicScanExecTransformer.partitionToSplitInfo for every UNION branch after
+              // the first (PR #12726 regression: input_file_name() + UNION ALL).
               val newReplacedExprs = replacedExprs.map {
-                expr => (expr._1, Alias(expr._2.child, expr._2.name)())
+                case (k, a) =>
+                  k -> Alias(a.child, a.name)(explicitMetadata = Some(a.metadata))
               }
               addMetadataCol(child, newReplacedExprs)
           }
