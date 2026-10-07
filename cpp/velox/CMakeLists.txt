@@ -383,6 +383,12 @@ target_link_libraries(velox PUBLIC ${GLUTEN_ROARING_LINK_LIBRARY})
 find_re2()
 target_link_libraries(velox PUBLIC ${RE2_LIBRARY})
 
+if(ENABLE_GLUTEN_VCPKG)
+  # FBThrift -> mvfst -> fizz -> OpenSSL; with VCPKG_DYNAMIC_OPENSSL=ON vcpkg
+  # only provides libssl.so/libcrypto.so, so resolve it before forcing ".a".
+  find_package(OpenSSL REQUIRED)
+endif()
+
 set(CMAKE_FIND_LIBRARY_SUFFIXES_BCK ${CMAKE_FIND_LIBRARY_SUFFIXES})
 set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
 
