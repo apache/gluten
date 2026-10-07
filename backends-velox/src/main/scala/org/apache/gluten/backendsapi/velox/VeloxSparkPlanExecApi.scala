@@ -30,10 +30,9 @@ import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.expression.{ExpressionBuilder, ExpressionNode, WindowFunctionNode}
 import org.apache.gluten.vectorized.{ColumnarBatchSerializer, ColumnarBatchSerializeResult}
 
-import org.apache.spark.{ShuffleDependency, SparkEnv, SparkException}
+import org.apache.spark.{ShuffleDependency, SparkEnv}
 import org.apache.spark.api.python.{ColumnarArrowEvalPythonExec, PullOutArrowEvalPythonPreProjectHelper}
 import org.apache.spark.internal.Logging
-import org.apache.spark.memory.SparkMemoryUtil
 import org.apache.spark.rdd.RDD
 import org.apache.spark.serializer.Serializer
 import org.apache.spark.shuffle.{GenShuffleReaderParameters, GenShuffleWriterParameters, GlutenShuffleReaderWrapper, GlutenShuffleWriterWrapper, VeloxShuffleUtils}
@@ -887,10 +886,9 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     val buildSideRowCount = serialized.map(_.numRows).sum
     val rawSize = serialized.map(_.sizeInBytes()).sum
     if (rawSize >= GlutenConfig.get.maxBroadcastTableSize) {
-      throw new SparkException(
-        "Cannot broadcast the table that is larger than " +
-          s"${SparkMemoryUtil.bytesToString(GlutenConfig.get.maxBroadcastTableSize)}: " +
-          s"${SparkMemoryUtil.bytesToString(rawSize)}")
+      throw BroadcastUtils.cannotBroadcastTableOverMaxTableBytesError(
+        GlutenConfig.get.maxBroadcastTableSize,
+        rawSize)
     }
     numOutputRows += buildSideRowCount
     dataSize += rawSize
