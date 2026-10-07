@@ -165,6 +165,8 @@ case class BroadcastHashJoinExecTransformer(
         (Array.empty[String], false)
     }
 
+    val (filterPlan, filterInputNames) = BroadcastHashJoinFilter.serialize(condition)
+
     val context =
       BroadcastHashJoinContext(
         buildKeyExprs,
@@ -182,7 +184,9 @@ case class BroadcastHashJoinExecTransformer(
         metrics.get("serializeHashTableTime"),
         metrics.get("deserializeHashTableTime"),
         metrics.get("serializedHashTableSize"),
-        metrics.get("hashTableMemorySize")
+        metrics.get("hashTableMemorySize"),
+        filterPlan = filterPlan,
+        filterInputNames = filterInputNames
       )
 
     // Check the type of broadcast relation to determine the approach
@@ -267,7 +271,10 @@ case class BroadcastHashJoinContext(
     serializeHashTableTimeMetric: Option[SQLMetric] = None,
     deserializeHashTableTimeMetric: Option[SQLMetric] = None,
     serializedHashTableSizeMetric: Option[SQLMetric] = None,
-    hashTableMemorySizeMetric: Option[SQLMetric] = None) {
+    hashTableMemorySizeMetric: Option[SQLMetric] = None,
+    // The join condition for the executor-side build, see BroadcastHashJoinFilter.serialize().
+    filterPlan: Array[Byte] = Array.emptyByteArray,
+    filterInputNames: Array[String] = Array.empty) {
   def droppedDuplicates: Boolean = {
     !hasMixedFiltCondition && (
       substraitJoinType == JoinRel.JoinType.JOIN_TYPE_LEFT_SEMI ||

@@ -20,11 +20,16 @@
 #include <jni/JniCommon.h>
 #include <algorithm>
 #include "JniHashTable.h"
+#include "config/VeloxConfig.h"
 #include "folly/String.h"
 #include "memory/ColumnarBatch.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "operators/hashjoin/HashTableSerializer.h"
+#include "operators/hashjoin/HashTableTaskBuilder.h"
+#include "operators/plannodes/IteratorSplit.h"
+#include "substrait/SubstraitToVeloxPlan.h"
 #include "substrait/algebra.pb.h"
+#include "substrait/plan.pb.h"
 #include "substrait/type.pb.h"
 #include "velox/core/PlanNode.h"
 #include "velox/type/Type.h"
@@ -56,6 +61,51 @@ jlong JniHashTableContext::callJavaGet(const std::string& id) const {
   return result;
 }
 
+namespace {
+
+facebook::velox::core::JoinType toVeloxJoinType(int joinType, bool isExistenceJoin) {
+  auto sJoin = static_cast<substrait::JoinRel_JoinType>(joinType);
+  switch (sJoin) {
+    case ::substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_INNER:
+      return facebook::velox::core::JoinType::kInner;
+    case ::substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_OUTER:
+      return facebook::velox::core::JoinType::kFull;
+    case ::substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_LEFT:
+      return facebook::velox::core::JoinType::kLeft;
+    case ::substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_RIGHT:
+      return facebook::velox::core::JoinType::kRight;
+    case ::substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_LEFT_SEMI:
+      return isExistenceJoin ? facebook::velox::core::JoinType::kLeftSemiProject
+                             : facebook::velox::core::JoinType::kLeftSemiFilter;
+    case ::substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_RIGHT_SEMI:
+      return isExistenceJoin ? facebook::velox::core::JoinType::kRightSemiProject
+                             : facebook::velox::core::JoinType::kRightSemiFilter;
+    case ::substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_LEFT_ANTI:
+      return facebook::velox::core::JoinType::kAnti;
+    default:
+      VELOX_NYI("Unsupported Join type: {}", std::to_string(sJoin));
+  }
+}
+
+const facebook::velox::core::FilterNode* findFilterNode(const facebook::velox::core::PlanNodePtr& node) {
+  if (const auto* filter = dynamic_cast<const facebook::velox::core::FilterNode*>(node.get())) {
+    return filter;
+  }
+  for (const auto& source : node->sources()) {
+    if (const auto* filter = findFilterNode(source)) {
+      return filter;
+    }
+  }
+  return nullptr;
+}
+
+template <bool ignoreNullKeys>
+facebook::velox::exec::HashTable<ignoreNullKeys>* asHashTable(const BroadcastHashTable& hashTable) {
+  return dynamic_cast<facebook::velox::exec::HashTable<ignoreNullKeys>*>(hashTable.table.get());
+}
+
+} // namespace
+
 // Return the velox's hash table.
 std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
     const std::vector<std::string>& joinKeys,
@@ -76,45 +126,7 @@ std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
     std::shared_ptr<facebook::velox::memory::MemoryPool> memoryPool) {
   auto rowType = std::make_shared<facebook::velox::RowType>(std::move(names), std::move(veloxTypeList));
 
-  auto sJoin = static_cast<substrait::JoinRel_JoinType>(joinType);
-  facebook::velox::core::JoinType vJoin;
-  switch (sJoin) {
-    case ::substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_INNER:
-      vJoin = facebook::velox::core::JoinType::kInner;
-      break;
-    case ::substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_OUTER:
-      vJoin = facebook::velox::core::JoinType::kFull;
-      break;
-    case ::substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_LEFT:
-      vJoin = facebook::velox::core::JoinType::kLeft;
-      break;
-    case ::substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_RIGHT:
-      vJoin = facebook::velox::core::JoinType::kRight;
-      break;
-    case ::substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_LEFT_SEMI:
-      // Determine the semi join type based on extracted information.
-      if (isExistenceJoin) {
-        vJoin = facebook::velox::core::JoinType::kLeftSemiProject;
-      } else {
-        vJoin = facebook::velox::core::JoinType::kLeftSemiFilter;
-      }
-      break;
-    case ::substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_RIGHT_SEMI:
-      // Determine the semi join type based on extracted information.
-      if (isExistenceJoin) {
-        vJoin = facebook::velox::core::JoinType::kRightSemiProject;
-      } else {
-        vJoin = facebook::velox::core::JoinType::kRightSemiFilter;
-      }
-      break;
-    case ::substrait::JoinRel_JoinType::JoinRel_JoinType_JOIN_TYPE_LEFT_ANTI: {
-      // Determine the anti join type based on extracted information.
-      vJoin = facebook::velox::core::JoinType::kAnti;
-      break;
-    }
-    default:
-      VELOX_NYI("Unsupported Join type: {}", std::to_string(sJoin));
-  }
+  const auto vJoin = toVeloxJoinType(joinType, isExistenceJoin);
 
   std::vector<std::shared_ptr<const facebook::velox::core::FieldAccessTypedExpr>> joinKeyTypes;
   joinKeyTypes.reserve(joinKeys.size());
@@ -160,95 +172,142 @@ std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
   return hashTableBuilder;
 }
 
+facebook::velox::core::TypedExprPtr toVeloxJoinFilter(
+    const std::string& filterPlan,
+    const std::vector<std::string>& filterInputNames,
+    const facebook::velox::config::ConfigBase* veloxCfg,
+    facebook::velox::memory::MemoryPool* pool) {
+  if (filterPlan.empty()) {
+    return nullptr;
+  }
+  ::substrait::Plan plan;
+  VELOX_CHECK(plan.ParseFromString(filterPlan), "Failed to parse the join filter plan");
+  SubstraitToVeloxPlanConverter converter(
+      pool,
+      veloxCfg,
+      {},
+      VeloxConnectorIds{
+          .hive = kHiveConnectorId,
+          .iceberg = kIcebergConnectorId,
+          .iterator = kIteratorConnectorId,
+          .cudfHive = kCudfHiveConnectorId},
+      std::nullopt,
+      std::nullopt,
+      /*validationMode=*/true);
+  const auto root = converter.toVeloxPlan(plan);
+  const auto* filterNode = findFilterNode(root);
+  VELOX_CHECK_NOT_NULL(filterNode, "The join filter plan has no filter");
+
+  // The converter names the filter input columns by position. Map them back to
+  // the column names of the join inputs.
+  const auto& inputType = filterNode->sources()[0]->outputType();
+  VELOX_CHECK_EQ(inputType->size(), filterInputNames.size());
+  std::unordered_map<std::string, facebook::velox::core::TypedExprPtr> mapping;
+  for (auto i = 0; i < inputType->size(); ++i) {
+    mapping.emplace(
+        inputType->nameOf(i),
+        std::make_shared<facebook::velox::core::FieldAccessTypedExpr>(inputType->childAt(i), filterInputNames[i]));
+  }
+  return filterNode->filter()->rewriteInputNames(mapping);
+}
+
+std::shared_ptr<BroadcastHashTable> nativeHashTableBuildWithTask(
+    const std::string& hashTableId,
+    const std::vector<std::string>& joinKeys,
+    facebook::velox::core::TypedExprPtr filter,
+    std::vector<std::string> names,
+    std::vector<facebook::velox::TypePtr> veloxTypeList,
+    int joinType,
+    bool isExistenceJoin,
+    bool isNullAwareAntiJoin,
+    int64_t bloomFilterPushdownSize,
+    uint32_t minTableRowsForParallelJoinBuild,
+    uint32_t joinBuildVectorHasherMaxNumDistinct,
+    uint32_t abandonHashBuildDedupMinRows,
+    uint32_t abandonHashBuildDedupMinPct,
+    std::vector<std::shared_ptr<ColumnarBatch>>& batches,
+    uint32_t numThreads,
+    folly::Executor* executor,
+    std::shared_ptr<facebook::velox::memory::MemoryPool> queryPool,
+    std::shared_ptr<facebook::velox::memory::MemoryPool> inputPool) {
+  using facebook::velox::core::QueryConfig;
+  HashTableTaskBuildSpec spec;
+  spec.joinType = toVeloxJoinType(joinType, isExistenceJoin);
+  spec.nullAware = isNullAwareAntiJoin;
+  spec.filter = std::move(filter);
+  spec.buildType = std::make_shared<facebook::velox::RowType>(std::move(names), std::move(veloxTypeList));
+  spec.joinKeys = joinKeys;
+  spec.queryConfigs = {
+      {QueryConfig::kMinTableRowsForParallelJoinBuild, std::to_string(minTableRowsForParallelJoinBuild)},
+      {QueryConfig::kJoinBuildVectorHasherMaxNumDistinct, std::to_string(joinBuildVectorHasherMaxNumDistinct)},
+      {QueryConfig::kAbandonDedupHashMapMinRows, std::to_string(abandonHashBuildDedupMinRows)},
+      {QueryConfig::kAbandonDedupHashMapMinPct, std::to_string(abandonHashBuildDedupMinPct)},
+      {QueryConfig::kHashProbeBloomFilterPushdownMaxSize,
+       std::to_string(std::max<int64_t>(bloomFilterPushdownSize, 0))},
+  };
+
+  std::vector<facebook::velox::RowVectorPtr> buildVectors;
+  buildVectors.reserve(batches.size());
+  for (const auto& batch : batches) {
+    buildVectors.emplace_back(VeloxColumnarBatch::from(inputPool.get(), batch)->getRowVector());
+  }
+  return buildHashTableWithTask(hashTableId, spec, buildVectors, numThreads, executor, std::move(queryPool));
+}
+
+std::shared_ptr<BroadcastHashTable> toBroadcastHashTable(std::shared_ptr<HashTableBuilder> builder) {
+  auto result = std::make_shared<BroadcastHashTable>();
+  result->table = builder->hashTable();
+  result->joinHasNullKeys = builder->joinHasNullKeys();
+  result->memoryUsage = builder->hashTableMemoryUsage();
+  result->owner = std::move(builder);
+  return result;
+}
+
 long getJoin(const std::string& hashTableId) {
   return JniHashTableContext::getInstance().callJavaGet(hashTableId);
 }
 
-size_t serializedHashTableSize(std::shared_ptr<HashTableBuilder> builder) {
-  VELOX_CHECK_NOT_NULL(builder, "Hash table builder cannot be null");
-
-  auto hashTable = builder->hashTable();
-  VELOX_CHECK_NOT_NULL(hashTable, "Hash table cannot be null");
-
-  auto* hashTableFalse = dynamic_cast<facebook::velox::exec::HashTable<false>*>(hashTable.get());
-  if (hashTableFalse != nullptr) {
-    return HashTableSerializer::serializedSize<false>(hashTableFalse);
+size_t serializedHashTableSize(const BroadcastHashTable& hashTable) {
+  VELOX_CHECK_NOT_NULL(hashTable.table, "Hash table cannot be null");
+  if (auto* table = asHashTable<false>(hashTable)) {
+    return HashTableSerializer::serializedSize<false>(table);
   }
-
-  auto* hashTableTrue = dynamic_cast<facebook::velox::exec::HashTable<true>*>(hashTable.get());
-  VELOX_CHECK_NOT_NULL(hashTableTrue, "Hash table must be either HashTable<false> or HashTable<true>");
-  return HashTableSerializer::serializedSize<true>(hashTableTrue);
+  auto* table = asHashTable<true>(hashTable);
+  VELOX_CHECK_NOT_NULL(table, "Hash table must be either HashTable<false> or HashTable<true>");
+  return HashTableSerializer::serializedSize<true>(table);
 }
 
-int64_t hashTableMemoryUsage(std::shared_ptr<HashTableBuilder> builder) {
-  VELOX_CHECK_NOT_NULL(builder, "Hash table builder cannot be null");
-  return builder->hashTableMemoryUsage();
-}
-
-void serializeHashTableTo(std::shared_ptr<HashTableBuilder> builder, uint8_t* data, size_t size) {
-  VELOX_CHECK_NOT_NULL(builder, "Hash table builder cannot be null");
+void serializeHashTableTo(const BroadcastHashTable& hashTable, uint8_t* data, size_t size) {
+  VELOX_CHECK_NOT_NULL(hashTable.table, "Hash table cannot be null");
   VELOX_CHECK_NOT_NULL(data, "Serialized buffer cannot be null");
-
-  auto hashTable = builder->hashTable();
-  VELOX_CHECK_NOT_NULL(hashTable, "Hash table cannot be null");
-
-  auto* hashTableFalse = dynamic_cast<facebook::velox::exec::HashTable<false>*>(hashTable.get());
-  if (hashTableFalse != nullptr) {
-    HashTableSerializer::serializeTo<false>(hashTableFalse, data, size);
+  if (auto* table = asHashTable<false>(hashTable)) {
+    HashTableSerializer::serializeTo<false>(table, data, size);
     return;
   }
-
-  auto* hashTableTrue = dynamic_cast<facebook::velox::exec::HashTable<true>*>(hashTable.get());
-  VELOX_CHECK_NOT_NULL(hashTableTrue, "Hash table must be either HashTable<false> or HashTable<true>");
-  HashTableSerializer::serializeTo<true>(hashTableTrue, data, size);
+  auto* table = asHashTable<true>(hashTable);
+  VELOX_CHECK_NOT_NULL(table, "Hash table must be either HashTable<false> or HashTable<true>");
+  HashTableSerializer::serializeTo<true>(table, data, size);
 }
 
-std::shared_ptr<HashTableBuilder>
-deserializeHashTable(const uint8_t* data, size_t size, bool ignoreNullKeys, bool joinHasNullKeys) {
+std::shared_ptr<BroadcastHashTable> deserializeHashTable(
+    const uint8_t* data,
+    size_t size,
+    bool ignoreNullKeys,
+    bool joinHasNullKeys,
+    std::shared_ptr<facebook::velox::memory::MemoryPool> pool) {
   VELOX_CHECK_NOT_NULL(data, "Serialized data cannot be null");
   VELOX_CHECK_GT(size, 0, "Invalid data size");
 
-  auto pool = defaultLeafVeloxMemoryPool();
-  auto* poolPtr = pool.get();
-
-  std::unique_ptr<facebook::velox::exec::BaseHashTable> hashTable;
+  auto result = std::make_shared<BroadcastHashTable>();
   if (ignoreNullKeys) {
-    auto derived = HashTableSerializer::deserialize<true>(data, size, poolPtr);
-    hashTable = std::move(derived);
+    result->table = HashTableSerializer::deserialize<true>(data, size, pool.get());
   } else {
-    auto derived = HashTableSerializer::deserialize<false>(data, size, poolPtr);
-    hashTable = std::move(derived);
+    result->table = HashTableSerializer::deserialize<false>(data, size, pool.get());
   }
-
-  std::vector<std::shared_ptr<const facebook::velox::core::FieldAccessTypedExpr>> emptyKeys;
-  std::vector<uint32_t> emptyChannels;
-
-  auto keyTypes = hashTable->rows()->keyTypes();
-  std::vector<std::string> names;
-  for (size_t i = 0; i < keyTypes.size(); ++i) {
-    names.push_back("key" + std::to_string(i));
-  }
-  auto rowType = facebook::velox::ROW(std::move(names), std::move(keyTypes));
-
-  auto builder = std::make_shared<HashTableBuilder>(
-      facebook::velox::core::JoinType::kInner,
-      false,
-      false,
-      -1,
-      emptyKeys,
-      emptyChannels,
-      false,
-      rowType,
-      poolPtr,
-      1000,
-      1000000,
-      100000,
-      0);
-
-  builder->setHashTable(std::move(hashTable));
-  // Restore the joinHasNullKeys flag
-  builder->setJoinHasNullKeys(joinHasNullKeys);
-  return builder;
+  result->joinHasNullKeys = joinHasNullKeys;
+  result->memoryUsage = result->table->allocatedBytes();
+  result->owner = std::move(pool);
+  return result;
 }
 
 } // namespace gluten

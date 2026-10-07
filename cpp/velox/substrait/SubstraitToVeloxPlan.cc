@@ -23,7 +23,7 @@
 #include "compute/delta/DeltaSplitInfo.h"
 #include "compute/iceberg/IcebergPlanConverter.h"
 #include "jni/JniHashTable.h"
-#include "operators/hashjoin/HashTableBuilder.h"
+#include "operators/hashjoin/BroadcastHashTable.h"
 #include "operators/plannodes/RowVectorStream.h"
 #include "velox/connectors/hive/HiveDataSink.h"
 #include "velox/connectors/hive/iceberg/IcebergColumnHandle.h"
@@ -465,11 +465,11 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
       try {
         const auto handle = getJoin(hashTableId);
         if (handle != 0) {
-          auto hashTableBuilder = ObjectStore::retrieve<gluten::HashTableBuilder>(handle);
-          useHashTableCache = (hashTableBuilder != nullptr);
+          auto hashTable = ObjectStore::retrieve<gluten::BroadcastHashTable>(handle);
+          useHashTableCache = (hashTable != nullptr);
         }
       } catch (const std::exception& e) {
-        LOG(WARNING) << "Failed to retrieve pre-built HashTableBuilder for cache key: " << hashTableId
+        LOG(WARNING) << "Failed to retrieve pre-built hash table for cache key: " << hashTableId
                      << ", error: " << e.what() << ". Disable hash table cache and build a new table.";
       }
     }
