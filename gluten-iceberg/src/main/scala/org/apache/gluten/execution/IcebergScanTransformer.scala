@@ -18,7 +18,7 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.exception.GlutenNotSupportException
-import org.apache.gluten.execution.IcebergScanTransformer.{containsMetadataColumn, containsUuidOrFixedType}
+import org.apache.gluten.execution.IcebergScanTransformer.{containsMetadataColumn, containsUuidOrFixedType, isRowLineageColumn}
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.rel.{LocalFilesNode, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ColumnMappingMode
@@ -70,6 +70,8 @@ case class IcebergScanTransformer(
   private lazy val icebergInitialDefaults =
     GlutenIcebergSourceUtil.getInitialDefaults(scan)
 
+  private lazy val readsRowLineage = scan.readSchema().fieldNames.exists(isRowLineageColumn)
+
   private lazy val icebergFieldIds =
     if (icebergInitialDefaults.isEmpty) {
       new JHashMap[String, Integer]()
@@ -78,7 +80,9 @@ case class IcebergScanTransformer(
     }
 
   override def withNewPushdownFilters(filters: Seq[Expression]): BatchScanExecTransformerBase = {
-    this.copy(pushDownFilters = Some(filters))
+    this.copy(pushDownFilters = Some(filters.filterNot {
+      filter => filter.references.exists(attr => isRowLineageColumn(attr.name))
+    }))
   }
 
   protected[this] def supportsBatchScan(scan: Scan): Boolean = {
@@ -89,6 +93,10 @@ case class IcebergScanTransformer(
     val validationResult = super.doValidateInternal()
     if (!validationResult.ok()) {
       return validationResult
+    }
+
+    if (readsRowLineage && !BackendsApiManager.getSettings.supportIcebergRowLineageRead()) {
+      return ValidationResult.failed("Iceberg row lineage reads are not supported")
     }
 
     if (!BackendsApiManager.getSettings.supportIcebergEqualityDeleteRead()) {
@@ -111,7 +119,8 @@ case class IcebergScanTransformer(
       }
       // Allow input_file_name() and related metadata functions
       val allowedMetadataColumns =
-        IcebergScanTransformer.InputFileRelatedMetadataColumnNames
+        IcebergScanTransformer.InputFileRelatedMetadataColumnNames ++
+          IcebergScanTransformer.RowLineageColumnNames
       val hasUnsupportedMetadata = scan.readSchema().fieldNames.exists {
         f =>
           MetadataColumns.isMetadataColumn(f) &&
@@ -287,10 +296,12 @@ case class IcebergScanTransformer(
     val ops = icebergTable.operations().current()
     val currentSchema = ops.schema()
     val oldSchemas = icebergTable.operations().current().schemas()
+    // Row lineage metadata only exists at the root; nested fields with these names are data.
+    val readSchema = StructType(scan.readSchema().filterNot(f => isRowLineageColumn(f.name)))
     oldSchemas
       .stream()
       .filter(s => s.schemaId() != ops.currentSchemaId())
-      .anyMatch(s => !typesMatch(s.asStruct(), currentSchema.asStruct(), scan.readSchema()))
+      .anyMatch(s => !typesMatch(s.asStruct(), currentSchema.asStruct(), readSchema))
   }
 
   private def typesMatch(icebergType: Type, currentType: Type, sparkType: DataType): Boolean = {
@@ -348,6 +359,12 @@ case class IcebergScanTransformer(
 }
 
 object IcebergScanTransformer {
+  private val RowLineageColumnNames =
+    Set(MetadataColumns.ROW_ID.name(), MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER.name())
+
+  private def isRowLineageColumn(name: String): Boolean =
+    RowLineageColumnNames.contains(name.toLowerCase(Locale.ROOT))
+
   private val InputFileRelatedMetadataColumnNames =
     Set("input_file_name", "input_file_block_start", "input_file_block_length")
 

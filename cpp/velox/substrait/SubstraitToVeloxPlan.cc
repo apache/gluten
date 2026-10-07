@@ -27,6 +27,7 @@
 #include "operators/plannodes/RowVectorStream.h"
 #include "velox/connectors/hive/HiveDataSink.h"
 #include "velox/connectors/hive/iceberg/IcebergColumnHandle.h"
+#include "velox/connectors/hive/iceberg/IcebergMetadataColumns.h"
 #include "velox/exec/TableWriter.h"
 #include "velox/type/Type.h"
 
@@ -1640,6 +1641,12 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   for (int idx = 0; idx < colNameList.size(); idx++) {
     auto outName = SubstraitParser::makeNodeName(planNodeId_, idx);
     auto columnType = columnTypes[idx];
+    using connector::hive::iceberg::IcebergMetadataColumn;
+    if (icebergSplitInfo &&
+        (colNameList[idx] == IcebergMetadataColumn::kRowIdColumnName ||
+         colNameList[idx] == IcebergMetadataColumn::kLastUpdatedSequenceNumberColumnName)) {
+      columnType = ColumnType::kRegular;
+    }
     const IcebergColumnInfo* icebergColumn = nullptr;
     if (icebergSplitInfo) {
       auto columnIt = icebergSplitInfo->columns.find(colNameList[idx]);
