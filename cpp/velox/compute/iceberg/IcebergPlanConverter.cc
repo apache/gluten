@@ -99,6 +99,9 @@ std::shared_ptr<IcebergSplitInfo> IcebergPlanConverter::parseIcebergSplitInfo(
         case SubstraitDeleteFileFormatCase::kOrc:
           format = dwio::common::FileFormat::ORC;
           break;
+        case SubstraitDeleteFileFormatCase::kPuffin:
+          format = dwio::common::FileFormat::PUFFIN;
+          break;
         default:
           format = dwio::common::FileFormat::UNKNOWN;
       }
@@ -113,6 +116,19 @@ std::shared_ptr<IcebergSplitInfo> IcebergPlanConverter::parseIcebergSplitInfo(
           fileContent = FileContent::kData;
           break;
       }
+      if (deleteFile.has_puffin()) {
+        const auto& puffin = deleteFile.puffin();
+        VELOX_USER_CHECK(fileContent == FileContent::kPositionalDeletes, "Puffin requires position delete content");
+        VELOX_USER_CHECK(!puffin.referenced_data_file().empty(), "Missing deletion vector referenced data file");
+        VELOX_USER_CHECK_GE(puffin.content_offset(), 4, "Invalid deletion vector offset");
+        VELOX_USER_CHECK_GT(puffin.content_size_in_bytes(), 0, "Invalid deletion vector size");
+        VELOX_USER_CHECK_LE(puffin.content_offset(), deleteFile.filesize(), "Deletion vector offset exceeds file size");
+        VELOX_USER_CHECK_LE(
+            puffin.content_size_in_bytes(),
+            deleteFile.filesize() - puffin.content_offset(),
+            "Deletion vector extends beyond file size");
+        fileContent = FileContent::kDeletionVector;
+      }
       deletes.emplace_back(IcebergDeleteFile(
           fileContent,
           deleteFile.filepath(),
@@ -122,6 +138,12 @@ std::shared_ptr<IcebergSplitInfo> IcebergPlanConverter::parseIcebergSplitInfo(
           {},
           parseBounds(deleteFile.lowerbounds()),
           parseBounds(deleteFile.upperbounds())));
+      if (deleteFile.has_puffin()) {
+        auto& deletionVector = deletes.back();
+        deletionVector.contentOffset = deleteFile.puffin().content_offset();
+        deletionVector.contentLength = deleteFile.puffin().content_size_in_bytes();
+        deletionVector.referencedDataFile = deleteFile.puffin().referenced_data_file();
+      }
     }
     icebergSplitInfo->deleteFilesVec.emplace_back(deletes);
   } else {

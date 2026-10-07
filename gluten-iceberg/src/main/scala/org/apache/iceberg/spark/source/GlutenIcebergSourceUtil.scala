@@ -49,11 +49,21 @@ object GlutenIcebergSourceUtil {
 
   def isSparkStagedScan(sparkScan: Scan): Boolean = sparkScan.isInstanceOf[SparkStagedScan]
 
-  def deleteExists(p: SparkDataSourceRDDPartition): Boolean = {
+  def deletionVectorExists(p: SparkDataSourceRDDPartition): Boolean = {
+    deleteFileExists(p, _.format() == FileFormat.PUFFIN)
+  }
+
+  def equalityDeleteExists(p: SparkDataSourceRDDPartition): Boolean = {
+    deleteFileExists(p, _.content() == FileContent.EQUALITY_DELETES)
+  }
+
+  private def deleteFileExists(
+      p: SparkDataSourceRDDPartition,
+      predicate: DeleteFile => Boolean): Boolean = {
     p.inputPartitions.exists {
       case ip: SparkInputPartition =>
         val tasks = ip.taskGroup[ScanTask]().tasks().asScala
-        asFileScanTask(tasks.toList).exists(task => !task.deletes().isEmpty())
+        asFileScanTask(tasks.toList).exists(task => task.deletes().asScala.exists(predicate))
       case _ => throw new UnsupportedOperationException(s"Unsupported InputPartition type")
     }
   }

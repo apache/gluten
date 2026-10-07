@@ -136,6 +136,25 @@ public class IcebergLocalFilesNode extends LocalFilesNode {
               ReadRel.LocalFiles.FileOrFiles.OrcReadOptions.newBuilder().build();
           deleteFileBuilder.setOrc(orcReadOptions);
           break;
+        case PUFFIN:
+          if (delete.content() != FileContent.POSITION_DELETES
+              || delete.referencedDataFile() == null
+              || delete.referencedDataFile().isEmpty()
+              || delete.contentOffset() == null
+              || delete.contentOffset() < 4
+              || delete.contentSizeInBytes() == null
+              || delete.contentSizeInBytes() <= 0
+              || delete.contentOffset() > delete.fileSizeInBytes()
+              || delete.contentSizeInBytes() > delete.fileSizeInBytes() - delete.contentOffset()) {
+            throw new IllegalArgumentException(
+                "Invalid Iceberg deletion vector metadata for " + delete.path());
+          }
+          deleteFileBuilder.setPuffin(
+              ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.PuffinReadOptions.newBuilder()
+                  .setReferencedDataFile(delete.referencedDataFile())
+                  .setContentOffset(delete.contentOffset())
+                  .setContentSizeInBytes(delete.contentSizeInBytes()));
+          break;
         default:
           throw new UnsupportedOperationException(
               "Unsupported format " + delete.format().name() + " for delete file.");
