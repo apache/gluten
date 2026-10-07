@@ -297,17 +297,24 @@ public class LocalFilesNode implements SplitInfo {
           String header = fileReadProperties.getOrDefault("header", "0");
           String escape = fileReadProperties.getOrDefault("escape", "");
           String nullValue = fileReadProperties.getOrDefault("nullValue", "");
-          ReadRel.LocalFiles.FileOrFiles.TextReadOptions textReadOptions =
-              ReadRel.LocalFiles.FileOrFiles.TextReadOptions.newBuilder()
-                  .setFieldDelimiter(field_delimiter)
-                  .setQuote(quote)
-                  .setHeader(Long.parseLong(header))
-                  .setEscape(escape)
-                  .setNullValue(nullValue)
-                  .setMaxBlockSize(GlutenConfig.get().textInputMaxBlockSize())
-                  .setEmptyAsDefault(GlutenConfig.get().textIputEmptyAsDefault())
-                  .build();
-          fileBuilder.setText(textReadOptions);
+          GlutenConfig textConfig = GlutenConfig.get();
+          ReadRel.LocalFiles.FileOrFiles.DelimiterSeparatedTextReadOptions.Builder
+              textReadOptionsBuilder =
+                  ReadRel.LocalFiles.FileOrFiles.DelimiterSeparatedTextReadOptions.newBuilder()
+                      .setFieldDelimiter(field_delimiter)
+                      .setQuote(quote)
+                      .setHeaderLinesToSkip(Long.parseLong(header))
+                      .setEscape(escape)
+                      .setMaxBlockSize(textConfig.textInputMaxBlockSize())
+                      .setEmptyAsDefault(textConfig.textIputEmptyAsDefault());
+          // `value_treated_as_null` is an `optional` field: setting it marks the value as present
+          // even when it is the empty string, which upstream defines as "the empty string is NULL
+          // and the file is entirely nullable strings". Leave it unset when no nullValue was given
+          // so that the default stays "disabled".
+          if (!nullValue.isEmpty()) {
+            textReadOptionsBuilder.setValueTreatedAsNull(nullValue);
+          }
+          fileBuilder.setText(textReadOptionsBuilder.build());
           break;
         case JsonReadFormat:
           ReadRel.LocalFiles.FileOrFiles.JsonReadOptions jsonReadOptions =

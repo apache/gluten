@@ -203,29 +203,38 @@ jobs:
     # This workflow always builds its own native lib -- there is no caller to
     # provide one, and the `paths:` filter already decided whether the run happens.
     runs-on: ubuntu-22.04
+    container: apache/gluten:vcpkg-almalinux-8-gcc13
     steps:
+      - name: Install CI tools (temporary - until image is rebuilt with gh/jq/bison/python3.9)
+        run: |
+          dnf install -y jq bison tzdata
+          dnf module -y install python39 && alternatives --set python3 /usr/bin/python3.9
+          dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
+          dnf install -y gh --setopt=gpgcheck=0
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.DELTA_CHECKOUT_REF }}
       - name: Get Ccache from Apache Stash
+        id: ccache-stash
         uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+      - name: Get Ccache from actions/cache (fallback on Stash miss)
+        if: steps.ccache-stash.outputs.stash-hit != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-almalinux8-release-default-${{github.sha}}
+          restore-keys: |
+            ccache-almalinux8-release-default
       - name: Build Gluten native libraries
         run: |
-          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-almalinux-8-gcc13 bash -c "
-            set -e
-            dnf install -y bison tzdata
-            df -a
-            cd /work
-            export CCACHE_DIR=/work/.ccache
-            export CCACHE_MAXSIZE=1G
-            mkdir -p /work/.ccache
-            ccache -sz
-            bash dev/ci-velox-buildstatic-centos-8.sh
-            ccache -s
-          "
+          df -a
+          export CCACHE_MAXSIZE=1G
+          ccache -sz
+          bash dev/ci-velox-buildstatic-centos-8.sh
+          ccache -s
       - name: Upload native build diagnostics
         if: failure()
         uses: actions/upload-artifact@v7
