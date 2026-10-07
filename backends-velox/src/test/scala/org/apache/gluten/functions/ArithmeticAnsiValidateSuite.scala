@@ -33,22 +33,38 @@ class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
       .set(SQLConf.ANSI_ENABLED.key, "true")
   }
 
+  private val maxDecimal = "CAST(%s AS DECIMAL(38,0))".format("9" * 38)
+  private val minDecimal = "CAST(-%s AS DECIMAL(38,0))".format("9" * 38)
+
+  // Reads `columns` from a table and evaluates `expr` on them, so the arithmetic runs in Velox.
+  // With ANSI mode on, the overflow throws Velox's `error`. With ANSI mode off, the result
+  // matches Spark: NULL for decimals and a wrapped value for integers.
+  private def checkOverflow(columns: String, expr: String, error: String): Unit = {
+    withTempPath {
+      path =>
+        sql(s"SELECT $columns").write.parquet(path.getCanonicalPath)
+        withTempView("overflow_tab") {
+          spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("overflow_tab")
+          val query = s"SELECT $expr FROM overflow_tab"
+          withSQLConf(SQLConf.ANSI_ENABLED.key -> "true") {
+            val e = intercept[SparkException](sql(query).collect())
+            assert(e.getMessage.contains(error), e.getMessage)
+          }
+          withSQLConf(SQLConf.ANSI_ENABLED.key -> "false") {
+            runQueryAndCompare(query) {
+              checkGlutenPlan[ProjectExecTransformer]
+            }
+          }
+        }
+    }
+  }
+
   test("add") {
     runQueryAndCompare("SELECT int_field1 + 100 FROM datatab WHERE int_field1 IS NOT NULL") {
       checkGlutenPlan[ProjectExecTransformer]
     }
 
-    val df = sql("SELECT 2147483647 + 1")
-
-    if (isSparkVersionGE("4.0")) {
-      intercept[SparkException] {
-        df.collect()
-      }
-    } else {
-      intercept[ArithmeticException] {
-        df.collect()
-      }
-    }
+    checkOverflow("2147483647 AS a, 1 AS b", "a + b", "Arithmetic overflow")
   }
 
   test("subtract") {
@@ -62,16 +78,7 @@ class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
       checkGlutenPlan[ProjectExecTransformer]
     }
 
-    val df = sql("SELECT 2147483647 + 1")
-    if (isSparkVersionGE("4.0")) {
-      intercept[SparkException] {
-        df.collect()
-      }
-    } else {
-      intercept[ArithmeticException] {
-        df.collect()
-      }
-    }
+    checkOverflow("2147483647 AS a, 2 AS b", "a * b", "Arithmetic overflow")
   }
 
   test("divide") {
@@ -100,18 +107,11 @@ class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
       checkGlutenPlan[ProjectExecTransformer]
     }
 
-    // Overflow: max DECIMAL(38,0) + 1 should throw in ANSI mode
-    if (isSparkVersionGE("4.0")) {
-      intercept[SparkException] {
-        sql("SELECT CAST(99999999999999999999999999999999999999 AS DECIMAL(38,0)) + " +
-          "CAST(1 AS DECIMAL(38,0))").collect()
-      }
-    } else {
-      intercept[ArithmeticException] {
-        sql("SELECT CAST(99999999999999999999999999999999999999 AS DECIMAL(38,0)) + " +
-          "CAST(1 AS DECIMAL(38,0))").collect()
-      }
-    }
+    // Overflow: max DECIMAL(38,0) + 1
+    checkOverflow(
+      s"$maxDecimal AS a, CAST(1 AS DECIMAL(38,0)) AS b",
+      "a + b",
+      "Decimal overflow in add")
   }
 
   test("decimal subtract overflow") {
@@ -121,18 +121,11 @@ class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
       checkGlutenPlan[ProjectExecTransformer]
     }
 
-    // Overflow: -max DECIMAL(38,0) - 1 should throw in ANSI mode
-    if (isSparkVersionGE("4.0")) {
-      intercept[SparkException] {
-        sql("SELECT CAST(-99999999999999999999999999999999999999 AS DECIMAL(38,0)) - " +
-          "CAST(1 AS DECIMAL(38,0))").collect()
-      }
-    } else {
-      intercept[ArithmeticException] {
-        sql("SELECT CAST(-99999999999999999999999999999999999999 AS DECIMAL(38,0)) - " +
-          "CAST(1 AS DECIMAL(38,0))").collect()
-      }
-    }
+    // Overflow: -max DECIMAL(38,0) - 1
+    checkOverflow(
+      s"$minDecimal AS a, CAST(1 AS DECIMAL(38,0)) AS b",
+      "a - b",
+      "Decimal overflow in subtract")
   }
 
   test("decimal try_add") {
@@ -170,18 +163,11 @@ class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
       checkGlutenPlan[ProjectExecTransformer]
     }
 
-    // Overflow: max DECIMAL(38,0) * 2 should throw in ANSI mode
-    if (isSparkVersionGE("4.0")) {
-      intercept[SparkException] {
-        sql("SELECT CAST(99999999999999999999999999999999999999 AS DECIMAL(38,0)) * " +
-          "CAST(2 AS DECIMAL(38,0))").collect()
-      }
-    } else {
-      intercept[ArithmeticException] {
-        sql("SELECT CAST(99999999999999999999999999999999999999 AS DECIMAL(38,0)) * " +
-          "CAST(2 AS DECIMAL(38,0))").collect()
-      }
-    }
+    // Overflow: max DECIMAL(38,0) * 2
+    checkOverflow(
+      s"$maxDecimal AS a, CAST(2 AS DECIMAL(38,0)) AS b",
+      "a * b",
+      "Decimal overflow in multiply")
   }
 
   test("decimal try_multiply") {
@@ -209,21 +195,11 @@ class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
         checkGlutenPlan[ProjectExecTransformer]
       }
 
-      val max = "CAST(99999999999999999999999999999999999999 AS DECIMAL(38,0))"
-      val min = "CAST(-99999999999999999999999999999999999999 AS DECIMAL(38,0))"
-      val one = "CAST(1 AS DECIMAL(38,0))"
-      Seq(s"$max + $one", s"$min - $one", s"$max * CAST(2 AS DECIMAL(38,0))").foreach {
-        expr =>
-          if (isSparkVersionGE("4.0")) {
-            intercept[SparkException] {
-              sql(s"SELECT $expr").collect()
-            }
-          } else {
-            intercept[ArithmeticException] {
-              sql(s"SELECT $expr").collect()
-            }
-          }
-      }
+      val columns = s"$maxDecimal AS max, $minDecimal AS min, " +
+        "CAST(1 AS DECIMAL(38,0)) AS one, CAST(2 AS DECIMAL(38,0)) AS two"
+      checkOverflow(columns, "max + one", "Decimal overflow in add")
+      checkOverflow(columns, "min - one", "Decimal overflow in subtract")
+      checkOverflow(columns, "max * two", "Decimal overflow in multiply")
     }
   }
 }
