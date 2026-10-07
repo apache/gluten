@@ -84,6 +84,7 @@ case class GlutenDeltaOptimizedWriterExec(
   @transient private lazy val mapTracker = SparkEnv.get.mapOutputTracker
 
   private lazy val columnarShufflePlan = {
+    val resolver = org.apache.spark.sql.catalyst.analysis.caseInsensitiveResolution
     val saltedPartitioning = HashPartitioning(
       partitionColumns.map(
         p =>
