@@ -43,7 +43,6 @@ import org.apache.spark.sql.execution.{ColumnarCollapseTransformStages, Columnar
 import org.apache.spark.sql.execution.{ShuffledColumnarBatchRDD, SparkPlan, UnaryExecNode}
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics, SQLShuffleReadMetricsReporter, SQLShuffleWriteMetricsReporter}
-import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.storage._
 import org.apache.spark.util.ThreadUtils
@@ -85,7 +84,6 @@ case class GlutenDeltaOptimizedWriterExec(
   @transient private lazy val mapTracker = SparkEnv.get.mapOutputTracker
 
   private lazy val columnarShufflePlan = {
-    val resolver = SQLConf.get.resolver
     val saltedPartitioning = HashPartitioning(
       partitionColumns.map(
         p =>
