@@ -20,7 +20,7 @@ import org.apache.gluten.execution.{ProjectExecTransformer, ShuffledHashJoinExec
 
 import org.apache.spark.sql.catalyst.expressions.SortOrder
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.execution.{OrderPreservingNodeShim, ProjectExec, SortExec, SparkPlan, UnaryExecNode}
+import org.apache.spark.sql.execution.{OrderPreservingUnaryExecNode, ProjectExec, SortExec, SparkPlan, UnaryExecNode}
 
 /**
  * This rule is used to eliminate unnecessary local sort.
@@ -45,7 +45,7 @@ object EliminateLocalSort extends Rule[SparkPlan] {
     case _: ProjectExec => true
     case _: ProjectExecTransformer => true
     // e.g. ColumnarPartialProjectExec, which sits between a pulled-out project and its sort.
-    case p: OrderPreservingNodeShim => p.requiredChildOrdering.forall(_.isEmpty)
+    case p: OrderPreservingUnaryExecNode => p.requiredChildOrdering.forall(_.isEmpty)
     case _ => false
   }
 
