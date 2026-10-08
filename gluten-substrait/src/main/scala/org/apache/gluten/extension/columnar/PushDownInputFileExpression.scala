@@ -327,34 +327,60 @@ object PushDownInputFileExpression {
         )(child.session)
       case p @ ProjectExec(projectList, child: BatchScanExecTransformerBase)
           if projectList.exists(containsInputFileFunctionExpr) =>
-        // Separate pre-existing injected aliases (created by PreOffload, carrying
-        // INPUT_FILE_COL_METADATA) from fresh InputFileName/BlockStart/BlockLength expressions.
-        // Pre-existing aliases already have the correct (possibly mangled) schema names and
-        // exprIds; we reuse them by pushing their AttrRef into the scan output while rewriting
-        // each alias's child to be that AttrRef (so the Alias structure is preserved -- a bare
-        // AttrRef instead of an Alias would trigger canCollapseProject and add an unwanted
-        // fallback tag, which would prevent the outer project from being offloaded).
+        // Collect pre-existing injected aliases created by PreOffload (they carry
+        // INPUT_FILE_COL_METADATA).  PreOffload may have given them mangled schema names
+        // (e.g. "__gluten_input_file_col__input_file_name__") to avoid a Velox
+        // Regular-vs-Synthesized name collision when the table has a physical column whose
+        // normalised name equals the input-file function prettyName.
         val preInjectedAliases: Seq[Alias] = projectList.collect {
           case a: Alias if PushDownInputFileExpression.isInjectedInputFileAttr(a.toAttribute) => a
         }
 
-        val (newProjectList, inputFileAttrs) = if (preInjectedAliases.nonEmpty) {
-          // PreOffload already rewrote this node. Reuse the existing injected aliases:
-          // for each Alias(InputFileName(), schemaName, meta)(exprId=X), create a fresh
-          // AttributeReference(schemaName, type, meta)(exprId=Z) to push into the scan output,
-          // then replace the Alias's child with AttrRef(Z) while preserving the Alias's own
-          // exprId=X.  This mirrors the fresh-alias path's rewriteExpr behaviour:
-          //   Alias(InputFileName(), ..., exprId=X) -> Alias(AttrRef(Z), ..., exprId=X)
-          //   scan output += AttrRef(Z)
-          // Keeping Alias(AttrRef, ...) rather than a bare AttrRef prevents canCollapseProject
-          // from adding an unwanted fallback tag that would keep the outer project on the JVM.
+        // Determine whether any injected attr (using its canonical prettyName) collides with a
+        // physical Regular column in the scan output.  Under the BatchScan/Iceberg path:
+        //   - IcebergScanTransformer.inputFileRelatedMetadataColumns recognises columns only by
+        //     their exact (normalized) name ("input_file_name" etc.), not by the mangled schema
+        //     name.  A mangled injected attr therefore won't be populated with the file path,
+        //     producing a null value.
+        //   - The correct resolution is to fall back the scan to JVM so that InputFileName()
+        //     can be evaluated via the Spark thread-local set by the native JVM Iceberg iterator.
+        //
+        // A collision exists when the canonical prettyName of an injected alias (i.e. the
+        // unmangled input-file function prettyName stored in GLUTEN_INPUT_FILE_CANON_KEY, or the
+        // schema name when no mangling was needed) equals the name of a non-injected column in
+        // the scan's physical output.  Under caseSensitive=true, name comparison is exact;
+        // under caseSensitive=false, both sides have been lowercased by normalizeColName.
+        val physicalOutputNames: Set[String] = child.output
+          .filterNot(PushDownInputFileExpression.isInjectedInputFileAttr)
+          .map(a => ConverterUtils.normalizeColName(a.name))
+          .toSet
+        val canonicalPrettyNames: Set[String] = preInjectedAliases
+          .map(a => PushDownInputFileExpression.injectedInputFileCanonName(a.toAttribute))
+          .map(ConverterUtils.normalizeColName)
+          .toSet
+        val hasNameCollision = canonicalPrettyNames.exists(physicalOutputNames.contains)
+
+        if (hasNameCollision) {
+          // Collision: the injected metadata attr's canonical name matches a physical Regular
+          // column in the BatchScan/Iceberg scan.  We cannot give Velox both a Regular and a
+          // Synthesized column with the same name.  Force the scan back to JVM so that Spark's
+          // thread-local is set by the JVM scan iterator and InputFileName() returns the real
+          // file path.  The inner ProjectExec is already fallback-tagged by PreOffload; tagging
+          // the scan node too ensures the whole subtree evaluates on the JVM.
+          addFallbackTag(child)
+          p
+        } else if (preInjectedAliases.nonEmpty) {
+          // No collision. PreOffload already rewrote this node with (possibly mangled) aliases.
+          // Reuse them: for each Alias(InputFileName(), schemaName, meta)(exprId=X), create a
+          // fresh AttributeReference(schemaName, ..., meta)(exprId=Z) for the scan output, and
+          // replace the Alias child with AttrRef(Z) while preserving the Alias exprId=X.
+          // This mirrors rewriteExpr's behaviour (Alias(InputFileName,..) -> Alias(AttrRef,..))
+          // and keeps Alias structure in the projectList so canCollapseProject does not fire.
           val existingExprIds = child.output.map(_.exprId).toSet
           val aliasWithScanAttr: Seq[(Alias, Alias, AttributeReference)] =
             preInjectedAliases.map {
               a =>
-                // Fresh attribute for the scan output -- new exprId so it doesn't conflict.
                 val scanAttr = AttributeReference(a.name, a.dataType, a.nullable, a.metadata)()
-                // Rewritten alias: same exprId/name/metadata, child is the new scan attr.
                 val newAlias = Alias(scanAttr, a.name)(
                   exprId = a.exprId,
                   qualifier = a.qualifier,
@@ -372,7 +398,9 @@ object PushDownInputFileExpression {
           val newAttrs = aliasWithScanAttr
             .map(_._3)
             .filterNot(attr => existingExprIds.contains(attr.exprId))
-          (newProjList, newAttrs)
+          p.copy(
+            projectList = newProjList,
+            child = child.withOutput(child.output ++ newAttrs))
         } else {
           // No pre-existing injected aliases -- create fresh ones as before.
           val replacedExprs = mutable.Map[String, Alias]()
@@ -390,11 +418,10 @@ object PushDownInputFileExpression {
           val newAttrs = replacedExprs.values.toSeq
             .map(_.toAttribute.asInstanceOf[AttributeReference])
             .filterNot(attr => existingExprIds.contains(attr.exprId))
-          (newProjList, newAttrs)
+          p.copy(
+            projectList = newProjList,
+            child = child.withOutput(child.output ++ newAttrs))
         }
-        p.copy(
-          projectList = newProjectList,
-          child = child.withOutput(child.output ++ inputFileAttrs))
       case p1 @ ProjectExec(_, ProjectExec(childProjectList, scan: BatchScanExecTransformerBase))
           if childProjectList.exists(containsInputFileRelatedExpr) =>
         val newOutput = childProjectList.map(_.toAttribute.asInstanceOf[AttributeReference])
