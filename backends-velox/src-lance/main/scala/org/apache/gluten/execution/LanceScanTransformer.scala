@@ -68,7 +68,9 @@ case class LanceScanTransformer(@transient batchScan: BatchScanExec)
   @transient private lazy val inputPartitions: Array[InputPartition] =
     lanceScan.toBatch.planInputPartitions()
 
-  override def output: Seq[Attribute] = batchScan.output
+  // Captured eagerly: `batchScan` is transient, but `output` is also read on executors (e.g. by
+  // DeserializeToObjectExec) after this node has been serialized.
+  override val output: Seq[Attribute] = batchScan.output
 
   override def outputPartitioning: Partitioning = UnknownPartitioning(inputPartitions.length)
 
