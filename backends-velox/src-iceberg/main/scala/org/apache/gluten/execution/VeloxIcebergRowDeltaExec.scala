@@ -14,28 +14,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.gluten.connector.write;
+package org.apache.gluten.execution
 
-import com.fasterxml.jackson.annotation.JsonProperty;
+import org.apache.gluten.connector.write.IcebergRowDeltaWrite
 
-import java.util.List;
+import org.apache.spark.sql.execution.SparkPlan
+import org.apache.spark.sql.execution.datasources.v2.V2ExistingTableWriteExec
 
-public class DataFileJson {
-  @JsonProperty public String path;
-
-  @JsonProperty public MetricsWrapper metrics;
-
-  @JsonProperty List<Long> splitOffsets;
-
-  @JsonProperty String content;
-
-  @JsonProperty List<Integer> equalityFieldIds;
-
-  @JsonProperty String referencedDataFile;
-
-  @JsonProperty public Integer partitionSpecJson;
-
-  @JsonProperty String partitionDataJson;
-
-  @JsonProperty public long fileSizeInBytes = -1L;
+case class VeloxIcebergRowDeltaExec(
+    query: SparkPlan,
+    refreshCache: () => Unit,
+    write: IcebergRowDeltaWrite)
+  extends V2ExistingTableWriteExec {
+  override protected def withNewChildInternal(newChild: SparkPlan): SparkPlan =
+    copy(query = newChild)
 }

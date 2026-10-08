@@ -38,6 +38,17 @@ const int32_t kGzipWindowBits4k = 12;
 const int32_t kZSTDDefaultCompressionLevel = 3;
 } // namespace
 
+std::unique_ptr<dwio::common::Writer> GlutenParquetWriterFactory::createWriter(
+    std::unique_ptr<dwio::common::FileSink> sink,
+    const std::shared_ptr<dwio::common::WriterOptions>& options) {
+  // IcebergDataSink overwrites the timezone annotation; restore it before creating the writer.
+  if (const auto it = options->serdeParameters.find("gluten.iceberg.timestamp-timezone");
+      it != options->serdeParameters.end()) {
+    options->serdeParameters["parquet.writer.timestamp.timezone"] = it->second;
+  }
+  return ParquetWriterFactory::createWriter(std::move(sink), options);
+}
+
 std::shared_ptr<dwio::common::FormatSpecificOptions> GlutenParquetWriterFactory::createFormatOptions(
     const config::ConfigBase& connectorConfig,
     const config::ConfigBase& session) const {

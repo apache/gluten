@@ -33,6 +33,7 @@ class VeloxIcebergComponent extends Component {
   }
 
   override def injectRules(injector: Injector): Unit = {
+    IcebergEqualityDeleteRules.inject(injector)
     OffloadIcebergScan.inject(injector)
     OffloadIcebergWrite.inject(injector)
   }

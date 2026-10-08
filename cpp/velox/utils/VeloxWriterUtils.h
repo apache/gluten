@@ -25,6 +25,10 @@ namespace gluten {
 
 class GlutenParquetWriterFactory : public facebook::velox::parquet::ParquetWriterFactory {
  public:
+  std::unique_ptr<facebook::velox::dwio::common::Writer> createWriter(
+      std::unique_ptr<facebook::velox::dwio::common::FileSink> sink,
+      const std::shared_ptr<facebook::velox::dwio::common::WriterOptions>& options) override;
+
   std::shared_ptr<facebook::velox::dwio::common::FormatSpecificOptions> createFormatOptions(
       const facebook::velox::config::ConfigBase& connectorConfig,
       const facebook::velox::config::ConfigBase& session) const override;

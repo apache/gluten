@@ -10,7 +10,7 @@ parent: Getting-Started
 ## Supported Spark version
 
 Every Spark version Gluten supports is supported here, but only Spark 3.4 is well tested.
-Now only read is supported in Gluten.
+Gluten supports native reads and selected writes, including the opt-in equality-delete path below.
 
 ## Support Status
 Following value indicates the iceberg support progress:
@@ -40,6 +40,53 @@ The write is fallback while read is offload.
 ````
 INSERT INTO local.db.table SELECT id, data FROM source WHERE length(data) = 1;
 ````
+
+### Equality deletes
+
+Spark 3.5+ supports equality-delete writes for merge-on-read `DELETE`, `UPDATE`, and
+`MERGE` on Iceberg v2/v3 tables. Enable them with:
+
+```sql
+SET spark.gluten.sql.columnar.iceberg.enableNativeWrite=true;
+SET spark.gluten.sql.columnar.iceberg.enableNativeEqualityDelete=true;
+
+ALTER TABLE local.db.table SET TBLPROPERTIES (
+  'write.delete.mode'='merge-on-read',
+  'write.update.mode'='merge-on-read',
+  'write.merge.mode'='merge-on-read',
+  'write.delete.format.default'='parquet'
+);
+DELETE FROM local.db.table WHERE id = 2;
+```
+
+Delete files and replacement data commit atomically. Keys include all top-level target
+fields used by the predicates, including nulls. Deletes preserve
+the source partition spec; replacement rows use the output spec. Partition evolution,
+branches, WAP, and serializable/snapshot isolation are supported.
+
+Velox writes Parquet equality-delete files for boolean, integer, long, date,
+microsecond timestamp, string, decimal, and binary keys. Keys may mix timestamps with
+and without time zones, and field names need not be Avro-compatible.
+Every selected equality-delete plan uses the native file writer. ORC/Avro delete
+formats, encryption, UUID/fixed keys, and unsupported compression codecs retain
+Iceberg's normal row-level plan instead of selecting a
+Java equality-delete writer. UPDATE/MERGE replacement data still uses Iceberg's JVM
+data writer. Native deletes honor delete-specific Parquet settings and Iceberg's
+manifest metrics modes (`none`, `counts`, `full`, and `truncate`). Both `lz4`
+(Hadoop framing) and `lz4_raw` preserve the requested Parquet codec. The enhanced-features
+build is not required.
+
+Copy-on-write, nondeterministic predicates, and predicates requiring float/double,
+list/map, whole-struct, or nested equality keys retain Iceberg's existing write path.
+Commands without predicates use a supported top-level key, or retain Iceberg's existing
+write path if none is available.
+Spark's SQL restrictions still apply.
+
+Scans requiring equality deletes or delete formats other than Parquet/ORC use Iceberg's
+reader. Nested keys are excluded because
+Iceberg 1.10 cannot read them when they are omitted from the read projection.
+Some pushed Parquet UUID predicates also fail in Iceberg 1.10.
+Delete-file compaction is not automatic.
 
 ## Reading
 ### Read data
@@ -89,7 +136,7 @@ Supports parquet and orc format.
 Not support avro format.
 
 ## SQL
-Only support SELECT.
+Supports `SELECT` and the writes described above.
 
 ## Schema evolution
 PartialOffload
@@ -102,7 +149,8 @@ the added column name is same to the deleted column, the scan will fall back.
 | Gluten option | Default | Description |
 | --- | --- | --- |
 | spark.gluten.sql.columnar.iceberg.enableNativeRead | true | Enable offloading Iceberg scans to the native backend. When disabled, Iceberg scans fall back to vanilla Spark while scans of other formats stay offloaded. |
-| spark.gluten.sql.columnar.iceberg.enableNativeWrite | true | Enable offloading Iceberg writes to the native backend. When disabled, Iceberg writes fall back to vanilla Spark. Note the Velox backend additionally requires `spark.gluten.sql.enable.enhancedFeatures` to be enabled. |
+| spark.gluten.sql.columnar.iceberg.enableNativeWrite | true | Enable offloading Iceberg writes to the native backend. When disabled, Iceberg writes fall back to vanilla Spark. Native data writes additionally require `spark.gluten.sql.enable.enhancedFeatures` to be enabled. |
+| spark.gluten.sql.columnar.iceberg.enableNativeEqualityDelete | false | Use equality-delete files for supported merge-on-read SQL `DELETE`, `UPDATE`, and `MERGE`. Requires `enableNativeWrite`. Uses native Parquet equality-delete writing; unsupported delete encodings retain Iceberg's normal row-level plan. |
 | spark.gluten.sql.columnar.parquet.write.blockSize | 128MB | Target Parquet row-group size for native writes. When explicitly set, overrides the Iceberg table property `write.parquet.row-group-size-bytes`. Accepts byte counts or sizes such as `32MB` and `1GB`. |
 | spark.gluten.sql.columnar.backend.velox.parquet_writer_compression_level | (unset) | Overrides Iceberg's Parquet compression level for gzip and zstd. |
 | spark.gluten.sql.columnar.backend.velox.parquet_writer_datapage_version | (unset) | Overrides `write.parquet.page-version`; accepts `V1` or `V2`. |

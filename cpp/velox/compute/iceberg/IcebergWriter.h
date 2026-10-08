@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <optional>
+#include <vector>
+
 #include "IcebergNestedField.pb.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "utils/Metrics.h"
@@ -50,17 +53,21 @@ class IcebergWriter {
       const IcebergNestedField& field,
       const std::unordered_map<std::string, std::string>& sparkConfs,
       std::shared_ptr<facebook::velox::memory::MemoryPool> memoryPool,
-      std::shared_ptr<facebook::velox::memory::MemoryPool> connectorPool);
+      std::shared_ptr<facebook::velox::memory::MemoryPool> connectorPool,
+      std::optional<std::vector<int32_t>> equalityFieldIds = std::nullopt);
 
   void write(const VeloxColumnarBatch& batch);
 
   std::vector<std::string> commit();
+
+  void abort();
 
   WriteStats writeStats() const;
 
  private:
   facebook::velox::RowTypePtr rowType_;
   const facebook::velox::parquet::ParquetFieldId field_;
+  const std::optional<std::vector<int32_t>> equalityFieldIds_;
   int32_t partitionId_;
   int64_t taskId_;
   std::string operationId_;

@@ -17,6 +17,10 @@
 
 #include "IcebergWriter.h"
 
+#include <folly/json.h>
+#include <atomic>
+#include <unordered_set>
+
 #include "IcebergNestedField.pb.h"
 #include "IcebergPartitionSpec.pb.h"
 #include "compute/ProtobufUtils.h"
@@ -24,6 +28,7 @@
 #include "compute/iceberg/IcebergFormat.h"
 #include "config/VeloxConfig.h"
 #include "utils/ConfigExtractor.h"
+#include "velox/common/file/FileSystems.h"
 #include "velox/connectors/hive/iceberg/IcebergDataSink.h"
 #include "velox/connectors/hive/iceberg/IcebergDeleteFile.h"
 
@@ -31,6 +36,33 @@ using namespace facebook::velox;
 using namespace facebook::velox::connector::hive;
 using namespace facebook::velox::connector::hive::iceberg;
 namespace {
+
+class GlutenIcebergDataSink : public IcebergDataSink {
+ public:
+  using IcebergDataSink::IcebergDataSink;
+
+  void abortAndDeleteFiles(const std::shared_ptr<const config::ConfigBase>& config) {
+    std::unordered_set<std::string> paths;
+    for (const auto& info : writerInfo_) {
+      const auto& directory = info->writerParameters.writeDirectory();
+      for (const auto& file : info->writtenFiles) {
+        paths.insert(directory + "/" + file.writeFileName);
+      }
+      if (!info->currentWriteFileName.empty()) {
+        paths.insert(directory + "/" + info->currentWriteFileName);
+      }
+    }
+    if (state_ != State::kClosed && state_ != State::kAborted) {
+      IcebergDataSink::abort();
+    }
+    for (const auto& path : paths) {
+      auto fs = filesystems::getFileSystem(path, config);
+      if (fs->exists(path)) {
+        fs->remove(path);
+      }
+    }
+  }
+};
 
 // Custom Iceberg file name generator for Gluten
 class GlutenIcebergFileNameGenerator : public connector::hive::FileNameGenerator {
@@ -115,6 +147,58 @@ parquet::ParquetFieldId convertToIcebergNestedField(const gluten::IcebergNestedF
   return result;
 }
 
+TypePtr withTimestampSemantics(
+    const TypePtr& type,
+    const parquet::ParquetFieldId& field,
+    const std::unordered_set<int32_t>& timestampsWithoutZone) {
+  if (type->isRow()) {
+    std::vector<TypePtr> children;
+    children.reserve(type->size());
+    for (size_t i = 0; i < type->size(); ++i) {
+      children.push_back(withTimestampSemantics(type->childAt(i), field.children[i], timestampsWithoutZone));
+    }
+    return ROW(type->asRow().names(), std::move(children));
+  }
+  if (type->kind() == TypeKind::TIMESTAMP) {
+    // Arrow exports TIMESTAMP_UTC without a timezone, even when the writer's
+    // timezone is UTC. This preserves Iceberg's per-field Parquet annotations.
+    return timestampsWithoutZone.count(field.fieldId) ? TIMESTAMP_UTC() : TIMESTAMP();
+  }
+  return type;
+}
+
+void collectEqualityFields(
+    const TypePtr& type,
+    const parquet::ParquetFieldId& field,
+    std::unordered_set<int32_t>& eligibleIds) {
+  VELOX_USER_CHECK_EQ(type->size(), field.children.size(), "Iceberg field IDs do not match the writer schema");
+  if (type->isRow()) {
+    for (size_t i = 0; i < type->size(); ++i) {
+      collectEqualityFields(type->childAt(i), field.children[i], eligibleIds);
+    }
+  } else if (type->isPrimitiveType() && type->kind() != TypeKind::REAL && type->kind() != TypeKind::DOUBLE) {
+    VELOX_USER_CHECK_GT(field.fieldId, 0, "Iceberg equality field IDs must be positive");
+    VELOX_USER_CHECK(eligibleIds.insert(field.fieldId).second, "Duplicate Iceberg field ID: {}", field.fieldId);
+  }
+}
+
+void validateEqualityFields(
+    const RowTypePtr& rowType,
+    const parquet::ParquetFieldId& field,
+    const std::vector<int32_t>& equalityFieldIds) {
+  VELOX_USER_CHECK(!equalityFieldIds.empty(), "Equality field IDs cannot be empty");
+  std::unordered_set<int32_t> eligibleIds;
+  collectEqualityFields(rowType, field, eligibleIds);
+  std::unordered_set<int32_t> seen;
+  for (const auto id : equalityFieldIds) {
+    VELOX_USER_CHECK(
+        eligibleIds.count(id),
+        "Equality field ID {} must identify a non-floating-point primitive field outside lists and maps in the writer schema",
+        id);
+    VELOX_USER_CHECK(seen.insert(id).second, "Duplicate equality field ID: {}", id);
+  }
+}
+
 std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
     const RowTypePtr& outputRowType,
     const std::string& outputDirectoryPath,
@@ -125,6 +209,7 @@ std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
     const std::string& operationId,
     std::shared_ptr<const IcebergPartitionSpec> spec,
     const parquet::ParquetFieldId& nestedField,
+    const std::unordered_map<std::string, std::string>& serdeParameters,
     facebook::velox::memory::MemoryPool* pool) {
   std::vector<std::shared_ptr<const iceberg::IcebergColumnHandle>> columnHandles;
 
@@ -158,7 +243,6 @@ std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
   std::shared_ptr<const connector::hive::LocationHandle> locationHandle =
       std::make_shared<connector::hive::LocationHandle>(
           outputDirectoryPath, outputDirectoryPath, connector::hive::LocationHandle::TableType::kExisting);
-  const std::unordered_map<std::string, std::string> serdeParameters;
   auto writeKind = connector::hive::iceberg::IcebergInsertTableHandle::WriteKind::kData;
   return std::make_shared<connector::hive::iceberg::IcebergInsertTableHandle>(
       columnHandles,
@@ -187,15 +271,30 @@ IcebergWriter::IcebergWriter(
     const gluten::IcebergNestedField& field,
     const std::unordered_map<std::string, std::string>& sparkConfs,
     std::shared_ptr<facebook::velox::memory::MemoryPool> memoryPool,
-    std::shared_ptr<facebook::velox::memory::MemoryPool> connectorPool)
+    std::shared_ptr<facebook::velox::memory::MemoryPool> connectorPool,
+    std::optional<std::vector<int32_t>> equalityFieldIds)
     : rowType_(rowType),
       field_(convertToIcebergNestedField(field)),
+      equalityFieldIds_(std::move(equalityFieldIds)),
       partitionId_(partitionId),
       taskId_(taskId),
-      operationId_(operationId),
+      operationId_(equalityFieldIds_ ? operationId + "-equality-delete" : operationId),
       pool_(memoryPool),
       connectorPool_(connectorPool),
       createTimeNs_(getCurrentTimeNano()) {
+  if (equalityFieldIds_) {
+    validateEqualityFields(rowType_, field_, *equalityFieldIds_);
+    if (const auto it = sparkConfs.find("gluten.iceberg.timestamp-without-timezone-field-ids");
+        it != sparkConfs.end()) {
+      std::unordered_set<int32_t> timestampsWithoutZone;
+      for (const auto& id : folly::parseJson(it->second)) {
+        timestampsWithoutZone.insert(id.asInt());
+      }
+      rowType_ = asRowType(withTimestampSemantics(rowType_, field_, timestampsWithoutZone));
+    }
+  }
+  static std::atomic_uint64_t writerId{0};
+  connectorPool_ = connectorPool_->addAggregateChild("iceberg.writer." + std::to_string(writerId++));
   auto veloxCfg =
       std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>(sparkConfs));
   connectorSessionProperties_ = createHiveConnectorSessionConfig(veloxCfg);
@@ -231,7 +330,13 @@ IcebergWriter::IcebergWriter(
       0,
       "");
   auto icebergConfig = std::make_shared<facebook::velox::connector::hive::iceberg::IcebergConfig>(veloxCfg);
-  dataSink_ = std::make_unique<IcebergDataSink>(
+  std::unordered_map<std::string, std::string> serdeParameters;
+  if (equalityFieldIds_) {
+    if (const auto it = sparkConfs.find("gluten.iceberg.timestamp-timezone"); it != sparkConfs.end()) {
+      serdeParameters["gluten.iceberg.timestamp-timezone"] = it->second;
+    }
+  }
+  dataSink_ = std::make_unique<GlutenIcebergDataSink>(
       rowType_,
       createIcebergInsertTableHandle(
           rowType_,
@@ -243,6 +348,7 @@ IcebergWriter::IcebergWriter(
           operationId_,
           spec,
           field_,
+          serdeParameters,
           pool_.get()),
       connectorQueryCtx_.get(),
       facebook::velox::connector::CommitStrategy::kNoCommit,
@@ -265,6 +371,19 @@ void IcebergWriter::write(const VeloxColumnarBatch& batch) {
     dataColumns.insert(dataColumns.end(), children.begin(), children.end());
   }
 
+  if (equalityFieldIds_) {
+    for (size_t i = 0; i < dataColumns.size(); ++i) {
+      const auto& targetType = rowType_->childAt(i);
+      if (!dataColumns[i]->type()->equivalent(*targetType)) {
+        // Row-to-columnar conversion may have erased timestamp annotations.
+        // Copy into the declared type without changing or mutating input values.
+        VELOX_CHECK_EQ(dataColumns[i]->typeKind(), targetType->kind());
+        auto column = BaseVector::create(targetType, inputRowVector->size(), pool_.get());
+        column->copy(dataColumns[i].get(), 0, 0, inputRowVector->size());
+        dataColumns[i] = std::move(column);
+      }
+    }
+  }
   auto rowVector = std::make_shared<RowVector>(
       pool_.get(), rowType_, inputRowVector->nulls(), inputRowVector->size(), std::move(dataColumns));
 
@@ -274,7 +393,24 @@ void IcebergWriter::write(const VeloxColumnarBatch& batch) {
 std::vector<std::string> IcebergWriter::commit() {
   auto finished = dataSink_->finish();
   VELOX_CHECK(finished);
-  return dataSink_->close();
+  auto messages = dataSink_->close();
+  if (equalityFieldIds_) {
+    for (auto& message : messages) {
+      auto metadata = folly::parseJson(message);
+      metadata["content"] = "EQUALITY_DELETES";
+      auto ids = folly::dynamic::array();
+      for (const auto id : *equalityFieldIds_) {
+        ids.push_back(id);
+      }
+      metadata["equalityFieldIds"] = std::move(ids);
+      message = folly::toJson(metadata);
+    }
+  }
+  return messages;
+}
+
+void IcebergWriter::abort() {
+  static_cast<GlutenIcebergDataSink*>(dataSink_.get())->abortAndDeleteFiles(connectorConfig_->config());
 }
 
 WriteStats IcebergWriter::writeStats() const {

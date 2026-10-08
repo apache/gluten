@@ -14,28 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.gluten.connector.write;
+package org.apache.gluten.component
 
-import com.fasterxml.jackson.annotation.JsonProperty;
+import org.apache.gluten.extension.injector.Injector
 
-import java.util.List;
-
-public class DataFileJson {
-  @JsonProperty public String path;
-
-  @JsonProperty public MetricsWrapper metrics;
-
-  @JsonProperty List<Long> splitOffsets;
-
-  @JsonProperty String content;
-
-  @JsonProperty List<Integer> equalityFieldIds;
-
-  @JsonProperty String referencedDataFile;
-
-  @JsonProperty public Integer partitionSpecJson;
-
-  @JsonProperty String partitionDataJson;
-
-  @JsonProperty public long fileSizeInBytes = -1L;
+object IcebergEqualityDeleteRules {
+  // The rewrite requires Spark 3.5's row-command API.
+  def inject(injector: Injector): Unit = {}
 }
