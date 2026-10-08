@@ -18,6 +18,7 @@ package org.apache.gluten.execution
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.execution.{ColumnarToRowExec, InputAdapter, SparkPlan}
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 
 /**
@@ -25,9 +26,8 @@ import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
  * C stream ([[LanceScanTransformer]]), while scans that the export path cannot serve (pushed
  * aggregation, full-text query) fall back to vanilla Spark.
  *
- * Requires the lance-spark runtime (and its native library) on the classpath, which is only
- * published for linux-x86-64. On other platforms these tests do not run; see
- * docs/get-started/VeloxLance.md for the supported local/CI environment.
+ * Requires the lance-spark runtime (and its native library) on the classpath; see
+ * docs/get-started/VeloxLance.md for the supported platforms.
  */
 class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
   override protected val resourcePath: String = "/tpch-data-parquet"
@@ -67,10 +67,63 @@ class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
+  private def isLanceScan(plan: SparkPlan): Boolean = plan match {
+    case _: LanceScanTransformer => true
+    case InputAdapter(child) => isLanceScan(child)
+    case _ => false
+  }
+
+  /** The operators that directly consume the Lance scan (looking through codegen InputAdapters). */
+  private def lanceScanParents(df: DataFrame): Seq[SparkPlan] =
+    getExecutedPlan(df)
+      .filterNot(_.isInstanceOf[InputAdapter])
+      .filter(_.children.exists(isLanceScan))
+
   test("lance scan offloads to LanceScanTransformer") {
     withLanceView("lance_basic", 100) {
       runQueryAndCompare("select id, v, name from lance_basic") {
-        checkGlutenPlan[LanceScanTransformer]
+        df =>
+          checkGlutenPlan[LanceScanTransformer](df)
+          // With no Velox consumer, the Arrow Java batches are converted to rows directly by
+          // vanilla ColumnarToRowExec, with no round trip through Velox.
+          val parents = lanceScanParents(df)
+          assert(
+            parents.nonEmpty && parents.forall(_.isInstanceOf[ColumnarToRowExec]),
+            s"Expected ColumnarToRowExec over the Lance scan, got:\n${df.queryExecution.executedPlan}"
+          )
+      }
+    }
+  }
+
+  test("lance scan feeds Velox operators without a row conversion") {
+    withLanceView("lance_velox_agg", 100) {
+      // A grouped aggregation is not pushed into Lance, so it runs as a Velox aggregate on top of
+      // the scan: Arrow Java batches -> OffloadArrowDataExec -> ArrowColumnarToVeloxColumnarExec.
+      runQueryAndCompare(
+        "select id % 10 as k, sum(v) as s, count(*) as c from lance_velox_agg group by id % 10") {
+        df =>
+          val plan = df.queryExecution.executedPlan
+          checkGlutenPlan[LanceScanTransformer](df)
+          checkGlutenPlan[HashAggregateExecBaseTransformer](df)
+          val parents = lanceScanParents(df)
+          assert(
+            parents.nonEmpty && parents.forall(_.isInstanceOf[OffloadArrowDataExec]),
+            s"Expected OffloadArrowDataExec over the Lance scan, got:\n$plan")
+          assert(
+            getExecutedPlan(df).exists {
+              case p: ArrowColumnarToVeloxColumnarExec =>
+                p.child.isInstanceOf[OffloadArrowDataExec] && isLanceScan(p.child.children.head)
+              case _ => false
+            },
+            s"Expected ArrowColumnarToVeloxColumnarExec(OffloadArrowDataExec(scan)), got:\n$plan"
+          )
+          assert(
+            !getExecutedPlan(df).exists {
+              case c: ColumnarToRowExec => isLanceScan(c.child)
+              case _ => false
+            },
+            s"Lance scan output must not be converted to rows before Velox, got:\n$plan"
+          )
       }
     }
   }
