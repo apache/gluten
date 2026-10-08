@@ -122,37 +122,6 @@
                   </includes>
                 </relocation>
                 <relocation>
-                  <pattern>org.apache.arrow</pattern>
-                  <shadedPattern>${gluten.shade.packageName}.org.apache.arrow</shadedPattern>
-                  <!--
-                    arrow's C wrapper refers to the original class path, so it
-                    must not be relocated. Its public APIs also take and return
-                    org.apache.arrow.memory.* and org.apache.arrow.vector.*
-                    types, so those packages must also stay unshaded —
-                    otherwise the bundled (unshaded) ArrowArrayStream/ArrowSchema
-                    get compiled against the relocated
-                    BufferAllocator/VectorSchemaRoot, producing
-                    `NoSuchMethodError` for any caller passing a vanilla
-                    Apache Arrow allocator. See #12225.
-
-                    org.apache.arrow.util.** is the fourth and last package
-                    org.apache.arrow.c reaches: Preconditions.checkNotNull from
-                    the ArrowArray/ArrowSchema constructors, plus AutoCloseables
-                    and Collections2 from the import/export paths. It is not part
-                    of the public signature so it survived #12225, but the call
-                    sites live in the constant pool of the unshaded classes all
-                    the same, and there is no unshaded copy to bind to once
-                    arrow-memory-core stops being bundled.
-                  -->
-                  <excludes>
-                    <exclude>org.apache.arrow.c.*</exclude>
-                    <exclude>org.apache.arrow.c.jni.*</exclude>
-                    <exclude>org.apache.arrow.memory.**</exclude>
-                    <exclude>org.apache.arrow.vector.**</exclude>
-                    <exclude>org.apache.arrow.util.**</exclude>
-                  </excludes>
-                </relocation>
-                <relocation>
                   <pattern>com.google.flatbuffers</pattern>
                   <shadedPattern>${gluten.shade.packageName}.com.google.flatbuffers</shadedPattern>
                 </relocation>
@@ -222,6 +191,31 @@
               <arguments>
                 <argument>target/gluten-package-${project.version}.jar</argument>
                 <argument>target/${jar.assembly.name.prefix}-${backend_type}-bundle-spark${sparkbundle.version}_${scala.binary.version}-${os.full.name}-${project.version}.jar</argument>
+              </arguments>
+            </configuration>
+          </execution>
+          <execution>
+            <!--
+              Verify that the bundled Arrow C-Data classes have public method
+              signatures referencing the unshaded Apache Arrow API
+              (org.apache.arrow.memory.*, org.apache.arrow.vector.*) and not
+              the gluten-shaded copies. Catches a regression where shading
+              relocates classes that the unshaded org.apache.arrow.c.* API
+              transitively depends on, producing a bundle whose public Arrow
+              C-Data API is incompatible with vanilla Apache Arrow callers
+              (gluten#12225).
+            -->
+            <id>verify-arrow-c-shading</id>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <phase>verify</phase>
+            <configuration>
+              <executable>${project.basedir}/../dev/check-arrow-c-shading.sh</executable>
+              <arguments>
+                <argument>${project.build.directory}/${project.build.finalName}.jar</argument>
+                <argument>${gluten.shade.packageName}</argument>
+                <argument>${arrow.deps.scope}</argument>
               </arguments>
             </configuration>
           </execution>
@@ -329,37 +323,6 @@
                 </banDuplicateClasses>
               </rules>
               <fail>true</fail>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
-      <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>exec-maven-plugin</artifactId>
-        <executions>
-          <execution>
-            <!--
-              Verify that the bundled Arrow C-Data classes have public method
-              signatures referencing the unshaded Apache Arrow API
-              (org.apache.arrow.memory.*, org.apache.arrow.vector.*) and not
-              the gluten-shaded copies. Catches a regression where shading
-              relocates classes that the unshaded org.apache.arrow.c.* API
-              transitively depends on, producing a bundle whose public Arrow
-              C-Data API is incompatible with vanilla Apache Arrow callers
-              (gluten#12225).
-            -->
-            <id>verify-arrow-c-shading</id>
-            <goals>
-              <goal>exec</goal>
-            </goals>
-            <phase>verify</phase>
-            <configuration>
-              <executable>${project.basedir}/../dev/check-arrow-c-shading.sh</executable>
-              <arguments>
-                <argument>${project.build.directory}/${project.build.finalName}.jar</argument>
-                <argument>${gluten.shade.packageName}</argument>
-                <argument>${arrow.deps.scope}</argument>
-              </arguments>
             </configuration>
           </execution>
         </executions>

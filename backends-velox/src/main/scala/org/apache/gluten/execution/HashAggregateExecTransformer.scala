@@ -65,6 +65,14 @@ abstract class HashAggregateExecTransformer(
     super.output
   }
 
+  // Velox holds a map accumulator for the aggregates that can carry one -- arbitrary, and the
+  // spark first / last family, use NonNumericArbitrary. The base transformer is shared with the
+  // other backends, which have not been shown to, so widen it here rather than there.
+  override protected def checkType(dataType: DataType): Boolean = dataType match {
+    case _: MapType => true
+    case other => super.checkType(other)
+  }
+
   override protected def doTransform(context: SubstraitContext): TransformContext = {
     val childCtx = child.asInstanceOf[TransformSupport].transform(context)
 

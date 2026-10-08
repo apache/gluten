@@ -18,8 +18,8 @@ set -exu
 
 CURRENT_DIR=$(cd "$(dirname "$BASH_SOURCE")"; pwd)
 VELOX_REPO=https://github.com/IBM/velox.git
-VELOX_BRANCH=dft-2026_09_29
-VELOX_ENHANCED_BRANCH=ibm-2026_09_29
+VELOX_BRANCH=dft-2026_10_06
+VELOX_ENHANCED_BRANCH=ibm-2026_10_06
 VELOX_HOME=""
 RUN_SETUP_SCRIPT=ON
 ENABLE_ENHANCED_FEATURES=OFF
@@ -152,16 +152,6 @@ function apply_provided_velox_patch {
   fi
 }
 
-function apply_compilation_fixes {
-  local SUDO_CMD=""
-  if [ "$OS" == "Linux" ] && [ "${EUID:-$(id -u)}" -ne 0 ]; then
-    SUDO_CMD="sudo"
-  fi
-  $SUDO_CMD cp ${CURRENT_DIR}/modify_arrow.patch ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/
-
-  git add ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/modify_arrow.patch # to avoid the file from being deleted by git clean -dffx :/
-}
-
 function setup_linux {
   local LINUX_DISTRIBUTION=$(. /etc/os-release && echo ${ID})
   local LINUX_VERSION_ID=$(. /etc/os-release && echo ${VERSION_ID})
@@ -243,6 +233,5 @@ fi
 
 apply_provided_velox_patch
 
-apply_compilation_fixes
 
 echo "Finished getting Velox code"

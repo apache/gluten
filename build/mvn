@@ -29,18 +29,6 @@ MVN_BIN=""
 
 # Read Maven version from pom.xml if not set
 install_mvn() {
-    # Check for system Maven first
-    local SYSTEM_MVN
-    SYSTEM_MVN="$(command -v mvn)"
-
-    if [ -n "$SYSTEM_MVN" ]; then
-        local MVN_DETECTED_VERSION
-        MVN_DETECTED_VERSION="$(mvn --version 2>/dev/null | grep '^Apache Maven' | awk '{print $3}')"
-        echo "Using system Maven: $SYSTEM_MVN (version $MVN_DETECTED_VERSION)" >&2
-        MVN_BIN="$SYSTEM_MVN"
-        return 0
-    fi
-
     # Get Maven version from pom.xml using grep and sed
     local VERSION
     VERSION=$(grep "<maven.version>" "${GLUTEN_HOME}/pom.xml" | head -n1 | \
@@ -49,6 +37,21 @@ install_mvn() {
     if [ -z "$VERSION" ]; then
         echo "ERROR: Could not read maven.version from pom.xml. Please define <maven.version> in ${GLUTEN_HOME}/pom.xml" >&2
         exit 1
+    fi
+
+    # Use system Maven only if it matches the required version
+    local SYSTEM_MVN
+    SYSTEM_MVN="$(command -v mvn)"
+
+    if [ -n "$SYSTEM_MVN" ]; then
+        local MVN_DETECTED_VERSION
+        MVN_DETECTED_VERSION="$(mvn --version 2>/dev/null | grep '^Apache Maven' | awk '{print $3}')"
+        if [ "$MVN_DETECTED_VERSION" = "$VERSION" ]; then
+            echo "Using system Maven: $SYSTEM_MVN (version $MVN_DETECTED_VERSION)" >&2
+            MVN_BIN="$SYSTEM_MVN"
+            return 0
+        fi
+        echo "System Maven $SYSTEM_MVN (version $MVN_DETECTED_VERSION) does not match required version $VERSION" >&2
     fi
 
     local MVN_LOCAL_BIN="${MVN_DOWNLOAD_DIR}/apache-maven-${VERSION}/bin/mvn"

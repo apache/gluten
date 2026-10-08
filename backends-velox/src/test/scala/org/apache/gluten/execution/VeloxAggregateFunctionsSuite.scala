@@ -507,6 +507,26 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
     }
   }
 
+  test("aggregate over a map column") {
+    // checkType gates the aggregate's result and buffer attributes. Spark has no aggregate that
+    // builds a map out of non-map input, so the type only reaches checkType when a map column is
+    // carried through a type-preserving aggregate -- first / last / any_value / max_by. Velox
+    // holds a map accumulator for these.
+    withTempView("map_agg_tbl") {
+      Seq((1, Map("a" -> 1.0d)), (1, Map("a" -> 1.0d)), (2, Map("b" -> 2.0d)))
+        .toDF("k", "m")
+        .createOrReplaceTempView("map_agg_tbl")
+
+      // One distinct value per group, so which row first keeps does not change the answer.
+      runQueryAndCompare("select k, first(m) from map_agg_tbl group by k") {
+        checkGlutenPlan[HashAggregateExecTransformer]
+      }
+      runQueryAndCompare("select k, last(m) from map_agg_tbl group by k") {
+        checkGlutenPlan[HashAggregateExecTransformer]
+      }
+    }
+  }
+
   test("first") {
     runQueryAndCompare(s"""
                           |select first(l_linenumber), first(l_linenumber, true) from lineitem;

@@ -25,6 +25,8 @@ import org.apache.spark.resource.ResourceProfile
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, SortOrder}
 import org.apache.spark.sql.catalyst.plans.physical.{Distribution, Partitioning}
+import org.apache.spark.sql.connector.write.WriterCommitMessage
+import org.apache.spark.sql.execution.datasources.WriteFilesSpec
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 /**
@@ -70,6 +72,12 @@ case class ApplyResourceProfileExec(child: SparkPlan, resourceProfile: ResourceP
   override protected def doExecuteColumnar(): RDD[ColumnarBatch] = {
     log.info(s"Apply $resourceProfile for columnar plan ${child.nodeName}")
     child.executeColumnar.withResources(resourceProfile)
+  }
+
+  override protected def doExecuteWrite(writeFilesSpec: WriteFilesSpec)
+      : RDD[WriterCommitMessage] = {
+    log.info(s"Apply $resourceProfile for write plan ${child.nodeName}")
+    child.executeWrite(writeFilesSpec).withResources(resourceProfile)
   }
 
   override def output: scala.Seq[Attribute] = child.output

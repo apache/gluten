@@ -19,13 +19,14 @@ import os
 import findspark
 
 import argparse
+import copy
 import logging
 import re
 import subprocess
 import tabulate
 
 # Fetched from org.apache.spark.sql.catalyst.analysis.FunctionRegistry.
-SPARK35_EXPRESSION_MAPPINGS = """
+SPARK41_EXPRESSION_MAPPINGS = """
     // misc non-aggregate functions
     expression[Abs]("abs"),
     expression[Coalesce]("coalesce"),
@@ -33,8 +34,8 @@ SPARK35_EXPRESSION_MAPPINGS = """
     expressionGeneratorBuilderOuter("explode_outer", ExplodeExpressionBuilder),
     expression[Greatest]("greatest"),
     expression[If]("if"),
-    expression[Inline]("inline"),
-    expressionGeneratorOuter[Inline]("inline_outer"),
+    expressionBuilder("inline", InlineExpressionBuilder),
+    expressionGeneratorBuilderOuter("inline_outer", InlineExpressionBuilder),
     expression[IsNaN]("isnan"),
     expression[Nvl]("ifnull", setAlias = true),
     expression[IsNull]("isnull"),
@@ -42,15 +43,19 @@ SPARK35_EXPRESSION_MAPPINGS = """
     expression[Least]("least"),
     expression[NaNvl]("nanvl"),
     expression[NullIf]("nullif"),
+    expression[NullIfZero]("nullifzero"),
     expression[Nvl]("nvl"),
     expression[Nvl2]("nvl2"),
-    expression[PosExplode]("posexplode"),
-    expressionGeneratorOuter[PosExplode]("posexplode_outer"),
+    expressionBuilder("posexplode", PosExplodeExpressionBuilder),
+    expressionGeneratorBuilderOuter("posexplode_outer", PosExplodeExpressionBuilder),
     expression[Rand]("rand"),
-    expression[Rand]("random", true),
+    expression[Rand]("random", true, Some("3.0.0")),
     expression[Randn]("randn"),
+    expression[RandStr]("randstr"),
     expression[Stack]("stack"),
-    expression[CaseWhen]("when"),
+    expression[Uniform]("uniform"),
+    expression[ZeroIfNull]("zeroifnull"),
+    CaseWhen.registryEntry,
 
     // math functions
     expression[Acos]("acos"),
@@ -82,7 +87,7 @@ SPARK35_EXPRESSION_MAPPINGS = """
     expression[Log1p]("log1p"),
     expression[Log2]("log2"),
     expression[Log]("ln"),
-    expression[Remainder]("mod", true),
+    expression[Remainder]("mod", true, Some("2.3.0")),
     expression[UnaryMinus]("negative", true),
     expression[Pi]("pi"),
     expression[Pmod]("pmod"),
@@ -117,6 +122,7 @@ SPARK35_EXPRESSION_MAPPINGS = """
     // "try_*" function which always return Null instead of runtime error.
     expression[TryAdd]("try_add"),
     expression[TryDivide]("try_divide"),
+    expression[TryMod]("try_mod"),
     expression[TrySubtract]("try_subtract"),
     expression[TryMultiply]("try_multiply"),
     expression[TryElementAt]("try_element_at"),
@@ -124,7 +130,12 @@ SPARK35_EXPRESSION_MAPPINGS = """
     expressionBuilder("try_sum", TrySumExpressionBuilder, setAlias = true),
     expression[TryToBinary]("try_to_binary"),
     expressionBuilder("try_to_timestamp", TryToTimestampExpressionBuilder, setAlias = true),
+    expressionBuilder("try_to_date", TryToDateExpressionBuilder, setAlias = true),
+    expressionBuilder("try_to_time", TryToTimeExpressionBuilder, setAlias = true),
     expression[TryAesDecrypt]("try_aes_decrypt"),
+    expression[TryReflect]("try_reflect"),
+    expression[TryUrlDecode]("try_url_decode"),
+    expression[TryMakeInterval]("try_make_interval"),
 
     // aggregate functions
     expression[HyperLogLogPlusPlus]("approx_count_distinct"),
@@ -146,6 +157,8 @@ SPARK35_EXPRESSION_MAPPINGS = """
     expression[Min]("min"),
     expression[MinBy]("min_by"),
     expression[Percentile]("percentile"),
+    expressionBuilder("percentile_cont", PercentileContBuilder),
+    expressionBuilder("percentile_disc", PercentileDiscBuilder),
     expression[Median]("median"),
     expression[Skewness]("skewness"),
     expression[ApproximatePercentile]("percentile_approx"),
@@ -162,6 +175,8 @@ SPARK35_EXPRESSION_MAPPINGS = """
     expression[CollectList]("collect_list"),
     expression[CollectList]("array_agg", true, Some("3.3.0")),
     expression[CollectSet]("collect_set"),
+    expression[ListAgg]("listagg"),
+    expression[ListAgg]("string_agg", setAlias = true),
     expressionBuilder("count_min_sketch", CountMinSketchAggExpressionBuilder),
     expression[BoolAnd]("every", true),
     expression[BoolAnd]("bool_and"),
@@ -177,21 +192,47 @@ SPARK35_EXPRESSION_MAPPINGS = """
     expression[RegrSYY]("regr_syy"),
     expression[RegrSlope]("regr_slope"),
     expression[RegrIntercept]("regr_intercept"),
-    expression[Mode]("mode"),
+    expressionBuilder("mode", ModeBuilder),
     expression[HllSketchAgg]("hll_sketch_agg"),
     expression[HllUnionAgg]("hll_union_agg"),
+    expression[ApproxTopK]("approx_top_k"),
+    expression[ThetaSketchAgg]("theta_sketch_agg"),
+    expression[ThetaUnionAgg]("theta_union_agg"),
+    expression[ThetaIntersectionAgg]("theta_intersection_agg"),
+    expression[ApproxTopKAccumulate]("approx_top_k_accumulate"),
+    expression[ApproxTopKCombine]("approx_top_k_combine"),
+    expression[KllSketchAggBigint]("kll_sketch_agg_bigint"),
+    expression[KllSketchAggFloat]("kll_sketch_agg_float"),
+    expression[KllSketchAggDouble]("kll_sketch_agg_double"),
+    expression[KllSketchToStringBigint]("kll_sketch_to_string_bigint"),
+    expression[KllSketchToStringFloat]("kll_sketch_to_string_float"),
+    expression[KllSketchToStringDouble]("kll_sketch_to_string_double"),
+    expression[KllSketchGetNBigint]("kll_sketch_get_n_bigint"),
+    expression[KllSketchGetNFloat]("kll_sketch_get_n_float"),
+    expression[KllSketchGetNDouble]("kll_sketch_get_n_double"),
+    expression[KllSketchMergeBigint]("kll_sketch_merge_bigint"),
+    expression[KllSketchMergeFloat]("kll_sketch_merge_float"),
+    expression[KllSketchMergeDouble]("kll_sketch_merge_double"),
+    expression[KllSketchGetQuantileBigint]("kll_sketch_get_quantile_bigint"),
+    expression[KllSketchGetQuantileFloat]("kll_sketch_get_quantile_float"),
+    expression[KllSketchGetQuantileDouble]("kll_sketch_get_quantile_double"),
+    expression[KllSketchGetRankBigint]("kll_sketch_get_rank_bigint"),
+    expression[KllSketchGetRankFloat]("kll_sketch_get_rank_float"),
+    expression[KllSketchGetRankDouble]("kll_sketch_get_rank_double"),
 
     // string functions
     expression[Ascii]("ascii"),
     expression[Chr]("char", true),
     expression[Chr]("chr"),
+    expressionBuilder("collate", CollateExpressionBuilder),
+    expression[Collation]("collation"),
     expressionBuilder("contains", ContainsExpressionBuilder),
     expressionBuilder("startswith", StartsWithExpressionBuilder),
     expressionBuilder("endswith", EndsWithExpressionBuilder),
     expression[Base64]("base64"),
     expression[BitLength]("bit_length"),
-    expression[Length]("char_length", true),
-    expression[Length]("character_length", true),
+    expression[Length]("char_length", true, Some("2.3.0")),
+    expression[Length]("character_length", true, Some("2.3.0")),
     expression[ConcatWs]("concat_ws"),
     expression[Decode]("decode"),
     expression[Elt]("elt"),
@@ -201,8 +242,8 @@ SPARK35_EXPRESSION_MAPPINGS = """
     expression[FormatString]("format_string"),
     expression[ToNumber]("to_number"),
     expression[TryToNumber]("try_to_number"),
-    expression[ToCharacter]("to_char"),
-    expression[ToCharacter]("to_varchar", setAlias = true, Some("3.5.0")),
+    expressionBuilder("to_char", ToCharacterBuilder),
+    expressionBuilder("to_varchar", ToCharacterBuilder, setAlias = true, Some("3.5.0")),
     expression[GetJsonObject]("get_json_object"),
     expression[InitCap]("initcap"),
     expression[StringInstr]("instr"),
@@ -219,7 +260,7 @@ SPARK35_EXPRESSION_MAPPINGS = """
     expressionBuilder("lpad", LPadExpressionBuilder),
     expression[StringTrimLeft]("ltrim"),
     expression[JsonTuple]("json_tuple"),
-    expression[StringLocate]("position", true),
+    expression[StringLocate]("position", true, Some("2.3.0")),
     expression[FormatString]("printf", true),
     expression[RegExpExtract]("regexp_extract"),
     expression[RegExpExtractAll]("regexp_extract_all"),
@@ -261,17 +302,24 @@ SPARK35_EXPRESSION_MAPPINGS = """
     expression[RegExpCount]("regexp_count"),
     expression[RegExpSubStr]("regexp_substr"),
     expression[RegExpInStr]("regexp_instr"),
+    expression[IsValidUTF8]("is_valid_utf8"),
+    expression[MakeValidUTF8]("make_valid_utf8"),
+    expression[ValidateUTF8]("validate_utf8"),
+    expression[TryValidateUTF8]("try_validate_utf8"),
+    expression[Quote]("quote"),
 
     // url functions
     expression[UrlEncode]("url_encode"),
     expression[UrlDecode]("url_decode"),
     expression[ParseUrl]("parse_url"),
+    expression[TryParseUrl]("try_parse_url"),
 
     // datetime functions
     expression[AddMonths]("add_months"),
     expression[CurrentDate]("current_date"),
     expressionBuilder("curdate", CurDateExpressionBuilder, setAlias = true),
     expression[CurrentTimestamp]("current_timestamp"),
+    expression[CurrentTime]("current_time"),
     expression[CurrentTimeZone]("current_timezone"),
     expression[LocalTimestamp]("localtimestamp"),
     expression[DateDiff]("datediff"),
@@ -285,17 +333,19 @@ SPARK35_EXPRESSION_MAPPINGS = """
     expression[DayOfMonth]("dayofmonth"),
     expression[FromUnixTime]("from_unixtime"),
     expression[FromUTCTimestamp]("from_utc_timestamp"),
-    expression[Hour]("hour"),
+    expressionBuilder("hour", HourExpressionBuilder),
     expression[LastDay]("last_day"),
-    expression[Minute]("minute"),
+    expressionBuilder("minute", MinuteExpressionBuilder),
     expression[Month]("month"),
     expression[MonthsBetween]("months_between"),
     expression[NextDay]("next_day"),
     expression[Now]("now"),
     expression[Quarter]("quarter"),
-    expression[Second]("second"),
+    expressionBuilder("second", SecondExpressionBuilder),
     expression[ParseToTimestamp]("to_timestamp"),
     expression[ParseToDate]("to_date"),
+    expression[TimeDiff]("time_diff"),
+    expression[ToTime]("to_time"),
     expression[ToBinary]("to_binary"),
     expression[ToUnixTimestamp]("to_unix_timestamp"),
     expression[ToUTCTimestamp]("to_utc_timestamp"),
@@ -307,16 +357,25 @@ SPARK35_EXPRESSION_MAPPINGS = """
     expression[UnixTimestamp]("unix_timestamp"),
     expression[DayOfWeek]("dayofweek"),
     expression[WeekDay]("weekday"),
+    expression[DayName]("dayname"),
     expression[WeekOfYear]("weekofyear"),
     expression[Year]("year"),
     expression[TimeWindow]("window"),
     expression[SessionWindow]("session_window"),
     expression[WindowTime]("window_time"),
     expression[MakeDate]("make_date"),
-    expression[MakeTimestamp]("make_timestamp"),
+    expression[MakeTime]("make_time"),
+    expression[TimeTrunc]("time_trunc"),
+    expressionBuilder("make_timestamp", MakeTimestampExpressionBuilder),
+    expressionBuilder("try_make_timestamp", TryMakeTimestampExpressionBuilder),
+    expression[MonthName]("monthname"),
     // We keep the 2 expression builders below to have different function docs.
     expressionBuilder("make_timestamp_ntz", MakeTimestampNTZExpressionBuilder, setAlias = true),
     expressionBuilder("make_timestamp_ltz", MakeTimestampLTZExpressionBuilder, setAlias = true),
+    expressionBuilder(
+      "try_make_timestamp_ntz", TryMakeTimestampNTZExpressionBuilder, setAlias = true),
+    expressionBuilder(
+      "try_make_timestamp_ltz", TryMakeTimestampLTZExpressionBuilder, setAlias = true),
     expression[MakeInterval]("make_interval"),
     expression[MakeDTInterval]("make_dt_interval"),
     expression[MakeYMInterval]("make_ym_interval"),
@@ -359,7 +418,7 @@ SPARK35_EXPRESSION_MAPPINGS = """
     expression[MapConcat]("map_concat"),
     expression[Size]("size"),
     expression[Slice]("slice"),
-    expression[Size]("cardinality", true),
+    expression[Size]("cardinality", true, Some("2.4.0")),
     expression[ArraysZip]("arrays_zip"),
     expression[SortArray]("sort_array"),
     expression[Shuffle]("shuffle"),
@@ -391,7 +450,7 @@ SPARK35_EXPRESSION_MAPPINGS = """
 
     // misc functions
     expression[AssertTrue]("assert_true"),
-    expression[RaiseError]("raise_error"),
+    expressionBuilder("raise_error", RaiseErrorExpressionBuilder),
     expression[Crc32]("crc32"),
     expression[Md5]("md5"),
     expression[Uuid]("uuid"),
@@ -408,10 +467,11 @@ SPARK35_EXPRESSION_MAPPINGS = """
     expression[InputFileBlockLength]("input_file_block_length"),
     expression[MonotonicallyIncreasingID]("monotonically_increasing_id"),
     expression[CurrentDatabase]("current_database"),
-    expression[CurrentDatabase]("current_schema", true),
+    expression[CurrentDatabase]("current_schema", true, Some("3.4.0")),
     expression[CurrentCatalog]("current_catalog"),
     expression[CurrentUser]("current_user"),
-    expression[CurrentUser]("user", setAlias = true),
+    expression[CurrentUser]("user", true, Some("3.4.0")),
+    expression[CurrentUser]("session_user", true, Some("4.0.0")),
     expression[CallMethodViaReflection]("reflect"),
     expression[CallMethodViaReflection]("java_method", true),
     expression[SparkVersion]("version"),
@@ -419,6 +479,11 @@ SPARK35_EXPRESSION_MAPPINGS = """
     expression[EqualNull]("equal_null"),
     expression[HllSketchEstimate]("hll_sketch_estimate"),
     expression[HllUnion]("hll_union"),
+    expression[ThetaSketchEstimate]("theta_sketch_estimate"),
+    expression[ThetaUnion]("theta_union"),
+    expression[ThetaDifference]("theta_difference"),
+    expression[ThetaIntersection]("theta_intersection"),
+    expression[ApproxTopKEstimate]("approx_top_k_estimate"),
 
     // grouping sets
     expression[Grouping]("grouping"),
@@ -436,6 +501,7 @@ SPARK35_EXPRESSION_MAPPINGS = """
     expression[PercentRank]("percent_rank"),
 
     // predicates
+    expression[Between]("between"),
     expression[And]("and"),
     expression[In]("in"),
     expression[Not]("not"),
@@ -456,6 +522,9 @@ SPARK35_EXPRESSION_MAPPINGS = """
     expression[BitwiseNot]("~"),
     expression[BitwiseOr]("|"),
     expression[BitwiseXor]("^"),
+    expression[ShiftLeft]("<<", true, Some("4.0.0")),
+    expression[ShiftRight](">>", true, Some("4.0.0")),
+    expression[ShiftRightUnsigned](">>>", true, Some("4.0.0")),
     expression[BitwiseCount]("bit_count"),
     expression[BitAndAgg]("bit_and"),
     expression[BitOrAgg]("bit_or"),
@@ -469,6 +538,7 @@ SPARK35_EXPRESSION_MAPPINGS = """
     expression[BitmapConstructAgg]("bitmap_construct_agg"),
     expression[BitmapCount]("bitmap_count"),
     expression[BitmapOrAgg]("bitmap_or_agg"),
+    expression[BitmapAndAgg]("bitmap_and_agg"),
 
     // json
     expression[StructsToJson]("to_json"),
@@ -476,6 +546,23 @@ SPARK35_EXPRESSION_MAPPINGS = """
     expression[SchemaOfJson]("schema_of_json"),
     expression[LengthOfJsonArray]("json_array_length"),
     expression[JsonObjectKeys]("json_object_keys"),
+
+    // Variant
+    expressionBuilder("parse_json", ParseJsonExpressionBuilder),
+    expressionBuilder("try_parse_json", TryParseJsonExpressionBuilder),
+    expression[IsVariantNull]("is_variant_null"),
+    expressionBuilder("variant_get", VariantGetExpressionBuilder),
+    expressionBuilder("try_variant_get", TryVariantGetExpressionBuilder),
+    expression[SchemaOfVariant]("schema_of_variant"),
+    expression[SchemaOfVariantAgg]("schema_of_variant_agg"),
+    expression[ToVariantObject]("to_variant_object"),
+
+    // Spatial
+    expression[ST_AsBinary]("st_asbinary"),
+    expression[ST_GeogFromWKB]("st_geogfromwkb"),
+    expression[ST_GeomFromWKB]("st_geomfromwkb"),
+    expression[ST_Srid]("st_srid"),
+    expression[ST_SetSrid]("st_setsrid"),
 
     // cast
     expression[Cast]("cast"),
@@ -490,6 +577,7 @@ SPARK35_EXPRESSION_MAPPINGS = """
     castAlias("decimal", DecimalType.USER_DEFAULT),
     castAlias("date", DateType),
     castAlias("timestamp", TimestampType),
+    castAlias("time", TimeType()),
     castAlias("binary", BinaryType),
     castAlias("string", StringType),
 
@@ -499,26 +587,94 @@ SPARK35_EXPRESSION_MAPPINGS = """
     // csv
     expression[CsvToStructs]("from_csv"),
     expression[SchemaOfCsv]("schema_of_csv"),
-    expression[StructsToCsv]("to_csv")
+    expression[StructsToCsv]("to_csv"),
+
+    // Xml
+    expression[XmlToStructs]("from_xml"),
+    expression[SchemaOfXml]("schema_of_xml"),
+    expression[StructsToXml]("to_xml"),
+
+    // Avro
+    expression[FromAvro]("from_avro"),
+    expression[ToAvro]("to_avro"),
+    expression[SchemaOfAvro]("schema_of_avro"),
+
+    // Protobuf
+    expression[FromProtobuf]("from_protobuf"),
+    expression[ToProtobuf]("to_protobuf")
 """
 
 FUNCTION_CATEGORIES = ["scalar", "aggregate", "window", "generator"]
 
-STATIC_INVOKES = {
-    "luhn_check": (
-        "org.apache.spark.sql.catalyst.expressions.ExpressionImplUtils",
-        "isLuhnNumber",
-    ),
-    "base64": ("org.apache.spark.sql.catalyst.expressions.Base64", "encode"),
-    "contains": ("org.apache.spark.unsafe.array.ByteArrayMethods", "contains"),
-    "startsWith": ("org.apache.spark.unsafe.array.ByteArrayMethods", "startsWith"),
-    "endsWith": ("org.apache.spark.unsafe.array.ByteArrayMethods", "endsWith"),
-    "lpad": ("org.apache.spark.unsafe.array.ByteArrayMethods", "lpad"),
-    "rpad": ("org.apache.spark.unsafe.array.ByteArrayMethods", "rpad"),
+# The function support status is generated for spark.sql.ansi.enabled=false. In ANSI mode Gluten falls back the whole
+# plan to vanilla Spark (spark.gluten.sql.ansiFallback.enabled), so no per-function validation would be logged.
+# Spark 4.x reads SPARK_ANSI_SQL_MODE for the default of spark.sql.ansi.enabled, and GlutenSQLQueryTestSuite forces
+# ANSI mode on for regular test cases to match the golden files, which the system property below turns off.
+TEST_JVM_ARGS = ["-Dgluten.test.sqlQueryTestSuite.ansiEnabled=false"]
+
+# SQL query test files that are not in the Spark 4.x supported list of GlutenSQLQueryTestSuite because of known result
+# or error message gaps, but exercise functions that were covered by the Spark 3.5 test suites. Test failures do not
+# matter for the generated docs, only the validation logs do, so they are run additionally.
+EXTRA_SQL_QUERY_TESTS = [
+    "array.sql",
+    "cast.sql",
+    "interval.sql",
+    "literals.sql",
+    "mode.sql",
+    "try_arithmetic.sql",
+    "try_element_at.sql",
+    "typeCoercion/native/stringCastAndExpressions.sql",
+    "window.sql",
+]
+
+# Written by log4j2.properties.
+TEST_LOG_FILE = os.path.join(
+    "gluten-ut", "spark41", "target", "gen-function-support-docs-tests.log"
+)
+
+
+# Expressions registered in FunctionRegistry via `<Class>.registryEntry`, mapped to their function names.
+REGISTRY_ENTRY_FUNCTIONS = {
+    "CaseWhen": "when",
+    "CreateStruct": "struct",
 }
+
+# Spark registers some functions through an ExpressionBuilder. Spark reports the builder as the function's class
+# name, while Gluten's ExpressionMappings are keyed by the expression classes the builder constructs. Builders whose
+# expression class cannot be derived by stripping the "ExpressionBuilder"/"Builder" suffix are listed here.
+EXPRESSION_BUILDER_CLASSES = {
+    "CeilExpressionBuilder": {"Ceil", "RoundCeil"},
+    "FloorExpressionBuilder": {"Floor", "RoundFloor"},
+    "CurDateExpressionBuilder": {"CurrentDate"},
+    "DatePartExpressionBuilder": {"Extract"},
+    "LPadExpressionBuilder": {"StringLPad"},
+    "RPadExpressionBuilder": {"StringRPad"},
+    "MakeTimestampExpressionBuilder": {"MakeTimestamp", "MakeTimestampFromDateTime"},
+    "MakeTimestampLTZExpressionBuilder": {"MakeTimestamp", "MakeTimestampFromDateTime"},
+    "MakeTimestampNTZExpressionBuilder": {"MakeTimestamp", "MakeTimestampNTZ"},
+    "TryToDateExpressionBuilder": {"ParseToDate"},
+    "TryToTimestampExpressionBuilder": {"ParseToTimestamp"},
+    "TryAverageExpressionBuilder": {"Average"},
+    "TrySumExpressionBuilder": {"Sum"},
+}
+
+
+def expression_classes(classname):
+    """Returns the Spark expression class names a function may resolve to, given its registered class name."""
+    classes = {classname}
+    if classname in EXPRESSION_BUILDER_CLASSES:
+        classes |= EXPRESSION_BUILDER_CLASSES[classname]
+    else:
+        for suffix in ("ExpressionBuilder", "Builder"):
+            if classname.endswith(suffix):
+                classes.add(classname[: -len(suffix)])
+                break
+    return classes
+
 
 # Known Restrictions in Gluten.
 LOOKAROUND_UNSUPPORTED = "Lookaround unsupported"
+GROUP_INDEX_IGNORED = "Group index ignored"
 BINARY_TYPE_UNSUPPORTED = "BinaryType unsupported"
 KNOWN_RESTRICTIONS = {
     "scalar": {
@@ -527,6 +683,7 @@ KNOWN_RESTRICTIONS = {
         "rlike": {LOOKAROUND_UNSUPPORTED},
         "regexp_extract": {LOOKAROUND_UNSUPPORTED},
         "regexp_extract_all": {LOOKAROUND_UNSUPPORTED},
+        "regexp_instr": {LOOKAROUND_UNSUPPORTED, GROUP_INDEX_IGNORED},
         "regexp_replace": {LOOKAROUND_UNSUPPORTED},
         "contains": {BINARY_TYPE_UNSUPPORTED},
         "startswith": {BINARY_TYPE_UNSUPPORTED},
@@ -538,6 +695,45 @@ KNOWN_RESTRICTIONS = {
     "window": {},
     "generator": {},
 }
+
+# StaticInvoke calls that Gluten cannot transform, attributed to the Spark functions producing them. Spark implements
+# these functions as RuntimeReplaceable expressions whose replacement is a StaticInvoke, so the fallback reason names
+# the invoked Java method instead of the function. Key: (simple object class name, method name). Value: the functions
+# and either None (the function is unsupported) or a restriction message (the function is partially supported).
+UNSUPPORTED_STATIC_INVOKES = {
+    ("Encode", "encode"): (["encode"], None),
+    ("StringDecode", "decode"): (["decode"], None),
+    ("BitmapExpressionUtils", "bitmapBitPosition"): (["bitmap_bit_position"], None),
+    ("BitmapExpressionUtils", "bitmapBucketNumber"): (["bitmap_bucket_number"], None),
+    ("BitmapExpressionUtils", "bitmapCount"): (["bitmap_count"], None),
+    ("ExpressionImplUtils", "aesEncrypt"): (["aes_encrypt"], None),
+    ("ExpressionImplUtils", "aesDecrypt"): (["aes_decrypt", "try_aes_decrypt"], None),
+    ("ExpressionImplUtils", "getSentences"): (["sentences"], None),
+    ("ExpressionImplUtils", "quote"): (["quote"], None),
+    ("ExpressionImplUtils", "validateUTF8String"): (["validate_utf8"], None),
+    ("ExpressionImplUtils", "tryValidateUTF8String"): (["try_validate_utf8"], None),
+    ("ByteArray", "lpad"): (["lpad"], BINARY_TYPE_UNSUPPORTED),
+    ("ByteArray", "rpad"): (["rpad"], BINARY_TYPE_UNSUPPORTED),
+    ("ByteArrayMethods", "contains"): (["contains"], BINARY_TYPE_UNSUPPORTED),
+    ("ByteArrayMethods", "startsWith"): (["startswith"], BINARY_TYPE_UNSUPPORTED),
+    ("ByteArrayMethods", "endsWith"): (["endswith"], BINARY_TYPE_UNSUPPORTED),
+    ("STUtils", "stAsBinary"): (["st_asbinary"], None),
+    ("STUtils", "stSrid"): (["st_srid"], None),
+    ("DateTimeUtils", "makeTimestamp"): (
+        ["make_timestamp", "make_timestamp_ltz", "make_timestamp_ntz"],
+        "DATE and TIME arguments unsupported",
+    ),
+}
+
+# Functions that Spark replaces with another function (RuntimeReplaceable) before Gluten sees them. They inherit the
+# support status and restrictions of the replacement.
+REPLACED_FUNCTIONS = {
+    "scalar": {"nullifzero": "nullif", "zeroifnull": "coalesce"},
+    "aggregate": {"median": "percentile", "percentile_cont": "percentile"},
+}
+
+# Functions resolved by Spark's analyzer into other expressions, never seen by Gluten.
+ANALYZER_RESOLVED_FUNCTIONS = {"grouping", "grouping_id"}
 
 SPARK_FUNCTION_GROUPS = {
     "agg_funcs",
@@ -565,6 +761,8 @@ spark_function_missing_groups = {
     "struct_funcs",
     "url_funcs",
     "xml_funcs",
+    "variant_funcs",
+    "st_funcs",
 }
 
 SPARK_FUNCTION_GROUPS = SPARK_FUNCTION_GROUPS.union(spark_function_missing_groups)
@@ -588,6 +786,8 @@ SCALAR_FUNCTION_GROUPS = {
     "struct_funcs": "Struct Functions",
     "url_funcs": "URL Functions",
     "xml_funcs": "XML Functions",
+    "variant_funcs": "Variant Functions",
+    "st_funcs": "Geospatial Functions",
 }
 
 FUNCTION_GROUPS = {
@@ -612,37 +812,59 @@ FUNCTION_SUITES = {
         "GlutenStringFunctionsSuite",
         "GlutenXPathFunctionsSuite",
         "GlutenSQLQuerySuite",
+        "GlutenUrlFunctionsSuite",
+        "GlutenJsonFunctionsSuite",
+        "GlutenCsvFunctionsSuite",
+        "GlutenXmlFunctionsSuite",
+        "GlutenIntervalFunctionsSuite",
+        "GlutenSTFunctionsSuite",
     },
     "aggregate": {
         "GlutenSQLQueryTestSuite",
         "GlutenApproxCountDistinctForIntervalsQuerySuite",
         "GlutenBitmapExpressionsQuerySuite",
         "GlutenDataFrameAggregateSuite",
+        "GlutenDataFrameWindowFunctionsSuite",
     },
     # All window functions are supported.
     "window": {},
-    "generator": {"GlutenGeneratorFunctionSuite"},
+    "generator": {
+        "GlutenGeneratorFunctionSuite",
+        "GlutenDataFrameTableValuedFunctionsSuite",
+    },
 }
 
 
 def create_spark_function_map():
+    # Join entries that span multiple lines, e.g.
+    #   expressionBuilder(
+    #     "try_make_timestamp_ntz", TryMakeTimestampNTZExpressionBuilder, setAlias = true),
+    joined = []
+    for line in SPARK41_EXPRESSION_MAPPINGS.split("\n"):
+        line = line.strip()
+        if joined and joined[-1].endswith("("):
+            joined[-1] += line
+        else:
+            joined.append(line)
+
     exprs = list(
         map(
             lambda x: x if x[-1] != "," else x[:-1],
-            map(
-                lambda x: x.strip(),
-                filter(
-                    lambda x: "expression" in x, SPARK35_EXPRESSION_MAPPINGS.split("\n")
-                ),
+            filter(
+                lambda x: not x.startswith("//")
+                and ("expression" in x or ".registryEntry" in x),
+                joined,
             ),
         )
     )
 
     func_map = {}
-    expression_pattern = 'expression[GeneratorOuter]*\[([\w0-9]+)\]\("([^\s]+)".*'
+    expression_pattern = r'expression[GeneratorOuter]*\[([\w0-9]+)\]\("([^\s]+)".*'
     expression_builder_pattern = (
-        'expression[Generator]*Builder[Outer]*\("([^\s]+)", ([\w0-9]+).*'
+        r'expression[Generator]*Builder[Outer]*\("([^\s]+)", ([\w0-9]+).*'
     )
+    # Expressions registered via `<Class>.registryEntry` instead of `expression[<Class>]("<name>")`.
+    registry_entry_pattern = r"([\w0-9]+)\.registryEntry"
     for r in exprs:
         match = re.search(expression_pattern, r)
 
@@ -650,17 +872,32 @@ def create_spark_function_map():
             class_name = match.group(1)
             function_name = match.group(2)
             func_map[function_name] = class_name
-        else:
-            match = re.search(expression_builder_pattern, r)
+            continue
 
-            if match:
-                class_name = match.group(2)
-                function_name = match.group(1)
-                func_map[function_name] = class_name
-            else:
-                logging.log(logging.WARNING, f"Could not parse expression: {r}")
+        match = re.search(expression_builder_pattern, r)
+
+        if match:
+            class_name = match.group(2)
+            function_name = match.group(1)
+            func_map[function_name] = class_name
+            continue
+
+        match = re.search(registry_entry_pattern, r)
+
+        if match and match.group(1) in REGISTRY_ENTRY_FUNCTIONS:
+            class_name = match.group(1)
+            function_name = REGISTRY_ENTRY_FUNCTIONS[class_name]
+            func_map[function_name] = class_name
+            continue
+
+        logging.log(logging.WARNING, f"Could not parse expression: {r}")
 
     return func_map
+
+
+def create_cast_alias_map():
+    """Returns function name -> Spark type name for the `castAlias("name", Type)` registry entries."""
+    return dict(re.findall(r'castAlias\("(\w+)", (\w+)', SPARK41_EXPRESSION_MAPPINGS))
 
 
 def generate_function_list():
@@ -677,17 +914,34 @@ def generate_function_list():
     ]
     for jinfo in filter(lambda x: x.getGroup() in SPARK_FUNCTION_GROUPS, jinfos):
         infos.append(
-            [jinfo.getName(), jinfo.getClassName().split(".")[-1], jinfo.getGroup()]
+            [
+                jinfo.getName(),
+                jinfo.getClassName().split(".")[-1],
+                jinfo.getGroup(),
+                jinfo.getClassName(),
+            ]
         )
 
+    runtime_replaceable = jvm.java.lang.Class.forName(
+        "org.apache.spark.sql.catalyst.expressions.RuntimeReplaceable"
+    )
     for info in infos:
-        name, classname, groupname = info
+        name, classname, groupname = info[:3]
+        full_classname = info[3] if len(info) > 3 else ""
         if name == "raise_error":
             continue
 
         all_function_names.append(name)
         classname_to_function[classname] = name
         function_to_classname[name] = classname
+        if full_classname:
+            try:
+                if runtime_replaceable.isAssignableFrom(
+                    jvm.java.lang.Class.forName(full_classname)
+                ):
+                    runtime_replaceable_functions.add(name)
+            except Exception:
+                pass
 
         if groupname not in group_functions:
             group_functions[groupname] = []
@@ -716,16 +970,6 @@ def parse_logs(log_file):
         function_names.remove(f)
 
     print(function_names)
-
-    generator_functions = [
-        "explode",
-        "explode_outer",
-        "inline",
-        "inline_outer",
-        "posexplode",
-        "posexplode_outer",
-        "stack",
-    ]
 
     # unknown functions are not in the all_function_names list. Perhaps spark implemented this function but did not
     # expose it to the user for current version.
@@ -769,23 +1013,25 @@ def parse_logs(log_file):
         for r in obj.listAllRestrictions()
     }
 
-    restrictions = KNOWN_RESTRICTIONS.copy()
+    restrictions = copy.deepcopy(KNOWN_RESTRICTIONS)
     print(restrictions)
     for f, v in jrestrictions.items():
         print(v)
         for c in FUNCTION_CATEGORIES:
             if f in functions[c]:
                 if f in KNOWN_RESTRICTIONS[c]:
-                    restrictions[c][f].union(v)
+                    restrictions[c][f] |= v
                 else:
                     restrictions[c][f] = v
                 break
 
     print(restrictions)
 
+    with open(log_file, "r") as f:
+        log_text = f.read()
+
     def filter_fallback_reasons():
-        with open(log_file, "r") as f:
-            lines = f.readlines()
+        lines = log_text.splitlines(keepends=True)
 
         validation_logs = []
 
@@ -841,19 +1087,26 @@ def parse_logs(log_file):
         gluten_expressions[item._1()] = item._2()
 
     for category in FUNCTION_CATEGORIES:
-        if category == "scalar":
-            for f in functions[category]:
-                # TODO: Remove this filter as it may exclude supported expressions, such as Builder.
-                if (
-                    f not in builtin_functions
-                    and f not in gluten_expressions.values()
-                    and function_to_classname[f] not in gluten_expressions.keys()
-                ):
-                    logging.log(
-                        logging.WARNING,
-                        f"Function not found in gluten expressions: {f}",
-                    )
-                    support_list[category]["unsupported"].add(function_name_tuple(f))
+        for f in functions[category]:
+            # Functions whose Spark expression class (or the classes constructed by its ExpressionBuilder) is not in
+            # Gluten's ExpressionMappings are not supported. Spark replaces RuntimeReplaceable aggregates (e.g.
+            # bool_or -> max) before Gluten sees them, so they are skipped here; scalar RuntimeReplaceable functions
+            # mostly replace to StaticInvoke calls and stay in the check, with REPLACED_FUNCTIONS for the exceptions.
+            if (
+                f not in builtin_functions
+                and f not in ANALYZER_RESOLVED_FUNCTIONS
+                and (category == "scalar" or f not in runtime_replaceable_functions)
+                and f not in gluten_expressions.values()
+                and not (
+                    expression_classes(function_to_classname[f])
+                    & gluten_expressions.keys()
+                )
+            ):
+                logging.log(
+                    logging.WARNING,
+                    f"Function not found in gluten expressions: {f}",
+                )
+                support_list[category]["unsupported"].add(function_name_tuple(f))
 
         for f in restrictions[category].keys():
             support_list[category]["partial"].add(function_name_tuple(f))
@@ -1076,13 +1329,15 @@ def parse_logs(log_file):
 
             if match:
                 class_name = match.group(1)
-                function_name = class_name.lower()
-                if function_name not in generator_functions:
+                # Resolve the generator class to its function name, e.g. SQLKeywords -> sql_keywords for
+                # table-valued generators that are not registered in the expression mapping literal.
+                function_name = classname_to_function.get(
+                    class_name, class_name.lower()
+                )
+                if "outer: true" in r:
+                    function_name += "_outer"
+                if function_name not in function_names:
                     support_list["generator"]["unknown"].add((None, class_name))
-                elif "outer: true" in r:
-                    support_list["generator"]["unsupported"].add(
-                        (function_name + "_outer", None)
-                    )
                 else:
                     support_list["generator"]["unsupported"].add(
                         function_name_tuple(function_name)
@@ -1123,8 +1378,90 @@ def parse_logs(log_file):
             function_name = "regexp_extract_all"
             support_list["scalar"]["partial"].add(function_name_tuple(function_name))
 
+        # Not supported: Invoke on an evaluator object, e.g. invoke(ParseUrlEvaluator(...)) for parse_url. The
+        # evaluator class name is the expression class name plus "Evaluator".
+        elif "Not supported to transform Invoke with function:" in r:
+            pattern = r"invoke\((\w+)Evaluator\("
+            match = re.search(pattern, r)
+
+            if match:
+                class_name = match.group(1)
+                if class_name in classname_to_function:
+                    function_name = classname_to_function[class_name]
+                    if function_name in function_names:
+                        support_list["scalar"]["unsupported"].add(
+                            (function_name, class_name)
+                        )
+                    else:
+                        support_list["scalar"]["unknown"].add(
+                            (function_name, class_name)
+                        )
+                else:
+                    support_list["scalar"]["unsupported_expr"].add(class_name)
+            else:
+                unresolved.append(r)
+
+        # Not supported: StaticInvoke that Gluten cannot transform, see UNSUPPORTED_STATIC_INVOKES.
+        elif "Not supported to transform StaticInvoke with object:" in r:
+            pattern = r"StaticInvoke with object: ([\w.$]+), function: (\w+)"
+            match = re.search(pattern, r)
+
+            if match:
+                key = (match.group(1).split(".")[-1], match.group(2))
+                if key in UNSUPPORTED_STATIC_INVOKES:
+                    names, restriction = UNSUPPORTED_STATIC_INVOKES[key]
+                    for function_name in filter(lambda x: x in function_names, names):
+                        if restriction is None:
+                            support_list["scalar"]["unsupported"].add(
+                                function_name_tuple(function_name)
+                            )
+                        else:
+                            support_list["scalar"]["partial"].add(
+                                function_name_tuple(function_name)
+                            )
+                            restrictions["scalar"].setdefault(function_name, set()).add(
+                                restriction
+                            )
+                else:
+                    logging.log(
+                        logging.WARNING,
+                        f"StaticInvoke not listed in UNSUPPORTED_STATIC_INVOKES: {key}",
+                    )
+                    unresolved.append(r)
+            else:
+                function_not_found(r)
+
         else:
             unresolved.append(r)
+
+    # Functions replaced by Spark with another function inherit that function's status and restrictions.
+    for category, replaced in REPLACED_FUNCTIONS.items():
+        for f, replacement in replaced.items():
+            if f not in functions[category]:
+                continue
+            t, rt = function_name_tuple(f), function_name_tuple(replacement)
+            support_list[category]["unsupported"].discard(t)
+            support_list[category]["partial"].discard(t)
+            if rt in support_list[category]["partial"]:
+                support_list[category]["partial"].add(t)
+                restrictions[category].setdefault(f, set()).update(
+                    restrictions[category].get(replacement, set())
+                )
+            elif rt in support_list[category]["unsupported"]:
+                support_list[category]["unsupported"].add(t)
+
+    # Cast aliases (e.g. `time` for TimeType) are not supported when Velox rejects the type itself.
+    for f, type_name in cast_alias_types.items():
+        if f not in function_names:
+            continue
+        # StringType(<collation>) is a different, unsupported type; plain StringType is supported.
+        suffix = r"(?![\w(])" if type_name == "StringType" else r"(?!\w)"
+        if re.search(
+            rf"(Type |data type not supported: ){type_name}{suffix}", log_text
+        ):
+            logging.log(logging.WARNING, f"Cast alias {f}: {type_name} not supported")
+            # Match by function name only: the class of an alias is Cast, shared with `cast` and the other aliases.
+            support_list["scalar"]["unsupported"].add((f, None))
 
     return support_list, unresolved, restrictions
 
@@ -1136,6 +1473,15 @@ def generate_function_doc(category, output):
             if num_functions > 1
             else f"{num_functions} function"
         )
+
+    def support_status(f, classname):
+        for item in support_list[category]["partial"]:
+            if item[0] and item[0] == f or item[1] and item[1] == classname:
+                return "PS"
+        for item in support_list[category]["unsupported"]:
+            if item[0] and item[0] == f or item[1] and item[1] == classname:
+                return ""
+        return "S"
 
     num_unsupported = len(
         list(filter(lambda x: x[0] is not None, support_list[category]["unsupported"]))
@@ -1180,7 +1526,10 @@ def generate_function_doc(category, output):
     )
     lines = f"""# {category.capitalize()} Functions Support Status
 
-**Out of {len(functions[category])} {category} functions in Spark 3.5, Gluten currently fully supports {support_str(num_supported)}{partially_supports}**
+**Out of {len(functions[category])} {category} functions in Spark 4.1, Gluten currently fully supports {support_str(num_supported)}{partially_supports}**
+
+The status applies to `spark.sql.ansi.enabled=false`. When ANSI mode is enabled, Gluten falls back to vanilla Spark
+(see `spark.gluten.sql.ansiFallback.enabled`).
 
 """
 
@@ -1190,18 +1539,7 @@ def generate_function_doc(category, output):
             data = []
             for f in sorted(group_functions[g]):
                 classname = "" if f not in spark_function_map else spark_function_map[f]
-                support = None
-                for item in support_list[category]["partial"]:
-                    if item[0] and item[0] == f or item[1] and item[1] == classname:
-                        support = "PS"
-                        break
-                if support is None:
-                    for item in support_list[category]["unsupported"]:
-                        if item[0] and item[0] == f or item[1] and item[1] == classname:
-                            support = ""
-                            break
-                if support is None:
-                    support = "S"
+                support = support_status(f, classname)
                 if f == "|":
                     f = "&#124;"
                 elif f == "||":
@@ -1210,14 +1548,7 @@ def generate_function_doc(category, output):
                 r = ""
                 if f in restrictions[category]:
                     r = "<br>".join(sorted(restrictions[category][f]))
-                data.append(
-                    [
-                        f,
-                        classname,
-                        support,
-                        r,
-                    ]
-                )
+                data.append([f, classname, support, r])
             table = tabulate.tabulate(data, headers, tablefmt="github")
             lines += table + "\n\n"
 
@@ -1244,10 +1575,15 @@ def run_test_suites(categories):
     command = [
         "./build/mvn",
         "test",
-        "-Pspark-3.5",
+        "-Pspark-4.1",
+        "-Pjava-17",
+        "-Pscala-2.13",
         "-Pspark-ut",
         "-Pbackends-velox",
-        f"-DargLine=-Dspark.test.home={spark_home} -Dlog4j2.configurationFile=file:{log4j_properties_file}",
+        "-Dmaven.compiler.release=17",
+        f"-DargLine=-Dspark.test.home={spark_home} -Dlog4j2.configurationFile=file:{log4j_properties_file}"
+        f" {' '.join(TEST_JVM_ARGS)}"
+        f" -Dgluten.test.sqlQueryTestSuite.extraTests={','.join(EXTRA_SQL_QUERY_TESTS)}",
         f"-DwildcardSuites={suites}",
         "-Dtest=none",
         "-Dsurefire.failIfNoSpecifiedTests=false",
@@ -1255,7 +1591,17 @@ def run_test_suites(categories):
 
     logging.log(logging.WARNING, f"{command}")
 
-    subprocess.Popen(command, cwd=gluten_home).wait()
+    log_file = os.path.join(gluten_home, TEST_LOG_FILE)
+    if os.path.exists(log_file):
+        os.remove(log_file)
+
+    env = dict(os.environ, SPARK_ANSI_SQL_MODE="false")
+    subprocess.Popen(command, cwd=gluten_home, env=env).wait()
+
+    if not os.path.exists(log_file):
+        raise RuntimeError(
+            f"Test log {log_file} not found. The test suites did not run, check the Maven output."
+        )
 
 
 def get_maven_project_version():
@@ -1290,7 +1636,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--skip_test_suite",
         action="store_true",
-        help="Whether to run test suite. Set to False to skip running the test suite.",
+        help="Skip running the test suites and reuse the logs of a previous run.",
     )
     parser.add_argument(
         "--categories",
@@ -1335,19 +1681,15 @@ if __name__ == "__main__":
     }
     classname_to_function = {}
     function_to_classname = {}
+    runtime_replaceable_functions = set()
     group_functions = {}
     generate_function_list()
 
     spark_function_map = create_spark_function_map()
+    cast_alias_types = create_cast_alias_map()
 
     support_list, unresolved, restrictions = parse_logs(
-        os.path.join(
-            gluten_home,
-            "gluten-ut",
-            "spark35",
-            "target",
-            "gen-function-support-docs-tests.log",
-        )
+        os.path.join(gluten_home, TEST_LOG_FILE)
     )
 
     for category in args.categories.split(","):
