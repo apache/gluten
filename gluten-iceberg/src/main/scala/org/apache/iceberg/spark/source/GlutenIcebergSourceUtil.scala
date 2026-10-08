@@ -28,6 +28,7 @@ import org.apache.spark.sql.catalyst.catalog.ExternalCatalogUtils
 import org.apache.spark.sql.connector.read.Scan
 import org.apache.spark.sql.types.StructType
 
+import org.apache.hadoop.fs.Path
 import org.apache.iceberg._
 import org.apache.iceberg.spark.SparkSchemaUtil
 
@@ -187,12 +188,13 @@ object GlutenIcebergSourceUtil {
 
     def recordPath(path: String): Unit = {
       if (collectRootPaths) {
-        // Extract just the scheme prefix (e.g. "s3://", "hdfs://") without going through
-        // java.net.URI, whose strict RFC 3986 parsing throws URISyntaxException on file paths
-        // containing characters like spaces or '[' / ']' that Hadoop-style paths otherwise
-        // tolerate (e.g. from a partition value with a space in it).
-        val schemeSeparator = path.indexOf("://")
-        val scheme = if (schemeSeparator >= 0) path.substring(0, schemeSeparator) else ""
+        // Use Hadoop's Path to extract the scheme rather than java.net.URI (whose strict RFC
+        // 3986 parsing throws URISyntaxException on characters like spaces or '[' / ']' that
+        // Hadoop-style paths otherwise tolerate, e.g. from a partition value baked into the file
+        // name) or plain "://"-based string slicing (which mis-detects single-slash Hadoop paths
+        // like "file:/tmp/x.parquet" or "hdfs:/warehouse/x.parquet" as having no scheme at all,
+        // causing them to collide with each other and silently drop a real scheme).
+        val scheme = Option(new Path(path).toUri.getScheme).getOrElse("")
         if (seenSchemes.add(scheme)) {
           rootPathsBuilder += path
         }
