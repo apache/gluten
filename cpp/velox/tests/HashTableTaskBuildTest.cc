@@ -17,16 +17,14 @@
 
 #include <gtest/gtest.h>
 
-#include <folly/executors/CPUThreadPoolExecutor.h>
-
 #include "jni/JniHashTable.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "substrait/algebra.pb.h"
 #include "velox/exec/HashTableCache.h"
 #include "velox/exec/tests/utils/AssertQueryBuilder.h"
+#include "velox/exec/tests/utils/OperatorTestBase.h"
 #include "velox/exec/tests/utils/QueryAssertions.h"
 #include "velox/functions/sparksql/registration/Register.h"
-#include "velox/vector/tests/utils/VectorTestBase.h"
 
 using namespace facebook::velox;
 using namespace facebook::velox::exec;
@@ -53,21 +51,11 @@ constexpr auto kLeft = ::substrait::JoinRel_JoinType_JOIN_TYPE_LEFT;
 constexpr auto kLeftSemi = ::substrait::JoinRel_JoinType_JOIN_TYPE_LEFT_SEMI;
 constexpr auto kLeftAnti = ::substrait::JoinRel_JoinType_JOIN_TYPE_LEFT_ANTI;
 
-class HashTableTaskBuildTest : public testing::TestWithParam<JoinCase>, public facebook::velox::test::VectorTestBase {
+class HashTableTaskBuildTest : public exec::test::OperatorTestBase, public testing::WithParamInterface<JoinCase> {
  protected:
   static void SetUpTestCase() {
-    memory::MemoryManager::testingSetInstance(memory::MemoryManager::Options{});
+    OperatorTestBase::SetUpTestCase();
     functions::sparksql::registerFunctions("");
-  }
-
-  void SetUp() override {
-    queryPool_ = memory::memoryManager()->addRootPool("HashTableTaskBuildTest");
-    executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(4);
-  }
-
-  void TearDown() override {
-    executor_.reset();
-    queryPool_.reset();
   }
 
   // Build side batches: 'numBatches' x 'batchSize' rows with duplicate keys.
@@ -148,8 +136,8 @@ class HashTableTaskBuildTest : public testing::TestWithParam<JoinCase>, public f
         0,
         batches,
         c.numThreads,
-        executor_.get(),
-        queryPool_,
+        driverExecutor_.get(),
+        rootPool_,
         pool_);
   }
 
@@ -191,9 +179,6 @@ class HashTableTaskBuildTest : public testing::TestWithParam<JoinCase>, public f
                         .build();
     return exec::test::AssertQueryBuilder(joinNode).copyResults(pool());
   }
-
-  std::shared_ptr<memory::MemoryPool> queryPool_;
-  std::unique_ptr<folly::CPUThreadPoolExecutor> executor_;
 };
 
 // Probing the task-built table gives the same result as a Velox hash join.
