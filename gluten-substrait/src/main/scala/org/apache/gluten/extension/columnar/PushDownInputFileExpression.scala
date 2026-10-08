@@ -327,21 +327,71 @@ object PushDownInputFileExpression {
         )(child.session)
       case p @ ProjectExec(projectList, child: BatchScanExecTransformerBase)
           if projectList.exists(containsInputFileFunctionExpr) =>
-        val replacedExprs = mutable.Map[String, Alias]()
-        val newProjectList = projectList.map {
-          expr => rewriteExpr(expr, replacedExprs).asInstanceOf[NamedExpression]
+        // Separate pre-existing injected aliases (created by PreOffload, carrying
+        // INPUT_FILE_COL_METADATA) from fresh InputFileName/BlockStart/BlockLength expressions.
+        // Pre-existing aliases already have the correct (possibly mangled) schema names and
+        // exprIds; we reuse them by pushing their AttrRef into the scan output while rewriting
+        // each alias's child to be that AttrRef (so the Alias structure is preserved -- a bare
+        // AttrRef instead of an Alias would trigger canCollapseProject and add an unwanted
+        // fallback tag, which would prevent the outer project from being offloaded).
+        val preInjectedAliases: Seq[Alias] = projectList.collect {
+          case a: Alias if PushDownInputFileExpression.isInjectedInputFileAttr(a.toAttribute) => a
         }
-        // Use expression ID to determine whether the injected metadata attribute is already
-        // present in the scan output. Name-based dedup via toLowerCase is incorrect under
-        // caseSensitive=true: a user column named e.g. "Input_File_Name" would collapse to
-        // "input_file_name" and be treated as a duplicate of the injected metadata attribute,
-        // causing the metadata attr to be dropped while the rewritten project list still holds
-        // a reference to it, producing a dangling-attribute IllegalStateException.
-        // The injected attributes are freshly created (new exprId) so identity is reliable.
-        val existingExprIds = child.output.map(_.exprId).toSet
-        val inputFileAttrs = replacedExprs.values.toSeq
-          .map(_.toAttribute.asInstanceOf[AttributeReference])
-          .filterNot(attr => existingExprIds.contains(attr.exprId))
+
+        val (newProjectList, inputFileAttrs) = if (preInjectedAliases.nonEmpty) {
+          // PreOffload already rewrote this node. Reuse the existing injected aliases:
+          // for each Alias(InputFileName(), schemaName, meta)(exprId=X), create a fresh
+          // AttributeReference(schemaName, type, meta)(exprId=Z) to push into the scan output,
+          // then replace the Alias's child with AttrRef(Z) while preserving the Alias's own
+          // exprId=X.  This mirrors the fresh-alias path's rewriteExpr behaviour:
+          //   Alias(InputFileName(), ..., exprId=X) -> Alias(AttrRef(Z), ..., exprId=X)
+          //   scan output += AttrRef(Z)
+          // Keeping Alias(AttrRef, ...) rather than a bare AttrRef prevents canCollapseProject
+          // from adding an unwanted fallback tag that would keep the outer project on the JVM.
+          val existingExprIds = child.output.map(_.exprId).toSet
+          val aliasWithScanAttr: Seq[(Alias, Alias, AttributeReference)] =
+            preInjectedAliases.map {
+              a =>
+                // Fresh attribute for the scan output -- new exprId so it doesn't conflict.
+                val scanAttr = AttributeReference(a.name, a.dataType, a.nullable, a.metadata)()
+                // Rewritten alias: same exprId/name/metadata, child is the new scan attr.
+                val newAlias = Alias(scanAttr, a.name)(
+                  exprId = a.exprId,
+                  qualifier = a.qualifier,
+                  explicitMetadata = Some(a.metadata),
+                  nonInheritableMetadataKeys = a.nonInheritableMetadataKeys)
+                (a, newAlias, scanAttr)
+            }
+          val aliasRewrite: Map[Alias, Alias] = aliasWithScanAttr.map {
+            case (orig, rewritten, _) => orig -> rewritten
+          }.toMap
+          val newProjList: Seq[NamedExpression] = projectList.map {
+            case a: Alias if aliasRewrite.contains(a) => aliasRewrite(a)
+            case other => other
+          }
+          val newAttrs = aliasWithScanAttr
+            .map(_._3)
+            .filterNot(attr => existingExprIds.contains(attr.exprId))
+          (newProjList, newAttrs)
+        } else {
+          // No pre-existing injected aliases -- create fresh ones as before.
+          val replacedExprs = mutable.Map[String, Alias]()
+          val newProjList = projectList.map {
+            expr => rewriteExpr(expr, replacedExprs).asInstanceOf[NamedExpression]
+          }
+          // Use expression ID to determine whether the injected metadata attribute is already
+          // present in the scan output. Name-based dedup via toLowerCase is incorrect under
+          // caseSensitive=true: a user column named e.g. "Input_File_Name" would collapse to
+          // "input_file_name" and be treated as a duplicate of the injected metadata attribute,
+          // causing the metadata attr to be dropped while the rewritten project list still holds
+          // a reference to it, producing a dangling-attribute IllegalStateException.
+          // The injected attributes are freshly created (new exprId) so identity is reliable.
+          val existingExprIds = child.output.map(_.exprId).toSet
+          val newAttrs = replacedExprs.values.toSeq
+            .map(_.toAttribute.asInstanceOf[AttributeReference])
+            .filterNot(attr => existingExprIds.contains(attr.exprId))
+          (newProjList, newAttrs)
+        }
         p.copy(
           projectList = newProjectList,
           child = child.withOutput(child.output ++ inputFileAttrs))
