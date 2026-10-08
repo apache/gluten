@@ -561,20 +561,58 @@
       <activation>
         <activeByDefault>false</activeByDefault>
       </activation>
-      <properties>
-        <!--
-          First lance-spark release that carries the Arrow C stream forwarding
-          (LanceArrowStreamScanner, lance-spark#778). v0.8.0-beta.1 predates it;
-          bump this to the published version once it ships.
-        -->
-        <lance.version>0.8.0-beta.2</lance.version>
-      </properties>
       <dependencies>
+        <!--
+          lance-core declares a newer Arrow than Gluten. Keep Gluten's Arrow on the classpath (the
+          lance-spark bundle ships the same Arrow line as Gluten for Spark 3.x), and only add the
+          arrow-dataset API that lance-core's scanner implements.
+        -->
         <dependency>
           <groupId>org.lance</groupId>
           <artifactId>lance-spark-base_${scala.binary.version}</artifactId>
           <version>${lance.version}</version>
           <scope>provided</scope>
+          <exclusions>
+            <exclusion>
+              <groupId>org.apache.arrow</groupId>
+              <artifactId>*</artifactId>
+            </exclusion>
+            <exclusion>
+              <groupId>com.fasterxml.jackson.jaxrs</groupId>
+              <artifactId>*</artifactId>
+            </exclusion>
+          </exclusions>
+        </dependency>
+        <dependency>
+          <groupId>org.apache.arrow</groupId>
+          <artifactId>arrow-dataset</artifactId>
+          <version>${arrow.version}</version>
+          <scope>provided</scope>
+        </dependency>
+      </dependencies>
+    </profile>
+    <profile>
+      <id>lance-test</id>
+      <activation>
+        <activeByDefault>false</activeByDefault>
+      </activation>
+      <dependencies>
+        <!-- Spark-version-specific runtime: registers the "lance" data source for the tests. -->
+        <dependency>
+          <groupId>org.lance</groupId>
+          <artifactId>lance-spark-${sparkbundle.version}_${scala.binary.version}</artifactId>
+          <version>${lance.version}</version>
+          <scope>test</scope>
+          <exclusions>
+            <exclusion>
+              <groupId>org.apache.arrow</groupId>
+              <artifactId>*</artifactId>
+            </exclusion>
+            <exclusion>
+              <groupId>com.fasterxml.jackson.jaxrs</groupId>
+              <artifactId>*</artifactId>
+            </exclusion>
+          </exclusions>
         </dependency>
       </dependencies>
     </profile>

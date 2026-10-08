@@ -17,14 +17,12 @@ Only reads are supported. Writes fall back to vanilla Spark.
 
 ## Requirements
 
-- **lance-spark** on the classpath, at a version that includes the Arrow C stream forwarding
-  (`LanceArrowStreamScanner`). See the `lance` Maven profile in `backends-velox/pom.xml` for the
-  pinned version.
-- **Platform:** lance-spark publishes its native library for `linux-x86-64` only, so the offload
-  runs on `linux-x86-64` hosts. On other platforms the Lance scan is unavailable and queries fall
-  back to vanilla Spark.
-- **Spark:** tested with Spark 3.5. lance-spark publishes Spark 3.4 / 3.5 artifacts; there is no
-  Lance runtime for Spark 4.0 yet.
+- **lance-spark** 0.8.0 or later on the classpath (the first release with the Arrow C stream
+  export, `LanceArrowStreamScanner`), e.g. `org.lance:lance-spark-bundle-3.5_2.12:0.8.0`. The
+  pinned version is the `lance.version` property in the root `pom.xml`.
+- **Platform:** lance-core ships its native library for `linux-x86-64`, `linux-aarch64` and
+  `darwin-aarch64`.
+- **Spark:** tested with Spark 3.5. lance-spark also publishes Spark 3.4 and 4.x artifacts.
 
 ## Building
 
@@ -36,7 +34,12 @@ mvn clean package -Pbackends-velox -Pspark-3.5 -Plance -DskipTests
 
 The read-only offload is entirely Velox-specific, so it lives under `backends-velox/src-lance`
 (mirroring `backends-velox/src-iceberg`) rather than in a top-level module. Add `-Plance-test` to
-also compile and run the Lance test suite.
+also compile and run the Lance test suite:
+
+```
+mvn test -pl backends-velox -Pbackends-velox -Pspark-3.5 -Plance -Plance-test \
+  -Dtest=none -DwildcardSuites=org.apache.gluten.execution.VeloxLanceSuite
+```
 
 ## Reading
 
