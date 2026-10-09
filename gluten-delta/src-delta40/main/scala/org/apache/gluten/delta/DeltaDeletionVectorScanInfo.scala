@@ -39,6 +39,9 @@ import scala.util.Try
 import scala.util.control.NonFatal
 
 object DeltaDeletionVectorScanInfo {
+  def supportsGeneratedMetadata(format: DeltaParquetFileFormat): Boolean =
+    !format.optimizationsEnabled
+
   object RowIndexFilterType extends Enumeration {
     type RowIndexFilterType = Value
     val KEEP_ALL, IF_CONTAINED, IF_NOT_CONTAINED = Value

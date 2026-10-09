@@ -113,13 +113,14 @@ object DeltaPostTransformRules {
    *   DeltaScanTransformer [key, value]
    * }}}
    *
-   * `__delta_internal_row_index` is preserved when an upstream operator still references it.
-   * Non-offloaded scans are untouched and keep vanilla JVM filtering.
+   * `__delta_internal_row_index` is preserved when an upstream operator still references it. Scans
+   * generating DV metadata instead of masking rows keep their columns and consumer filters, as do
+   * non-offloaded scans.
    */
   val nativeDeletionVectorRule: Rule[SparkPlan] = (plan: SparkPlan) => {
     tagRowIndexRequiredSubtrees(plan)
     plan.transformUp {
-      case scan: DeltaScanTransformer =>
+      case scan: DeltaScanTransformer if !scan.generatesDeletionVectorMetadata =>
         val cleanedDataFilters = scan.dataFilters.flatMap(stripDeletionVectorPredicate)
         val cleanedPushDownFilters =
           scan.pushDownFilters.map(_.flatMap(stripDeletionVectorPredicate))
@@ -186,18 +187,24 @@ object DeltaPostTransformRules {
   }
 
   /**
-   * Checks whether a plan subtree contains a DeltaScanTransformer. Uses a shallow check (direct
-   * child or grandchild) rather than a full subtree traversal, which is safe because transformUp
-   * processes bottom-up and the DV-related Filter/Project nodes sit directly above the scan in
-   * Delta's injected plan shape.
+   * Recognizes Delta's injected unary Filter/Project shape above a masking scan. Never cross a
+   * join: another branch may expose generated metadata that must not be stripped.
    */
   private def containsNativeDeltaScan(plan: SparkPlan): Boolean = {
     plan match {
-      case _: DeltaScanTransformer => true
-      case _ => plan.children.exists {
-          case _: DeltaScanTransformer => true
-          case child => child.children.exists(_.isInstanceOf[DeltaScanTransformer])
+      case scan: DeltaScanTransformer => !scan.generatesDeletionVectorMetadata
+      case _ if plan.children.size == 1 =>
+        plan.children.head match {
+          case scan: DeltaScanTransformer => !scan.generatesDeletionVectorMetadata
+          case child if child.children.size == 1 =>
+            child.children.head match {
+              case scan: DeltaScanTransformer =>
+                !scan.generatesDeletionVectorMetadata
+              case _ => false
+            }
+          case _ => false
         }
+      case _ => false
     }
   }
 

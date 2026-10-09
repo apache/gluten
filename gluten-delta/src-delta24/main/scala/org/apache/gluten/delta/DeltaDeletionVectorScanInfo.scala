@@ -18,6 +18,7 @@ package org.apache.gluten.delta
 
 import org.apache.gluten.substrait.rel.DeltaLocalFilesNode.DeltaFileReadOptions
 
+import org.apache.spark.sql.delta.DeltaParquetFileFormat
 import org.apache.spark.sql.delta.actions.AddFile
 import org.apache.spark.sql.execution.datasources.PartitionedFile
 
@@ -27,6 +28,8 @@ import java.util.{Map => JMap}
 
 /** Reading deletion vectors natively requires Delta 3.3+, so there is nothing to materialize. */
 object DeltaDeletionVectorScanInfo {
+  def supportsGeneratedMetadata(format: DeltaParquetFileFormat): Boolean = false
+
   def normalize(
       partitionFiles: Seq[PartitionedFile],
       tablePath: Path)

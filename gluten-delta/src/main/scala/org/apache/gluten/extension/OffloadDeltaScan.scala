@@ -56,8 +56,9 @@ case class OffloadDeltaScan(enableNativeDmlRowIndexScan: Boolean) extends Offloa
       FallbackTags.add(scan, "fallback Spark 3.4 Delta DV scan")
       scan
     case scan: FileSourceScanExec
-        if shouldFallbackDeletionVectorScanWithoutMetadataRowIndex(scan) =>
-      FallbackTags.add(scan, "fallback Delta DV scan without metadata row index")
+        if DeltaScanUtils.isDeltaScan(scan) &&
+          shouldFallbackDeletionVectorScanWithoutMetadataRowIndex(scan) =>
+      FallbackTags.add(scan, "fallback Delta DV scan without generated deleted-row output")
       scan
     case scan: FileSourceScanExec if DeltaScanUtils.isDeltaScan(scan) =>
       DeltaScanTransformer(scan)
@@ -122,14 +123,14 @@ case class OffloadDeltaScan(enableNativeDmlRowIndexScan: Boolean) extends Offloa
       return false
     }
 
-    // Delta DML tests force this path and rely on Spark's injected
-    // row-index filter column for correctness. Keep it on Spark until the native path can
-    // prove the same contract for DML-generated DVs.
+    // A requested deleted-row column selects native marking rather than masking. Without it,
+    // retain the JVM path for DV-bearing scans instead of guessing whether to expose deleted rows.
     val useMetadataRowIndex =
       scan.relation.sparkSession.sessionState.conf
         .getConfString(DeletionVectorsUseMetadataRowIndexKey, "true")
         .toBoolean
-    !useMetadataRowIndex && containsDeletionVector(scan)
+    !useMetadataRowIndex && containsDeletionVector(scan) &&
+    !scan.output.exists(_.name == DeltaParquetFileFormat.IS_ROW_DELETED_COLUMN_NAME)
   }
 
   private def containsDeletionVector(scan: FileSourceScanExec): Boolean = {
@@ -142,6 +143,8 @@ case class OffloadDeltaScan(enableNativeDmlRowIndexScan: Boolean) extends Offloa
         index.addFiles.exists(_.deletionVector != null)
       case preparedIndex: PreparedDeltaFileIndex =>
         preparedIndex.preparedScan.files.exists(_.deletionVector != null)
+      case index: TahoeBatchFileIndex if SparkVersionUtil.gteSpark35 =>
+        index.addFiles.exists(_.deletionVector != null)
       case index: TahoeFileIndex =>
         val snapshot = index.asInstanceOf[SnapshotDescriptor]
         deletionVectorsReadable(snapshot.protocol, snapshot.metadata)
