@@ -67,7 +67,7 @@ def parameters(row):
 def index(report, validate=True):
     if validate and report.get("version") != REPORT_VERSION:
         raise ValueError(
-            "Incompatible coverage schema; rerun both revisions with the current harness"
+            "Incompatible coverage schema; a baseline from the current harness is required"
         )
     tests = {}
     for row in report["tests"]:
@@ -219,32 +219,65 @@ def main():
     parser.add_argument("current", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    baseline, current = json.loads(args.baseline.read_text()), json.loads(
-        args.current.read_text()
-    )
+    baseline, current, errors = None, None, []
+    for label, path in (("Baseline", args.baseline), ("Current report", args.current)):
+        try:
+            report = json.loads(path.read_text())
+            if not isinstance(report, dict) or not isinstance(
+                report.get("tests"), list
+            ):
+                raise ValueError("Expected a test report object with a tests array")
+            if label == "Baseline":
+                baseline = report
+            else:
+                current = report
+        except (ValueError, OSError) as error:
+            errors.append(f"{label} unavailable: {error}")
+    diagnostic = args.baseline.parent / "baseline-unavailable.txt"
+    if baseline is None and diagnostic.exists():
+        errors.append(diagnostic.read_text().strip())
+    result = {
+        "comparison_performed": False,
+        "changes": [],
+        "regressions": [],
+        "improvements": [],
+        "base_tests": len((baseline or {}).get("tests", [])),
+        "current_tests": len((current or {}).get("tests", [])),
+    }
     try:
-        result = compare(baseline, current)
-    except ValueError as error:
+        if errors:
+            if current is not None:
+                index(current)
+        else:
+            result = compare(baseline, current)
+            result["comparison_performed"] = True
+    except (ValueError, KeyError, TypeError) as error:
         # Still export diagnostic differences when complete reports exist, but invalid
         # evidence must fail the gate even if no statuses changed.
-        try:
-            result = compare(baseline, current, validate=False)
-        except ValueError:
-            result = {
-                "changes": [],
-                "regressions": [],
-                "improvements": [],
-                "current_tests": 0,
-            }
-        result["validation_errors"] = [str(error)]
+        if baseline is not None and current is not None:
+            try:
+                result = compare(baseline, current, validate=False)
+            except (ValueError, KeyError, TypeError):
+                pass
+        result["comparison_performed"] = False
+        errors.append(str(error))
+    if errors:
+        result["validation_errors"] = errors
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     write_changes(args.output.with_suffix(".csv"), result["changes"])
-    lines = [
-        f"Iceberg: {len(result['regressions'])} regressions, "
-        f"{len(result['improvements'])} improvements; "
-        f"{result['current_tests']} current tests."
-    ]
+    lines = (
+        [
+            f"Iceberg: {len(result['regressions'])} regressions, "
+            f"{len(result['improvements'])} improvements; "
+            f"{result['current_tests']} current tests."
+        ]
+        if result["comparison_performed"]
+        else [
+            f"Iceberg comparison unavailable; {result['current_tests']} current tests. "
+            "The check fails, but available head results remain downloadable for manual review."
+        ]
+    )
     if result.get("validation_errors"):
         lines.append(
             "Report validation failed; the CSV is diagnostic only: "

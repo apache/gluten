@@ -13,19 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Velox Backend (x86)
+name: Velox Backend (x86 integration)
 
 on:
   pull_request:
     paths:
-      - '.github/workflows/velox_backend_x86.yml'
+      - '.github/workflows/velox_backend_x86_integration.yml'
+      - '.github/workflows/velox_backend_x86_tests.yml'
+      - '.github/workflows/util/tpc-build.py'
       - '.github/workflows/velox_native_build.yml'
       - 'gluten-ras/**'
-      - '.github/workflows/velox_jvm_tests.yml'
-      - '.github/workflows/util/jvm-test-build.py'
-      - '.github/workflows/util/jvm-test-timings.json'
-      - '.github/workflows/util/run-jvm-tests.sh'
-      - 'gluten-ut/src-ci/**'
       - 'pom.xml'
       - 'backends-velox/**'
       - 'gluten-uniffle/**'
@@ -45,7 +42,13 @@ on:
       - 'cpp/**'
       - 'dev/**'
       - 'build/mvn'
-  # Recheck all JVM configurations nightly, and allow manual verification.
+  # Nightly full run. PR runs trim the TPC matrices to representative JDKs and
+  # skip the OOM / random-kill chaos jobs unless native code changed (see
+  # detect-changes' `full_run` output); this scheduled run restores the full
+  # breadth once a day, so a combo dropped from the per-PR tier can stay broken
+  # for at most a day. It also gives the default branch a post-merge signal,
+  # which the per-PR-only trigger above never provided. 02:00 avoids the
+  # 00:00 velox_nightly.yml and 05:00 delta_spark_ut.yml slots.
   schedule:
     - cron: '0 2 * * *'
   # On-demand full run (e.g. to re-check an extended combo before a release).
@@ -69,24 +72,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Detect which parts of the codebase were modified so downstream jobs can
-  # skip work that is irrelevant to the change (e.g. a Spark-3.4-shim-only change does
-  # not need to run spark-test-spark35/40/41; C++ changes still run spark-test-*
-  # jobs to validate JNI/native integration).
-  #
-  # Output flags:
-  #   cpp      – C++ sources, Velox build scripts, or dev tooling changed
-  #   java     – any cross-version Java/Scala/Maven source changed
-  #   shims34/35/40/41 – version-specific shim layer changed
-  #   tools_it – tools/gluten-it changed
-  #
-  # A job runs when ANY of the relevant flags is true, so:
-  #   • gluten-core change  → java=true  → all spark-test jobs run  ✓
-  #   • shims/spark35 only  → shims35=true → only spark35 jobs run  ✓
-  #   • pure cpp change     → cpp=true   → all JVM jobs run ✓
-  #
-  # Scheduled/manual runs have no PR diff, so force every path flag true.
-  # Extended TPC matrices now belong to the independent integration workflow.
+  # Reuse the existing path selectors. TPC, C++/UDF, GPU, fast-build and
+  # Spark 4.2 checks migrated here from x86; their test selections are retained.
   detect-changes:
     # Every job chains off this one, so the fork guard here skips the whole
     # workflow: a fork with Actions enabled would otherwise burn ~1800 runner
@@ -159,87 +146,15 @@ jobs:
     needs: detect-changes
     if: >-
       needs.detect-changes.outputs.cpp == 'true' || needs.detect-changes.outputs.java == 'true' ||
-      needs.detect-changes.outputs.shims34 == 'true' || needs.detect-changes.outputs.shims35 == 'true' ||
-      needs.detect-changes.outputs.shims40 == 'true' || needs.detect-changes.outputs.shims41 == 'true'
+      needs.detect-changes.outputs.tools_it == 'true' || needs.detect-changes.outputs.shims42 == 'true'
     uses: ./.github/workflows/velox_native_build.yml
     with:
       revision: ${{ github.sha }}
       artifact: velox-native-lib-centos-8-${{ github.sha }}
       save-cache: true
 
-  spark-test-spark34:
+  regular-tests:
     needs: [detect-changes, build-native-lib-centos-8]
-    if: >-
-      needs.detect-changes.outputs.java == 'true' || needs.detect-changes.outputs.shims34 == 'true' || needs.detect-changes.outputs.cpp == 'true'
-    uses: ./.github/workflows/velox_jvm_tests.yml
+    uses: ./.github/workflows/velox_backend_x86_tests.yml
     with:
-      configuration: spark34
-      shards: '[0, 1, 2]'
-      image: apache/gluten:centos-8-jdk17
-      native-artifact: velox-native-lib-centos-8-${{ github.sha }}
-
-  spark-test-spark35:
-    needs: [detect-changes, build-native-lib-centos-8]
-    if: >-
-      needs.detect-changes.outputs.java == 'true' || needs.detect-changes.outputs.shims35 == 'true' || needs.detect-changes.outputs.cpp == 'true'
-    uses: ./.github/workflows/velox_jvm_tests.yml
-    with:
-      configuration: spark35
-      shards: '[0, 1, 2, 3]'
-      image: apache/gluten:centos-8-jdk17
-      native-artifact: velox-native-lib-centos-8-${{ github.sha }}
-
-  spark-test-spark35-scala213:
-    needs: [detect-changes, build-native-lib-centos-8]
-    if: >-
-      needs.detect-changes.outputs.java == 'true' || needs.detect-changes.outputs.shims35 == 'true' || needs.detect-changes.outputs.cpp == 'true'
-    uses: ./.github/workflows/velox_jvm_tests.yml
-    with:
-      configuration: spark35-scala213
-      shards: '[0, 1]'
-      image: apache/gluten:centos-8-jdk17
-      native-artifact: velox-native-lib-centos-8-${{ github.sha }}
-
-  spark-test-spark40:
-    needs: [detect-changes, build-native-lib-centos-8]
-    if: >-
-      needs.detect-changes.outputs.java == 'true' || needs.detect-changes.outputs.shims40 == 'true' || needs.detect-changes.outputs.cpp == 'true'
-    uses: ./.github/workflows/velox_jvm_tests.yml
-    with:
-      configuration: spark40
-      shards: '[0, 1, 2, 3]'
-      image: apache/gluten:centos-8-jdk17
-      native-artifact: velox-native-lib-centos-8-${{ github.sha }}
-
-  spark-test-spark40-hive:
-    needs: [detect-changes, build-native-lib-centos-8]
-    if: >-
-      needs.detect-changes.outputs.java == 'true' || needs.detect-changes.outputs.shims40 == 'true' || needs.detect-changes.outputs.cpp == 'true'
-    uses: ./.github/workflows/velox_jvm_tests.yml
-    with:
-      configuration: spark40-hive
-      shards: '[0]'
-      image: apache/gluten:centos-8-jdk17
-      native-artifact: velox-native-lib-centos-8-${{ github.sha }}
-
-  spark-test-spark41:
-    needs: [detect-changes, build-native-lib-centos-8]
-    if: >-
-      needs.detect-changes.outputs.java == 'true' || needs.detect-changes.outputs.shims41 == 'true' || needs.detect-changes.outputs.cpp == 'true'
-    uses: ./.github/workflows/velox_jvm_tests.yml
-    with:
-      configuration: spark41
-      shards: '[0, 1, 2]'
-      image: apache/gluten:centos-9-jdk17
-      native-artifact: velox-native-lib-centos-8-${{ github.sha }}
-
-  spark-test-spark41-slow:
-    needs: [detect-changes, build-native-lib-centos-8]
-    if: >-
-      needs.detect-changes.outputs.java == 'true' || needs.detect-changes.outputs.shims41 == 'true' || needs.detect-changes.outputs.cpp == 'true'
-    uses: ./.github/workflows/velox_jvm_tests.yml
-    with:
-      configuration: spark41-slow
-      shards: '[0, 1]'
-      image: apache/gluten:centos-9-jdk17
-      native-artifact: velox-native-lib-centos-8-${{ github.sha }}
+      changes: ${{ needs.detect-changes.outputs.changes }}

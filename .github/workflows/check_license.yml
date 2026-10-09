@@ -17,7 +17,7 @@ name: License Header Check
 on:
   pull_request
 concurrency:
-  group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
+  group: ${{ github.repository }}-${{ github.event.pull_request.number || github.head_ref || github.sha }}-${{ github.workflow }}
   cancel-in-progress: true
 
 jobs:
@@ -31,3 +31,13 @@ jobs:
           pip install regex
           cd $GITHUB_WORKSPACE/
           ./.github/workflows/util/check.sh ${{github.event.pull_request.base.sha}}
+      - name: Check workflow concurrency across matrices and reusable calls
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if ! git diff --name-only "$BASE_SHA" HEAD | grep -E '^(\.github/workflows/|gluten-ut/src-ci/test/workflows/)' > /dev/null; then
+            exit 0
+          fi
+          python3 -m pip install pyyaml
+          python3 -m unittest discover -s gluten-ut/src-ci/test/workflows
+          python3 .github/workflows/util/workflow-concurrency.py

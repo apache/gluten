@@ -122,15 +122,17 @@ class IcebergQueryTestFilterTest {
       }
     }
     Set<String> expected = discoverMethods(selectors, 0, 1);
-    Set<String> actual = new HashSet<>();
-    for (int shard = 0; shard < 12; shard++) {
-      Set<String> methods = discoverMethods(selectors, shard, 12);
-      assertFalse(methods.isEmpty(), "Empty shard " + shard);
-      for (String method : methods) {
-        assertTrue(actual.add(method), "Test selected by more than one shard: " + method);
+    for (int shards : new int[] {3, 5, 12}) {
+      Set<String> actual = new HashSet<>();
+      for (int shard = 0; shard < shards; shard++) {
+        Set<String> methods = discoverMethods(selectors, shard, shards);
+        assertFalse(methods.isEmpty(), "Empty shard " + shard);
+        for (String method : methods) {
+          assertTrue(actual.add(method), "Test selected by more than one shard: " + method);
+        }
       }
+      assertEquals(expected, actual);
     }
-    assertEquals(expected, actual);
   }
 
   @Test
@@ -146,6 +148,13 @@ class IcebergQueryTestFilterTest {
         5,
         IcebergQueryTestFilter.shardFor(
             "org.apache.iceberg.spark.sql.TestSelect", "testSelect", 12));
+    for (int shards : new int[] {3, 5}) {
+      assertEquals(
+          IcebergQueryTestFilter.shardFor(
+              "org.apache.iceberg.spark.sql.TestSelect", "testSelect", shards),
+          IcebergQueryTestFilter.shardFor(
+              "org.apache.iceberg.spark.sql.TestSelect", "anotherMethod", shards));
+    }
   }
 
   private Set<String> discoverMethods(List<DiscoverySelector> selectors, int shard, int shards) {

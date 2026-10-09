@@ -8,6 +8,11 @@ parent: Developer Overview
 
 GitHub Actions (GHA) workflows are defined under `.github/workflows/`.
 
+PR-triggered workflows group runs by repository, PR number and workflow, with
+`cancel-in-progress: true`. A replacement run from a push, force-push or rerun cancels
+the workflow's older pending and running checks for that PR. Other PRs and other
+workflows keep running independently. Iceberg has its own PR-triggered workflow run.
+
 ## Docker Build
 A weekly job defined in `docker_image.yml` builds the Docker images used for CI verification. The Dockerfiles (under `dev/docker/`) and their corresponding images are listed below:
 
@@ -66,10 +71,203 @@ See [.github/workflows/util/delta-spark-ut/README.md](https://github.com/apache/
 for the gate, the flaky-test quarantine and baseline bootstrapping.
 Open follow-ups are tracked in [#12743](https://github.com/apache/gluten/issues/12743).
 
+## PR workflow layout and execution budget
+
+The budget is **80 minutes for normal Velox PR verification with warm caches**.
+Independent workflows start from the same PR event, so their elapsed times overlap;
+end-to-end verification takes the longest workflow, not the sum of their times.
+Scheduled maintenance, releases, Delta-specific verification and cold native builds
+are outside this budget. GitHub runner queueing is outside job execution timeouts.
+The time estimates below are projections from existing hosted reports, not results
+of a hosted run of this local revision. Timeouts fail unfinished checks; they do not
+make partial test coverage pass.
+
+The before column is `origin/main` at `83711d98e56cbf597a831de1080634731040f9e6`.
+Counts expand matrices and called workflows into actual runner jobs, omit skipped
+jobs, and assume a broad Java change or a C++ change. A shim-only PR runs fewer jobs.
+
+| Workflow | Before: Java / C++ PR jobs | After: Java / C++ PR jobs | Peak concurrency before → after | Warm elapsed estimate after |
+| --- | ---: | ---: | ---: | --- |
+| `velox_backend_x86.yml` | 36 / 42 | 28 / 28 | 50 → 19 | 55–70 min |
+| `velox_backend_x86_integration.yml` (new independent workflow) | Part of x86 | 18 / 24 | Part of x86 → 17 | 25–40 min Java; 65–80 min C++ |
+| `velox_backend_enhanced.yml` | 7 / 7 | 11 / 11 | 5 → 6 | 55–70 min |
+| `velox_backend_arm.yml` | 3 / 4 | 3 / 4 | 2 → 2 | 20–40 min |
+| `iceberg_spark_ut.yml` (new independent workflow) | None | 9 / 9 | None → 5 | 60–75 min |
+
+Peak concurrency is a conservative bound including the full matrices used outside
+PRs. In particular, x86 previously expanded to **52 full-run jobs**: detection, one
+native build, 23 JVM jobs, 23 TPC jobs and four auxiliary jobs. Its full-run jobs now
+split into 28 JVM-workflow jobs and 40 integration-workflow jobs. The extra build
+jobs replace compilation previously repeated inside each consumer; a higher job
+count does not by itself mean more runner-minutes.
+
+The normal warm-cache PR target is **60–75 minutes overall**, with an **80-minute
+active execution budget**. C++ PRs may approach that limit because the random-kill
+TPC-DS workload contains a particularly slow query. Historical warm examples before
+this change took [82 minutes for x86](https://github.com/apache/gluten/actions/runs/37917650510),
+[102 minutes for enhanced](https://github.com/apache/gluten/actions/runs/37917650544),
+and [113 minutes for a C++ x86 run](https://github.com/apache/gluten/actions/runs/37917116480).
+
+| Critical dependency chain | Configured execution budget |
+| --- | --- |
+| x86 JVM or enhanced | Detection 1 + native 6 + compile 10 + tests 60 = **77 min** |
+| Integration with shared builds | Detection 1 + native 6 + compile 8 + tests 65 = **80 min** |
+| Integration auxiliary / Uniffle | Detection 1 + native 6 + job 72 = **79 min** |
+| ARM TPC / C++ | Detection 1 + native 10 + TPC 69, or detection 1 + C++ 79 = **80 min** |
+| Iceberg | Prepare 1 + native 6 + JVM 7 + tests 60 + gate 2 = **76 min** |
+
+### Where the jobs went
+
+Previously, each of the 23 ordinary JVM test jobs built its whole reactor with
+`clean test`. There were five Spark 3.4 jobs, five Spark 3.5 jobs, three Spark 3.5
+Scala 2.13 jobs, five Spark 4.0 jobs including Hive, and five Spark 4.1 jobs.
+The enhanced workflow had five test jobs but six builds, because its slow Spark 3.5
+job compiled separately for extended and Hive selections.
+
+Now, `velox_jvm_tests.yml` is a reusable implementation, not another independent
+pipeline. Each configuration has one producer and parallel test consumers:
+
+| Configuration | Builds | Test shards |
+| --- | ---: | ---: |
+| Spark 3.4 | 1 | 3 |
+| Spark 3.5, Scala 2.12 | 1 | 4 |
+| Spark 3.5, Scala 2.13 | 1 | 2 |
+| Spark 4.0 | 1 | 4 |
+| Spark 4.0 Hive, retaining its separate profiles | 1 | 1 |
+| Spark 4.1 standard | 1 | 3 |
+| Spark 4.1 slow, retaining its separate profiles | 1 | 2 |
+| Enhanced Spark 3.5 standard | 1 | 1 |
+| Enhanced Spark 3.5 slow | 1 | 2 |
+| Enhanced Spark 4.0 | 1 | 3 |
+
+`jvm-test-build.py` partitions the classes found in the current compiled reactor.
+`jvm-test-timings.json` supplies scheduling weights only: missing or stale timing
+entries cannot exclude a new test. Both Surefire and ScalaTest retain their normal
+discovery rules, with an additional class-shard filter. Standard suite prefixes and
+slow tags are retained, and each JUnit case runs once per configuration. Inner
+classes stay with their enclosing class.
+
+The producer runs normal `test-compile`, including style checks. The archive records
+the commit, configuration, architecture and build arguments. Consumers verify these
+before restoring clean target directories and running Maven `test` with
+`ci-reuse-test-build`. That profile disables the already completed compilation and
+style checks; both test runners still run. Each selection's reports are preserved
+before restoration removes temporary data and mutated fixtures. Failure of one
+selection does not suppress the remaining selection.
+
+The independent integration workflow receives the existing Ubuntu and CentOS TPC,
+OOM, random-kill, Uniffle, Celeborn, C++/UDF, GPU, fast-build and Spark 4.2 jobs from
+x86. PR coverage remains Ubuntu's four Spark/JDK pairs, CentOS's two pairs, both
+Celeborn writers, and Uniffle; C++ changes also run the existing stress and native
+checks. Nightly/manual runs retain the wider JDK and Celeborn matrices.
+
+Four plain TPC build producers and one Celeborn producer replace repeated builds
+across matching PR consumers. Uniffle retains its distinct build. Producers compile
+production code with `fast-build` and skip unused root test compilation; the
+`gluten-it` build still runs its own tests. `tpc-build.py` transfers the complete
+runtime JAR directory and validates the commit, Spark, JDK and shuffle configuration.
+Consumers continue executing the existing queries in their original OS/JDK environments.
+
+Random-kill still runs all queries once across three jobs. Query 72 has its own job;
+the other two partition the remaining queries. In the historical C++ sample, query
+72 alone took about 59 minutes and data generation took about 30 minutes. Reusing
+that input data is essential to the warm-cache budget. An expired or invalidated
+fixture cache causes regeneration, not skipped tests, and falls outside that estimate.
+
+### Caches and artifacts
+
+| Cache / artifact | Before | After and purpose |
+| --- | --- | --- |
+| Docker vcpkg, Arrow and Maven dependencies | Preinstalled | Retained; avoid rebuilding/downloading third-party dependencies |
+| Native ccache | Apache Stash with Actions cache fallback | Retained per architecture/build mode; recompiles changed native inputs |
+| Current native libraries | Shared inside x86; enhanced and ARM build separately | Shared inside each independent workflow; normal, enhanced and ARM configurations remain separate |
+| JVM test snapshots | Each test job compiled again | One current-run artifact per configuration, retained one day; compiled classes and clean fixtures, not cached test outcomes |
+| TPC runtime | Rebuilt in every TPC consumer | One current-run artifact per Spark/JDK/shuffle configuration, retained one day |
+| TPC-DS SF30 input data | Regenerated by OOM and each random-kill job | Actions cache keyed by architecture and generator/build inputs; vanilla Spark data plus completion marker; existing main cache job warms it on a miss |
+| Iceberg build | No upstream pipeline on main | One current-head native/JVM build shared by all five shards; retained one day |
+| Iceberg baseline results | No upstream pipeline on main | Small verified result artifact from the latest merged tree, keyed by tree, harness and pinned images; normal artifact retention |
+
+There is no base build, base test job or scheduled duplicate Iceberg run. A missing
+or incompatible baseline fails comparison while preserving complete head reports.
+The detailed provenance checks and bootstrap behavior are described below.
+
+### Concurrency and total usage
+
+The [Apache policy](https://infra.apache.org/github-actions-policy.html) limits a
+workflow to 20 simultaneous jobs across all matrices and reusable calls.
+`workflow-concurrency.py` expands the complete job dependency graph, resolves literal
+reusable-workflow matrix inputs, applies matrix caps and considers overlapping
+branches. License CI runs this audit and its tests, including the 80-minute PR
+execution-budget regression test. Docker's caps reduce its peak from 22 to 14;
+its 31 total jobs are unchanged.
+
+```bash
+python3 .github/workflows/util/workflow-concurrency.py
+python3 -m unittest discover -s gluten-ut/src-ci/test/workflows
+```
+
+Runner-minutes are the sum of job durations. Workflow splitting and concurrency caps
+alone do not save usage. Savings come from replacing the copied Iceberg suites,
+reducing ordinary/enhanced JVM builds from 29 to 10, sharing TPC builds, skipping
+unused integration test compilation, and reusing stress-test input data. Iceberg-only
+harness edits also avoid unrelated ordinary/enhanced/ARM builds and tests.
+
+The existing timing samples account for about **92 runner-minutes of removed legacy
+Iceberg tests** and **86 minutes of repeated JVM compilation/style checks**. The new
+head suite projects about **167 test minutes**, plus controls, builds, startup and
+artifact transfer. Shared TPC compilation and warm SF30 data provide further savings;
+in the C++ example, repeated SF30 generation alone cost roughly 120 minutes across
+four jobs, before cache-transfer and occasional main-cache warming costs.
+
+These are component measurements and projections, not a measured final net total.
+In particular, the earlier near-neutral estimate for seven long JVM jobs does not
+apply to the parallel layout. **Lower aggregate usage remains a hosted validation
+requirement**, especially for Java-only PRs that do not run the SF30 stress jobs.
+Compare x86, integration, enhanced, ARM and Iceberg together against equivalent main
+runs, including build/artifact overhead, failed runs, reruns and amortized cache
+warming. Do not claim a confirmed decrease from job counts or timeouts alone.
+
+### Other existing workflows
+
+Main has 22 workflow files. The revised layout has 24 independently triggered
+workflows, plus three reusable implementations (`velox_native_build.yml`,
+`velox_jvm_tests.yml`, `velox_backend_x86_tests.yml`). The two new independent
+workflows are integration and Iceberg. Reusable calls contribute to their caller's
+job count and concurrency, not separate runs.
+
+| Other existing workflow file | Expanded jobs before → after | Purpose / elapsed information |
+| --- | ---: | --- |
+| `docker_image.yml` | 31 → 31 | Weekly/main image production; peak 22 → 14, elapsed not measured for new caps |
+| `velox_backend_cache.yml` | 7 → 7 | Main dependency/native caches; historical median about 19 min; SF30 warming adds work only on a fixture miss |
+| `velox_nightly.yml` | 15 → 15 | Scheduled release checks; unchanged, elapsed not estimated |
+| `velox_weekly.yml` | 7 → 7 | Extended configuration checks; unchanged by this optimization, elapsed not estimated |
+| `delta_spark_ut.yml` | 12 → 12 | Delta-specific tests, separate from the agreed normal Velox budget |
+| `velox_backend_ansi.yml` | 7 full / 2 analysis → same | Manual ANSI validation/analysis; mutually exclusive paths |
+| `build_bundle_package.yml` | 2 → 2 | Packaging then publication; unchanged, elapsed not estimated |
+| `build_release.yml` | 1 → 1 | Release build; unchanged, elapsed not estimated |
+| `flink.yml` | 1 → 1 | Separate Flink verification; historical median about 65 min |
+| `code_format.yml` | 1 → 1 | C++ format checks; historical median about 4.5 min |
+| `scala_code_format.yml` | 1 → 1 | Java/Scala format checks; historical median about 3.3 min |
+| `ch_code_style.yml` | 2 → 2 | ClickHouse formatting; observed about 1 min |
+| `check_license.yml` | 1 → 1 | License plus concurrency/budget audit; historical median about 2 min |
+| `clickhouse_be_trigger.yml` | 1 → 1 | External ClickHouse CI trigger; historical median about 2.6 min for the trigger only |
+| `pr_bot.yml` | 2 → 2 | PR metadata checks; historical median about 2.6 min |
+| `stale.yml` | 1 → 1 | Stale-PR housekeeping; historical median under 1 min |
+| `take.yml` | 1 → 1 | Issue assignment; elapsed not measured |
+| `test_report.yml` | 1 → 1 | Report publication; elapsed not measured |
+| `nightly_sync.yml` | 1 → 1 | Documentation synchronization; historical median about 6.6 min |
+
+Historical medians here use completed successful runs from October 5–9, 2026 and
+include runner queueing. They are context for unchanged workflows, not guarantees
+or measurements of this revision.
+
 ## Iceberg Spark UT
 
-The standalone `Iceberg Spark UT (Gluten)` workflow in `iceberg_spark_ut.yml` runs upstream Iceberg Spark
+The `Iceberg Spark UT (Gluten)` workflow in `iceberg_spark_ut.yml` runs upstream Iceberg Spark
 query and write tests with Gluten enabled, for Spark 3.5.
+It is triggered directly on PR changes that can affect its Spark 3.5 runtime, and on demand
+with `workflow_dispatch`. It owns its head native/JVM builds, test jobs, gate and reports.
+It is not called by x86 and does not add jobs to the x86 workflow.
 Surefire discovers the tests directly from the test JARs selected by `iceberg.version`;
 upgrading Iceberg automatically updates the discovered tests. A JUnit discovery filter
 inspects each test method and its helpers for Spark SQL data queries or Dataset/writer
@@ -136,33 +334,56 @@ Attribution to Gluten establishes an observed difference; the assertion still ne
 to distinguish result correctness from compatibility expectations. Failure phase and messages
 are retained for diagnosis, including failures in setup or cleanup.
 
-CI runs both the PR base commit and the proposed code, using
-each revision's own native libraries. The base checkout receives only the current test
-harness; its production sources, dependencies and build configuration remain at the base
-revision. This also bootstraps comparison when the base branch predates the harness.
-Scheduled/manual runs compare with the previous commit. This workflow owns its native builds
-and runs independently of `velox_backend_x86.yml`.
+CI builds and tests only the proposed code, with one native build and one Iceberg JVM build
+shared by its five shards.
+The shards download the compiled backend classes,
+native libraries, observer, upstream fixtures and freshly installed sibling Gluten artifacts.
+The archive records the production commit and restoration rejects a different checkout.
+Unrelated Gluten artifacts from the container's Maven cache are not included. The archive is
+produced in the same pinned JDK 17 container as the test jobs.
 
-Each revision runs 12 shards, with one Spark fork per runner. A stable CRC32 partitions tests
-by concrete class and method name into three class groups with four method partitions each.
-This splits the longest suites while repeating a class's setup on at most four runners.
-All parameterized invocations of a method stay together. The union of the shards must equal
-the complete unsharded discovery, with no duplicate methods; the harness checks this against
-both published Spark test JARs.
-There is no test-name list to update when Iceberg adds tests.
+Every complete head result with valid execution evidence is saved as a small baseline artifact,
+keyed by its Git tree, harness fingerprint and pinned native/JVM container image digests.
+Once the PR merges, subsequent PRs reuse that saved result directly; no post-merge copy or test
+run is required. The gate checks the artifact's repository and workflow, the final merged PR
+head, and that the tested tree equals the actual merged base tree. Comparing trees permits a
+squash/rebase commit to have a different SHA without accepting different code. A PR tested
+before intervening changes landed cannot provide a baseline for a different merged tree.
+Manual target-branch results can also supply a baseline; those runs compare with
+the previous commit. `baseline-identity.json` identifies the tested revision, compared base
+revision and original workflow run. Baseline artifacts use the repository's normal retention
+period and require only read access to Actions; no privileged promotion workflow is needed.
 
-The workflow budgets 40 minutes along its execution path: 1 minute for preparation,
-8 for the parallel native builds, 29 for the parallel JVM builds/tests/vanilla controls,
-and 2 for report aggregation and comparison. Runner queue time is outside job timeouts.
-Timeouts fail the check; they cannot turn an incomplete run into passing coverage.
+Baseline lookup happens after all head tests. A missing, expired, incompatible or unverified
+baseline fails the comparison without running base or suppressing head results. The complete
+head CSVs and raw logs remain downloadable for manual review. The JSON says that comparison
+was unavailable, and the changes-only CSV has a header with no rows because no differences
+could be established. Such a run can still publish a validated head result: if maintainers
+review and merge it, that result becomes eligible as the next baseline. This also bootstraps
+the first run. An unmerged PR, incomplete test run or invalid execution evidence cannot supply
+a baseline. A manual target-branch run can refresh an expired or missing result.
 
-The gate requires all 12 shard artifacts for each revision, validates their identities and
+Each run has five shards, with one Spark fork per runner. With this odd shard count,
+the stable CRC32 partition assigns every method of a class to the same runner. All
+parameterized invocations remain together, and class setup executes once rather than
+being repeated on four runners. The union of the shards must equal complete unsharded
+discovery, with no duplicate methods; the harness checks this against both published
+Spark test JARs. No test-name list needs updating when Iceberg adds tests.
+
+Each shard has a 60-minute timeout, including setup and vanilla controls. Preparation,
+native build, JVM build and aggregation have limits of 1, 6, 7 and 2 minutes respectively.
+These limits bound failures; they are not a forecast of runner usage. Runner queue time
+is outside job timeouts. Timeouts fail the check and cannot turn incomplete coverage into
+a pass.
+
+The gate requires all five head shard artifacts, validates their identities and
 test assignments, rejects duplicate invocations, and regenerates complete CSVs before comparing
 base with head. Raw shard reports remain available for debugging. The combined download is
 `iceberg-upstream-spark3.5-reports`, containing `iceberg-base/`, `iceberg-head/`,
 `iceberg-comparison.json` and the changes-only `iceberg-comparison.csv`.
-Intermediate shard archives expire after one day; the combined download keeps the raw reports
-and CSVs for the repository's normal artifact retention period.
+Intermediate shard archives expire after one day; the combined download keeps the head raw
+reports and both sets of CSVs for the repository's normal artifact retention period. The base
+identity links to its source run for the original raw reports.
 
 Each run summary links to its downloadable artifact. It contains `native.csv`, `fallback.csv`
 and `failed.csv`, plus `unverified.csv`, `skipped.csv`, the complete report and raw JUnit logs.
@@ -187,7 +408,7 @@ The combined artifact includes JSON validation details and a CSV containing only
 outcomes, node evidence, failure type/phase or attribution. Each changed row includes before/after
 parameters, native metrics and failure messages. Ordinary timing/counter variation is not a
 change. Diagnostic differences are still exported when available after a failed validation,
-but they never make an invalid run pass. A fresh base run means
+but they never make an invalid run pass. Reusing the verified merged PR result means
 merged improvements automatically become requirements for subsequent PRs, without
 maintaining baseline files. Repository branch protection must require the gate check
 to enforce this at merge time. This Spark 3.5 workflow replaces the copied upstream tests
@@ -214,8 +435,8 @@ Use `-Diceberg.upstream.reports=/path/to/reports` to keep separate runs' results
 The default is one fork at a time: upstream concurrency tests have short deadlines and
 competing Spark contexts can produce infrastructure failures. `-Diceberg.upstream.forks=N`
 overrides this for machines with enough resources.
-To reproduce one CI shard, add `-Diceberg.upstream.shards=12 -Diceberg.upstream.shard=N`
-to both the Gluten and vanilla Surefire commands, where `N` is between 0 and 11.
+To reproduce one CI shard, add `-Diceberg.upstream.shards=3 -Diceberg.upstream.shard=N`
+to both the Gluten and vanilla Surefire commands, where `N` is between 0 and 2.
 Without these options, local runs discover the complete suite.
 
 Before comparing runs containing failures, verify them against vanilla Spark:

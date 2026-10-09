@@ -205,6 +205,38 @@ class ComparisonTest(unittest.TestCase):
             self.assertEqual("PASSED_NATIVE", rows[0]["before"])
             self.assertEqual("COVERAGE_ERROR", rows[0]["after"])
 
+    def test_missing_baseline_fails_but_preserves_head_and_exports_explicit_diagnostics(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            head = root / "head.json"
+            head.write_text(json.dumps(report("PASSED_NATIVE")))
+            original = head.read_bytes()
+            (root / "baseline-unavailable.txt").write_text("Saved baseline expired")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    str(root / "missing.json"),
+                    str(head),
+                    "--output",
+                    str(root / "diff.json"),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(1, result.returncode)
+            self.assertIn("comparison unavailable", result.stdout)
+            self.assertNotIn("0 regressions", result.stdout)
+            diagnostic = json.loads((root / "diff.json").read_text())
+            self.assertFalse(diagnostic["comparison_performed"])
+            self.assertEqual(1, diagnostic["current_tests"])
+            self.assertIn("Saved baseline expired", diagnostic["validation_errors"])
+            self.assertEqual(original, head.read_bytes())
+            with (root / "diff.csv").open(newline="") as output:
+                self.assertEqual([], list(csv.DictReader(output)))
+
 
 if __name__ == "__main__":
     unittest.main()

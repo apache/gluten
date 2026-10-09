@@ -60,6 +60,30 @@ jobs:
           key: ccache-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
           include-hidden-files: true
 
+      - name: Restore the vanilla Spark SF30 fixture
+        id: tpcds-data
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            /tmp/tpcds-generated-30.0-parquet-non_partitioned
+            /tmp/tpcds-generated-30.0-parquet-non_partitioned.completed
+          key: tpcds-sf30-parquet-v1-${{ runner.arch }}-${{ hashFiles('pom.xml', 'tools/gluten-it/pom.xml', 'tools/gluten-it/**/pom.xml', 'tools/gluten-it/common/src/main/**', 'tools/gluten-it/3rd/**/src/**') }}
+      - name: Warm the vanilla Spark stress fixture for PRs
+        if: steps.tpcds-data.outputs.cache-hit != 'true'
+        run: |
+          build/mvn -ntp clean install -Pbackends-velox,fast-build,spark-3.5 -Dmaven.test.skip=true
+          cd tools/gluten-it
+          "$GITHUB_WORKSPACE/build/mvn" -ntp clean install -Pspark-3.5
+          GLUTEN_IT_JVM_ARGS=-Xmx6G sbin/gluten-it.sh data-gen-only --local --benchmark-type=ds -s=30.0 --threads=12
+      - name: Save the complete generated fixture
+        if: steps.tpcds-data.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            /tmp/tpcds-generated-30.0-parquet-non_partitioned
+            /tmp/tpcds-generated-30.0-parquet-non_partitioned.completed
+          key: ${{ steps.tpcds-data.outputs.cache-primary-key }}
+
   cache-static-lib-centos-9:
     if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ${{ matrix.os }}

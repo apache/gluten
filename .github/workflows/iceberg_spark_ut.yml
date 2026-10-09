@@ -19,6 +19,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/iceberg_spark_ut.yml'
+      - '.github/workflows/velox_native_build.yml'
       - '.github/workflows/util/iceberg-upstream/**'
       - 'pom.xml'
       - 'backends-velox/**'
@@ -28,21 +29,21 @@ on:
       - 'gluten-ras/**'
       - 'gluten-iceberg/**'
       - 'gluten-ut/src-iceberg-upstream/**'
-      - 'shims/**'
+      - 'shims/common/**'
+      - 'shims/spark35/**'
       - 'cpp/**'
       - 'ep/build-velox/**'
       - 'dev/**'
       - 'build/mvn'
-  schedule:
-    - cron: '0 3 * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
   actions: read
+  pull-requests: read
 
 concurrency:
-  group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
+  group: ${{ github.repository }}-${{ github.event.pull_request.number || github.head_ref || github.sha }}-${{ github.workflow }}-iceberg-upstream
   cancel-in-progress: true
 
 env:
@@ -50,121 +51,116 @@ env:
   MVN_CMD: 'build/mvn -ntp'
   CCACHE_DIR: '${{ github.workspace }}/.ccache'
   SPARK_ANSI_SQL_MODE: false
-  ICEBERG_SHARD_COUNT: '12'
+  ICEBERG_SHARD_COUNT: '5'
+  ICEBERG_PROFILES: -Pbackends-velox,iceberg,iceberg-upstream-test,hadoop-3.4,java-17,spark-3.5,scala-2.12
 
-# Critical-path execution budget: preparation 1 + native build 8 + tests 29 + gate 2 = 40 minutes.
-# Base/head and every shard run independently; no dependency on the Velox CI.
+# Five class shards avoid repeating class fixtures on multiple runners.
+# PR execution budget: prepare 1 + native 6 + JVM 7 + tests 60 + gate 2 = 76 minutes.
+# Independent workflow: reusable calls would add these shards to the caller's concurrency.
 jobs:
   prepare:
-    if: github.event_name != 'schedule' || github.repository_owner == 'apache'
     runs-on: ubuntu-22.04
     timeout-minutes: 1
     outputs:
-      base_sha: ${{ steps.prepare.outputs.base_sha }}
-      shards: ${{ steps.prepare.outputs.shards }}
+      base_sha: ${{ steps.baseline.outputs.base_sha }}
+      baseline_key: ${{ steps.baseline.outputs.baseline_key }}
+      head_key: ${{ steps.baseline.outputs.head_key }}
+      test_image: ${{ steps.baseline.outputs.test_image }}
+      native_image: ${{ steps.baseline.outputs.native_image }}
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 2
-      - id: prepare
+          fetch-depth: 0
+      - name: Identify the merged baseline and runtimes
+        id: baseline
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          echo "base_sha=${BASE_SHA:-$(git rev-parse HEAD^)}" >> "$GITHUB_OUTPUT"
-          python3 -c 'import json, os; print("shards=" + json.dumps(list(range(int(os.environ["ICEBERG_SHARD_COUNT"])))))' >> "$GITHUB_OUTPUT"
+          python3 .github/workflows/util/iceberg-upstream/baseline.py prepare \
+            --revision "${BASE_SHA:-$(git rev-parse HEAD^)}" >> "$GITHUB_OUTPUT"
+      - id: prepare
+        run: |
           python3 -m unittest discover -s gluten-ut/src-iceberg-upstream/test/python
 
   native:
     needs: prepare
+    uses: ./.github/workflows/velox_native_build.yml
+    with:
+      revision: ${{ github.sha }}
+      artifact: iceberg-native-head
+      image: ${{ needs.prepare.outputs.native_image }}
+
+  build:
+    needs: [prepare, native]
     runs-on: ubuntu-22.04
-    container: apache/gluten:vcpkg-almalinux-8-gcc13
-    timeout-minutes: 8
-    strategy:
-      fail-fast: false
-      matrix:
-        revision: [base, head]
+    container: ${{ needs.prepare.outputs.test_image }}
+    timeout-minutes: 7
+    env:
+      JAVA_HOME: /usr/lib/jvm/java-17-openjdk
     steps:
-      - name: Install native build tools
-        run: |
-          dnf install -y jq bison tzdata
-          dnf module -y install python39 && alternatives --set python3 /usr/bin/python3.9
-          dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
-          dnf install -y gh --setopt=gpgcheck=0
       - uses: actions/checkout@v7
+      - name: Trust the container checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Download native libraries
+        uses: actions/download-artifact@v8
         with:
-          ref: ${{ matrix.revision == 'base' && needs.prepare.outputs.base_sha || github.sha }}
-      - name: Restore native build cache
-        id: stash
-        uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
-        with:
-          path: '${{ env.CCACHE_DIR }}'
-          key: ccache-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
-      - name: Restore fallback native build cache
-        if: steps.stash.outputs.stash-hit != 'true'
-        uses: actions/cache/restore@v4
-        with:
-          path: '${{ env.CCACHE_DIR }}'
-          key: ccache-almalinux8-release-default-${{ github.sha }}
-          restore-keys: ccache-almalinux8-release-default
-      - name: Build native libraries
-        run: bash dev/ci-velox-buildstatic-centos-8.sh
+          name: iceberg-native-head
+          path: cpp/build/releases/
+      - name: Build Gluten once for all shards
+        shell: bash
+        run: |
+          $MVN_CMD clean install -pl backends-velox -am $ICEBERG_PROFILES -Pfast-build -DskipTests \
+            -Dstyle.color=never | tee "$RUNNER_TEMP/iceberg-build.log"
+          $MVN_CMD help:evaluate -N -q -Dexpression=settings.localRepository -Doutput="$RUNNER_TEMP/iceberg-repository"
+          python3 "$GITHUB_WORKSPACE/.github/workflows/util/iceberg-upstream/build-artifacts.py" pack \
+            "$PWD" "$(cat "$RUNNER_TEMP/iceberg-repository")" "$RUNNER_TEMP/iceberg-build.zip" \
+            --install-log "$RUNNER_TEMP/iceberg-build.log"
       - uses: actions/upload-artifact@v7
         with:
-          name: iceberg-native-${{ matrix.revision }}
-          path: cpp/build/releases/
+          name: iceberg-build-head
+          path: ${{ runner.temp }}/iceberg-build.zip
+          compression-level: 0
           if-no-files-found: error
           retention-days: 1
 
   iceberg-upstream-test:
-    name: iceberg-upstream-test (3.5, ${{ matrix.revision }}, ${{ matrix.shard }})
-    needs: [prepare, native]
+    name: iceberg-upstream-test (3.5, ${{ matrix.shard }})
+    needs: [prepare, build]
+    if: always() && !cancelled() && needs.build.result == 'success'
     runs-on: ubuntu-22.04
-    container: apache/gluten:centos-9-jdk17
-    timeout-minutes: 29
+    container: ${{ needs.prepare.outputs.test_image }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
+      max-parallel: 5
       matrix:
-        revision: [base, head]
-        shard: ${{ fromJSON(needs.prepare.outputs.shards) }}
+        shard: [0, 1, 2, 3, 4]
     env:
       JAVA_HOME: /usr/lib/jvm/java-17-openjdk
-      ICEBERG_PROFILES: -Pbackends-velox,iceberg,iceberg-upstream-test,hadoop-3.4,java-17,spark-3.5,scala-2.12
-      ICEBERG_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
-      ICEBERG_REVISION: ${{ matrix.revision }}
       ICEBERG_SHARD: ${{ matrix.shard }}
     steps:
       - uses: actions/checkout@v7
-      - name: Prepare test checkout
-        id: checkout
+      - name: Prepare test reports
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          if [ "$ICEBERG_REVISION" = base ]; then
-            directory="$RUNNER_TEMP/iceberg-base"
-            git fetch --no-tags --depth=1 origin "$ICEBERG_BASE_SHA"
-            git worktree add --detach "$directory" "$ICEBERG_BASE_SHA"
-            git config --global --add safe.directory "$directory"
-            python3 .github/workflows/util/iceberg-upstream/prepare-base.py "$GITHUB_WORKSPACE" "$directory"
-          else
-            directory="$GITHUB_WORKSPACE"
-          fi
-          echo "directory=$directory" >> "$GITHUB_OUTPUT"
           mkdir -p iceberg-reports
           python3 -c 'import json, os; print(json.dumps({"index": int(os.environ["ICEBERG_SHARD"]), "count": int(os.environ["ICEBERG_SHARD_COUNT"])}))' > iceberg-reports/shard.json
-      - name: Download native libraries
+      - name: Download the shared build
         uses: actions/download-artifact@v8
         with:
-          name: iceberg-native-${{ matrix.revision }}
-          path: ${{ steps.checkout.outputs.directory }}/cpp/build/releases/
-      - name: Build Gluten
-        working-directory: ${{ steps.checkout.outputs.directory }}
-        run: $MVN_CMD clean install -pl backends-velox -am $ICEBERG_PROFILES -Pfast-build -DskipTests
+          name: iceberg-build-head
+          path: ${{ runner.temp }}
+      - name: Restore compiled classes and Gluten dependencies
+        run: |
+          $MVN_CMD help:evaluate -N -q -Dexpression=settings.localRepository -Doutput="$RUNNER_TEMP/iceberg-repository"
+          python3 "$GITHUB_WORKSPACE/.github/workflows/util/iceberg-upstream/build-artifacts.py" restore \
+            "$PWD" "$(cat "$RUNNER_TEMP/iceberg-repository")" "$RUNNER_TEMP/iceberg-build.zip"
       - name: Check Iceberg scope and execution classification
         if: matrix.shard == 0
-        working-directory: ${{ steps.checkout.outputs.directory }}
         run: $MVN_CMD surefire:test@iceberg-upstream -pl backends-velox $ICEBERG_PROFILES '-Dtest=org.apache.gluten.integration.*Test'
       - name: Run upstream Iceberg query and write tests
-        working-directory: ${{ steps.checkout.outputs.directory }}
-        # Each parameterized method belongs to one shard. Keep one Spark fork per runner.
+        # With an odd shard count, each whole class belongs to one shard.
+        # Keep one Spark fork per runner.
         run: >-
           $MVN_CMD surefire:test@iceberg-upstream -pl backends-velox $ICEBERG_PROFILES
           -Diceberg.upstream.shard="$ICEBERG_SHARD" -Diceberg.upstream.shards="$ICEBERG_SHARD_COUNT"
@@ -173,7 +169,6 @@ jobs:
         if: always()
         run: python3 .github/workflows/util/iceberg-upstream/summarize.py iceberg-reports
       - name: Verify failures against vanilla Spark
-        working-directory: ${{ steps.checkout.outputs.directory }}
         run: |
           scripts="$GITHUB_WORKSPACE/.github/workflows/util/iceberg-upstream"
           reports="$GITHUB_WORKSPACE/iceberg-reports"
@@ -190,7 +185,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: iceberg-upstream-spark3.5-${{ matrix.revision }}-shard${{ matrix.shard }}
+          name: iceberg-upstream-spark3.5-head-shard${{ matrix.shard }}
           path: iceberg-reports/
           if-no-files-found: error
           retention-days: 1
@@ -198,7 +193,7 @@ jobs:
   iceberg-upstream-gate:
     name: iceberg-upstream-gate (3.5)
     needs: [prepare, iceberg-upstream-test]
-    if: always() && !cancelled() && needs.prepare.result != 'skipped'
+    if: always() && !cancelled()
     runs-on: ubuntu-22.04
     timeout-minutes: 2
     steps:
@@ -207,32 +202,60 @@ jobs:
         env:
           UPSTREAM_RESULT: ${{ needs.iceberg-upstream-test.result }}
         run: test "$UPSTREAM_RESULT" = success
-      - name: Download base shards
-        if: always()
-        uses: actions/download-artifact@v8
-        with:
-          pattern: iceberg-upstream-spark3.5-base-shard*
-          path: iceberg-base
       - name: Download current shards
         if: always()
         uses: actions/download-artifact@v8
         with:
           pattern: iceberg-upstream-spark3.5-head-shard*
           path: iceberg-head
-      - name: Merge every base shard
-        id: base
-        if: always()
-        run: python3 .github/workflows/util/iceberg-upstream/merge.py iceberg-base --shards "$ICEBERG_SHARD_COUNT"
       - name: Merge every current shard
         id: head
         if: always()
         run: python3 .github/workflows/util/iceberg-upstream/merge.py iceberg-head --shards "$ICEBERG_SHARD_COUNT"
-      - name: Reject Iceberg regressions
-        if: always() && steps.base.outcome == 'success' && steps.head.outcome == 'success'
-        run: >-
-          python3 .github/workflows/util/iceberg-upstream/compare.py
-          iceberg-base/execution-coverage.json iceberg-head/execution-coverage.json
-          --output iceberg-comparison.json
+      # A complete, validated result remains publishable when only comparison is unavailable.
+      # Once this PR merges, later PRs can use the saved report without any base test run.
+      - name: Validate and identify the complete head result
+        id: head-identity
+        if: always() && steps.head.outcome == 'success' && needs.iceberg-upstream-test.result == 'success'
+        env:
+          HEAD_KEY: ${{ needs.prepare.outputs.head_key }}
+        run: |
+          python3 .github/workflows/util/iceberg-upstream/baseline.py record \
+            --directory iceberg-head --key "$HEAD_KEY" --revision "$GITHUB_SHA"
+      - name: Save the result for reuse after merge
+        if: always() && steps.head-identity.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ needs.prepare.outputs.head_key }}
+          path: |
+            iceberg-head/baseline-identity.json
+            iceberg-head/execution-coverage.json
+          if-no-files-found: error
+          overwrite: true
+      - name: Find a baseline from merged or default-branch results
+        id: baseline
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASELINE_KEY: ${{ needs.prepare.outputs.baseline_key }}
+          BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
+        run: |
+          timeout 40s python3 .github/workflows/util/iceberg-upstream/baseline.py restore \
+            --directory iceberg-base --key "$BASELINE_KEY" --revision "$BASE_SHA" --branch "$BASE_BRANCH"
+      - name: Reject regressions or an unavailable comparison
+        if: always()
+        env:
+          BASELINE_OUTCOME: ${{ steps.baseline.outcome }}
+        run: |
+          baseline=iceberg-base/execution-coverage.json
+          if [ "$BASELINE_OUTCOME" != success ]; then
+            baseline=iceberg-base/unavailable.json
+          fi
+          python3 .github/workflows/util/iceberg-upstream/compare.py \
+            "$baseline" iceberg-head/execution-coverage.json \
+            --output iceberg-comparison.json
       - name: Upload complete coverage and changes
         id: reports
         if: always()

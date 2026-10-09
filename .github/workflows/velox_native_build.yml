@@ -1,0 +1,86 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Velox native build
+
+on:
+  workflow_call:
+    inputs:
+      revision:
+        required: true
+        type: string
+      artifact:
+        required: true
+        type: string
+      image:
+        type: string
+        default: apache/gluten:vcpkg-almalinux-8-gcc13
+      save-cache:
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    container: ${{ inputs.image }}
+    timeout-minutes: 6
+    env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+      CCACHE_DIR: '${{ github.workspace }}/.ccache'
+    steps:
+      - name: Install CI tools (temporary - until image is rebuilt with gh/jq/bison/python3.9)
+        run: |
+          dnf install -y jq bison tzdata
+          dnf module -y install python39 && alternatives --set python3 /usr/bin/python3.9
+          dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
+          dnf install -y gh --setopt=gpgcheck=0
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.revision }}
+      - name: Get Ccache from Apache Stash
+        id: ccache-stash
+        uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+      - name: Get Ccache from actions/cache (fallback on Stash miss)
+        if: steps.ccache-stash.outputs.stash-hit != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-almalinux8-release-default-${{github.sha}}
+          restore-keys: |
+            ccache-almalinux8-release-default
+      - name: Build Gluten native libraries
+        run: |
+          df -a
+          export CCACHE_MAXSIZE=1G
+          ccache -sz
+          bash dev/ci-velox-buildstatic-centos-8.sh
+          ccache -s
+
+      - name: "Save ccache"
+        if: always() && inputs.save-cache
+        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+          include-hidden-files: true
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact }}
+          path: ./cpp/build/releases/
+          if-no-files-found: error
+          retention-days: 1
