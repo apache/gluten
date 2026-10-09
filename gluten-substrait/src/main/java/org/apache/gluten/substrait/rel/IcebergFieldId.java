@@ -16,35 +16,33 @@
  */
 package org.apache.gluten.substrait.rel;
 
-import org.apache.iceberg.DeleteFile;
-
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
-public class IcebergLocalFilesBuilder {
-  public static IcebergLocalFilesNode makeIcebergLocalFiles(
-      Integer index,
-      List<String> paths,
-      List<Long> starts,
-      List<Long> lengths,
-      List<Map<String, String>> partitionColumns,
-      LocalFilesNode.ReadFileFormat fileFormat,
-      List<String> preferredLocations,
-      List<List<DeleteFile>> deleteFilesList,
-      List<Map<String, String>> metadataColumns,
-      List<IcebergFieldId> fieldIds,
-      Map<String, String> initialDefaults) {
-    return new IcebergLocalFilesNode(
-        index,
-        paths,
-        starts,
-        lengths,
-        partitionColumns,
-        fileFormat,
-        preferredLocations,
-        deleteFilesList,
-        metadataColumns,
-        fieldIds,
-        initialDefaults);
+public final class IcebergFieldId implements Serializable {
+  private static final long serialVersionUID = 1L;
+
+  private final String name;
+  private final int fieldId;
+  private final List<IcebergFieldId> children;
+
+  public IcebergFieldId(String name, int fieldId, List<IcebergFieldId> children) {
+    this.name = name;
+    this.fieldId = fieldId;
+    this.children = Collections.unmodifiableList(new ArrayList<>(children));
+  }
+
+  public String getName() {
+    return name;
+  }
+
+  public int getFieldId() {
+    return fieldId;
+  }
+
+  public List<IcebergFieldId> getChildren() {
+    return children;
   }
 }

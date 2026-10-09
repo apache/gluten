@@ -20,7 +20,7 @@ import org.apache.gluten.IcebergDefaultValueUtil
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.execution.SparkDataSourceRDDPartition
-import org.apache.gluten.substrait.rel.{IcebergLocalFilesBuilder, SplitInfo}
+import org.apache.gluten.substrait.rel.{IcebergFieldId, IcebergLocalFilesBuilder, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.softaffinity.SoftAffinity
@@ -29,13 +29,17 @@ import org.apache.spark.sql.connector.read.Scan
 import org.apache.spark.sql.types.StructType
 
 import org.apache.iceberg._
+import org.apache.iceberg.avro.AvroSchemaUtil
+import org.apache.iceberg.parquet.GlutenParquetUtil
 import org.apache.iceberg.spark.SparkSchemaUtil
+import org.apache.iceberg.types.{Type, Types}
 
 import java.lang.{Long => JLong}
 import java.util.{ArrayList => JArrayList, HashMap => JHashMap, List => JList, Map => JMap}
 import java.util.Locale
 
 import scala.collection.JavaConverters._
+import scala.util.control.NonFatal
 
 object GlutenIcebergSourceUtil {
   private val InputFileNameCol = "input_file_name"
@@ -62,7 +66,7 @@ object GlutenIcebergSourceUtil {
       partition: SparkDataSourceRDDPartition,
       readPartitionSchema: StructType,
       metadataColumnNames: Seq[String],
-      fieldIds: JMap[String, Integer],
+      fieldIds: JList[IcebergFieldId],
       initialDefaults: JMap[String, String]): SplitInfo = {
     val paths = new JArrayList[String]()
     val starts = new JArrayList[JLong]()
@@ -115,22 +119,63 @@ object GlutenIcebergSourceUtil {
     )
   }
 
-  def getFieldIds(sparkScan: Scan): JHashMap[String, Integer] = {
-    val fieldIds = new JHashMap[String, Integer]()
-    getTable(sparkScan).schema().columns().asScala.foreach {
-      field => fieldIds.put(field.name(), field.fieldId())
+  def getFieldIds(sparkScan: Scan): JArrayList[IcebergFieldId] = {
+    val fieldIds = new JArrayList[IcebergFieldId]()
+    getExpectedSchema(sparkScan).columns().asScala.foreach {
+      field =>
+        fieldIds.add(new IcebergFieldId(
+          AvroSchemaUtil.makeCompatibleName(field.name()),
+          field.fieldId(),
+          childFieldIds(field.`type`())))
     }
     fieldIds
   }
 
+  def parquetFilesHaveFieldIds(sparkScan: Scan): Boolean = {
+    val io = getTable(sparkScan).io()
+    asFileScanTask(getScanTasks(sparkScan))
+      .iterator
+      .filter(_.file().format() == FileFormat.PARQUET)
+      .map(_.file().path().toString)
+      .toSeq
+      .distinct
+      .forall {
+        path =>
+          try {
+            GlutenParquetUtil.hasFieldIds(io.newInputFile(path))
+          } catch {
+            case NonFatal(e) =>
+              throw new GlutenNotSupportException(
+                s"Cannot verify Parquet field IDs for Iceberg file $path",
+                e)
+          }
+      }
+  }
+
+  private def toFieldId(field: Types.NestedField): IcebergFieldId = {
+    new IcebergFieldId(field.name(), field.fieldId(), childFieldIds(field.`type`()))
+  }
+
+  private def childFieldIds(dataType: Type): JArrayList[IcebergFieldId] = {
+    val children = new JArrayList[IcebergFieldId]()
+    if (dataType.isNestedType) {
+      dataType
+        .asNestedType()
+        .fields()
+        .asScala
+        .foreach(field => children.add(toFieldId(field)))
+    }
+    children
+  }
+
   def getInitialDefaults(sparkScan: Scan): JHashMap[String, String] = {
     val initialDefaults = new JHashMap[String, String]()
-    getTable(sparkScan).schema().columns().asScala.foreach {
+    getExpectedSchema(sparkScan).columns().asScala.foreach {
       field =>
         val defaultValue = IcebergDefaultValueUtil.getInitialDefault(field)
         if (defaultValue != null) {
           initialDefaults.put(
-            field.name(),
+            AvroSchemaUtil.makeCompatibleName(field.name()),
             TypeUtil.getPartitionValueString(field.`type`(), defaultValue))
         }
     }
@@ -204,6 +249,14 @@ object GlutenIcebergSourceUtil {
         }
     }
     throw new UnsupportedOperationException("Failed to get partition schema from iceberg scan.")
+  }
+
+  private def getExpectedSchema(sparkScan: Scan): Schema = sparkScan match {
+    case scan: SparkBatchQueryScan => scan.expectedSchema()
+    case scan: SparkStagedScan => scan.expectedSchema()
+    case _ =>
+      throw new GlutenNotSupportException(
+        s"Unsupported Iceberg scan: ${sparkScan.getClass.getName}.")
   }
 
   private def getTable(sparkScan: Scan): Table = sparkScan match {

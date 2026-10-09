@@ -653,8 +653,9 @@ public class TestSparkReaderDeletes extends DeleteReadTests {
     String tblName = "test3";
     Table tbl = createTable(tblName, SCHEMA, PartitionSpec.unpartitioned());
 
+    Schema writeSchema = tbl.schema();
     List<Path> fileSplits = Lists.newArrayList();
-    StructType sparkSchema = SparkSchemaUtil.convert(SCHEMA);
+    StructType sparkSchema = SparkSchemaUtil.convert(writeSchema);
     Configuration conf = new Configuration();
     File testFile = File.createTempFile("junit", null, temp.toFile());
     assertThat(testFile.delete()).as("Delete should succeed").isTrue();
@@ -662,7 +663,8 @@ public class TestSparkReaderDeletes extends DeleteReadTests {
 
     // Write a Parquet file with more than one row group
     ParquetFileWriter parquetFileWriter =
-        new ParquetFileWriter(conf, ParquetSchemaUtil.convert(SCHEMA, "test3Schema"), testFilePath);
+        new ParquetFileWriter(
+            conf, ParquetSchemaUtil.convert(writeSchema, "test3Schema"), testFilePath);
     parquetFileWriter.start();
     for (int i = 0; i < 2; i += 1) {
       File split = File.createTempFile("junit", null, temp.toFile());
@@ -672,10 +674,10 @@ public class TestSparkReaderDeletes extends DeleteReadTests {
       try (FileAppender<InternalRow> writer =
           Parquet.write(Files.localOutput(split))
               .createWriterFunc(msgType -> SparkParquetWriters.buildWriter(sparkSchema, msgType))
-              .schema(SCHEMA)
+              .schema(writeSchema)
               .overwrite()
               .build()) {
-        Iterable<InternalRow> records = RandomData.generateSpark(SCHEMA, 100, 34 * i + 37);
+        Iterable<InternalRow> records = RandomData.generateSpark(writeSchema, 100, 34 * i + 37);
         writer.addAll(records);
       }
       // Change for compile
