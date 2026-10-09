@@ -774,6 +774,13 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           tryEval,
           ExpressionNames.CHECKED_MULTIPLY
         )
+      case pmod: Pmod =>
+        BackendsApiManager.getSparkPlanExecApiInstance.genPmodTransformer(
+          substraitExprName,
+          replaceWithExpressionTransformer0(pmod.left, attributeSeq, expressionsMap),
+          replaceWithExpressionTransformer0(pmod.right, attributeSeq, expressionsMap),
+          pmod
+        )
       case a: Add =>
         BackendsApiManager.getSparkPlanExecApiInstance.genArithmeticTransformer(
           substraitExprName,

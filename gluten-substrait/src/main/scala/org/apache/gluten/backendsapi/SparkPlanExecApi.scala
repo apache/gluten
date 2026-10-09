@@ -269,6 +269,14 @@ trait SparkPlanExecApi {
     GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
   }
 
+  def genPmodTransformer(
+      substraitExprName: String,
+      left: ExpressionTransformer,
+      right: ExpressionTransformer,
+      original: Pmod): ExpressionTransformer = {
+    GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
+  }
+
   // Default: ignore allowPrecisionLoss and return exprName unchanged. Non-Velox backends
   // (e.g. ClickHouse) do not use the _deny_precision_loss naming convention; they handle
   // decimal precision through their own mechanisms. VeloxSparkPlanExecApi overrides this.
