@@ -34,7 +34,7 @@ import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.execution.metric.SQLMetrics
 import org.apache.spark.sql.types.{ArrayType, DataType, StructType}
 
-import org.apache.iceberg.{BaseTable, MetadataColumns, SnapshotSummary, TableProperties}
+import org.apache.iceberg.{BaseTable, MetadataColumns, TableProperties}
 import org.apache.iceberg.avro.AvroSchemaUtil
 import org.apache.iceberg.spark.source.{GlutenIcebergSourceUtil, SparkTable}
 import org.apache.iceberg.spark.source.metrics.NumSplits
@@ -120,25 +120,13 @@ case class IcebergScanTransformer(
       if (hasUnsupportedMetadata) {
         return ValidationResult.failed("Read unsupported metadata column")
       }
-      val containsEqualityDelete = table match {
-        case t: SparkTable =>
-          t.table() match {
-            case t: BaseTable =>
-              val snapshot = t
-                .operations()
-                .current()
-                .currentSnapshot()
-              if (snapshot == null) {
-                false
-              } else {
-                snapshot
-                  .summary()
-                  .getOrDefault(SnapshotSummary.TOTAL_EQ_DELETES_PROP, "0")
-                  .toInt > 0
-              }
-            case _ => false
-          }
-        case _ => false
+      // The scan may read an older snapshot whose deletes differ from the current snapshot.
+      val containsEqualityDelete = finalPartitions.exists {
+        case p: SparkDataSourceRDDPartition =>
+          GlutenIcebergSourceUtil.equalityDeleteExists(p)
+        case other =>
+          return ValidationResult.failed(
+            s"Unsupported partition type: ${other.getClass.getSimpleName}")
       }
       if (containsEqualityDelete) {
         return ValidationResult.failed("Contains equality delete files")
@@ -168,10 +156,13 @@ case class IcebergScanTransformer(
     ) {
       return ValidationResult.failed("Iceberg initial-default reads are not supported")
     }
-    if (metadata.formatVersion() >= 3) {
+    if (
+      metadata.formatVersion() >= 3 &&
+      !BackendsApiManager.getSettings.supportIcebergDeletionVectorRead()
+    ) {
       val hasUnsupportedDelete = finalPartitions.exists {
         case p: SparkDataSourceRDDPartition =>
-          GlutenIcebergSourceUtil.deleteExists(p)
+          GlutenIcebergSourceUtil.deletionVectorExists(p)
         case other =>
           return ValidationResult.failed(
             s"Unsupported partition type: ${other.getClass.getSimpleName}")
