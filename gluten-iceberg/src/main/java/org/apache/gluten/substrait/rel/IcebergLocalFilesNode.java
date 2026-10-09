@@ -19,10 +19,13 @@ package org.apache.gluten.substrait.rel;
 import org.apache.gluten.backendsapi.BackendsApiManager;
 
 import com.google.protobuf.Any;
+import com.google.protobuf.ByteString;
 import io.substrait.proto.AdvancedExtension;
 import io.substrait.proto.ReadRel;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileContent;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.types.Types;
 
 import java.nio.ByteBuffer;
 import java.util.*;
@@ -31,6 +34,29 @@ public class IcebergLocalFilesNode extends LocalFilesNode {
   private final List<List<DeleteFile>> deleteFilesList;
   private final Map<String, Integer> fieldIds;
   private final Map<String, String> initialDefaults;
+  private Schema icebergSchema;
+  private List<Long> dataSequenceNumbers;
+  private List<Map<Integer, byte[]>> identityPartitionKeys;
+
+  public void setEqualityDeleteMetadata(
+      Schema schema, List<Long> sequenceNumbers, List<Map<Integer, byte[]>> partitionKeys) {
+    icebergSchema = schema;
+    dataSequenceNumbers = sequenceNumbers;
+    identityPartitionKeys = partitionKeys;
+  }
+
+  private static ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.FieldId fieldId(
+      Types.NestedField field) {
+    ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.FieldId.Builder builder =
+        ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.FieldId.newBuilder()
+            .setId(field.fieldId());
+    if (field.type().isNestedType()) {
+      for (Types.NestedField child : field.type().asNestedType().fields()) {
+        builder.addChildren(fieldId(child));
+      }
+    }
+    return builder.build();
+  }
 
   IcebergLocalFilesNode(
       Integer index,
@@ -83,21 +109,38 @@ public class IcebergLocalFilesNode extends LocalFilesNode {
     List<DeleteFile> deleteFiles = deleteFilesList.get(index);
     ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.Builder icebergBuilder =
         ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.newBuilder();
-
-    switch (fileFormat) {
-      case ParquetReadFormat:
-        ReadRel.LocalFiles.FileOrFiles.ParquetReadOptions parquetReadOptions =
-            ReadRel.LocalFiles.FileOrFiles.ParquetReadOptions.newBuilder().build();
-        icebergBuilder.setParquet(parquetReadOptions);
+    if (icebergSchema != null) {
+      for (Types.NestedField field : icebergSchema.columns()) {
+        icebergBuilder.addSchemaFieldIds(fieldId(field));
+      }
+      icebergBuilder.setDataSequenceNumber(dataSequenceNumbers.get(index));
+      identityPartitionKeys
+          .get(index)
+          .forEach(
+              (id, value) -> {
+                ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.IdentityPartitionKey.Builder key =
+                    ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.IdentityPartitionKey
+                        .newBuilder()
+                        .setSourceId(id)
+                        .setIsNull(value == null);
+                if (value != null) {
+                  key.setValue(ByteString.copyFrom(value));
+                }
+                icebergBuilder.addIdentityPartitionKeys(key);
+              });
+    }
+    switch (fileBuilder.getFileFormatCase()) {
+      case PARQUET:
+        icebergBuilder.setParquet(fileBuilder.getParquet());
         break;
-      case OrcReadFormat:
-        ReadRel.LocalFiles.FileOrFiles.OrcReadOptions orcReadOptions =
-            ReadRel.LocalFiles.FileOrFiles.OrcReadOptions.newBuilder().build();
-        icebergBuilder.setOrc(orcReadOptions);
+      case ORC:
+        icebergBuilder.setOrc(fileBuilder.getOrc());
         break;
       default:
         throw new UnsupportedOperationException(
-            "Unsupported file format " + fileFormat.name() + " for iceberg data file.");
+            "Unsupported file format "
+                + fileBuilder.getFileFormatCase().name()
+                + " for iceberg data file.");
     }
 
     for (DeleteFile delete : deleteFiles) {
@@ -121,6 +164,9 @@ public class IcebergLocalFilesNode extends LocalFilesNode {
       deleteFileBuilder.setFilePath(delete.path().toString());
       deleteFileBuilder.setFileSize(delete.fileSizeInBytes());
       deleteFileBuilder.setRecordCount(delete.recordCount());
+      if (delete.dataSequenceNumber() != null) {
+        deleteFileBuilder.setDataSequenceNumber(delete.dataSequenceNumber());
+      }
       if (delete.content() == FileContent.POSITION_DELETES) {
         deleteFileBuilder.setLowerBounds(encodeBounds(delete.lowerBounds()));
         deleteFileBuilder.setUpperBounds(encodeBounds(delete.upperBounds()));

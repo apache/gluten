@@ -558,7 +558,15 @@ object VeloxBackendSettings extends BackendSettingsApi {
 
   override def needPreComputeRangeFrameBoundary(): Boolean = true
 
-  override def supportIcebergEqualityDeleteRead(): Boolean = false
+  override def supportIcebergEqualityDeleteRead(): Boolean = true
+
+  override def supportIcebergEqualityDeleteRead(dataType: DataType, nested: Boolean): Boolean =
+    !nested && (dataType match {
+      case BooleanType | ByteType | ShortType | IntegerType | LongType | StringType | BinaryType |
+          DateType => true
+      case decimal: DecimalType => decimal.precision <= Decimal.MAX_LONG_DIGITS
+      case _ => false
+    })
 
   override def supportIcebergInitialDefaultRead(): Boolean = true
 

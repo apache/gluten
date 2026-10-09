@@ -29,9 +29,13 @@ import org.apache.spark.sql.connector.read.Scan
 import org.apache.spark.sql.types.StructType
 
 import org.apache.iceberg._
+import org.apache.iceberg.avro.AvroSchemaUtil
 import org.apache.iceberg.spark.SparkSchemaUtil
+import org.apache.iceberg.types.Type.TypeID
 
 import java.lang.{Long => JLong}
+import java.nio.ByteBuffer
+import java.nio.charset.StandardCharsets.UTF_8
 import java.util.{ArrayList => JArrayList, HashMap => JHashMap, List => JList, Map => JMap}
 import java.util.Locale
 
@@ -63,13 +67,16 @@ object GlutenIcebergSourceUtil {
       readPartitionSchema: StructType,
       metadataColumnNames: Seq[String],
       fieldIds: JMap[String, Integer],
-      initialDefaults: JMap[String, String]): SplitInfo = {
+      initialDefaults: JMap[String, String],
+      equalityDeleteSchema: Schema = null): SplitInfo = {
     val paths = new JArrayList[String]()
     val starts = new JArrayList[JLong]()
     val lengths = new JArrayList[JLong]()
     val partitionColumns = new JArrayList[JMap[String, String]]()
     val deleteFilesList = new JArrayList[JList[DeleteFile]]()
     val metadataColumns = new JArrayList[JMap[String, String]]()
+    val dataSequenceNumbers = new JArrayList[JLong]()
+    val identityPartitionKeys = new JArrayList[JMap[Integer, Array[Byte]]]()
     var fileFormat = ReadFileFormat.UnknownFormat
 
     partition.inputPartitions.foreach {
@@ -83,6 +90,30 @@ object GlutenIcebergSourceUtil {
             lengths.add(task.length())
             partitionColumns.add(getPartitionColumns(task, readPartitionSchema))
             deleteFilesList.add(task.deletes())
+            if (equalityDeleteSchema != null) {
+              dataSequenceNumbers.add(
+                Option(task.file().dataSequenceNumber()).getOrElse(JLong.valueOf(0L)))
+              val identityKeys = new JHashMap[Integer, Array[Byte]]()
+              task.spec().fields().asScala.zipWithIndex.foreach {
+                case (field, index) if field.transform().isIdentity =>
+                  val sourceType = task.spec().schema().findType(field.sourceId())
+                  val value = task.partition().get(index, sourceType.typeId().javaClass())
+                  identityKeys.put(
+                    field.sourceId(),
+                    if (value == null) null
+                    else if (sourceType.typeId() == TypeID.BINARY) {
+                      val buffer = value.asInstanceOf[ByteBuffer].duplicate()
+                      val bytes = new Array[Byte](buffer.remaining())
+                      buffer.get(bytes)
+                      bytes
+                    } else if (sourceType.typeId() == TypeID.DATE) {
+                      value.toString.getBytes(UTF_8)
+                    } else TypeUtil.getPartitionValueString(sourceType, value).getBytes(UTF_8)
+                  )
+                case _ =>
+              }
+              identityPartitionKeys.add(identityKeys)
+            }
             metadataColumns.add(
               genMetadataColumns(metadataColumnNames, filePath, task.start(), task.length()))
             val currentFileFormat = convertFileFormat(task.file().format())
@@ -97,7 +128,7 @@ object GlutenIcebergSourceUtil {
       case o =>
         throw new GlutenNotSupportException(s"Unsupported input partition type: $o")
     }
-    IcebergLocalFilesBuilder.makeIcebergLocalFiles(
+    val localFiles = IcebergLocalFilesBuilder.makeIcebergLocalFiles(
       partition.index,
       paths,
       starts,
@@ -113,7 +144,24 @@ object GlutenIcebergSourceUtil {
       fieldIds,
       initialDefaults
     )
+    if (equalityDeleteSchema != null) {
+      val fileSchema = SparkSchemaUtil.convert(equalityDeleteSchema)
+      localFiles.setFileSchema(StructType(fileSchema.fields.map {
+        field => field.copy(name = AvroSchemaUtil.makeCompatibleName(field.name))
+      }))
+      localFiles.setEqualityDeleteMetadata(
+        equalityDeleteSchema,
+        dataSequenceNumbers,
+        identityPartitionKeys)
+    }
+    localFiles
   }
+
+  def equalityDeleteFiles(sparkScan: Scan): Seq[DeleteFile] =
+    asFileScanTask(getScanTasks(sparkScan)).flatMap(_.deletes().asScala)
+      .filter(_.content() == FileContent.EQUALITY_DELETES)
+
+  def tableSchema(sparkScan: Scan): Schema = getTable(sparkScan).schema()
 
   def getFieldIds(sparkScan: Scan): JHashMap[String, Integer] = {
     val fieldIds = new JHashMap[String, Integer]()
