@@ -61,6 +61,7 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.task.TaskResources
+import org.apache.spark.unsafe.types.UTF8String
 
 import io.substrait.proto.JoinRel
 import org.apache.commons.lang3.ClassUtils
@@ -1348,6 +1349,75 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     } else {
       c
     }
+  }
+
+  /**
+   * Spark replaces `right(str, len)` with
+   * `If(IsNull(str), null, If(len <= 0, "", Substring(str, -len, Int.MaxValue)))` before physical
+   * planning. Convert that shape to `If(IsNull(str), null, right(str, len))` so that Velox runs the
+   * Spark `right` function directly instead of `if` and `substring`.
+   */
+  private object SparkRightShape {
+    private def unwrapKnownNotNull(expression: Expression): Expression = expression match {
+      case KnownNotNull(child) => unwrapKnownNotNull(child)
+      case other => other
+    }
+
+    def unapply(expression: Expression): Option[(Expression, Expression, If)] = expression match {
+      case outer @ If(
+            IsNull(nullCheckedStr),
+            Literal(null, _),
+            If(
+              LessThanOrEqual(nonPositiveLen, Literal(0, IntegerType)),
+              Literal(empty: UTF8String, StringType),
+              Substring(substringStr, UnaryMinus(substringLen, _), Literal(Int.MaxValue, _))
+            )
+          )
+          if empty == UTF8String.EMPTY_UTF8 &&
+            unwrapKnownNotNull(nullCheckedStr).semanticEquals(
+              unwrapKnownNotNull(substringStr)) &&
+            nonPositiveLen.semanticEquals(substringLen) =>
+        Some((nullCheckedStr, nonPositiveLen, outer))
+      case _ => None
+    }
+  }
+
+  override def extraExpressionConverter(
+      substraitExprName: String,
+      expr: Expression,
+      attributeSeq: Seq[Attribute]): Option[ExpressionTransformer] = expr match {
+    case SparkRightShape(str, len, original) =>
+      // `substraitExprName` is the outer `if`. If any function in Spark's replacement or in the
+      // converted expression is blacklisted, keep Spark's replacement, which Gluten converts or
+      // falls back as usual.
+      val blacklist = GlutenConfig.get.expressionBlacklist
+      val usedFunctions =
+        Seq(
+          substraitExprName,
+          ExpressionNames.RIGHT,
+          ExpressionNames.IS_NULL,
+          ExpressionNames.SUBSTRING)
+      if (usedFunctions.exists(blacklist.contains)) {
+        None
+      } else {
+        val strTransformer = ExpressionConverter.replaceWithExpressionTransformer(str, attributeSeq)
+        val lenTransformer = ExpressionConverter.replaceWithExpressionTransformer(len, attributeSeq)
+        Some(
+          IfTransformer(
+            substraitExprName,
+            GenericExpressionTransformer(
+              ExpressionNames.IS_NULL,
+              Seq(strTransformer),
+              IsNull(str)),
+            LiteralTransformer(Literal.create(null, original.dataType)),
+            GenericExpressionTransformer(
+              ExpressionNames.RIGHT,
+              Seq(strTransformer, lenTransformer),
+              Right(str, len)),
+            original
+          ))
+      }
+    case _ => None
   }
 
   /** Define backend specfic expression mappings. */
