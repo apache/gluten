@@ -38,6 +38,9 @@ on:
       - 'cpp/**'
       - 'dev/**'
       - 'build/mvn'
+      # The upstream Iceberg harness has its own workflow.
+      - '!backends-velox/src-iceberg-upstream/**'
+      - '!gluten-ut/src-iceberg-upstream/**'
   # Nightly full run. PR runs trim the TPC matrices to representative JDKs and
   # skip the OOM / random-kill chaos jobs unless native code changed (see
   # detect-changes' `full_run` output); this scheduled run restores the full
