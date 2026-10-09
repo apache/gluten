@@ -22,7 +22,8 @@ Only reads are supported. Writes fall back to vanilla Spark.
   pinned version is the `lance.version` property in the root `pom.xml`.
 - **Platform:** lance-core ships its native library for `linux-x86-64`, `linux-aarch64` and
   `darwin-aarch64`.
-- **Spark:** tested with Spark 3.5. lance-spark also publishes Spark 3.4 and 4.x artifacts.
+- **Spark:** tested with Spark 3.5 and 4.0. lance-spark also publishes Spark 3.4, 4.1 and 4.2
+  artifacts.
 
 ## Building
 
@@ -42,8 +43,6 @@ mvn test -pl backends-velox -Pbackends-velox -Pspark-3.5 -Plance -Plance-test \
 ```
 
 ## Reading
-
-Offload / Fallback.
 
 A plain columnar Lance scan is offloaded:
 

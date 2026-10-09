@@ -40,13 +40,18 @@ class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
       .set("spark.sql.shuffle.partitions", "1")
       .set("spark.memory.offHeap.size", "2g")
       .set("spark.sql.autoBroadcastJoinThreshold", "-1")
+      // Spark 4.x defaults to ANSI mode, which Velox does not offload yet.
+      .set("spark.sql.ansi.enabled", "false")
       // Path-based reads use the DataSource directly; the catalog is registered for parity with
       // lance-spark's own tests and any namespace-qualified access.
       .set("spark.sql.catalog.lance", "org.lance.spark.LanceNamespaceSparkCatalog")
   }
 
   /** Writes a small Lance dataset and registers it as a temp view. */
-  private def withLanceView(view: String, rows: Int)(f: => Unit): Unit = {
+  private def withLanceView(
+      view: String,
+      rows: Int,
+      writeOptions: Map[String, String] = Map.empty)(f: => Unit): Unit = {
     withTempPath {
       path =>
         val uri = s"${path.getCanonicalPath}/$view.lance"
@@ -58,6 +63,7 @@ class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
             "concat('n', cast(id as string)) as name")
           .write
           .format("lance")
+          .options(writeOptions)
           .option("path", uri)
           .save()
 
@@ -135,6 +141,20 @@ class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
           checkGlutenPlan[LanceScanTransformer](df)
           checkAnswer(df, (0 until 50).map(i => Row(i, i * 2)))
       }
+    }
+  }
+
+  test("lance scan reads a multi-fragment dataset") {
+    withLanceView("lance_multi", 1000, Map("max_row_per_file" -> "100")) {
+      runQueryAndCompare("select id, v, name from lance_multi") {
+        df =>
+          checkGlutenPlan[LanceScanTransformer](df)
+          assert(df.rdd.getNumPartitions > 1, "Expected one partition per Lance fragment")
+      }
+      // LIMIT stops consuming before the fragments are exhausted, so open scans are released by
+      // the task-completion listener rather than on exhaustion.
+      val limited = spark.sql("select id from lance_multi limit 5")
+      assert(limited.collect().length == 5)
     }
   }
 
