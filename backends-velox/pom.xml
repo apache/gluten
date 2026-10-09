@@ -434,10 +434,6 @@
       <activation>
         <activeByDefault>false</activeByDefault>
       </activation>
-      <properties>
-        <!-- The version should be same with the version in assertj-core -->
-        <byte-buddy.version>1.14.18</byte-buddy.version>
-      </properties>
       <dependencies>
         <dependency>
           <groupId>org.apache.gluten</groupId>
@@ -445,18 +441,26 @@
           <version>${project.version}</version>
         </dependency>
         <dependency>
-          <groupId>org.apache.gluten</groupId>
-          <artifactId>gluten-iceberg</artifactId>
-          <version>${project.version}</version>
-          <type>test-jar</type>
-          <scope>test</scope>
-        </dependency>
-        <dependency>
           <groupId>org.apache.iceberg</groupId>
           <artifactId>iceberg-spark-runtime-${sparkbundle.version}_${scala.binary.version}</artifactId>
           <version>${iceberg.version}</version>
           <scope>provided</scope>
         </dependency>
+      </dependencies>
+    </profile>
+    <profile>
+      <id>iceberg-upstream-test</id>
+      <properties>
+        <!-- The version should be same with the version in assertj-core -->
+        <byte-buddy.version>1.14.18</byte-buddy.version>
+        <iceberg.upstream.test.classes>${project.build.directory}/iceberg-upstream-test-classes-${sparkbundle.version}_${scala.binary.version}</iceberg.upstream.test.classes>
+        <iceberg.upstream.reports>${project.build.directory}/iceberg-upstream-reports</iceberg.upstream.reports>
+        <!-- Upstream concurrency tests have short deadlines; avoid competing Spark contexts. -->
+        <iceberg.upstream.forks>1</iceberg.upstream.forks>
+        <iceberg.upstream.shard>0</iceberg.upstream.shard>
+        <iceberg.upstream.shards>1</iceberg.upstream.shards>
+      </properties>
+      <dependencies>
         <dependency>
           <groupId>org.apache.iceberg</groupId>
           <artifactId>iceberg-spark-${sparkbundle.version}_${scala.binary.version}</artifactId>
@@ -554,45 +558,6 @@
           <version>3.53.2.0</version>
           <scope>test</scope>
         </dependency>
-      </dependencies>
-    </profile>
-    <profile>
-      <id>iceberg-test</id>
-      <activation>
-        <activeByDefault>false</activeByDefault>
-      </activation>
-      <properties>
-        <hadoop.version>3.4.1</hadoop.version>
-      </properties>
-      <dependencies>
-        <dependency>
-          <groupId>org.apache.iceberg</groupId>
-          <artifactId>iceberg-open-api</artifactId>
-          <version>${iceberg.version}</version>
-          <type>test-jar</type>
-          <scope>test</scope>
-        </dependency>
-        <dependency>
-          <groupId>org.apache.iceberg</groupId>
-          <artifactId>iceberg-open-api</artifactId>
-          <version>${iceberg.version}</version>
-          <classifier>test-fixtures</classifier>
-          <type>test-jar</type>
-          <scope>test</scope>
-        </dependency>
-      </dependencies>
-    </profile>
-    <profile>
-      <id>iceberg-upstream-test</id>
-      <properties>
-        <iceberg.upstream.test.classes>${project.build.directory}/iceberg-upstream-test-classes-${sparkbundle.version}_${scala.binary.version}</iceberg.upstream.test.classes>
-        <iceberg.upstream.reports>${project.build.directory}/iceberg-upstream-reports</iceberg.upstream.reports>
-        <!-- Upstream concurrency tests have short deadlines; avoid competing Spark contexts. -->
-        <iceberg.upstream.forks>1</iceberg.upstream.forks>
-        <iceberg.upstream.shard>0</iceberg.upstream.shard>
-        <iceberg.upstream.shards>1</iceberg.upstream.shards>
-      </properties>
-      <dependencies>
         <dependency>
           <groupId>org.junit.platform</groupId>
           <artifactId>junit-platform-launcher</artifactId>

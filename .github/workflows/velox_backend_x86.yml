@@ -772,15 +772,15 @@ jobs:
           export SPARK_HOME=/opt/shims/spark34/spark_home/
           TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest"
           if [ "${{ matrix.group }}" = "1" ]; then
-            $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Piceberg-test -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Pdelta -Phudi -Ppaimon -Pspark-ut \
             -DtagsToExclude="$TAGS_EXCLUDE" -DargLine="-Dspark.test.home=$SPARK_HOME" \
             -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
           elif [ "${{ matrix.group }}" = "2" ]; then
-            $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Piceberg-test -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Pdelta -Phudi -Ppaimon -Pspark-ut \
             -DtagsToExclude="$TAGS_EXCLUDE" -DargLine="-Dspark.test.home=$SPARK_HOME" \
             -DwildcardSuites="org.apache.spark.sql.execution,org.apache.spark.sql.catalyst,org.apache.spark.sql.errors,org.apache.spark.sql.extension"
           else
-            $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Piceberg-test -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Pdelta -Phudi -Ppaimon -Pspark-ut \
             -DtagsToExclude="$TAGS_EXCLUDE" -DargLine="-Dspark.test.home=$SPARK_HOME" \
             -DwildcardSuites="org.apache.spark.sql.GlutenSQL,org.apache.spark.sql.Gluten,org.apache.spark.sql.connector,org.apache.spark.sql.sources,org.apache.spark.sql.hive,org.apache.spark.sql.gluten,org.apache.spark.sql.shim"
           fi
@@ -834,11 +834,11 @@ jobs:
           java -version
           export SPARK_HOME=/opt/shims/spark34/spark_home/
           if [ "${{ matrix.suite }}" = "extended" ]; then
-            $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Pdelta -Phudi -Ppaimon -Pspark-ut \
             -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest \
             -DargLine="-Dspark.test.home=$SPARK_HOME"
           else
-            $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Pdelta -Phudi -Ppaimon -Pspark-ut \
             -DtagsToInclude=org.apache.spark.tags.SlowHiveTest \
             -DargLine="-Dspark.test.home=$SPARK_HOME"
           fi
@@ -1247,7 +1247,7 @@ jobs:
       - name: Build with fast-build profile (Spark 4.0, Java 17)
         run: |
           cd $GITHUB_WORKSPACE/
-          $MVN_CMD clean test-compile -Pspark-4.0 -Pscala-2.13 -Pbackends-velox -Pspark-ut -Piceberg,iceberg-test,delta,paimon -Pfast-build
+          $MVN_CMD clean test-compile -Pspark-4.0 -Pscala-2.13 -Pbackends-velox -Pspark-ut -Piceberg,delta,paimon -Pfast-build
 
   build-test-spark42:
     needs: detect-changes

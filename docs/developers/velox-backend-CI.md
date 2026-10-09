@@ -190,7 +190,10 @@ change. Diagnostic differences are still exported when available after a failed 
 but they never make an invalid run pass. A fresh base run means
 merged improvements automatically become requirements for subsequent PRs, without
 maintaining baseline files. Repository branch protection must require the gate check
-to enforce this at merge time. Existing Gluten Iceberg tests remain in their jobs.
+to enforce this at merge time. This Spark 3.5 workflow replaces the copied upstream tests
+and the handwritten Velox Iceberg query, writer and TPC-H suites. The ordinary Spark 3.4,
+4.0 and 4.1 jobs do not run Iceberg integration tests. Gluten serialization unit tests remain;
+the shared Iceberg test base and fixtures are still used by the Bolt and ClickHouse backends.
 
 To reproduce locally after building the native backend, use JDK 17 and run:
 
@@ -203,8 +206,7 @@ python3 .github/workflows/util/iceberg-upstream/summarize.py backends-velox/targ
 
 Use `-Dtest=org.apache.iceberg.spark.sql.TestSelect` to select one
 class. Local runs fail on test failures by default. The upstream profile uses a
-separate test class directory so copied Iceberg classes cannot shadow the published
-ones, even after building with `-Piceberg-test`.
+separate test class directory so local test classes cannot shadow the published ones.
 Start with a clean reports directory when changing test selections, to avoid mixing runs.
 Run the observer's regression checks with the same Surefire command and
 `'-Dtest=org.apache.gluten.integration.*Test'`.
