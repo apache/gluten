@@ -968,9 +968,11 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
   }
 
   test("case-sensitive mode: lowercase input_file_name as data column -- platform compatibility") {
-    // Under caseSensitive=true, a column named `input_file_name` can be queried alongside
-    // input_file_name(). For BatchScanExecTransformerBase (Iceberg), PushDownInputFileExpression
-    // adds a fallback tag to ProjectExec when input_file expressions are present.
+    // Under caseSensitive=true, a column named `input_file_name` (exact lowercase) causes a
+    // name collision with the input_file_name() function prettyName.  PreOffload detects this
+    // collision and adds a fallback tag to the scan (BatchScanExec) before OffloadOthers runs,
+    // preventing it from being converted to a native transformer.  The JVM scan then sets the
+    // InputFileName thread-local so input_file_name() returns a valid non-empty file path.
     withSQLConf("spark.sql.caseSensitive" -> "true") {
       withTable("iceberg_exact_collision") {
         spark.sql("""

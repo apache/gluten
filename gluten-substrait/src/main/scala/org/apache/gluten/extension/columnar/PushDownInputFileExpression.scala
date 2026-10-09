@@ -218,7 +218,12 @@ object PushDownInputFileExpression {
      * normalises (via ConverterUtils.normalizeColName) to the same lowercase string.
      *
      * Under caseSensitive=true, normalizeColName preserves case, so "Input_File_Name" and
-     * "input_file_name" remain distinct -- no mangling needed, empty set returned.
+     * "input_file_name" remain distinct -- no mangling needed, empty set returned. However, a user
+     * column whose name is an exact lowercase match to the function prettyName (e.g.
+     * "input_file_name") will still be detected as a collision even under caseSensitive=true,
+     * because both names normalise to the same string. In that case the injected alias is mangled
+     * AND the scan is fallback-tagged (in addMetadataCol) so the JVM scan sets the InputFileName
+     * thread-local.
      *
      * Under caseSensitive=false, normalizeColName lowercases all names. A user column
      * "Input_File_Name" lowercases to "input_file_name", colliding with the injected alias of the
@@ -254,13 +259,22 @@ object PushDownInputFileExpression {
           // to prevent offloading when input_file expressions are present.
           addFallbackTag(ProjectExec(p.output ++ replacedExprs.values, p))
         case p: LeafExecNode if shouldAddInputFileExpr(p) =>
-          // The injected aliases have already been given mangled schema names (via
-          // rewriteExpr + collidingInputFilePrettyNames) when a caseSensitive=false name
-          // collision exists, so the Velox NamedStruct will not contain duplicate lowercased
-          // names. No fallback is needed here; the scan can be offloaded natively.
+          // When a name collision was detected (any injected alias carries
+          // GLUTEN_INPUT_FILE_CANON_KEY, meaning its schema name was mangled), the native
+          // scan cannot safely produce both the user data column and the metadata column under
+          // the same effective name.  Adding a fallback tag to the scan node HERE (before
+          // OffloadOthers runs) prevents the scan from being converted to a native transformer.
+          // The JVM scan will then set the InputFileName thread-local so InputFileName()
+          // returns the correct non-empty file path.
+          //
+          // When no collision exists, the injected aliases have already been given the correct
+          // non-mangled schema names and the scan can be offloaded natively.
           // makeColumnTypeNode classifies injected attrs as METADATA_COL (kSynthesized)
           // via isInjectedInputFileAttr, and BasicScanExecTransformer.partitionToSplitInfo
           // uses injectedInputFileCanonName to populate the correct infoColumns value.
+          val hasCollision =
+            replacedExprs.values.exists(a => a.metadata.contains(GLUTEN_INPUT_FILE_CANON_KEY))
+          if (hasCollision) addFallbackTag(p)
           ProjectExec(p.output ++ replacedExprs.values, p)
         case p: LeafExecNode =>
           p
