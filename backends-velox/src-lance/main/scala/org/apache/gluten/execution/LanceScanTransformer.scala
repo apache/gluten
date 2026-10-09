@@ -33,7 +33,9 @@ import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
 
 import org.apache.arrow.c.{ArrowArrayStream, Data}
+import org.apache.arrow.memory.BufferAllocator
 import org.apache.arrow.vector.FieldVector
+import org.apache.arrow.vector.ipc.ArrowReader
 import org.lance.spark.internal.LanceArrowStreamScanner
 import org.lance.spark.read.{LanceInputPartition, LanceScan}
 
@@ -55,8 +57,8 @@ import scala.collection.JavaConverters._
  * Each imported batch is transferred out of the reader's root into independent Arrow buffers so the
  * emitted [[ColumnarBatch]] owns its data: Gluten's offload transition C-exports then closes each
  * batch, and the recycle callback closes it again, exactly as for [[ColumnarRangeExec]]. The reader
- * and the lance-spark handle are closed on task completion, which releases the native scan and the
- * caller-owned stream struct.
+ * and the lance-spark handle are closed as soon as a fragment is exhausted (or on task completion
+ * if the task ends early), which releases the native scan and the caller-owned stream struct.
  */
 case class LanceScanTransformer(@transient batchScan: BatchScanExec)
   extends LeafExecNode
@@ -135,59 +137,11 @@ private class LanceColumnarRDD(
     val batches: Iterator[ColumnarBatch] =
       lancePartition.getLanceSplit.getFragments.asScala.iterator.flatMap {
         fragId =>
-          // Plan + export the fragment scan on the lance-spark side; only the C-struct address
-          // crosses over. wrap() views that struct with Gluten's Arrow, and importArrayStream()
-          // moves it into a reader that owns and drains the native scan.
-          val handle = LanceArrowStreamScanner.export(fragId.intValue(), lancePartition)
-          val stream = ArrowArrayStream.wrap(handle.streamAddress())
-          val reader = Data.importArrayStream(allocator, stream)
-          context.addTaskCompletionListener[Unit] {
-            _ =>
-              try {
-                // Drains + runs the C release callback, tearing down the native scan.
-                reader.close()
-              } finally {
-                // Frees the caller-owned stream struct and closes the scanner + dataset.
-                handle.close()
-              }
-          }
-
-          new Iterator[ColumnarBatch] {
-            private var advanced = false
-            private var hasMore = false
-
-            private def advance(): Unit =
-              if (!advanced) {
-                hasMore = reader.loadNextBatch()
-                advanced = true
-              }
-
-            override def hasNext: Boolean = {
-              advance()
-              hasMore
-            }
-
-            override def next(): ColumnarBatch = {
-              advance()
-              if (!hasMore) {
-                throw new NoSuchElementException()
-              }
-              advanced = false
-              val root = reader.getVectorSchemaRoot
-              val rowCount = root.getRowCount
-              // Transfer (zero-copy move) each column out of the reader's reused root so the emitted
-              // batch owns its buffers and is safe for the offload transition to close.
-              val transferred = new java.util.ArrayList[FieldVector](root.getFieldVectors.size())
-              root.getFieldVectors.asScala.foreach {
-                fv =>
-                  val pair = fv.getTransferPair(allocator)
-                  pair.transfer()
-                  transferred.add(pair.getTo.asInstanceOf[FieldVector])
-              }
-              val vectors = ArrowWritableColumnVector.loadColumns(rowCount, transferred)
-              new ColumnarBatch(vectors.asInstanceOf[Array[ColumnVector]], rowCount)
-            }
-          }
+          val fragment = new LanceFragmentIterator(fragId.intValue(), lancePartition, allocator)
+          // Safety net for early task termination; normally the fragment closes itself once
+          // exhausted, and close() is idempotent.
+          context.addTaskCompletionListener[Unit](_ => fragment.close())
+          fragment
       }
 
     Iterators
@@ -195,4 +149,82 @@ private class LanceColumnarRDD(
       .recyclePayload((batch: ColumnarBatch) => batch.close())
       .create()
   }
+}
+
+/**
+ * Reads one Lance fragment through the Arrow C stream. Native resources are released as soon as the
+ * fragment is exhausted, so a partition spanning many fragments holds at most one open scan.
+ */
+private class LanceFragmentIterator(
+    fragId: Int,
+    partition: LanceInputPartition,
+    allocator: BufferAllocator)
+  extends Iterator[ColumnarBatch]
+  with AutoCloseable {
+
+  // Plan + export the fragment scan on the lance-spark side; only the C-struct address crosses
+  // over. wrap() views that struct with Gluten's Arrow, and importArrayStream() moves it into a
+  // reader that owns and drains the native scan.
+  private val handle = LanceArrowStreamScanner.export(fragId, partition)
+
+  private val reader: ArrowReader =
+    try {
+      Data.importArrayStream(allocator, ArrowArrayStream.wrap(handle.streamAddress()))
+    } catch {
+      case t: Throwable =>
+        try handle.close()
+        catch { case s: Throwable => t.addSuppressed(s) }
+        throw t
+    }
+
+  private var closed = false
+  private var advanced = false
+  private var hasMore = false
+
+  private def advance(): Unit =
+    if (!advanced) {
+      hasMore = reader.loadNextBatch()
+      advanced = true
+      if (!hasMore) {
+        close()
+      }
+    }
+
+  override def hasNext: Boolean = !closed && {
+    advance()
+    hasMore
+  }
+
+  override def next(): ColumnarBatch = {
+    if (!hasNext) {
+      throw new NoSuchElementException()
+    }
+    advanced = false
+    val root = reader.getVectorSchemaRoot
+    val rowCount = root.getRowCount
+    // Transfer (zero-copy move) each column out of the reader's reused root so the emitted batch
+    // owns its buffers: it stays valid after the reader is closed, and is safe for the offload
+    // transition to close.
+    val transferred = new java.util.ArrayList[FieldVector](root.getFieldVectors.size())
+    root.getFieldVectors.asScala.foreach {
+      fv =>
+        val pair = fv.getTransferPair(allocator)
+        pair.transfer()
+        transferred.add(pair.getTo.asInstanceOf[FieldVector])
+    }
+    val vectors = ArrowWritableColumnVector.loadColumns(rowCount, transferred)
+    new ColumnarBatch(vectors.asInstanceOf[Array[ColumnVector]], rowCount)
+  }
+
+  override def close(): Unit =
+    if (!closed) {
+      closed = true
+      try {
+        // Drains + runs the C release callback, tearing down the native scan.
+        reader.close()
+      } finally {
+        // Frees the caller-owned stream struct and closes the scanner + dataset.
+        handle.close()
+      }
+    }
 }
