@@ -671,6 +671,7 @@ object ExpressionConverter extends SQLConfHelper with Logging {
       case b: BinaryArithmetic if DecimalArithmeticUtil.isDecimalArithmetic(b) =>
         val exprName = BackendsApiManager.getSparkPlanExecApiInstance.getDecimalArithmeticExprName(
           substraitExprName,
+          b,
           SparkShimLoader.getSparkShims.decimalAllowPrecisionLoss(b))
         if (!BackendsApiManager.getSettings.transformCheckOverflow) {
           GenericExpressionTransformer(
