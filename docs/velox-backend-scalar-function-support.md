@@ -260,7 +260,7 @@ The status applies to `spark.sql.ansi.enabled=false`. When ANSI mode is enabled,
 | atan2             | Atan2                  | S        |                |
 | atanh             | Atanh                  | S        |                |
 | bin               | Bin                    | S        |                |
-| bround            | BRound                 |          |                |
+| bround            | BRound                 | PS       | Requires Velox `bround` and `decimal_bround`. FLOAT and DOUBLE round the native binary value directly and can differ from Spark's decimal-string conversion (for example, `bround(cast(0.575 as DOUBLE), 2)` returns `0.57`). |
 | cbrt              | Cbrt                   | S        |                |
 | ceil              | CeilExpressionBuilder  | PS       |                |
 | ceiling           | CeilExpressionBuilder  | PS       |                |
@@ -538,4 +538,3 @@ The status applies to `spark.sql.ansi.enabled=false`. When ANSI mode is enabled,
 | xpath_number      | XPathDouble         |          |                |
 | xpath_short       | XPathShort          |          |                |
 | xpath_string      | XPathString         |          |                |
-

@@ -625,7 +625,9 @@ trait SparkPlanExecApi {
     if (toScale < 0) {
       // negative scale means we need to adjust `-scale` number of digits before the decimal
       // point, which means we need at lease `-scale + 1` digits (after rounding).
-      val newPrecision = math.max(integralLeastNumDigits, -toScale + 1)
+      // Bound before negation because -Int.MinValue overflows back to Int.MinValue.
+      val boundedScale = math.max(toScale, -DecimalType.MAX_PRECISION)
+      val newPrecision = math.max(integralLeastNumDigits, -boundedScale + 1)
       // We have to accept the risk of overflow as we can't exceed the max precision.
       DecimalType(math.min(newPrecision, DecimalType.MAX_PRECISION), 0)
     } else {
