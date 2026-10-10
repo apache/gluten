@@ -110,7 +110,8 @@ and [113 minutes for a C++ x86 run](https://github.com/apache/gluten/actions/run
 
 | Critical dependency chain | Configured execution budget |
 | --- | --- |
-| x86 JVM or enhanced | Detection 1 + native 6 + compile 10 + tests 60 = **77 min** |
+| x86 JVM | Detection 1 + native 6 + compile 10 + tests 60 = **77 min** |
+| Enhanced | Detection 1 + native 8 + compile 10 + tests 60 = **79 min** |
 | Integration with shared builds | Detection 1 + native 6 + compile 8 + tests 65 = **80 min** |
 | Integration auxiliary / Uniffle | Detection 1 + native 6 + job 72 = **79 min** |
 | ARM TPC / C++ | Detection 1 + native 10 + TPC 69, or detection 1 + C++ 79 = **80 min** |
@@ -145,7 +146,10 @@ pipeline. Each configuration has one producer and parallel test consumers:
 entries cannot exclude a new test. Both Surefire and ScalaTest retain their normal
 discovery rules, with an additional class-shard filter. Standard suite prefixes and
 slow tags are retained, and each JUnit case runs once per configuration. Inner
-classes stay with their enclosing class.
+classes stay with their enclosing class. The three original standard groups,
+extended SQL tests and slow Hive tests run in separate JVM invocations, restoring
+clean fixtures between them. Combining these groups can corrupt eagerly created
+Spark/Hive sessions even when tags exclude a suite's test methods.
 
 The producer runs normal `test-compile`, including style checks. The archive records
 the commit, configuration, architecture and build arguments. Consumers verify these
@@ -163,7 +167,8 @@ checks. Nightly/manual runs retain the wider JDK and Celeborn matrices.
 
 Four plain TPC build producers and one Celeborn producer replace repeated builds
 across matching PR consumers. Uniffle retains its distinct build. Producers compile
-production code with `fast-build` and skip unused root test compilation; the
+production code with `fast-build` and `-DskipTests`, which also packages the test
+jars required by downstream reactor modules without executing root tests; the
 `gluten-it` build still runs its own tests. `tpc-build.py` transfers the complete
 runtime JAR directory and validates the commit, Spark, JDK and shuffle configuration.
 Consumers continue executing the existing queries in their original OS/JDK environments.
@@ -208,8 +213,8 @@ python3 -m unittest discover -s gluten-ut/src-ci/test/workflows
 
 Runner-minutes are the sum of job durations. Workflow splitting and concurrency caps
 alone do not save usage. Savings come from replacing the copied Iceberg suites,
-reducing ordinary/enhanced JVM builds from 29 to 10, sharing TPC builds, skipping
-unused integration test compilation, and reusing stress-test input data. Iceberg-only
+reducing ordinary/enhanced JVM builds from 29 to 10, sharing TPC builds,
+and reusing stress-test input data. Iceberg-only
 harness edits also avoid unrelated ordinary/enhanced/ARM builds and tests.
 
 The existing timing samples account for about **92 runner-minutes of removed legacy
@@ -354,14 +359,18 @@ the previous commit. `baseline-identity.json` identifies the tested revision, co
 revision and original workflow run. Baseline artifacts use the repository's normal retention
 period and require only read access to Actions; no privileged promotion workflow is needed.
 
-Baseline lookup happens after all head tests. A missing, expired, incompatible or unverified
+Baseline lookup happens after all head tests. The initial introduction is detected from
+the target Git tree: it must contain neither the Iceberg workflow nor its harness.
+Only this case validates and saves the complete head evidence without requiring a comparison.
+The summary and JSON explicitly identify this bootstrap; they do not claim zero regressions.
+After the harness exists on main, a missing, expired, incompatible or unverified
 baseline fails the comparison without running base or suppressing head results. The complete
 head CSVs and raw logs remain downloadable for manual review. The JSON says that comparison
 was unavailable, and the changes-only CSV has a header with no rows because no differences
 could be established. Such a run can still publish a validated head result: if maintainers
-review and merge it, that result becomes eligible as the next baseline. This also bootstraps
-the first run. An unmerged PR, incomplete test run or invalid execution evidence cannot supply
-a baseline. A manual target-branch run can refresh an expired or missing result.
+review and merge it, that result becomes eligible as the next baseline. An unmerged PR,
+incomplete test run or invalid execution evidence cannot supply a baseline.
+A manual target-branch run can refresh an expired or missing result.
 
 Each run has five shards, with one Spark fork per runner. With this odd shard count,
 the stable CRC32 partition assigns every method of a class to the same runner. All

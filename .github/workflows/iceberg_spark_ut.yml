@@ -64,6 +64,7 @@ jobs:
     outputs:
       base_sha: ${{ steps.baseline.outputs.base_sha }}
       baseline_key: ${{ steps.baseline.outputs.baseline_key }}
+      initial_baseline: ${{ steps.baseline.outputs.initial_baseline }}
       head_key: ${{ steps.baseline.outputs.head_key }}
       test_image: ${{ steps.baseline.outputs.test_image }}
       native_image: ${{ steps.baseline.outputs.native_image }}
@@ -244,18 +245,26 @@ jobs:
         run: |
           timeout 40s python3 .github/workflows/util/iceberg-upstream/baseline.py restore \
             --directory iceberg-base --key "$BASELINE_KEY" --revision "$BASE_SHA" --branch "$BASE_BRANCH"
-      - name: Reject regressions or an unavailable comparison
+      - name: Reject regressions or validate initial baseline evidence
         if: always()
         env:
           BASELINE_OUTCOME: ${{ steps.baseline.outcome }}
+          INITIAL_BASELINE: ${{ needs.prepare.outputs.initial_baseline }}
+        shell: bash
         run: |
           baseline=iceberg-base/execution-coverage.json
+          bootstrap=()
           if [ "$BASELINE_OUTCOME" != success ]; then
             baseline=iceberg-base/unavailable.json
+            # Only the first introduction can precede the existence of main results.
+            # Missing/expired results after the harness is on main still fail.
+            if [ "$INITIAL_BASELINE" = true ]; then
+              bootstrap=(--bootstrap)
+            fi
           fi
           python3 .github/workflows/util/iceberg-upstream/compare.py \
             "$baseline" iceberg-head/execution-coverage.json \
-            --output iceberg-comparison.json
+            --output iceberg-comparison.json "${bootstrap[@]}"
       - name: Upload complete coverage and changes
         id: reports
         if: always()

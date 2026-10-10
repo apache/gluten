@@ -19,6 +19,7 @@ import io
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -115,6 +116,49 @@ class Source:
 
 
 class BaselineTest(unittest.TestCase):
+    def test_initial_baseline_requires_a_target_tree_without_any_harness(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            git = ["git", "-C", str(root)]
+            subprocess.run(git + ["init", "-q"], check=True)
+            commit = git + [
+                "-c",
+                "user.name=CI test",
+                "-c",
+                "user.email=ci@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "fixture",
+            ]
+            subprocess.run(commit, check=True)
+            original = Path.cwd()
+            try:
+                os.chdir(root)
+                self.assertTrue(baseline.initial_baseline("HEAD"))
+                with self.assertRaises(subprocess.CalledProcessError):
+                    baseline.initial_baseline("nonexistent-revision")
+                # An existing harness still disallows bootstrap if its workflow
+                # was renamed or temporarily removed from main.
+                harness = root / "backends-velox/src-iceberg-upstream/Observer.java"
+                harness.parent.mkdir(parents=True)
+                harness.touch()
+                subprocess.run(git + ["add", "."], check=True)
+                subprocess.run(commit, check=True)
+                self.assertFalse(baseline.initial_baseline("HEAD"))
+                self.assertTrue(baseline.initial_baseline("HEAD^"))
+                harness.unlink()
+                workflow = root / ".github/workflows/iceberg_spark_ut.yml"
+                workflow.parent.mkdir(parents=True)
+                workflow.touch()
+                subprocess.run(git + ["add", "."], check=True)
+                subprocess.run(commit, check=True)
+                self.assertFalse(baseline.initial_baseline("HEAD"))
+            finally:
+                os.chdir(original)
+
     def test_every_comparison_input_invalidates_the_saved_result(self):
         values = [TREE, "harness-hash", "native@sha256:one", "jdk@sha256:two"]
         key = baseline.artifact_key(*values)

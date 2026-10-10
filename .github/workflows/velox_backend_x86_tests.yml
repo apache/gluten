@@ -115,9 +115,9 @@ jobs:
             celeborn-0.5.4) shuffle=-Pceleborn; tools_shuffle=-Pceleborn,celeborn-0.5 ;;
             celeborn-0.6.3) shuffle=-Pceleborn; tools_shuffle=-Pceleborn,celeborn-0.6 ;;
           esac
-          # Style and test compilation remain in JVM verification. Integration
-          # consumers all use these freshly packaged production classes.
-          build/mvn -ntp clean install -Pbackends-velox,fast-build -P"$TPC_SPARK" -P"$TPC_JAVA" $scala $shuffle -Dmaven.test.skip=true
+          # Downstream reactor modules require Gluten's test jars even when no
+          # tests execute here. Compile/package them without running the suites.
+          build/mvn -ntp clean install -Pbackends-velox,fast-build -P"$TPC_SPARK" -P"$TPC_JAVA" $scala $shuffle -DskipTests
           (cd tools/gluten-it && "$GITHUB_WORKSPACE/build/mvn" -ntp clean install -P"$TPC_SPARK" -P"$TPC_JAVA" $tools_shuffle)
           python3 .github/workflows/util/tpc-build.py pack --archive "$RUNNER_TEMP/runtime.zip" \
             --spark "$TPC_SPARK" --java "$TPC_JAVA" --shuffle "$TPC_SHUFFLE"
@@ -184,9 +184,9 @@ jobs:
             celeborn-0.5.4) shuffle=-Pceleborn; tools_shuffle=-Pceleborn,celeborn-0.5 ;;
             celeborn-0.6.3) shuffle=-Pceleborn; tools_shuffle=-Pceleborn,celeborn-0.6 ;;
           esac
-          # Style and test compilation remain in JVM verification. Integration
-          # consumers all use these freshly packaged production classes.
-          build/mvn -ntp clean install -Pbackends-velox,fast-build -P"$TPC_SPARK" -P"$TPC_JAVA" $scala $shuffle -Dmaven.test.skip=true
+          # Downstream reactor modules require Gluten's test jars even when no
+          # tests execute here. Compile/package them without running the suites.
+          build/mvn -ntp clean install -Pbackends-velox,fast-build -P"$TPC_SPARK" -P"$TPC_JAVA" $scala $shuffle -DskipTests
           (cd tools/gluten-it && "$GITHUB_WORKSPACE/build/mvn" -ntp clean install -P"$TPC_SPARK" -P"$TPC_JAVA" $tools_shuffle)
           python3 .github/workflows/util/tpc-build.py pack --archive "$RUNNER_TEMP/runtime.zip" \
             --spark "$TPC_SPARK" --java "$TPC_JAVA" --shuffle "$TPC_SHUFFLE"

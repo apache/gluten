@@ -33,6 +33,32 @@ SPEC.loader.exec_module(build)
 
 
 class JvmTestBuildTest(unittest.TestCase):
+    def test_spark_contexts_are_isolated_by_the_original_suite_groups_and_tags(self):
+        for configuration in build.CONFIGURATIONS:
+            selections = dict(build.selections(configuration))
+            with self.subTest(configuration=configuration):
+                for filters in selections.values():
+                    included = [f for f in filters if f.startswith("-DtagsToInclude=")]
+                    self.assertTrue(all("," not in tag for tag in included))
+                if "standard-1" in selections:
+                    # SortShuffle creates its own context. Hive suite constructors
+                    # initialize TestHive before ScalaTest applies tag exclusions.
+                    shuffle = "org.apache.spark.GlutenSortShuffleSuite"
+                    hive = "org.apache.spark.sql.hive.execution.GlutenObjectHashAggregateSuite"
+                    matched = {}
+                    for name, filters in selections.items():
+                        for argument in filters:
+                            if argument.startswith("-DwildcardSuites="):
+                                prefixes = argument.split("=", 1)[1].split(",")
+                                for suite in (shuffle, hive):
+                                    if any(suite.startswith(p) for p in prefixes):
+                                        matched[suite] = name
+                    self.assertNotEqual(matched[shuffle], matched[hive])
+        self.assertEqual(
+            ["extended", "slow-hive"],
+            [name for name, _ in build.selections("spark41-slow")],
+        )
+
     def test_shards_cover_new_classes_once_and_keep_inner_classes_together(self):
         classes = ["example.SlowSuite", "example.FastSuite", "example.NewTest"]
         timings = {classes[0]: 90, classes[1]: 10, "example.RemovedSuite": 300}
@@ -103,23 +129,25 @@ class JvmTestBuildTest(unittest.TestCase):
                         checkout, root / "build.zip", "spark35", arguments, reports
                     ),
                 )
-            self.assertEqual(2, len(calls))
+            self.assertEqual(5, len(calls))
             self.assertNotIn("-Dtest=__no_repeated_junit_tests__", calls[0])
-            self.assertIn("-Dtest=__no_repeated_junit_tests__", calls[1])
+            for command in calls[1:]:
+                self.assertIn("-Dtest=__no_repeated_junit_tests__", command)
             self.assertEqual(
                 "failed",
                 (
-                    reports / "standard/module/target/surefire-reports/TEST-suite.xml"
+                    reports / "standard-1/module/target/surefire-reports/TEST-suite.xml"
                 ).read_text(),
             )
             self.assertEqual(
                 "passed",
                 (
-                    reports / "slow/module/target/surefire-reports/TEST-suite.xml"
+                    reports / "slow-hive/module/target/surefire-reports/TEST-suite.xml"
                 ).read_text(),
             )
             self.assertEqual(
-                "selection 1", (reports / "standard/module/target/test.log").read_text()
+                "selection 1",
+                (reports / "standard-1/module/target/test.log").read_text(),
             )
 
     def test_revision_check_accepts_only_the_requested_container_checkout(self):

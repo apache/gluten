@@ -92,6 +92,26 @@ def git_tree(revision):
     ).strip()
 
 
+def initial_baseline(revision):
+    """Only introduction of the harness can precede any merged baseline result."""
+    tree = git_tree(revision)
+    existing = subprocess.check_output(
+        [
+            "git",
+            "ls-tree",
+            "-r",
+            "--name-only",
+            tree,
+            "--",
+            ".github/workflows/iceberg_spark_ut.yml",
+            ".github/workflows/util/iceberg-upstream",
+            "backends-velox/src-iceberg-upstream",
+        ],
+        text=True,
+    )
+    return not existing.strip()
+
+
 def record(directory, key, revision):
     # Called only after all shards succeeded and their complete union was merged.
     index(json.loads((directory / "execution-coverage.json").read_text()))
@@ -275,6 +295,7 @@ if __name__ == "__main__":
         harness = harness_hash(checkout)
         native, test = pin_image(NATIVE_IMAGE), pin_image(TEST_IMAGE)
         print("base_sha=" + args.revision)
+        print("initial_baseline=" + str(initial_baseline(args.revision)).lower())
         print("native_image=" + native)
         print("test_image=" + test)
         print(

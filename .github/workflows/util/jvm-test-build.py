@@ -53,14 +53,15 @@ TEST_PROPERTIES = {
     "surefire.excludesFile",
 }
 
-# The union of the former three ScalaTest groups. Keep the same suite prefixes;
-# combining them lets Surefire and shared fixtures run once per configuration.
-SUITES = (
-    "org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten,"
+# Preserve the original JVM boundaries. Suite constructors can eagerly create
+# shared Spark/Hive sessions even when their tests are excluded by tags.
+SUITE_GROUPS = (
+    "org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten",
     "org.apache.spark.sql.execution,org.apache.spark.sql.catalyst,org.apache.spark.sql.errors,"
-    "org.apache.spark.sql.extension,org.apache.spark.sql.GlutenSQL,org.apache.spark.sql.Gluten,"
+    "org.apache.spark.sql.extension",
+    "org.apache.spark.sql.GlutenSQL,org.apache.spark.sql.Gluten,"
     "org.apache.spark.sql.connector,org.apache.spark.sql.sources,org.apache.spark.sql.hive,"
-    "org.apache.spark.sql.gluten,org.apache.spark.sql.shim"
+    "org.apache.spark.sql.gluten,org.apache.spark.sql.shim",
 )
 
 
@@ -76,16 +77,15 @@ def selections(configuration):
         excluded.append("org.apache.gluten.tags.EnhancedFeaturesTest")
     result = []
     if configuration not in ("spark40-hive", "spark41-slow", "enhanced-spark35-slow"):
-        result.append(
-            (
-                "standard",
-                ["-DtagsToExclude=" + ",".join(excluded), "-DwildcardSuites=" + SUITES],
-            )
-        )
+        filters = ["-DtagsToExclude=" + ",".join(excluded)]
         if configuration == "enhanced-spark35":
             # This existing job discovers the complete reactor, without a suite-prefix filter.
-            result[-1][1].pop()
-    tags = []
+            result.append(("standard", filters))
+        else:
+            result.extend(
+                ("standard-" + str(index), filters + ["-DwildcardSuites=" + suites])
+                for index, suites in enumerate(SUITE_GROUPS, 1)
+            )
     if configuration in (
         "spark34",
         "spark35",
@@ -93,7 +93,9 @@ def selections(configuration):
         "spark41-slow",
         "enhanced-spark35-slow",
     ):
-        tags.append("org.apache.spark.tags.ExtendedSQLTest")
+        result.append(
+            ("extended", ["-DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest"])
+        )
     if configuration in (
         "spark34",
         "spark35",
@@ -101,9 +103,9 @@ def selections(configuration):
         "spark41-slow",
         "enhanced-spark35-slow",
     ):
-        tags.append("org.apache.spark.tags.SlowHiveTest")
-    if tags:
-        result.append(("slow", ["-DtagsToInclude=" + ",".join(tags)]))
+        result.append(
+            ("slow-hive", ["-DtagsToInclude=org.apache.spark.tags.SlowHiveTest"])
+        )
     return result
 
 

@@ -48,6 +48,44 @@ def report(status, name="read()[1]"):
 
 
 class ComparisonTest(unittest.TestCase):
+    def test_initial_baseline_validates_head_without_claiming_a_comparison(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            head, base = root / "head.json", root / "base.json"
+            command = [
+                sys.executable,
+                str(SCRIPT),
+                str(base),
+                str(head),
+                "--output",
+                str(root / "diff.json"),
+                "--bootstrap",
+            ]
+            for current in (report("PASSED_NATIVE"), report("FAILED")):
+                head.write_text(json.dumps(current))
+                result = subprocess.run(command, capture_output=True, text=True)
+                self.assertEqual(0, result.returncode, result.stderr)
+                diagnostic = json.loads((root / "diff.json").read_text())
+                self.assertTrue(diagnostic["baseline_bootstrap"])
+                self.assertFalse(diagnostic["comparison_performed"])
+                self.assertNotIn("0 regressions", result.stdout)
+                with (root / "diff.csv").open(newline="") as output:
+                    self.assertEqual([], list(csv.DictReader(output)))
+            for invalid in (report("COVERAGE_ERROR"), {"version": 2, "tests": []}):
+                head.write_text(json.dumps(invalid))
+                result = subprocess.run(command, capture_output=True, text=True)
+                self.assertEqual(1, result.returncode)
+                diagnostic = json.loads((root / "diff.json").read_text())
+                self.assertTrue(diagnostic["validation_errors"])
+                self.assertFalse(diagnostic.get("baseline_bootstrap", False))
+            head.write_text(json.dumps(report("FAILED")))
+            base.write_text(json.dumps(report("PASSED_NATIVE")))
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(1, result.returncode)
+            diagnostic = json.loads((root / "diff.json").read_text())
+            self.assertTrue(diagnostic["comparison_performed"])
+            self.assertEqual(1, len(diagnostic["regressions"]))
+
     def test_native_fallback_failure_transition_rules(self):
         allowed = {
             ("FAILED", "FAILED"),

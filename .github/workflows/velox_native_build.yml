@@ -82,5 +82,6 @@ jobs:
         with:
           name: ${{ inputs.artifact }}
           path: ./cpp/build/releases/
+          compression-level: 1
           if-no-files-found: error
           retention-days: 1

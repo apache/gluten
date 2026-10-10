@@ -89,7 +89,8 @@ jobs:
           echo "shims40=$(match '^(shims/(spark40|common)/|gluten-ut/spark40/)')"                            >> $GITHUB_OUTPUT
 
   build-native-lib-centos-8:
-    timeout-minutes: 6
+    # Includes saving ccache and uploading the native libraries: 1 + 8 + 10 + 60 = 79.
+    timeout-minutes: 8
     needs: detect-changes
     if: >-
       needs.detect-changes.outputs.cpp == 'true' || needs.detect-changes.outputs.java == 'true' ||
@@ -139,6 +140,7 @@ jobs:
         with:
           name: velox-native-lib-enhanced-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
+          compression-level: 1
           if-no-files-found: error
 
 

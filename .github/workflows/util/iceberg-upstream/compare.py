@@ -218,9 +218,16 @@ def main():
     parser.add_argument("baseline", type=Path)
     parser.add_argument("current", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--bootstrap",
+        action="store_true",
+        help="Validate initial head evidence when the target tree has no Iceberg harness yet",
+    )
     args = parser.parse_args()
     baseline, current, errors = None, None, []
     for label, path in (("Baseline", args.baseline), ("Current report", args.current)):
+        if label == "Baseline" and args.bootstrap and not path.exists():
+            continue
         try:
             report = json.loads(path.read_text())
             if not isinstance(report, dict) or not isinstance(
@@ -234,7 +241,7 @@ def main():
         except (ValueError, OSError) as error:
             errors.append(f"{label} unavailable: {error}")
     diagnostic = args.baseline.parent / "baseline-unavailable.txt"
-    if baseline is None and diagnostic.exists():
+    if baseline is None and diagnostic.exists() and not args.bootstrap:
         errors.append(diagnostic.read_text().strip())
     result = {
         "comparison_performed": False,
@@ -248,6 +255,9 @@ def main():
         if errors:
             if current is not None:
                 index(current)
+        elif baseline is None and args.bootstrap:
+            index(current)
+            result["baseline_bootstrap"] = True
         else:
             result = compare(baseline, current)
             result["comparison_performed"] = True
@@ -268,15 +278,23 @@ def main():
     write_changes(args.output.with_suffix(".csv"), result["changes"])
     lines = (
         [
-            f"Iceberg: {len(result['regressions'])} regressions, "
-            f"{len(result['improvements'])} improvements; "
-            f"{result['current_tests']} current tests."
+            f"Iceberg initial baseline: {result['current_tests']} current tests validated. "
+            "The target branch has no Iceberg harness yet; no regression comparison was performed. "
+            "This head result becomes eligible for reuse only after its tested tree is merged."
         ]
-        if result["comparison_performed"]
-        else [
-            f"Iceberg comparison unavailable; {result['current_tests']} current tests. "
-            "The check fails, but available head results remain downloadable for manual review."
-        ]
+        if result.get("baseline_bootstrap")
+        else (
+            [
+                f"Iceberg: {len(result['regressions'])} regressions, "
+                f"{len(result['improvements'])} improvements; "
+                f"{result['current_tests']} current tests."
+            ]
+            if result["comparison_performed"]
+            else [
+                f"Iceberg comparison unavailable; {result['current_tests']} current tests. "
+                "The check fails, but available head results remain downloadable for manual review."
+            ]
+        )
     )
     if result.get("validation_errors"):
         lines.append(
