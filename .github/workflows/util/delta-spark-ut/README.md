@@ -43,7 +43,47 @@ starts failing** (a regression).
 | `run-delta-tests.sh` | The shard step's body: runs `sbt spark/test` (tuned JVM/heap flags) under a hang watchdog, prints memory forensics, then gates the results against the baseline via `compare-test-results.py`. |
 | `java-test-args.sh` | Shared JVM flags (`--add-opens` + Netty property) needed to run the suite on JDK 17 with the Gluten bundle. Sourced by `run-delta-tests.sh` and by local runs. |
 | `setup-delta.sh` | Clones Delta, drops in the Gluten bundle, and patches `DeltaSQLCommandTest`. |
-| `apply-delta-test-patches.sh` | Applies temporary Delta test workarounds: upstream scan fixes, deterministic Parquet row groups, and 2B-row DV fail-fast patches. Called by `setup-delta.sh` with `<delta_ref> <delta_dir>`. |
+| `apply-delta-test-patches.sh` | Cherry-picks upstream scan fixes, applies the ordered local patch list, and verifies the resulting test sources. Called by `setup-delta.sh` with `<delta_ref> <delta_dir>`. |
+| `patches/*.patch` | Separate patches for CDF plan assertions, the two Parquet row-group fixtures, and 2B-row DV fail-fast behavior. Each patch documents its rationale and removal condition. |
+
+## Temporary Delta test patches
+
+Local workarounds live in `patches/`, one file per purpose. The patcher applies
+an explicit ordered list with `git apply` after the upstream cherry-picks,
+then verifies the expected assertion, row-count-scope, and fail-fast counts.
+Patch paths are resolved relative to the script, independent of the caller's
+working directory. Missing patches, incompatible source context, or unexpected
+counts fail setup explicitly. Run through `setup-delta.sh` to reset the Delta
+checkout before applying the patches again.
+
+The `dv-2b-row-fail-fast.patch` keeps the two memory-hog DV tests failing
+immediately rather than skipping them. Their known-failure entries remain
+enforced until the underlying native-memory issue is fixed.
+
+## Temporary CDF plan-assertion workaround
+
+Gluten's native file scans currently display `PushedFilters` without Spark's
+handled-filter `*` marker
+([#12753](https://github.com/apache/gluten/issues/12753)).
+`patches/cdf-pushed-filter-assertions.patch` adjusts three shared assertions in
+the CI-created Delta checkout, covering 13 CDF test cases, to require Gluten's
+exact display:
+
+```text
+PushedFilters: [IsNotNull(id), LessThan(id,5)]
+PushedFilters: [IsNotNull(`id with space`), LessThan(`id with space`,5)]
+```
+
+The column-mapping cases also need the backticks around the special-character
+identifier; removing only `*` would not make those assertions match. Predicate
+contents, selected-column assertions, and result checks remain unchanged.
+The patch is applied after the upstream cherry-picks and fails setup if the
+expected source context or assertion counts change.
+
+This is a test-only accommodation, not a fix for Gluten's scan display. Remove
+it when the display gap is fixed or Delta's assertions no longer require the
+workaround. The affected cases are no longer in `known-failures.txt`, so their
+failures remain enforced by the gate.
 
 ## How the gate works
 
