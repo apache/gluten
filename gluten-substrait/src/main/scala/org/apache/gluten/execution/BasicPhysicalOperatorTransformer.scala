@@ -39,8 +39,8 @@ import scala.collection.JavaConverters._
 
 abstract class FilterExecTransformerBase(val cond: Expression, val input: SparkPlan)
   extends UnaryTransformSupport
-  with OrderPreservingNodeShim
-  with PartitioningPreservingNodeShim
+  with OrderPreservingUnaryExecNode
+  with PartitioningPreservingUnaryExecNode
   with PredicateHelper
   with Logging {
 
@@ -168,8 +168,8 @@ abstract class FilterExecTransformerBase(val cond: Expression, val input: SparkP
 
 abstract class ProjectExecTransformerBase(val list: Seq[NamedExpression], val input: SparkPlan)
   extends UnaryTransformSupport
-  with OrderPreservingNodeShim
-  with PartitioningPreservingNodeShim
+  with OrderPreservingUnaryExecNode
+  with PartitioningPreservingUnaryExecNode
   with PredicateHelper
   with Logging {
 

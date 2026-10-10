@@ -637,10 +637,7 @@ void VeloxRuntime::enableDumping() {
   GLUTEN_CHECK(taskInfo.has_value(), "Task info is not set. Please set task info before enabling dumping.");
 
   dumper_ = std::make_shared<VeloxWholeStageDumper>(
-      taskInfo.value(),
-      saveDir.value(),
-      veloxCfg_->get<int64_t>(kSparkBatchSize, 4096),
-      memoryManager()->getAggregateMemoryPool().get());
+      taskInfo.value(), saveDir.value(), veloxCfg_->get<int64_t>(kSparkBatchSize, 4096), memoryManager());
 
   dumper_->dumpConf(getConfMap());
 }
