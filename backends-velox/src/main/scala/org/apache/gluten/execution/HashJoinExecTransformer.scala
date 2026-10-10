@@ -133,6 +133,11 @@ case class BroadcastHashJoinExecTransformer(
       newRight: SparkPlan): BroadcastHashJoinExecTransformer =
     copy(left = newLeft, right = newRight)
 
+  override def supportsNoInputExecution: Boolean = streamedPlan match {
+    case transformer: TransformSupport => transformer.supportsNoInputExecution
+    case _ => false
+  }
+
   override def columnarInputRDDs: Seq[RDD[ColumnarBatch]] = {
     val streamedRDD = getColumnarInputRDDs(streamedPlan)
     val executionId = sparkContext.getLocalProperty(SQLExecution.EXECUTION_ID_KEY)
