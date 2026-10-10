@@ -169,6 +169,11 @@ const std::string kVeloxAsyncTimeoutOnTaskStopping =
     "spark.gluten.sql.columnar.backend.velox.asyncTimeoutOnTaskStopping";
 const int32_t kVeloxAsyncTimeoutOnTaskStoppingDefault = 30000; // 30s
 
+// Size of the dedicated CPU thread pool for the parallel broadcast hash-table build.
+// Defaults to the number of task slots per executor, with a minimum of one thread.
+const std::string kBroadcastHashTableBuildThreads =
+    "spark.gluten.sql.columnar.backend.velox.broadcastHashTableBuildThreads";
+
 // udf
 const std::string kVeloxUdfLibraryPaths = "spark.gluten.sql.columnar.backend.velox.internal.udfLibraryPaths";
 

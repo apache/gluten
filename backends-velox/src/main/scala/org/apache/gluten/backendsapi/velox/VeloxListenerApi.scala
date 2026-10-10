@@ -317,6 +317,15 @@ object VeloxListenerApi {
       parsed += (COLUMNAR_VELOX_CACHE_ENABLED.key -> "false")
     }
 
+    if (!parsed.contains(COLUMNAR_VELOX_BROADCAST_HASH_TABLE_BUILD_THREADS.key)) {
+      val defaultThreads = if (isDriver) {
+        Math.max(SparkResourceUtil.getDriverCores(conf), 1)
+      } else {
+        Math.max(SparkResourceUtil.getTaskSlots(conf), 1)
+      }
+      parsed += (COLUMNAR_VELOX_BROADCAST_HASH_TABLE_BUILD_THREADS.key -> defaultThreads.toString)
+    }
+
     parsed
   }
 }

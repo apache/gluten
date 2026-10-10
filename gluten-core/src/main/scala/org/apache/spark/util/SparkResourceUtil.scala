@@ -75,6 +75,21 @@ object SparkResourceUtil extends Logging {
     cores
   }
 
+  def getDriverCores(conf: SparkConf): Int = {
+    val master = conf.get("spark.master")
+
+    def convertToInt(threads: String): Int = {
+      if (threads == "*") Runtime.getRuntime.availableProcessors() else threads.toInt
+    }
+
+    master match {
+      case "local" => 1
+      case SparkMasterRegex.LOCAL_N_REGEX(threads) => convertToInt(threads)
+      case SparkMasterRegex.LOCAL_N_FAILURES_REGEX(threads, _) => convertToInt(threads)
+      case _ => conf.getInt("spark.driver.cores", 1)
+    }
+  }
+
   def getTaskSlots(conf: SparkConf): Int = {
     val executorCores = SparkResourceUtil.getExecutorCores(conf)
     // spark.task.cpus is read raw here, which bypasses Spark's own checkValue(_ > 0) (and on
