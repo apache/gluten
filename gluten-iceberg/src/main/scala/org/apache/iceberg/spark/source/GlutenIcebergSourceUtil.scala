@@ -30,7 +30,9 @@ import org.apache.spark.sql.types.StructType
 
 import org.apache.hadoop.fs.Path
 import org.apache.iceberg._
+import org.apache.iceberg.io.{FileIO, SupportsStorageCredentials}
 import org.apache.iceberg.spark.SparkSchemaUtil
+import org.apache.iceberg.util.PropertyUtil
 
 import java.lang.{Long => JLong}
 import java.util.{ArrayList => JArrayList, HashMap => JHashMap, List => JList, Map => JMap}
@@ -49,6 +51,35 @@ object GlutenIcebergSourceUtil {
   }
 
   def isSparkStagedScan(sparkScan: Scan): Boolean = sparkScan.isInstanceOf[SparkStagedScan]
+
+  def hasVendedCredentials(sparkScan: Scan): Boolean =
+    isSupportedScan(sparkScan) && hasVendedCredentials(getTable(sparkScan).io())
+
+  private def hasVendedCredentials(io: FileIO): Boolean = {
+    io match {
+      case credentials: SupportsStorageCredentials if !credentials.credentials().isEmpty =>
+        return true
+      case _ =>
+    }
+    val properties =
+      try {
+        io.properties()
+      } catch {
+        case _: UnsupportedOperationException => return false
+      }
+    (Option(properties.get("s3.access-key-id")).exists(_.nonEmpty) &&
+      Option(properties.get("s3.secret-access-key")).exists(_.nonEmpty)) ||
+    Option(properties.get("gcs.oauth2.token")).exists(_.nonEmpty) ||
+    properties.asScala.exists {
+      case (key, value) =>
+        key.startsWith("adls.sas-token.") && Option(value).exists(_.nonEmpty)
+    } ||
+    Seq("client", "gcs.oauth2", "adls").exists {
+      prefix =>
+        Option(properties.get(s"$prefix.refresh-credentials-endpoint")).exists(_.nonEmpty) &&
+        PropertyUtil.propertyAsBoolean(properties, s"$prefix.refresh-credentials-enabled", true)
+    }
+  }
 
   def deleteExists(p: SparkDataSourceRDDPartition): Boolean = {
     p.inputPartitions.exists {

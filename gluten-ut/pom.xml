@@ -142,7 +142,7 @@
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-annotations</artifactId>
-      <version>${fasterxml.version}</version>
+      <version>${fasterxml.annotations.version}</version>
     </dependency>
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
@@ -236,6 +236,12 @@
       <id>spark-4.1</id>
       <modules>
         <module>spark41</module>
+      </modules>
+    </profile>
+    <profile>
+      <id>spark-4.2</id>
+      <modules>
+        <module>spark42</module>
       </modules>
     </profile>
   </profiles>

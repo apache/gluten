@@ -30,7 +30,15 @@ function install_hadoop() {
   apt-get install -y curl tar gzip
   
   local HADOOP_VERSION=3.3.6
-  curl -fsSL -o hadoop.tgz "https://archive.apache.org/dist/hadoop/common/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz"
+  local url_path="hadoop/common/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz"
+  # archive.apache.org is heavily throttled (a download can take hours), so prefer the CDN.
+  # Abort the CDN transfer if it stalls below 1MB/s for 60s, then fall back to the archive,
+  # which also serves versions that have been removed from the CDN.
+  if ! curl -fSL --retry 3 --connect-timeout 30 --speed-limit 1048576 --speed-time 60 \
+      -o hadoop.tgz "https://dlcdn.apache.org/${url_path}"; then
+    echo "Failed to download Hadoop from dlcdn.apache.org, falling back to archive.apache.org"
+    curl -fSL --retry 3 --connect-timeout 30 -o hadoop.tgz "https://archive.apache.org/dist/${url_path}"
+  fi
   tar -xzf hadoop.tgz --no-same-owner --no-same-permissions
   rm -f hadoop.tgz
 

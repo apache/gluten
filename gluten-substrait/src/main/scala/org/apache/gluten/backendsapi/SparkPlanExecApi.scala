@@ -175,6 +175,17 @@ trait SparkPlanExecApi {
       right: ExpressionTransformer,
       original: GetMapValue): ExpressionTransformer
 
+  /**
+   * Generate an expression transformer to transform ElementAt to Substrait. The default emits the
+   * mapped function as is; a backend may pick another native function for some inputs.
+   */
+  def genElementAtTransformer(
+      substraitExprName: String,
+      left: ExpressionTransformer,
+      right: ExpressionTransformer,
+      original: ElementAt): ExpressionTransformer =
+    GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
+
   def genStringToMapTransformer(
       substraitExprName: String,
       children: Seq[ExpressionTransformer],

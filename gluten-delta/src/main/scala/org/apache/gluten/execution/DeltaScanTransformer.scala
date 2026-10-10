@@ -49,7 +49,8 @@ case class DeltaScanTransformer(
     override val dataFilters: Seq[Expression],
     override val tableIdentifier: Option[TableIdentifier],
     override val disableBucketedScan: Boolean = false,
-    override val pushDownFilters: Option[Seq[Expression]] = None)
+    override val pushDownFilters: Option[Seq[Expression]] = None,
+    override val requiredMapSubfields: Map[String, Seq[SubfieldPath]] = Map.empty)
   extends FileSourceScanExecTransformerBase(
     relation,
     stream,
@@ -257,12 +258,25 @@ case class DeltaScanTransformer(
       QueryPlan.normalizePredicates(dataFilters, output),
       None,
       disableBucketedScan,
-      pushDownFilters.map(QueryPlan.normalizePredicates(_, output))
+      pushDownFilters.map(QueryPlan.normalizePredicates(_, output)),
+      requiredMapSubfields
     )
   }
 
   override def withNewPushdownFilters(filters: Seq[Expression]): BasicScanExecTransformer =
     copy(pushDownFilters = Some(filters))
+
+  // Under name or id column mapping the scan reads physical `col-<uuid>` names, which the rule
+  // renders from the logical schema; the paths would not match the file. Only a Delta Parquet
+  // format without column mapping prunes; any other format cannot be checked and is not pruned.
+  override def supportsMapKeyPruning: Boolean = relation.fileFormat match {
+    case d: DeltaParquetFileFormat => d.columnMappingMode == NoMapping
+    case _ => false
+  }
+
+  override def withRequiredMapSubfields(
+      subfields: Map[String, Seq[SubfieldPath]]): BasicScanExecTransformer =
+    copy(requiredMapSubfields = subfields)
 }
 
 object DeltaScanTransformer {

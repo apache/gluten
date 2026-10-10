@@ -144,3 +144,36 @@ TEST_F(SparkFunctionTest, expressionLevelLegacyCastIgnoresSessionAnsiOn) {
 
   facebook::velox::test::assertEqualVectors(makeFlatVector<int8_t>({-121}), evaluate(legacyCast, input));
 }
+
+// Spark GetMapValue is emitted as get_map_value and registered through the
+// function overlay as a map-only, pushdown-capable subscript, so that
+// Expr::extractSubfields() yields m["k"] instead of the bare column path. This
+// keeps map-key pruning declared via HiveColumnHandle::requiredSubfields
+// effective when the remaining filter references the map.
+TEST_F(SparkFunctionTest, getMapValueSubfieldExtraction) {
+  // Spark function names throughout: the test base registers only the Spark
+  // functions, so the parser's `>` (gt) does not resolve.
+  auto mapRow = ROW({"m"}, {MAP(VARCHAR(), BIGINT())});
+  auto exprSet = compileExpression("greaterthan(get_map_value(m, 'k'), 0)", mapRow);
+  auto subfields = exprSet->expr(0)->extractSubfields();
+  ASSERT_EQ(subfields.size(), 1);
+  EXPECT_EQ(subfields[0].toString(), "m[\"k\"]");
+
+  // Velox's element_at stays non-pushdown: it also serves arrays, and a
+  // Subfield path cannot express a negative array index.
+  exprSet = compileExpression("greaterthan(element_at(m, 'k'), 0)", mapRow);
+  subfields = exprSet->expr(0)->extractSubfields();
+  ASSERT_EQ(subfields.size(), 1);
+  EXPECT_EQ(subfields[0].toString(), "m");
+}
+
+TEST_F(SparkFunctionTest, getMapValueSemantics) {
+  auto maps = makeMapVector<std::string, int64_t>({{{"k", 1}}, {{"x", 2}}, {}});
+  auto result = evaluate("get_map_value(c0, 'k')", makeRowVector({maps}));
+  facebook::velox::test::assertEqualVectors(makeNullableFlatVector<int64_t>({1, std::nullopt, std::nullopt}), result);
+
+  // Integer literals parse as BIGINT, and the key must match the map's key type exactly.
+  auto intKeyed = makeMapVector<int64_t, std::string>({{{1, "a"}, {2, "b"}}, {{3, "c"}}});
+  result = evaluate("get_map_value(c0, 2)", makeRowVector({intKeyed}));
+  facebook::velox::test::assertEqualVectors(makeNullableFlatVector<std::string>({"b", std::nullopt}), result);
+}

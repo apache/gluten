@@ -319,6 +319,13 @@ object ExpressionConverter extends SQLConfHelper with Logging {
         val children =
           c.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap))
         CreateMapTransformer(substraitExprName, children, c)
+      case ea: ElementAt =>
+        BackendsApiManager.getSparkPlanExecApiInstance.genElementAtTransformer(
+          substraitExprName,
+          replaceWithExpressionTransformer0(ea.left, attributeSeq, expressionsMap),
+          replaceWithExpressionTransformer0(ea.right, attributeSeq, expressionsMap),
+          ea
+        )
       case g: GetMapValue =>
         BackendsApiManager.getSparkPlanExecApiInstance.genGetMapValueTransformer(
           substraitExprName,
