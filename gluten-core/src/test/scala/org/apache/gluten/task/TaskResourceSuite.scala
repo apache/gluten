@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.task
 
+import org.apache.spark.TaskContext
 import org.apache.spark.memory.{MemoryConsumer, MemoryMode}
 import org.apache.spark.sql.catalyst.plans.SQLHelper
 import org.apache.spark.sql.internal.SQLConf
@@ -25,6 +26,8 @@ import org.apache.spark.util.SparkTaskUtil
 import org.scalatest.funsuite.AnyFunSuite
 
 import java.util.UUID
+
+import scala.util.control.NonFatal
 
 class TaskResourceSuite extends AnyFunSuite with SQLHelper {
   test("Run unsafe") {
@@ -118,5 +121,96 @@ class TaskResourceSuite extends AnyFunSuite with SQLHelper {
     assert(trace.contains("release failed"))
     // The registry was cleared on the way out, so a fresh task runs cleanly.
     TaskResources.runUnsafe(assert(TaskResources.inSparkTask()))
+  }
+
+  test("Run unsafe - release callbacks run outside the global registry lock") {
+    // On a real executor the release callbacks include JNI native teardown that
+    // can take milliseconds. Running them under the JVM-global registry lock
+    // serialized every concurrent task's completion and registration on the
+    // slowest callback; a concurrent task start must not block on it.
+    var concurrentTaskStarted = false
+    // Captured on the starter thread; read on this thread only after the join
+    // below confirms the thread terminated (the !isAlive assert gates it), which
+    // establishes the happens-before to read these plain locals safely.
+    var starterFailure: Option[Throwable] = None
+    TaskResources.runUnsafe {
+      TaskResources.addResource(
+        UUID.randomUUID().toString,
+        new TaskResource {
+          override def release(): Unit = {
+            val starter = new Thread(
+              () => {
+                try {
+                  TaskResources.runUnsafe {
+                    TaskResources.addResource(
+                      UUID.randomUUID().toString,
+                      new TaskResource {
+                        override def release(): Unit = {}
+                        override def resourceName(): String = "concurrent task resource"
+                      }
+                    )
+                  }
+                  concurrentTaskStarted = true
+                } catch {
+                  case NonFatal(t) => starterFailure = Some(t)
+                }
+              })
+            starter.start()
+            starter.join(30000)
+            assert(
+              !starter.isAlive,
+              "concurrent task start is still blocked after the release callback returned")
+          }
+          override def resourceName(): String = "slow releaser"
+        }
+      )
+    }
+    // Surface a genuine unrelated failure with its real stack instead of the
+    // misleading "blocked" message below.
+    starterFailure.foreach(t => throw t)
+    assert(concurrentTaskStarted, "concurrent task start was blocked by the release pass")
+  }
+
+  test("Run unsafe - registering into a released registry fails") {
+    // A thread sharing the task's TaskContext can fetch the registry while the release
+    // pass runs outside the global lock. Its registration must fail loudly instead of
+    // landing in the cleared registry, where nothing would ever release it.
+    var lateFailure: Option[Throwable] = None
+    var lateReleased = false
+    var child: Thread = null
+    TaskResources.runUnsafe {
+      val tc = TaskContext.get()
+      TaskResources.addResource(
+        UUID.randomUUID().toString,
+        new TaskResource {
+          override def release(): Unit = {
+            child = new Thread(
+              () => {
+                SparkTaskUtil.setTaskContext(tc)
+                try {
+                  TaskResources.addResource(
+                    UUID.randomUUID().toString,
+                    new TaskResource {
+                      override def release(): Unit = lateReleased = true
+                      override def resourceName(): String = "late resource"
+                    })
+                } catch {
+                  case NonFatal(t) => lateFailure = Some(t)
+                } finally {
+                  SparkTaskUtil.unsetTaskContext()
+                }
+              })
+            child.start()
+            // Simulate a slow native teardown.
+            Thread.sleep(500)
+          }
+          override def resourceName(): String = "slow releaser"
+        }
+      )
+    }
+    child.join(30000)
+    assert(!child.isAlive)
+    assert(!lateReleased)
+    assert(lateFailure.exists(_.isInstanceOf[IllegalStateException]))
   }
 }
