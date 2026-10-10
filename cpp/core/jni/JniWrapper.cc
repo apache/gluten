@@ -1117,7 +1117,8 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleReaderJniWrappe
     jobject wrapper,
     jlong shuffleReaderHandle,
     jobject jStreamReader,
-    jint executionMode) {
+    jint executionMode,
+    jint readerOrder) {
   JNI_METHOD_START
   auto ctx = getRuntime(env, wrapper);
   auto reader = ObjectStore::retrieve<ShuffleReader>(shuffleReaderHandle);
@@ -1125,7 +1126,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleReaderJniWrappe
   ShuffleReader::OutputType requiredOutputType = ShuffleReader::getOutputType(executionMode);
   auto streamReader = std::make_shared<ShuffleStreamReader>(env, jStreamReader);
 
-  auto outItr = reader->read(streamReader, requiredOutputType);
+  auto outItr = reader->read(streamReader, requiredOutputType, readerOrder);
   return ctx->saveObject(outItr);
   JNI_METHOD_END(kInvalidObjectHandle)
 }
