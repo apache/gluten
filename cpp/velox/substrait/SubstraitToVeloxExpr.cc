@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+#include <glog/logging.h>
 #include "SubstraitToVeloxExpr.h"
 #include "TypeUtils.h"
 #include "velox/functions/sparksql/specialforms/SparkCastExpr.h"
@@ -72,6 +73,14 @@ ArrayVectorPtr makeEmptyArrayVector(memory::MemoryPool* pool, const TypePtr& ele
   return std::make_shared<ArrayVector>(pool, ARRAY(elementType), nullptr, 1, offsets, sizes, nullptr);
 }
 
+ArrayVectorPtr makeNullArrayVector(memory::MemoryPool* pool, const TypePtr& elementType, size_t child_size) {
+  BufferPtr nulls = allocateNulls(1, pool, bits::kNull);
+  BufferPtr offsets = allocateOffsets(1, pool);
+  BufferPtr sizes = allocateOffsets(1, pool);
+
+  return std::make_shared<ArrayVector>(pool, elementType, nulls, child_size, offsets, sizes, nullptr);
+}
+
 MapVectorPtr makeEmptyMapVector(memory::MemoryPool* pool, const TypePtr& keyType, const TypePtr& valueType) {
   BufferPtr offsets = allocateOffsets(1, pool);
   BufferPtr sizes = allocateOffsets(1, pool);
@@ -80,6 +89,17 @@ MapVectorPtr makeEmptyMapVector(memory::MemoryPool* pool, const TypePtr& keyType
 
 RowVectorPtr makeEmptyRowVector(memory::MemoryPool* pool) {
   return makeRowVector({}, {}, 0, pool);
+}
+
+RowVectorPtr makeNullRowVector(memory::MemoryPool* pool, const TypePtr& rowType) {
+  auto rowTyped = asRowType(rowType);
+  std::vector<VectorPtr> children;
+  children.reserve(rowTyped->size());
+  for (int i = 0; i < rowTyped->size(); i++) {
+    children.push_back(BaseVector::createNullConstant(rowTyped->childAt(i), 1, pool));
+  }
+  BufferPtr nulls = allocateNulls(1, pool, bits::kNull);
+  return std::make_shared<RowVector>(pool, rowType, nulls, 1, children);
 }
 
 template <typename T>
@@ -112,6 +132,8 @@ VectorPtr constructFlatVector(
 TypePtr getScalarType(const ::substrait::Expression::Literal& literal) {
   auto typeCase = literal.literal_type_case();
   switch (typeCase) {
+    case ::substrait::Expression_Literal::LiteralTypeCase::kNull:
+      return gluten::SubstraitParser::parseType(literal.null());
     case ::substrait::Expression_Literal::LiteralTypeCase::kBoolean:
       return BOOLEAN();
     case ::substrait::Expression_Literal::LiteralTypeCase::kI8:
@@ -474,7 +496,8 @@ std::shared_ptr<const core::ConstantTypedExpr> SubstraitVeloxExprConverter::toVe
 
 ArrayVectorPtr SubstraitVeloxExprConverter::literalsToArrayVector(const ::substrait::Expression::Literal& literal) {
   auto childSize = literal.list().values().size();
-  VELOX_CHECK_GT(childSize, 0, "there should be at least 1 value in list literal.");
+  auto childType = literal.literal_type_case();
+
   auto childLiteral = literal.list().values(0);
   auto elementAtFunc = [&](vector_size_t idx) { return literal.list().values(idx); };
   auto childVector = literalsToVector(childLiteral, childSize, elementAtFunc);
@@ -498,37 +521,52 @@ VectorPtr SubstraitVeloxExprConverter::literalsToVector(
     vector_size_t childSize,
     std::function<::substrait::Expression::Literal(vector_size_t /* idx */)> elementAtFunc) {
   auto childTypeCase = childLiteral.literal_type_case();
-  switch (childTypeCase) {
-    case ::substrait::Expression_Literal::LiteralTypeCase::kNull: {
-      auto veloxType = SubstraitParser::parseType(childLiteral.null());
-      auto kind = veloxType->kind();
-      return VELOX_DYNAMIC_SCALAR_TYPE_DISPATCH_ALL(
-          constructFlatVector, kind, elementAtFunc, childSize, veloxType, pool_);
+  auto child = elementAtFunc(0);
+  if (child.has_null()) {
+    auto nullType = SubstraitParser::parseType(child.null());
+    if (nullType) {
+      switch (nullType->kind()) {
+        case TypeKind::ARRAY:
+          childTypeCase = ::substrait::Expression_Literal::LiteralTypeCase::kList;
+          break;
+        case TypeKind::ROW:
+          childTypeCase = ::substrait::Expression_Literal::LiteralTypeCase::kStruct;
+          break;
+        case TypeKind::MAP:
+          childTypeCase = ::substrait::Expression_Literal::LiteralTypeCase::kMap;
+          break;
+        default:
+          break;
+      }
     }
+  }
+  switch (childTypeCase) {
     case ::substrait::Expression_Literal::LiteralTypeCase::kIntervalDayToSecond:
       return constructFlatVector<TypeKind::BIGINT>(elementAtFunc, childSize, INTERVAL_DAY_TIME(), pool_);
     // Handle EmptyList and List together since the children could be either case.
     case ::substrait::Expression_Literal::LiteralTypeCase::kEmptyList:
-    case ::substrait::Expression_Literal::LiteralTypeCase::kList: {
-      ArrayVectorPtr elements;
+        case ::substrait::Expression_Literal::LiteralTypeCase::kList: {
+      ArrayVectorPtr arrayVector;
       for (int i = 0; i < childSize; i++) {
         auto child = elementAtFunc(i);
         auto childType = child.literal_type_case();
         ArrayVectorPtr grandVector;
-
-        if (childType == ::substrait::Expression_Literal::LiteralTypeCase::kEmptyList) {
+        if (childType == ::substrait::Expression_Literal::LiteralTypeCase::kNull) {
+          auto veloxType = SubstraitParser::parseType(child.null());
+          grandVector = makeNullArrayVector(pool_, veloxType, 1);
+        } else if (childType == ::substrait::Expression_Literal::LiteralTypeCase::kEmptyList) {
           auto elementType = SubstraitParser::parseType(child.empty_list().type());
           grandVector = makeEmptyArrayVector(pool_, elementType);
         } else {
           grandVector = literalsToArrayVector(child);
         }
-        if (!elements) {
-          elements = grandVector;
+        if (!arrayVector) {
+          arrayVector = grandVector;
         } else {
-          elements->append(grandVector.get());
+          arrayVector->append(grandVector.get());
         }
       }
-      return elements;
+      return arrayVector;
     }
     // Handle EmptyMap and Map together since the children could be either case.
     case ::substrait::Expression_Literal::LiteralTypeCase::kEmptyMap:
@@ -558,7 +596,13 @@ VectorPtr SubstraitVeloxExprConverter::literalsToVector(
       RowVectorPtr rowVector;
       for (int i = 0; i < childSize; i++) {
         auto element = elementAtFunc(i);
-        RowVectorPtr grandVector = literalsToRowVector(element);
+        RowVectorPtr grandVector;
+        if (element.literal_type_case() == ::substrait::Expression_Literal::LiteralTypeCase::kNull) {
+          auto veloxType = SubstraitParser::parseType(element.null());
+          grandVector = makeNullRowVector(pool_, veloxType);
+        } else {
+          grandVector = literalsToRowVector(element);
+        }
         if (!rowVector) {
           rowVector = grandVector;
         } else {
@@ -567,24 +611,37 @@ VectorPtr SubstraitVeloxExprConverter::literalsToVector(
       }
       return rowVector;
     }
-    default:
+    default: {
+      // if null, get null type instead of next element type
       auto veloxType = getScalarType(elementAtFunc(0));
       if (veloxType) {
-        auto kind = veloxType->kind();
-        return VELOX_DYNAMIC_SCALAR_TYPE_DISPATCH(
-            constructFlatVector, kind, elementAtFunc, childSize, veloxType, pool_);
+        // Handle UNKNOWN type (untyped nulls like array(null)) by creating
+        // an all-null vector.
+        if (veloxType->kind() == TypeKind::UNKNOWN) {
+          return BaseVector::createNullConstant(UNKNOWN(), childSize, pool_);
+        }
+        // if veloxType is scalar type
+        if (veloxType->isPrimitiveType()) {
+          auto kind = veloxType->kind();
+          return VELOX_DYNAMIC_SCALAR_TYPE_DISPATCH(
+              constructFlatVector, kind, elementAtFunc, childSize, veloxType, pool_);
+        }
       }
       VELOX_NYI("literals not supported for type case '{}'", std::to_string(childTypeCase));
+    }
   }
 }
 
 RowVectorPtr SubstraitVeloxExprConverter::literalsToRowVector(const ::substrait::Expression::Literal& structLiteral) {
-  if (structLiteral.has_null()) {
-    VELOX_NYI("NULL for struct type is not supported.");
-  }
   auto numFields = structLiteral.struct_().fields().size();
   if (numFields == 0) {
-    return makeEmptyRowVector(pool_);
+    auto is_null = structLiteral.literal_type_case() == ::substrait::Expression_Literal::LiteralTypeCase::kNull;
+    if (!is_null) {
+        return makeEmptyRowVector(pool_);
+    } else {
+        auto veloxType = SubstraitParser::parseType(structLiteral.null());
+        return makeNullRowVector(pool_, veloxType);
+    }
   }
   std::vector<VectorPtr> vectors;
   std::vector<std::string> names;
@@ -603,9 +660,15 @@ RowVectorPtr SubstraitVeloxExprConverter::literalsToRowVector(const ::substrait:
       case ::substrait::Expression_Literal::LiteralTypeCase::kNull: {
         auto veloxType = SubstraitParser::parseType(child.null());
         auto kind = veloxType->kind();
-        auto vecPtr =
-            VELOX_DYNAMIC_SCALAR_TYPE_DISPATCH(constructFlatVectorForStruct, kind, child, 1, veloxType, pool_);
-        vectors.emplace_back(vecPtr);
+        if (kind == TypeKind::ROW) {
+          vectors.emplace_back(makeNullRowVector(pool_, veloxType));
+        } else if (kind == TypeKind::ARRAY || kind == TypeKind::MAP || kind == TypeKind::UNKNOWN) {
+          vectors.emplace_back(BaseVector::createNullConstant(veloxType, 1, pool_));
+        } else {
+          auto vecPtr =
+              VELOX_DYNAMIC_SCALAR_TYPE_DISPATCH(constructFlatVectorForStruct, kind, child, 1, veloxType, pool_);
+          vectors.emplace_back(vecPtr);
+        }
         break;
       }
       case ::substrait::Expression_Literal::LiteralTypeCase::kList: {
@@ -726,5 +789,4 @@ std::unordered_map<std::string, std::string> SubstraitVeloxExprConverter::extrac
     {"YEAR", "year"},
     {"WEEK_OF_YEAR", "week_of_year"},
     {"YEAR_OF_WEEK", "year_of_week"}};
-
 } // namespace gluten
