@@ -17,11 +17,6 @@
 # limitations under the License.
 #
 
-GLUTEN_ROOT=$(cd $(dirname -- $0)/../../; pwd -P)
-GLUTEN_DEV_DIR=$GLUTEN_ROOT/dev
-BOLT_HDR_DIR=$1
-grep -E 'static constexpr const char\* hash = |static constexpr const char\* version = |static constexpr const char\* time = ' $BOLT_HDR_DIR/bolt/version/version.h | \
-awk -F'"' '/static constexpr const char\* hash = / {print "bolt_branch="$2} /static constexpr const char\* version = / {print "bolt_revision="$2} /static constexpr const char\* time = / {print "bolt_revision_time="$2}' \
->$GLUTEN_DEV_DIR/.bolt-build-info.properties
-
-cat $GLUTEN_DEV_DIR/.bolt-build-info.properties
+BOLT_INCLUDE_DIR=$1
+grep -E 'static constexpr const char\* hash = |static constexpr const char\* version = |static constexpr const char\* time = ' "$BOLT_INCLUDE_DIR/bolt/version/version.h" | \
+awk -F'"' '/static constexpr const char\* hash = / {print "bolt_branch="$2} /static constexpr const char\* version = / {print "bolt_revision="$2} /static constexpr const char\* time = / {print "bolt_revision_time="$2}'
