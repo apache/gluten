@@ -73,7 +73,7 @@ function install_build_prerequisites {
 
 # Install dependencies from the package managers.
 function install_velox_deps_from_dnf {
-  dnf_install libevent-devel \
+  dnf_install libevent-devel librdkafka-devel \
     openssl-devel lz4-devel curl-devel libicu-devel zlib-devel
   # install sphinx for doc gen
   pip install sphinx sphinx-tabs breathe sphinx_rtd_theme

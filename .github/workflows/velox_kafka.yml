@@ -1,0 +1,162 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Velox Kafka
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/velox_kafka.yml'
+      - 'pom.xml'
+      - 'backends-velox/**'
+      - 'gluten-kafka/**'
+      - 'gluten-core/**'
+      - 'gluten-substrait/**'
+      - 'gluten-ut/**'
+      - 'shims/**'
+      - 'cpp/**'
+      - 'ep/build-velox/**'
+      - 'dev/**'
+      - 'build/mvn'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+env:
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  PROMPT_ALWAYS_RESPOND: 'y'
+
+jobs:
+  build-native:
+    runs-on: ubuntu-22.04
+    container: apache/gluten:vcpkg-almalinux-8-gcc13
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install build tools
+        run: |
+          dnf install -y jq bison tzdata
+          dnf module -y install python39
+          alternatives --set python3 /usr/bin/python3.9
+          dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
+          dnf install -y gh --setopt=gpgcheck=0
+      - name: Get Ccache from Apache Stash
+        id: ccache-stash
+        uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+      - name: Get Ccache from actions/cache (fallback on Stash miss)
+        if: steps.ccache-stash.outputs.stash-hit != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-almalinux8-release-default-${{ github.sha }}
+          restore-keys: |
+            ccache-almalinux8-release-default
+      - name: Build Kafka-enabled native library and tests
+        shell: bash
+        run: |
+          source /opt/rh/gcc-toolset-13/enable
+          export NUM_THREADS=2 CCACHE_MAXSIZE=1G
+          ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --enable_kafka=ON \
+            --build_arrow=OFF --build_tests=ON --build_benchmarks=OFF --build_examples=OFF \
+            --enable_s3=OFF --enable_gcs=OFF --enable_hdfs=OFF --enable_abfs=OFF
+      # TODO: Re-enable after https://github.com/apache/gluten/pull/13183 is merged.
+      # - name: Run native Kafka connector tests
+      #   run: ./cpp/build/velox/tests/velox_kafka_connector_test
+      # TODO: Re-enable when the Kafka plan-conversion tests are added.
+      # - name: Run Kafka and file plan conversion tests
+      #   run: |
+      #     ./cpp/build/velox/tests/velox_plan_conversion_test \
+      #       --gtest_filter='Substrait2VeloxPlanConversionTest.serializedFileSplit:Substrait2VeloxPlanConversionTest.kafkaReadValidation:Substrait2VeloxPlanConversionTest.mixedKafkaAndFileSplits:Substrait2VeloxPlanValidatorTest.kafkaReadRequiresNativeSupport'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: velox-kafka-native-${{ github.sha }}
+          path: cpp/build/releases/
+          if-no-files-found: error
+          retention-days: 1
+
+  spark35:
+    needs: build-native
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      KAFKA_BOOTSTRAP_SERVERS: localhost:9092
+      SPARK_LOCAL_IP: 127.0.0.1
+    services:
+      kafka:
+        image: apache/kafka:3.9.1
+        ports:
+          - 9092:9092
+        env:
+          CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+          KAFKA_NODE_ID: 1
+          KAFKA_PROCESS_ROLES: broker,controller
+          KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+          KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+          KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+          KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+          KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+          KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+        options: >-
+          --health-cmd "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
+          cache: maven
+      - uses: actions/download-artifact@v8
+        with:
+          name: velox-kafka-native-${{ github.sha }}
+          path: cpp/build/releases/
+      - name: Install Spark 3.5 modules with Kafka support
+        run: |
+          ./build/mvn -B -ntp install -Pbackends-velox -Pspark-3.5 -Pscala-2.12 \
+            -Pjava-11 -Pkafka -Pspark-ut -Pfast-build -DskipTests
+      # TODO: Re-enable when VeloxKafkaScanValidationSuite is added.
+      # - name: Check Kafka schema validation without a broker
+      #   run: |
+      #     ./build/mvn -B -ntp test -pl gluten-ut/spark35 -Pbackends-velox -Pspark-3.5 \
+      #       -Pscala-2.12 -Pjava-11 -Pspark-ut -Pfast-build \
+      #       -Dsuites=org.apache.gluten.execution.VeloxKafkaScanValidationSuite
+      # TODO: Re-enable when VeloxGlutenKafkaScanSuite is added.
+      # - name: Check native micro-batch reads and headers fallback
+      #   run: |
+      #     ./build/mvn -B -ntp test -pl backends-velox -Pbackends-velox -Pspark-3.5 \
+      #       -Pscala-2.12 -Pjava-11 -Pkafka -Pfast-build \
+      #       -Dsuites=org.apache.gluten.execution.kafka.VeloxGlutenKafkaScanSuite
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: velox-kafka-spark35-results
+          path: |
+            **/surefire-reports/*
+            **/target/*.log
