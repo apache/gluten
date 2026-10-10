@@ -134,6 +134,7 @@ const uint64_t kVeloxMemReclaimMaxWaitMsDefault = 3600000; // 60min
 
 const std::string kHiveConnectorId = "test-hive";
 const std::string kIcebergConnectorId = "test-iceberg";
+const std::string kKafkaConnectorId = "kafka-stream";
 
 const std::string kVeloxCacheEnabled = "spark.gluten.sql.columnar.backend.velox.cacheEnabled";
 

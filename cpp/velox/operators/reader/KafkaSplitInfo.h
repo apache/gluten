@@ -17,23 +17,26 @@
 
 #pragma once
 
-#include <string>
+#include "operators/reader/KafkaSplit.h"
+#include "substrait/SubstraitToVeloxPlan.h"
+#include "substrait/algebra.pb.h"
 
 namespace gluten {
 
-struct VeloxConnectorIds {
-  std::string hive;
-  std::string iceberg;
-  std::string delta;
-  std::string iterator;
-  std::string kafka;
-  std::string cudfHive;
-  bool hiveRegistered{false};
-  bool icebergRegistered{false};
-  bool deltaRegistered{false};
-  bool iteratorRegistered{false};
-  bool kafkaRegistered{false};
-  bool cudfHiveRegistered{false};
+struct KafkaSplitInfo : SplitInfo {
+  ::substrait::ReadRel_StreamKafka streamKafka;
+
+  std::shared_ptr<KafkaConnectorSplit> toConnectorSplit(const std::string& connectorId) const {
+    return std::make_shared<KafkaConnectorSplit>(
+        connectorId,
+        streamKafka.topic_partition().topic(),
+        streamKafka.topic_partition().partition(),
+        streamKafka.start_offset(),
+        streamKafka.end_offset(),
+        streamKafka.poll_timeout_ms(),
+        streamKafka.fail_on_data_loss(),
+        std::unordered_map<std::string, std::string>(streamKafka.params().begin(), streamKafka.params().end()));
+  }
 };
 
 } // namespace gluten
