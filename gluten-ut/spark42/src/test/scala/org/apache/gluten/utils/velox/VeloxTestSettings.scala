@@ -57,6 +57,15 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenBloomFilterAggregateQuerySuiteCGOff]
   enableSuite[GlutenDataSourceV2DataFrameSessionCatalogSuite]
   enableSuite[GlutenDataSourceV2DataFrameSuite]
+  enableSuite[GlutenDataSourceV2EnhancedDeleteFilterSuite]
+  enableSuite[GlutenDataSourceV2EnhancedPartitionFilterSuite]
+    .exclude(
+      "case 9: partition filter pushed but returned in first pass is not re-pushed second pass"
+    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
+    .exclude(
+      "nested identity partition: case 9 partition filter pushed but returned in first pass is not re-pushed second pass"
+    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
+  enableSuite[GlutenDataSourceV2EnhancedRuntimePartitionFilterSuite]
   enableSuite[GlutenDataSourceV2FunctionSuite]
   enableSuite[GlutenDataSourceV2SQLSessionCatalogSuite]
   enableSuite[GlutenDataSourceV2SQLSuiteV1Filter]
