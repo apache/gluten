@@ -16,12 +16,95 @@
  */
 package org.apache.spark.sql
 
+import org.apache.gluten.columnarbatch.ColumnarBatches
+import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.execution.{BroadcastHashJoinExecTransformerBase, TakeOrderedAndProjectExecTransformer}
+import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
+import org.apache.gluten.utils.BackendTestUtils
+
 import org.apache.spark.SparkException
+import org.apache.spark.sql.execution.ColumnarBroadcastExchangeExec
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
+import org.apache.spark.sql.execution.joins.BuildSideRelation
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.task.TaskResources
 
 class GlutenSQLQuerySuite extends SQLQuerySuite with GlutenSQLTestsTrait {
   import testImplicits._
+
+  testGluten("broadcast expression join followed by aggregate and top N") {
+    withTempPath {
+      dir =>
+        val leftPath = s"${dir.getCanonicalPath}/left"
+        val rightPath = s"${dir.getCanonicalPath}/right"
+        Seq((1, 10), (2, 20), (3, 30), (4, 40), (2, 5))
+          .toDF("id", "value")
+          .repartition(2)
+          .write
+          .parquet(leftPath)
+        Seq(0, 1, 2).toDF("id").write.parquet(rightPath)
+
+        withTempView("top_n_left", "top_n_right") {
+          spark.read.parquet(leftPath).createOrReplaceTempView("top_n_left")
+          spark.read.parquet(rightPath).createOrReplaceTempView("top_n_right")
+
+          val isVelox = BackendTestUtils.isVeloxBackendLoaded()
+          val cudfModes = if (isVelox) Seq(false, true) else Seq(false)
+          for (cudfEnabled <- cudfModes; buildOnce <- Seq(true, false)) {
+            withClue(s"cuDF=$cudfEnabled, buildOnce=$buildOnce: ") {
+              withSQLConf(
+                // Keep execution on CPU while checking the cuDF broadcast schema on CPU CI.
+                SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false",
+                SQLConf.SHUFFLE_PARTITIONS.key -> "2",
+                SQLConf.FILES_OPEN_COST_IN_BYTES.key -> "134217728",
+                GlutenConfig.COLUMNAR_CUDF_ENABLED.key -> cudfEnabled.toString,
+                "spark.gluten.velox.buildHashTableOncePerExecutor.enabled" -> buildOnce.toString,
+                "spark.gluten.velox.offHeapBroadcastBuildRelation.enabled" -> "false"
+              ) {
+                // Exercise both broadcast expression-key projection and the exchange before TopN.
+                val df = sql("""
+                               |SELECT /*+ BROADCAST(r) */ l.id, SUM(l.value) AS total
+                               |FROM top_n_left l JOIN top_n_right r ON l.id = r.id + 1
+                               |GROUP BY l.id
+                               |ORDER BY total DESC, l.id
+                               |LIMIT 2
+                               |""".stripMargin)
+                val plan = getExecutedPlan(df)
+                assert(plan.exists(_.isInstanceOf[BroadcastHashJoinExecTransformerBase]))
+                assert(plan.exists(_.isInstanceOf[TakeOrderedAndProjectExecTransformer]))
+                checkAnswer(df, Seq(Row(3, 30L), Row(2, 25L)))
+
+                if (isVelox) {
+                  val exchanges = plan.collect { case e: ColumnarBroadcastExchangeExec => e }
+                  assert(exchanges.size == 1)
+                  val exchange = exchanges.head
+                  val relation = exchange.doExecuteBroadcast[BuildSideRelation]().value
+                  val outputTypes = exchange.output.map(_.dataType)
+                  val expectedColumns = outputTypes.size +
+                    (if (!cudfEnabled && buildOnce) 1 else 0)
+
+                  TaskResources.runUnsafe {
+                    // The iterator recycles loaded batches and closes its serializer when drained.
+                    val batches = relation.asReadOnlyCopy().deserialized
+                    var rows = 0
+                    while (batches.hasNext) {
+                      val batch = batches.next()
+                      assert(batch.numCols() == expectedColumns)
+                      val loaded =
+                        ColumnarBatches.load(ArrowBufferAllocators.contextInstance(), batch)
+                      val types = (0 until loaded.numCols()).map(i => loaded.column(i).dataType())
+                      assert(types.take(outputTypes.size) == outputTypes)
+                      rows += loaded.numRows()
+                    }
+                    assert(rows == 3)
+                  }
+                }
+              }
+            }
+          }
+        }
+    }
+  }
 
   testGluten("SPARK-28156: self-join should not miss cached view") {
     withTable("table1") {
