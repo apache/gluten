@@ -979,8 +979,6 @@ object ExpressionConverter extends SQLConfHelper with Logging {
   private def bindGetStructField(
       structField: GetStructField,
       input: AttributeSeq): BoundReference = {
-    // get the new ordinal base input
-    var newOrdinal: Int = -1
     val names = new ArrayBuffer[String]
     var root: Expression = structField
     while (root.isInstanceOf[GetStructField]) {
@@ -993,31 +991,34 @@ object ExpressionConverter extends SQLConfHelper with Logging {
     if (!root.isInstanceOf[AttributeReference]) {
       return BoundReference(structField.ordinal, structField.dataType, structField.nullable)
     }
-    names += root.asInstanceOf[AttributeReference].name
-    input.attrs.foreach(
-      attribute => {
-        var level = names.size - 1
-        if (names(level) == attribute.name) {
-          var candidateFields: Array[StructField] = null
-          var dtType = attribute.dataType
-          while (dtType.isInstanceOf[StructType] && level >= 1) {
-            candidateFields = dtType.asInstanceOf[StructType].fields
-            level -= 1
-            val curName = names(level)
-            for (i <- 0 until candidateFields.length) {
-              if (candidateFields(i).name == curName) {
-                dtType = candidateFields(i).dataType
-                newOrdinal = i
-              }
-            }
-          }
-        }
-      })
-    if (newOrdinal == -1) {
+    def cannotBind(reason: String): Nothing =
       throw new IllegalStateException(
-        s"Couldn't find $structField in ${input.attrs.mkString("[", ",", "]")}")
-    } else {
-      BoundReference(newOrdinal, structField.dataType, structField.nullable)
+        s"Couldn't bind $structField ($reason) in ${input.attrs.mkString("[", ",", "]")}")
+    // Bind the root by exprId like BindReferences: the input can hold several same-named struct
+    // attributes with different layouts, e.g. a struct column of the same name on both join sides.
+    val rootAttr = root.asInstanceOf[AttributeReference]
+    val rootIndex = input.indexOf(rootAttr.exprId)
+    if (rootIndex < 0) {
+      cannotBind(s"no input attribute with the exprId of ${rootAttr.name}")
     }
+    val attribute = input.attrs(rootIndex)
+    // Same layout as the one the expression was resolved against, so its own ordinal is right.
+    // It is also the only right answer when the struct has duplicate field names.
+    if (attribute.dataType == rootAttr.dataType) {
+      return BoundReference(structField.ordinal, structField.dataType, structField.nullable)
+    }
+    // The input struct type differs (e.g. nested nullability merged by a union): look each level
+    // up by name from the root down, and fall back instead of guessing on a duplicate name.
+    val (_, ordinal) = names.reverseIterator.foldLeft[(DataType, Int)]((attribute.dataType, -1)) {
+      case ((struct: StructType, _), name) =>
+        struct.fields.indexWhere(_.name == name) match {
+          case -1 => cannotBind(s"no field $name")
+          case idx if struct.fields.lastIndexWhere(_.name == name) != idx =>
+            cannotBind(s"ambiguous field $name")
+          case idx => (struct.fields(idx).dataType, idx)
+        }
+      case ((other, _), name) => cannotBind(s"field $name looked up in non-struct $other")
+    }
+    BoundReference(ordinal, structField.dataType, structField.nullable)
   }
 }
