@@ -156,3 +156,7 @@ endif()
 if(ENABLE_ENHANCED_FEATURES)
   add_velox_test(velox_iceberg_test SOURCES iceberg/IcebergWriteTest.cc)
 endif()
+
+if(ENABLE_KAFKA)
+  add_velox_test(velox_kafka_connector_test SOURCES KafkaConnectorTest.cc)
+endif()
