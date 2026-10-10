@@ -74,7 +74,7 @@ jobs:
     container: ${{ inputs.image }}
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 5
       matrix:
         shard: ${{ fromJSON(inputs.shards) }}
     env:
@@ -101,6 +101,7 @@ jobs:
             spark35-scala213) spark_home=spark35-scala-2.13; scala=2.13; pyspark=3.5.5 ;;
             spark40|spark40-hive|enhanced-spark40) spark_home=spark40; scala=2.13; pyspark=3.5.5 ;;
             spark41|spark41-slow) spark_home=spark41; scala=2.13; pyspark=3.5.5 ;;
+            spark42) spark_home=spark42; scala=2.13; pyspark=3.5.5 ;;
             *) echo "Unknown test configuration: $CI_TEST_CONFIGURATION" >&2; exit 1 ;;
           esac
           echo "CI_SPARK_TEST_HOME=/opt/shims/$spark_home/spark_home/" >> "$GITHUB_ENV"
@@ -116,7 +117,7 @@ jobs:
             spark40-hive|spark41-slow|enhanced-spark35-slow) exit 0 ;;
           esac
           echo "SPARK_SCALA_VERSION=$scala" >> "$GITHUB_ENV"
-          if [ "$CI_TEST_CONFIGURATION" = spark41 ]; then
+          if [ "$CI_TEST_CONFIGURATION" = spark41 ] || [ "$CI_TEST_CONFIGURATION" = spark42 ]; then
             dnf install -y python3.11 python3.11-pip python3.11-devel
             alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
             alternatives --set python3 /usr/bin/python3.11

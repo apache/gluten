@@ -37,6 +37,7 @@ CONFIGURATIONS = {
     "spark40-hive": "spark-4.0,scala-2.13,java-17,backends-velox,delta,spark-ut",
     "spark41": "spark-4.1,scala-2.13,java-17,backends-velox,spark-ut,delta",
     "spark41-slow": "spark-4.1,scala-2.13,java-17,backends-velox,spark-ut",
+    "spark42": "spark-4.2,scala-2.13,java-17,backends-velox,spark-ut",
     "enhanced-spark35-slow": "spark-3.5,java-17,backends-velox,iceberg,delta,hudi,paimon,spark-ut",
     "enhanced-spark35": "spark-3.5,java-17,backends-velox,iceberg,delta,hudi",
     "enhanced-spark40": "spark-4.0,scala-2.13,java-17,backends-velox,delta,spark-ut",
@@ -91,6 +92,7 @@ def selections(configuration):
         "spark35",
         "spark40",
         "spark41-slow",
+        "spark42",
         "enhanced-spark35-slow",
     ):
         result.append(
@@ -101,6 +103,7 @@ def selections(configuration):
         "spark35",
         "spark40-hive",
         "spark41-slow",
+        "spark42",
         "enhanced-spark35-slow",
     ):
         result.append(
@@ -123,6 +126,18 @@ def partition(classes, count, timings):
     return [sorted(group) for group in groups]
 
 
+def timing_hints(configuration, hints):
+    if configuration == "spark42" and configuration not in hints:
+        # Spark 4.2 starts with the same suite classes as 4.1. Use their measured
+        # standard + slow costs until 4.2 has its own history; never filter discovery.
+        timings = {}
+        for source in ("spark41", "spark41-slow"):
+            for name, seconds in hints.get(source, {}).items():
+                timings[name] = timings.get(name, 0.0) + seconds
+        return timings
+    return hints.get(configuration, {})
+
+
 def shard_filters(archive, configuration, shard, shards, reports):
     if not 0 <= shard < shards:
         raise ValueError("Invalid JVM shard")
@@ -132,7 +147,7 @@ def shard_filters(archive, configuration, shard, shards, reports):
     if not classes:
         raise ValueError("Shared build contains no discovery class names")
     hints = Path(__file__).with_name("jvm-test-timings.json")
-    timings = json.loads(hints.read_text()).get(configuration, {})
+    timings = timing_hints(configuration, json.loads(hints.read_text()))
     groups = partition(classes, shards, timings)
     selected = groups[shard]
     if not selected:

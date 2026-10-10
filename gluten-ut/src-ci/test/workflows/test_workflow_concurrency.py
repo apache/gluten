@@ -33,6 +33,7 @@ class WorkflowConcurrencyTest(unittest.TestCase):
         for workflow in (
             "velox_backend_x86",
             "velox_backend_x86_integration",
+            "velox_backend_spark42",
             "velox_backend_enhanced",
             "velox_backend_arm",
             "iceberg_spark_ut",
@@ -44,6 +45,11 @@ class WorkflowConcurrencyTest(unittest.TestCase):
                     job_weight=concurrency.pr_timeout,
                 )
                 self.assertLessEqual(concurrency.critical_path(weights, edges), 80)
+                weights, edges = concurrency.expand(
+                    ".github/workflows/" + workflow + ".yml",
+                    lambda path: (root / path).read_text(),
+                )
+                self.assertLessEqual(concurrency.peak(weights, edges), 20)
         self.assertEqual(
             120,
             concurrency.pr_timeout(

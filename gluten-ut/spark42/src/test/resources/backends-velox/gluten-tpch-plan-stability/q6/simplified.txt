@@ -1,0 +1,14 @@
+VeloxColumnarToRow
+  WholeStageCodegenTransformer (2)
+    RegularHashAggregateExecTransformer [sum,isEmpty] [sum((l_extendedprice * l_discount)),revenue,sum,isEmpty]
+      InputIteratorTransformer
+        InputAdapter
+          ColumnarExchange #1
+            VeloxResizeBatches
+              WholeStageCodegenTransformer (1)
+                FlushableHashAggregateExecTransformer [_pre_x] [sum,isEmpty,sum,isEmpty,sum,isEmpty]
+                  ProjectExecTransformer [l_extendedprice,l_discount]
+                    InputIteratorTransformer
+                      InputAdapter
+                        RowToVeloxColumnar
+                          LocalTableScan [l_extendedprice,l_discount]

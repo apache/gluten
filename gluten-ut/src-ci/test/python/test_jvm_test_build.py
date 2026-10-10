@@ -58,6 +58,32 @@ class JvmTestBuildTest(unittest.TestCase):
             ["extended", "slow-hive"],
             [name for name, _ in build.selections("spark41-slow")],
         )
+        self.assertEqual(
+            ["standard-1", "standard-2", "standard-3", "extended", "slow-hive"],
+            [name for name, _ in build.selections("spark42")],
+        )
+        self.assertIn("spark-ut", build.CONFIGURATIONS["spark42"].split(","))
+
+    def test_spark42_balances_standard_and_slow_costs_and_keeps_new_classes(self):
+        hints = {
+            "spark41": {"example.MixedSuite": 90, "example.StandardSuite": 140},
+            "spark41-slow": {"example.MixedSuite": 60, "example.HiveSuite": 140},
+        }
+        classes = [
+            "example.MixedSuite",
+            "example.StandardSuite",
+            "example.HiveSuite",
+            "example.NewSpark42Suite",
+        ]
+        timings = build.timing_hints("spark42", hints)
+        groups = build.partition(classes, 3, timings)
+        self.assertCountEqual(classes, [name for group in groups for name in group])
+        self.assertTrue(
+            all(sum(timings.get(name, 1) for name in group) <= 150 for group in groups)
+        )
+        # Real 4.2 timings take precedence as soon as they are available.
+        hints["spark42"] = {"example.NewSpark42Suite": 200}
+        self.assertEqual(hints["spark42"], build.timing_hints("spark42", hints))
 
     def test_shards_cover_new_classes_once_and_keep_inner_classes_together(self):
         classes = ["example.SlowSuite", "example.FastSuite", "example.NewTest"]

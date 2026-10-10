@@ -82,23 +82,24 @@ The time estimates below are projections from existing hosted reports, not resul
 of a hosted run of this local revision. Timeouts fail unfinished checks; they do not
 make partial test coverage pass.
 
-The before column is `origin/main` at `83711d98e56cbf597a831de1080634731040f9e6`.
+The before column is `origin/main` at `680ba5c39` (including the new Spark 4.2 unit tests).
 Counts expand matrices and called workflows into actual runner jobs, omit skipped
 jobs, and assume a broad Java change or a C++ change. A shim-only PR runs fewer jobs.
 
 | Workflow | Before: Java / C++ PR jobs | After: Java / C++ PR jobs | Peak concurrency before → after | Warm elapsed estimate after |
 | --- | ---: | ---: | ---: | --- |
-| `velox_backend_x86.yml` | 36 / 42 | 28 / 28 | 50 → 19 | 55–70 min |
+| `velox_backend_x86.yml` | 41 / 47 | 28 / 28 | 55 → 19 | 55–70 min |
 | `velox_backend_x86_integration.yml` (new independent workflow) | Part of x86 | 18 / 24 | Part of x86 → 17 | 25–40 min Java; 65–80 min C++ |
+| `velox_backend_spark42.yml` (new independent workflow) | 5 within x86 | 8 / 8 | Part of x86 → 5 | 55–70 min, projected from 4.1 timings |
 | `velox_backend_enhanced.yml` | 7 / 7 | 11 / 11 | 5 → 6 | 55–70 min |
 | `velox_backend_arm.yml` | 3 / 4 | 3 / 4 | 2 → 2 | 20–40 min |
 | `iceberg_spark_ut.yml` (new independent workflow) | None | 9 / 9 | None → 5 | 60–75 min |
 
 Peak concurrency is a conservative bound including the full matrices used outside
-PRs. In particular, x86 previously expanded to **52 full-run jobs**: detection, one
-native build, 23 JVM jobs, 23 TPC jobs and four auxiliary jobs. Its full-run jobs now
-split into 28 JVM-workflow jobs and 40 integration-workflow jobs. The extra build
-jobs replace compilation previously repeated inside each consumer; a higher job
+PRs. In particular, x86 previously expanded to **57 full-run jobs**: detection, one
+native build, 28 JVM jobs, 23 TPC jobs and four auxiliary jobs. Its full-run jobs now
+split into 28 JVM-workflow jobs, 40 integration-workflow jobs and 8 Spark 4.2 jobs.
+The extra build jobs replace compilation previously repeated inside each consumer; a higher job
 count does not by itself mean more runner-minutes.
 
 The normal warm-cache PR target is **60–75 minutes overall**, with an **80-minute
@@ -110,7 +111,7 @@ and [113 minutes for a C++ x86 run](https://github.com/apache/gluten/actions/run
 
 | Critical dependency chain | Configured execution budget |
 | --- | --- |
-| x86 JVM | Detection 1 + native 6 + compile 10 + tests 60 = **77 min** |
+| x86 JVM / Spark 4.2 | Detection 1 + native 6 + compile 10 + tests 60 = **77 min** |
 | Enhanced | Detection 1 + native 8 + compile 10 + tests 60 = **79 min** |
 | Integration with shared builds | Detection 1 + native 6 + compile 8 + tests 65 = **80 min** |
 | Integration auxiliary / Uniffle | Detection 1 + native 6 + job 72 = **79 min** |
@@ -119,9 +120,13 @@ and [113 minutes for a C++ x86 run](https://github.com/apache/gluten/actions/run
 
 ### Where the jobs went
 
-Previously, each of the 23 ordinary JVM test jobs built its whole reactor with
+Previously, each of the 23 Spark 3.4–4.1 JVM test jobs built its whole reactor with
 `clean test`. There were five Spark 3.4 jobs, five Spark 3.5 jobs, three Spark 3.5
 Scala 2.13 jobs, five Spark 4.0 jobs including Hive, and five Spark 4.1 jobs.
+Main then added five Spark 4.2 jobs, each running both `clean install -DskipTests`
+and `clean test`, adding ten reactor builds. They now run in an independent workflow
+with one shared compilation and five class shards; all three standard groups and
+both slow tags are retained. The existing Spark 4.2 packaging check stays in integration.
 The enhanced workflow had five test jobs but six builds, because its slow Spark 3.5
 job compiled separately for extended and Hive selections.
 
@@ -137,6 +142,7 @@ pipeline. Each configuration has one producer and parallel test consumers:
 | Spark 4.0 Hive, retaining its separate profiles | 1 | 1 |
 | Spark 4.1 standard | 1 | 3 |
 | Spark 4.1 slow, retaining its separate profiles | 1 | 2 |
+| Spark 4.2 standard and slow, in its independent workflow | 1 | 5 |
 | Enhanced Spark 3.5 standard | 1 | 1 |
 | Enhanced Spark 3.5 slow | 1 | 2 |
 | Enhanced Spark 4.0 | 1 | 3 |
@@ -150,6 +156,8 @@ classes stay with their enclosing class. The three original standard groups,
 extended SQL tests and slow Hive tests run in separate JVM invocations, restoring
 clean fixtures between them. Combining these groups can corrupt eagerly created
 Spark/Hive sessions even when tags exclude a suite's test methods.
+Until Spark 4.2 has its own timing history, its scheduling weights combine the
+measured Spark 4.1 standard and slow costs. New classes are still discovered and run.
 
 The producer runs normal `test-compile`, including style checks. The archive records
 the commit, configuration, architecture and build arguments. Consumers verify these
@@ -213,14 +221,16 @@ python3 -m unittest discover -s gluten-ut/src-ci/test/workflows
 
 Runner-minutes are the sum of job durations. Workflow splitting and concurrency caps
 alone do not save usage. Savings come from replacing the copied Iceberg suites,
-reducing ordinary/enhanced JVM builds from 29 to 10, sharing TPC builds,
+reducing ordinary/enhanced JVM builds from 39 to 11, sharing TPC builds,
 and reusing stress-test input data. Iceberg-only
 harness edits also avoid unrelated ordinary/enhanced/ARM builds and tests.
 
 The existing timing samples account for about **92 runner-minutes of removed legacy
 Iceberg tests** and **86 minutes of repeated JVM compilation/style checks**. The new
 head suite projects about **167 test minutes**, plus controls, builds, startup and
-artifact transfer. Shared TPC compilation and warm SF30 data provide further savings;
+artifact transfer. These samples predate the Spark 4.2 unit-test addition; its new
+independent native build also belongs in the combined usage measurement. Shared TPC
+compilation and warm SF30 data provide further savings;
 in the C++ example, repeated SF30 generation alone cost roughly 120 minutes across
 four jobs, before cache-transfer and occasional main-cache warming costs.
 
@@ -228,17 +238,17 @@ These are component measurements and projections, not a measured final net total
 In particular, the earlier near-neutral estimate for seven long JVM jobs does not
 apply to the parallel layout. **Lower aggregate usage remains a hosted validation
 requirement**, especially for Java-only PRs that do not run the SF30 stress jobs.
-Compare x86, integration, enhanced, ARM and Iceberg together against equivalent main
-runs, including build/artifact overhead, failed runs, reruns and amortized cache
+Compare x86, integration, Spark 4.2, enhanced, ARM and Iceberg together against
+equivalent main runs, including build/artifact overhead, failed runs, reruns and amortized cache
 warming. Do not claim a confirmed decrease from job counts or timeouts alone.
 
 ### Other existing workflows
 
-Main has 22 workflow files. The revised layout has 24 independently triggered
+Main has 22 workflow files. The revised layout has 25 independently triggered
 workflows, plus three reusable implementations (`velox_native_build.yml`,
-`velox_jvm_tests.yml`, `velox_backend_x86_tests.yml`). The two new independent
-workflows are integration and Iceberg. Reusable calls contribute to their caller's
-job count and concurrency, not separate runs.
+`velox_jvm_tests.yml`, `velox_backend_x86_tests.yml`). The three new independent
+workflows are integration, Spark 4.2 and Iceberg. Reusable calls contribute to their
+caller's job count and concurrency, not separate runs.
 
 | Other existing workflow file | Expanded jobs before → after | Purpose / elapsed information |
 | --- | ---: | --- |
