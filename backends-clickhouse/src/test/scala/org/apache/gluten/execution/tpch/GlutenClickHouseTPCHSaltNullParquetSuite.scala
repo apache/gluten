@@ -553,6 +553,45 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
     compareResultsAgainstVanillaSpark(sql, true, { _ => })
   }
 
+  test("window row_number with same partition and order keys should not use aggregate topk") {
+    val sql =
+      """
+        |WITH ranked AS (
+        | SELECT
+        | l_orderkey,
+        | l_returnflag,
+        | ROW_NUMBER() OVER (
+        | PARTITION BY l_returnflag
+        | ORDER BY l_returnflag DESC
+        | ) AS rn
+        | FROM lineitem
+        | WHERE l_orderkey > 1000
+        |)
+        |
+        |SELECT
+        | l_returnflag,
+        | l_orderkey,
+        | rn
+        |FROM ranked
+        |WHERE rn <= 3
+        |ORDER BY l_returnflag DESC
+        |""".stripMargin
+
+    withSQLConf(
+      ("spark.sql.optimizer.windowGroupLimitThreshold", "-1"),
+      (CHConfig.runtimeSettings("enable_window_group_limit_to_aggregate"), "true"),
+      (CHConfig.runtimeSettings("window.aggregate_topk_high_cardinality_threshold"), "2.0")
+    ) {
+      runQueryAndCompare(sql, compareResult = false) {
+        df =>
+          val aggregateTopK = collectWithSubqueries(df.queryExecution.executedPlan) {
+            case e: CHAggregateGroupLimitExecTransformer => e
+          }
+          assert(aggregateTopK.isEmpty)
+      }
+    }
+  }
+
   test("window sum 1") {
     val sql =
       """
