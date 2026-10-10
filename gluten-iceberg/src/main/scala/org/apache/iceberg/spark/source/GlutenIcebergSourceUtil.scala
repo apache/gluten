@@ -20,6 +20,7 @@ import org.apache.gluten.IcebergDefaultValueUtil
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.execution.SparkDataSourceRDDPartition
+import org.apache.gluten.expression.ConverterUtils
 import org.apache.gluten.substrait.rel.{IcebergLocalFilesBuilder, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
@@ -35,7 +36,6 @@ import org.apache.iceberg.util.PropertyUtil
 
 import java.lang.{Long => JLong}
 import java.util.{ArrayList => JArrayList, HashMap => JHashMap, List => JList, Map => JMap}
-import java.util.Locale
 
 import scala.collection.JavaConverters._
 
@@ -176,7 +176,8 @@ object GlutenIcebergSourceUtil {
     val metadataColumns = new JHashMap[String, String]()
     metadataColumnNames.foreach {
       name =>
-        name.toLowerCase(Locale.ROOT) match {
+        val normalizedName = ConverterUtils.normalizeColName(name)
+        normalizedName match {
           case InputFileNameCol => metadataColumns.put(name, filePath)
           case InputFileBlockStartCol => metadataColumns.put(name, start.toString)
           case InputFileBlockLengthCol => metadataColumns.put(name, length.toString)
