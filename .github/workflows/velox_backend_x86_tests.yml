@@ -1,0 +1,985 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Velox x86 tests
+
+on:
+  workflow_call:
+    inputs:
+      changes:
+        required: true
+        type: string
+
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+  MVN_CMD: 'build/mvn -ntp'
+  WGET_CMD: 'wget -nv'
+  CCACHE_DIR: '${{ github.workspace }}/.ccache'
+  SPARK_ANSI_SQL_MODE: false
+
+# Integration tests run independently of JVM unit tests. Matrix caps include
+# overlapping producer, consumer and auxiliary jobs.
+# Retain upstream's default job timeout so cold builds and SF30 generation finish.
+# Warm-cache performance targets are measured separately from cancellation limits.
+jobs:
+  build-tpc-default:
+    if: >-
+      fromJSON(inputs.changes).cpp == 'true' ||
+      fromJSON(inputs.changes).java == 'true' ||
+      fromJSON(inputs.changes).tools_it == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        os: [ "ubuntu:22.04" ]
+        spark: [ "spark-3.4", "spark-3.5", "spark-4.0", "spark-4.1"  ]
+        # PR runs test the primary JDK per Spark line (8 for 3.x, 17 for 4.x --
+        # after the static excludes below that is 4 combos instead of 8). The
+        # alternative-JDK combos (11/21/25) validate build + TPC run under JDKs
+        # that Gluten changes rarely break in a JDK-specific way; the nightly
+        # full_run keeps covering them daily so a break surfaces within a day
+        # instead of costing ~75 runner-minutes on every PR.
+        java: >-
+          ${{ fromJSON(fromJSON(inputs.changes).full_run == 'true'
+          && '["java-8", "java-11", "java-17", "java-21", "java-25"]'
+          || '["java-8", "java-17"]') }}
+        # Spark supports JDK17 since 3.3.
+        exclude:
+          - spark: spark-3.4
+            java: java-25
+          - spark: spark-3.5
+            java: java-25
+          - spark: spark-3.4
+            java: java-21
+          - spark: spark-3.5
+            java: java-21
+          - spark: spark-3.4
+            java: java-17
+          - spark: spark-3.5
+            java: java-17
+          - spark: spark-3.4
+            java: java-11
+          - spark: spark-4.0
+            java: java-8
+          - spark: spark-4.0
+            java: java-11
+          - spark: spark-4.1
+            java: java-8
+          - spark: spark-4.1
+            java: java-11
+
+    runs-on: ubuntu-22.04
+    container: ${{ matrix.java == 'java-8' && 'apache/gluten:centos-8-jdk8' || matrix.java == 'java-11' && 'apache/gluten:centos-8-jdk11' || matrix.java == 'java-17' && 'apache/gluten:centos-9-jdk17' || 'apache/gluten:ubuntu22-m2-cache' }}
+    env:
+      TPC_SPARK: ${{ matrix.spark }}
+      TPC_JAVA: ${{ matrix.java }}
+      TPC_SHUFFLE: plain
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: velox-native-lib-centos-8-${{ github.sha }}
+          path: cpp/build/releases/
+      - name: Select the build JDK
+        shell: bash
+        run: |
+          case "$TPC_JAVA" in
+            java-8) java_home=/usr/lib/jvm/java-1.8.0-openjdk ;;
+            java-11) java_home=/usr/lib/jvm/java-11-openjdk ;;
+            java-17) java_home=/usr/lib/jvm/java-17-openjdk ;;
+            java-21|java-25)
+              apt-get update
+              apt-get install -y "openjdk-${TPC_JAVA#java-}-jdk"
+              java_home="/usr/lib/jvm/$TPC_JAVA-openjdk-amd64" ;;
+          esac
+          echo "JAVA_HOME=$java_home" >> "$GITHUB_ENV"
+          echo "PATH=$java_home/bin:$PATH" >> "$GITHUB_ENV"
+      - name: Build one integration runtime for every matching consumer
+        shell: bash
+        run: |
+          scala=""
+          case "$TPC_SPARK" in spark-4.*) scala=-Pscala-2.13 ;; esac
+          shuffle=""; tools_shuffle=""
+          case "$TPC_SHUFFLE" in
+            celeborn-0.5.4) shuffle=-Pceleborn; tools_shuffle=-Pceleborn,celeborn-0.5 ;;
+            celeborn-0.6.3) shuffle=-Pceleborn; tools_shuffle=-Pceleborn,celeborn-0.6 ;;
+          esac
+          # Downstream reactor modules require Gluten's test jars even when no
+          # tests execute here. Compile/package them without running the suites.
+          build/mvn -ntp clean install -Pbackends-velox,fast-build -P"$TPC_SPARK" -P"$TPC_JAVA" $scala $shuffle -DskipTests
+          (cd tools/gluten-it && "$GITHUB_WORKSPACE/build/mvn" -ntp clean install -P"$TPC_SPARK" -P"$TPC_JAVA" $tools_shuffle)
+          python3 .github/workflows/util/tpc-build.py pack --archive "$RUNNER_TEMP/runtime.zip" \
+            --spark "$TPC_SPARK" --java "$TPC_JAVA" --shuffle "$TPC_SHUFFLE"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tpc-build-${{ env.TPC_SPARK }}-${{ env.TPC_JAVA }}-${{ env.TPC_SHUFFLE }}
+          path: ${{ runner.temp }}/runtime.zip
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+  build-tpc-celeborn:
+    if: >-
+      fromJSON(inputs.changes).cpp == 'true' ||
+      fromJSON(inputs.changes).java == 'true' ||
+      fromJSON(inputs.changes).tools_it == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        spark: [ "spark-3.5" ]
+        # Both shuffle writers stay per-PR (they exercise different Gluten
+        # writer code paths); the older Celeborn release is client-compat
+        # coverage that the nightly full_run re-checks daily instead of every
+        # PR paying for both versions.
+        celeborn: >-
+          ${{ fromJSON(fromJSON(inputs.changes).full_run == 'true'
+          && '["celeborn-0.6.3", "celeborn-0.5.4"]'
+          || '["celeborn-0.6.3"]') }}
+    runs-on: ubuntu-22.04
+    container: apache/gluten:centos-8-jdk8
+    env:
+      TPC_SPARK: ${{ matrix.spark }}
+      TPC_JAVA: java-8
+      TPC_SHUFFLE: ${{ matrix.celeborn }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: velox-native-lib-centos-8-${{ github.sha }}
+          path: cpp/build/releases/
+      - name: Select the build JDK
+        shell: bash
+        run: |
+          case "$TPC_JAVA" in
+            java-8) java_home=/usr/lib/jvm/java-1.8.0-openjdk ;;
+            java-11) java_home=/usr/lib/jvm/java-11-openjdk ;;
+            java-17) java_home=/usr/lib/jvm/java-17-openjdk ;;
+            java-21|java-25)
+              apt-get update
+              apt-get install -y "openjdk-${TPC_JAVA#java-}-jdk"
+              java_home="/usr/lib/jvm/$TPC_JAVA-openjdk-amd64" ;;
+          esac
+          echo "JAVA_HOME=$java_home" >> "$GITHUB_ENV"
+          echo "PATH=$java_home/bin:$PATH" >> "$GITHUB_ENV"
+      - name: Build one integration runtime for every matching consumer
+        shell: bash
+        run: |
+          scala=""
+          case "$TPC_SPARK" in spark-4.*) scala=-Pscala-2.13 ;; esac
+          shuffle=""; tools_shuffle=""
+          case "$TPC_SHUFFLE" in
+            celeborn-0.5.4) shuffle=-Pceleborn; tools_shuffle=-Pceleborn,celeborn-0.5 ;;
+            celeborn-0.6.3) shuffle=-Pceleborn; tools_shuffle=-Pceleborn,celeborn-0.6 ;;
+          esac
+          # Downstream reactor modules require Gluten's test jars even when no
+          # tests execute here. Compile/package them without running the suites.
+          build/mvn -ntp clean install -Pbackends-velox,fast-build -P"$TPC_SPARK" -P"$TPC_JAVA" $scala $shuffle -DskipTests
+          (cd tools/gluten-it && "$GITHUB_WORKSPACE/build/mvn" -ntp clean install -P"$TPC_SPARK" -P"$TPC_JAVA" $tools_shuffle)
+          python3 .github/workflows/util/tpc-build.py pack --archive "$RUNNER_TEMP/runtime.zip" \
+            --spark "$TPC_SPARK" --java "$TPC_JAVA" --shuffle "$TPC_SHUFFLE"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tpc-build-${{ env.TPC_SPARK }}-${{ env.TPC_JAVA }}-${{ env.TPC_SHUFFLE }}
+          path: ${{ runner.temp }}/runtime.zip
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+  tpc-test-ubuntu:
+    needs: build-tpc-default
+    if: >-
+      fromJSON(inputs.changes).cpp == 'true' ||
+      fromJSON(inputs.changes).java == 'true' ||
+      fromJSON(inputs.changes).tools_it == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        os: [ "ubuntu:22.04" ]
+        spark: [ "spark-3.4", "spark-3.5", "spark-4.0", "spark-4.1"  ]
+        # PR runs test the primary JDK per Spark line (8 for 3.x, 17 for 4.x --
+        # after the static excludes below that is 4 combos instead of 8). The
+        # alternative-JDK combos (11/21/25) validate build + TPC run under JDKs
+        # that Gluten changes rarely break in a JDK-specific way; the nightly
+        # full_run keeps covering them daily so a break surfaces within a day
+        # instead of costing ~75 runner-minutes on every PR.
+        java: >-
+          ${{ fromJSON(fromJSON(inputs.changes).full_run == 'true'
+          && '["java-8", "java-11", "java-17", "java-21", "java-25"]'
+          || '["java-8", "java-17"]') }}
+        # Spark supports JDK17 since 3.3.
+        exclude:
+          - spark: spark-3.4
+            java: java-25
+          - spark: spark-3.5
+            java: java-25
+          - spark: spark-3.4
+            java: java-21
+          - spark: spark-3.5
+            java: java-21
+          - spark: spark-3.4
+            java: java-17
+          - spark: spark-3.5
+            java: java-17
+          - spark: spark-3.4
+            java: java-11
+          - spark: spark-4.0
+            java: java-8
+          - spark: spark-4.0
+            java: java-11
+          - spark: spark-4.1
+            java: java-8
+          - spark: spark-4.1
+            java: java-11
+
+    runs-on: ubuntu-22.04
+    container: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download the matching integration runtime
+        uses: actions/download-artifact@v8
+        with:
+          name: tpc-build-${{ matrix.spark }}-${{ matrix.java }}-plain
+          path: ${{ runner.temp }}/tpc-build
+      - name: Setup tzdata
+        run: |
+          sed -i 's|http://archive|http://eu.archive|g' /etc/apt/sources.list
+          if [ "${{ matrix.os }}" = "ubuntu:22.04" ]; then
+            apt-get update
+            TZ="Etc/GMT" DEBIAN_FRONTEND=noninteractive apt-get install -y tzdata
+          fi
+      - name: Setup java
+        run: |
+          if [ "${{ matrix.java }}" = "java-17" ]; then
+            apt-get update && apt-get install -y openjdk-17-jdk wget python3
+            apt remove openjdk-11* -y
+          elif [ "${{ matrix.java }}" = "java-25" ]; then
+            apt-get update && apt-get install -y openjdk-25-jdk wget python3
+          elif [ "${{ matrix.java }}" = "java-21" ]; then
+            apt-get update && apt-get install -y openjdk-21-jdk wget python3
+          elif [ "${{ matrix.java }}" = "java-11" ]; then
+            apt-get update && apt-get install -y openjdk-11-jdk wget python3
+          else
+            apt-get update && apt-get install -y openjdk-8-jdk wget python3
+            apt remove openjdk-11* -y
+          fi
+      - name: Install Hadoop & Setup HDFS
+        if: matrix.os == 'ubuntu:22.04' && matrix.spark == 'spark-3.5' && matrix.java == 'java-8'
+        shell: bash
+        run: |
+          export JAVA_HOME=/usr/lib/jvm/${{ matrix.java }}-openjdk-amd64
+          source .github/workflows/util/install-spark-deps.sh
+          install_hadoop
+          setup_hdfs
+      - name: Install MinIO
+        if: matrix.os == 'ubuntu:22.04' && matrix.spark == 'spark-3.5' && matrix.java == 'java-8'
+        shell: bash
+        run: |
+          export JAVA_HOME=/usr/lib/jvm/${{ matrix.java }}-openjdk-amd64
+          source .github/workflows/util/install-spark-deps.sh
+          install_minio
+      - name: Restore and run TPC-H / TPC-DS
+        shell: bash
+        run: |
+          cd $GITHUB_WORKSPACE/
+          export JAVA_HOME=/usr/lib/jvm/${{ matrix.java }}-openjdk-amd64
+          echo "JAVA_HOME: $JAVA_HOME"
+          python3 "$GITHUB_WORKSPACE/.github/workflows/util/tpc-build.py" restore \
+            --revision "$GITHUB_SHA" \
+            --archive "$RUNNER_TEMP/tpc-build/runtime.zip" --spark "${{ matrix.spark }}" \
+            --java "${{ matrix.java }}" --shuffle "plain"
+          cd "$GITHUB_WORKSPACE/tools/gluten-it"
+          # Setup S3 JARs after restoring gluten-it
+          if [ "${{ matrix.os }}" = "ubuntu:22.04" ] && \
+            [ "${{ matrix.spark }}" = "spark-3.5" ] && \
+            [ "${{ matrix.java }}" = "java-8" ]; then
+            source $GITHUB_WORKSPACE/.github/workflows/util/install-spark-deps.sh
+            SPARK_VERSION=$(echo "${{ matrix.spark }}" | sed 's/spark-//')
+            setup_minio "$SPARK_VERSION"
+          fi
+          GLUTEN_IT_JVM_ARGS=-Xmx5G sbin/gluten-it.sh queries-compare \
+            --local --preset=velox --benchmark-type=h --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1 \
+          && GLUTEN_IT_JVM_ARGS=-Xmx6G sbin/gluten-it.sh queries-compare \
+            --local --preset=velox --benchmark-type=ds --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1
+          if [ "${{ matrix.os }}" = "ubuntu:22.04" ] && \
+            [ "${{ matrix.spark }}" = "spark-3.5" ] && \
+            [ "${{ matrix.java }}" = "java-8" ]; then
+            GLUTEN_IT_JVM_ARGS=-Xmx6G sbin/gluten-it.sh queries-compare \
+            --local --preset=velox --benchmark-type=h --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1 \
+            --queries=q1 --data-dir="hdfs://localhost:9000/test"
+            GLUTEN_IT_JVM_ARGS=-Xmx6G sbin/gluten-it.sh queries-compare \
+            --local --preset=velox --benchmark-type=h --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1 \
+            --queries=q1 --data-dir="s3a://gluten-it/test" \
+            --extra-conf=spark.hadoop.fs.s3a.endpoint=http://localhost:9100 \
+            --extra-conf=spark.hadoop.fs.s3a.access.key=admin \
+            --extra-conf=spark.hadoop.fs.s3a.secret.key=admin123 \
+            --extra-conf=spark.hadoop.fs.s3a.path.style.access=true \
+            --extra-conf=spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem
+          fi
+
+  tpc-test-centos8:
+    needs: build-tpc-default
+    if: >-
+      fromJSON(inputs.changes).cpp == 'true' ||
+      fromJSON(inputs.changes).java == 'true' ||
+      fromJSON(inputs.changes).tools_it == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      # This job's per-PR value is OS compatibility of the same native lib and
+      # TPC run that tpc-test-ubuntu already exercises combo-by-combo, so PRs
+      # test one representative combo per Spark line ({3.5, 4.1} x primary JDK
+      # = 2 jobs after the excludes below) and the nightly full_run restores
+      # the whole 5-combo fan-out.
+      matrix:
+        os: [ "centos:8" ]
+        spark: >-
+          ${{ fromJSON(fromJSON(inputs.changes).full_run == 'true'
+          && '["spark-3.4", "spark-3.5", "spark-4.0", "spark-4.1"]'
+          || '["spark-3.5", "spark-4.1"]') }}
+        java: >-
+          ${{ fromJSON(fromJSON(inputs.changes).full_run == 'true'
+          && '["java-8", "java-11", "java-17"]'
+          || '["java-8", "java-17"]') }}
+        # Spark supports JDK17 since 3.3.
+        exclude:
+          - spark: spark-3.4
+            java: java-17
+          - spark: spark-3.5
+            java: java-17
+          - spark: spark-3.4
+            java: java-11
+          - spark: spark-4.0
+            java: java-8
+          - spark: spark-4.0
+            java: java-11
+          - spark: spark-4.1
+            java: java-8
+          - spark: spark-4.1
+            java: java-11
+
+    runs-on: ubuntu-22.04
+    container: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download the matching integration runtime
+        uses: actions/download-artifact@v8
+        with:
+          name: tpc-build-${{ matrix.spark }}-${{ matrix.java }}-plain
+          path: ${{ runner.temp }}/tpc-build
+      - name: Update mirror list
+        run: |
+          if [ "${{ matrix.os }}" = "centos:7" ] || [ "${{ matrix.os }}" = "centos:8" ]; then
+            sed -i -e "s|mirrorlist=|#mirrorlist=|g" /etc/yum.repos.d/CentOS-* || true
+            sed -i -e "s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-* || true
+          fi
+      - name: Setup java
+        run: |
+          if [ "${{ matrix.java }}" = "java-17" ]; then
+            yum update -y && yum install -y java-17-openjdk-devel wget python3
+          elif [ "${{ matrix.java }}" = "java-11" ]; then
+            yum update -y && yum install -y java-11-openjdk-devel wget python3
+          else
+            yum update -y && yum install -y java-1.8.0-openjdk-devel wget python3
+          fi
+      - name: Set environment variables
+        run: |
+          if [ "${{ matrix.java }}" = "java-17" ]; then
+            echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk" >> $GITHUB_ENV
+          elif [ "${{ matrix.java }}" = "java-11" ]; then
+            echo "JAVA_HOME=/usr/lib/jvm/java-11-openjdk" >> $GITHUB_ENV
+          else
+            echo "JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk" >> $GITHUB_ENV
+          fi
+      - name: Restore gluten-it
+        run: |
+          python3 "$GITHUB_WORKSPACE/.github/workflows/util/tpc-build.py" restore \
+            --revision "$GITHUB_SHA" \
+            --archive "$RUNNER_TEMP/tpc-build/runtime.zip" --spark "${{ matrix.spark }}" \
+            --java "${{ matrix.java }}" --shuffle "plain"
+      - name: Run TPC-H / TPC-DS
+        run: |
+          echo "JAVA_HOME: $JAVA_HOME"
+          cd $GITHUB_WORKSPACE/tools/gluten-it
+          GLUTEN_IT_JVM_ARGS=-Xmx5G sbin/gluten-it.sh queries-compare \
+            --local --preset=velox --benchmark-type=h --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1
+          GLUTEN_IT_JVM_ARGS=-Xmx6G sbin/gluten-it.sh queries-compare \
+            --local --preset=velox --benchmark-type=ds --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1
+
+  tpc-test-ubuntu-oom:
+    # Chaos/stress tier: this job probes native memory-pressure behaviour, so
+    # per-PR it only runs when native code changed (cpp=true). For java-only
+    # changes its ~60 runner-minutes rarely produce PR-specific signal; the
+    # nightly full_run still exercises it daily.
+    needs: build-tpc-default
+    if: >-
+      fromJSON(inputs.changes).full_run == 'true' ||
+      fromJSON(inputs.changes).cpp == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        spark: [ "spark-3.5" ]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Maximize build disk space
+        shell: bash
+        run: |
+          df -h
+          set -euo pipefail
+          echo "Removing unwanted software... "
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force > /dev/null
+          df -h
+      - uses: actions/checkout@v7
+      - name: Download the matching integration runtime
+        uses: actions/download-artifact@v8
+        with:
+          name: tpc-build-${{ matrix.spark }}-java-8-plain
+          path: ${{ runner.temp }}/tpc-build
+      - name: Setup java
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openjdk-8-jdk wget python3
+      - name: Set environment variables
+        run: |
+          echo "JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64" >> $GITHUB_ENV
+      - name: Restore the vanilla Spark SF30 fixture
+        id: tpcds-data
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            /tmp/tpcds-generated-30.0-parquet-non_partitioned
+            /tmp/tpcds-generated-30.0-parquet-non_partitioned.completed
+          key: tpcds-sf30-parquet-v1-${{ runner.arch }}-${{ hashFiles('pom.xml', 'tools/gluten-it/pom.xml', 'tools/gluten-it/**/pom.xml', 'tools/gluten-it/common/src/main/**', 'tools/gluten-it/3rd/**/src/**') }}
+      - name: Restore runtime and generate missing fixture for Spark ${{ matrix.spark }}
+        run: |
+          cd $GITHUB_WORKSPACE/
+          python3 "$GITHUB_WORKSPACE/.github/workflows/util/tpc-build.py" restore \
+            --revision "$GITHUB_SHA" \
+            --archive "$RUNNER_TEMP/tpc-build/runtime.zip" --spark "${{ matrix.spark }}" \
+            --java "java-8" --shuffle "plain"
+          cd "$GITHUB_WORKSPACE/tools/gluten-it"
+          GLUTEN_IT_JVM_ARGS=-Xmx6G sbin/gluten-it.sh data-gen-only --local --benchmark-type=ds -s=30.0 --threads=12
+      - name: Save the complete generated fixture
+        if: steps.tpcds-data.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            /tmp/tpcds-generated-30.0-parquet-non_partitioned
+            /tmp/tpcds-generated-30.0-parquet-non_partitioned.completed
+          key: ${{ steps.tpcds-data.outputs.cache-primary-key }}
+      - name: TPC-DS SF30.0 Parquet local spark3.5 Q67/Q95 low memory, memory isolation off
+        run: |
+          cd tools/gluten-it \
+          && GLUTEN_IT_JVM_ARGS=-Xmx3G sbin/gluten-it.sh parameterized \
+            --local --preset=velox --benchmark-type=ds --error-on-memleak --queries=q67,q95 -s=30.0 --threads=12 --shuffle-partitions=72 --iterations=1 \
+            --data-gen=skip -m=OffHeapExecutionMemory \
+            -d=ISOLATION:OFF,spark.gluten.memory.isolation=false \
+            -d=OFFHEAP_SIZE:6g,spark.memory.offHeap.size=6g \
+            -d=OFFHEAP_SIZE:4g,spark.memory.offHeap.size=4g \
+            -d=OVER_ACQUIRE:0.3,spark.gluten.memory.overAcquiredMemoryRatio=0.3 \
+            -d=OVER_ACQUIRE:0.5,spark.gluten.memory.overAcquiredMemoryRatio=0.5 \
+            --excluded-dims=OFFHEAP_SIZE:4g
+      - name: TPC-DS SF30.0 Parquet local spark3.5 Q67 low memory, memory isolation on
+        run: |
+          cd tools/gluten-it \
+          && GLUTEN_IT_JVM_ARGS=-Xmx3G sbin/gluten-it.sh parameterized \
+            --local --preset=velox --benchmark-type=ds --error-on-memleak --queries=q67 -s=30.0 --threads=12 --shuffle-partitions=72 --iterations=1 \
+            --data-gen=skip -m=OffHeapExecutionMemory \
+            -d=ISOLATION:ON,spark.gluten.memory.isolation=true,spark.memory.storageFraction=0.1 \
+            -d=OFFHEAP_SIZE:6g,spark.memory.offHeap.size=6g \
+            -d=OFFHEAP_SIZE:4g,spark.memory.offHeap.size=4g \
+            -d=OVER_ACQUIRE:0.3,spark.gluten.memory.overAcquiredMemoryRatio=0.3 \
+            -d=OVER_ACQUIRE:0.5,spark.gluten.memory.overAcquiredMemoryRatio=0.5
+      - name: TPC-DS SF30.0 Parquet local spark3.5 Q95 low memory, memory isolation on
+        run: |
+          cd tools/gluten-it \
+          && GLUTEN_IT_JVM_ARGS=-Xmx3G sbin/gluten-it.sh parameterized \
+            --local --preset=velox --benchmark-type=ds --error-on-memleak --queries=q95 -s=30.0 --threads=12 --shuffle-partitions=72 --iterations=1 \
+            --data-gen=skip -m=OffHeapExecutionMemory \
+            -d=ISOLATION:ON,spark.gluten.memory.isolation=true,spark.memory.storageFraction=0.1 \
+            -d=OFFHEAP_SIZE:6g,spark.memory.offHeap.size=6g \
+            -d=OFFHEAP_SIZE:4g,spark.memory.offHeap.size=4g \
+            -d=OVER_ACQUIRE:0.3,spark.gluten.memory.overAcquiredMemoryRatio=0.3 \
+            -d=OVER_ACQUIRE:0.5,spark.gluten.memory.overAcquiredMemoryRatio=0.5
+      - name: TPC-DS SF30.0 Parquet local spark3.5 Q23A/Q23B low memory
+        run: |
+          cd tools/gluten-it \
+          && GLUTEN_IT_JVM_ARGS=-Xmx3G sbin/gluten-it.sh parameterized \
+            --local --preset=velox --benchmark-type=ds --error-on-memleak --queries=q23a,q23b -s=30.0 --threads=12 --shuffle-partitions=72 --iterations=1 \
+            --data-gen=skip -m=OffHeapExecutionMemory \
+            -d=ISOLATION:OFF,spark.gluten.memory.isolation=false \
+            -d=OFFHEAP_SIZE:2g,spark.memory.offHeap.size=2g \
+            -d=FLUSH_MODE:DISABLED,spark.gluten.sql.columnar.backend.velox.flushablePartialAggregation=false,spark.gluten.sql.columnar.backend.velox.maxPartialAggregationMemoryRatio=1.0,spark.gluten.sql.columnar.backend.velox.maxExtendedPartialAggregationMemoryRatio=1.0,spark.gluten.sql.columnar.backend.velox.abandonPartialAggregationMinPct=100,spark.gluten.sql.columnar.backend.velox.abandonPartialAggregationMinRows=0 \
+            -d=FLUSH_MODE:ABANDONED,spark.gluten.sql.columnar.backend.velox.maxPartialAggregationMemoryRatio=1.0,spark.gluten.sql.columnar.backend.velox.maxExtendedPartialAggregationMemoryRatio=1.0,spark.gluten.sql.columnar.backend.velox.abandonPartialAggregationMinPct=0,spark.gluten.sql.columnar.backend.velox.abandonPartialAggregationMinRows=0 \
+            -d=FLUSH_MODE:FLUSHED,spark.gluten.sql.columnar.backend.velox.maxPartialAggregationMemoryRatio=0.05,spark.gluten.sql.columnar.backend.velox.maxExtendedPartialAggregationMemoryRatio=0.1,spark.gluten.sql.columnar.backend.velox.abandonPartialAggregationMinPct=100,spark.gluten.sql.columnar.backend.velox.abandonPartialAggregationMinRows=0
+      - name: TPC-DS SF30.0 Parquet local spark3.5 Q23A/Q23B low memory, memory isolation on
+        run: |
+          cd tools/gluten-it \
+          && GLUTEN_IT_JVM_ARGS=-Xmx3G sbin/gluten-it.sh parameterized \
+            --local --preset=velox --benchmark-type=ds --error-on-memleak --queries=q23a,q23b -s=30.0 --threads=12 --shuffle-partitions=72 --iterations=1 \
+            --data-gen=skip -m=OffHeapExecutionMemory \
+            -d=ISOLATION:ON,spark.gluten.memory.isolation=true,spark.memory.storageFraction=0.1 \
+            -d=OFFHEAP_SIZE:2g,spark.memory.offHeap.size=2g \
+            -d=FLUSH_MODE:DISABLED,spark.gluten.sql.columnar.backend.velox.flushablePartialAggregation=false,spark.gluten.sql.columnar.backend.velox.maxPartialAggregationMemoryRatio=1.0,spark.gluten.sql.columnar.backend.velox.maxExtendedPartialAggregationMemoryRatio=1.0,spark.gluten.sql.columnar.backend.velox.abandonPartialAggregationMinPct=100,spark.gluten.sql.columnar.backend.velox.abandonPartialAggregationMinRows=0 \
+            -d=FLUSH_MODE:ABANDONED,spark.gluten.sql.columnar.backend.velox.maxPartialAggregationMemoryRatio=1.0,spark.gluten.sql.columnar.backend.velox.maxExtendedPartialAggregationMemoryRatio=1.0,spark.gluten.sql.columnar.backend.velox.abandonPartialAggregationMinPct=0,spark.gluten.sql.columnar.backend.velox.abandonPartialAggregationMinRows=0 \
+            -d=FLUSH_MODE:FLUSHED,spark.gluten.sql.columnar.backend.velox.maxPartialAggregationMemoryRatio=0.05,spark.gluten.sql.columnar.backend.velox.maxExtendedPartialAggregationMemoryRatio=0.1,spark.gluten.sql.columnar.backend.velox.abandonPartialAggregationMinPct=100,spark.gluten.sql.columnar.backend.velox.abandonPartialAggregationMinRows=0
+      - name: TPC-DS SF30.0 Parquet local spark3.5 Q97 low memory
+        run: |
+          cd tools/gluten-it \
+          && GLUTEN_IT_JVM_ARGS=-Xmx3G sbin/gluten-it.sh parameterized \
+            --local --preset=velox --benchmark-type=ds --error-on-memleak --queries=q97 -s=30.0 --threads=12 --shuffle-partitions=72 --iterations=1 \
+            --data-gen=skip -m=OffHeapExecutionMemory \
+            --extra-conf=spark.gluten.sql.columnar.backend.velox.IOThreads=0 \
+            -d=ISOLATION:OFF,spark.gluten.memory.isolation=false \
+            -d=ISOLATION:ON,spark.gluten.memory.isolation=true,spark.memory.storageFraction=0.1 \
+            -d=OFFHEAP_SIZE:2g,spark.memory.offHeap.size=2g \
+            -d=OFFHEAP_SIZE:1g,spark.memory.offHeap.size=1g \
+            -d=IO_THREADS:12,spark.gluten.sql.columnar.backend.velox.IOThreads=12 \
+            -d=IO_THREADS:0,spark.gluten.sql.columnar.backend.velox.IOThreads=0
+
+  tpc-test-ubuntu-randomkill:
+    # Chaos/stress tier (see tpc-test-ubuntu-oom): random task kills mainly
+    # probe native/JNI shutdown robustness, and at 3 shards this is the single
+    # most expensive TPC job (~190 runner-minutes). Per-PR only for native
+    # changes; nightly full_run covers the rest.
+    needs: build-tpc-default
+    if: >-
+      fromJSON(inputs.changes).full_run == 'true' ||
+      fromJSON(inputs.changes).cpp == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        spark: [ "spark-3.5" ]
+        shard: [ 1, 2, 3 ]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Maximize build disk space
+        shell: bash
+        run: |
+          df -h
+          set -euo pipefail
+          echo "Removing unwanted software... "
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force > /dev/null
+          df -h
+      - uses: actions/checkout@v7
+      - name: Download the matching integration runtime
+        uses: actions/download-artifact@v8
+        with:
+          name: tpc-build-${{ matrix.spark }}-java-8-plain
+          path: ${{ runner.temp }}/tpc-build
+      - name: Setup java
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openjdk-8-jdk wget python3
+      - name: Set environment variables
+        run: |
+          echo "JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64" >> $GITHUB_ENV
+      - name: Restore the vanilla Spark SF30 fixture
+        id: tpcds-data
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            /tmp/tpcds-generated-30.0-parquet-non_partitioned
+            /tmp/tpcds-generated-30.0-parquet-non_partitioned.completed
+          key: tpcds-sf30-parquet-v1-${{ runner.arch }}-${{ hashFiles('pom.xml', 'tools/gluten-it/pom.xml', 'tools/gluten-it/**/pom.xml', 'tools/gluten-it/common/src/main/**', 'tools/gluten-it/3rd/**/src/**') }}
+      - name: Restore runtime and generate missing fixture for Spark ${{ matrix.spark }}
+        run: |
+          cd $GITHUB_WORKSPACE/
+          python3 "$GITHUB_WORKSPACE/.github/workflows/util/tpc-build.py" restore \
+            --revision "$GITHUB_SHA" \
+            --archive "$RUNNER_TEMP/tpc-build/runtime.zip" --spark "${{ matrix.spark }}" \
+            --java "java-8" --shuffle "plain"
+          cd "$GITHUB_WORKSPACE/tools/gluten-it"
+          GLUTEN_IT_JVM_ARGS=-Xmx6G sbin/gluten-it.sh data-gen-only --local --benchmark-type=ds -s=30.0 --threads=12
+      - name: Save the complete generated fixture
+        if: steps.tpcds-data.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            /tmp/tpcds-generated-30.0-parquet-non_partitioned
+            /tmp/tpcds-generated-30.0-parquet-non_partitioned.completed
+          key: ${{ steps.tpcds-data.outputs.cache-primary-key }}
+      - name: TPC-DS SF30.0 Parquet local spark3.5 random kill tasks (shard ${{ matrix.shard }}/3)
+        run: |
+          # q72 alone consumed 59 minutes in the timing sample. Keep it isolated;
+          # the other two shards cover every remaining query using normal discovery.
+          if [ "${{ matrix.shard }}" = 3 ]; then
+            selection="--queries=q72"
+          else
+            selection="--excluded-queries=q72 --shard=${{ matrix.shard }}/2"
+          fi
+          cd tools/gluten-it \
+          && GLUTEN_IT_JVM_ARGS=-Xmx6G sbin/gluten-it.sh queries \
+            --local --preset=velox --benchmark-type=ds --error-on-memleak -s=30.0  --off-heap-size=8g --threads=12 --shuffle-partitions=72 --iterations=1 \
+            --data-gen=skip  --random-kill-tasks --no-session-reuse $selection
+
+  tpc-test-centos8-uniffle:
+    if: >-
+      fromJSON(inputs.changes).cpp == 'true' ||
+      fromJSON(inputs.changes).java == 'true' ||
+      fromJSON(inputs.changes).tools_it == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        spark: [ "spark-3.5" ]
+        uniffle: [ "0.10.0" ]
+        hadoop: [ "2.10.2" ]
+    runs-on: ubuntu-22.04
+    container: apache/gluten:centos-8-jdk8
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download All Native Artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: velox-native-lib-centos-8-${{github.sha}}
+          path: ./cpp/build/releases/
+      - name: Install Uniffle ${{ matrix.uniffle }}
+        run: |
+          export JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk
+          if [ ! -e "/opt/apache-uniffle-${{ matrix.uniffle }}-bin.tar.gz" ]; then
+            ${WGET_CMD} https://www.apache.org/dyn/closer.lua/uniffle/${{ matrix.uniffle }}/apache-uniffle-${{ matrix.uniffle }}-bin.tar.gz?action=download -O /opt/apache-uniffle-${{ matrix.uniffle }}-bin.tar.gz
+          fi
+          if [ ! -e "/opt/hadoop-${{ matrix.hadoop }}.tar.gz" ]; then
+            ${WGET_CMD} https://www.apache.org/dyn/closer.lua/hadoop/common/hadoop-${{ matrix.hadoop }}/hadoop-${{ matrix.hadoop }}.tar.gz?action=download -O /opt/hadoop-${{ matrix.hadoop }}.tar.gz
+          fi
+          cd /opt && rm -rf shims && \
+          mkdir /opt/uniffle && tar xzf apache-uniffle-${{ matrix.uniffle }}-bin.tar.gz -C /opt/uniffle --strip-components=1 && \
+          tar xzf hadoop-${{ matrix.hadoop }}.tar.gz -C /opt/ && \
+          cd /opt/uniffle && mkdir shuffle_data && \
+          bash -c "echo -e 'XMX_SIZE=16g\nHADOOP_HOME=/opt/hadoop-${{ matrix.hadoop }}' > ./conf/rss-env.sh" && \
+          bash -c "echo -e 'rss.coordinator.shuffle.nodes.max 1\nrss.rpc.server.port 19999' > ./conf/coordinator.conf" && \
+          bash -c "echo -e 'rss.server.app.expired.withoutHeartbeat 7200000\nrss.server.heartbeat.delay 3000\nrss.rpc.server.port 19997\nrss.rpc.server.type GRPC_NETTY\nrss.jetty.http.port 19996\nrss.server.netty.port 19995\nrss.storage.basePath /opt/uniffle/shuffle_data\nrss.storage.type MEMORY_LOCALFILE\nrss.coordinator.quorum localhost:19999\nrss.server.flush.thread.alive 10\nrss.server.single.buffer.flush.threshold 64m' > ./conf/server.conf" && \
+          bash ./bin/start-coordinator.sh && bash ./bin/start-shuffle-server.sh
+      - name: Build for Spark ${{ matrix.spark }}
+        run: |
+          cd $GITHUB_WORKSPACE/ && \
+          $MVN_CMD clean install -P${{ matrix.spark }} -Pbackends-velox -Puniffle -DskipTests
+      - name: TPC-H SF1.0 && TPC-DS SF1.0 Parquet local spark3.5 with uniffle-${{ matrix.uniffle }}
+        run: |
+          export JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk && \
+          cd $GITHUB_WORKSPACE/tools/gluten-it && \
+          $GITHUB_WORKSPACE/$MVN_CMD clean install -P${{ matrix.spark }} -Puniffle  && \
+          GLUTEN_IT_JVM_ARGS=-Xmx5G sbin/gluten-it.sh queries-compare \
+            --local --preset=velox-with-uniffle --benchmark-type=h --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1
+
+  tpc-test-ubuntu-2204-celeborn:
+    needs: build-tpc-celeborn
+    if: >-
+      fromJSON(inputs.changes).cpp == 'true' ||
+      fromJSON(inputs.changes).java == 'true' ||
+      fromJSON(inputs.changes).tools_it == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        spark: [ "spark-3.5" ]
+        # Both shuffle writers stay per-PR (they exercise different Gluten
+        # writer code paths); the older Celeborn release is client-compat
+        # coverage that the nightly full_run re-checks daily instead of every
+        # PR paying for both versions.
+        celeborn: >-
+          ${{ fromJSON(fromJSON(inputs.changes).full_run == 'true'
+          && '["celeborn-0.6.3", "celeborn-0.5.4"]'
+          || '["celeborn-0.6.3"]') }}
+        writer: ["sort", "hash"]
+    runs-on: ubuntu-22.04
+    container: centos:8
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download the matching integration runtime
+        uses: actions/download-artifact@v8
+        with:
+          name: tpc-build-${{ matrix.spark }}-java-8-${{ matrix.celeborn }}
+          path: ${{ runner.temp }}/tpc-build
+      - name: Update mirror list
+        run: |
+          sed -i -e "s|mirrorlist=|#mirrorlist=|g" /etc/yum.repos.d/CentOS-* || true
+          sed -i -e "s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-* || true
+      - name: Setup java and maven
+        run: |
+          yum update -y && yum install -y java-1.8.0-openjdk-devel wget python3
+      - name: Set environment variables
+        run: |
+          echo "JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk" >> $GITHUB_ENV
+      - name: Restore gluten-it
+        run: |
+          python3 "$GITHUB_WORKSPACE/.github/workflows/util/tpc-build.py" restore \
+            --revision "$GITHUB_SHA" \
+            --archive "$RUNNER_TEMP/tpc-build/runtime.zip" --spark "${{ matrix.spark }}" \
+            --java "java-8" --shuffle "${{ matrix.celeborn }}"
+      - name: TPC-H SF1.0 && TPC-DS SF1.0 Parquet local spark3.5 with ${{ matrix.celeborn }}
+        run: |
+          EXTRA_PROFILE=""
+          if [ "${{ matrix.celeborn }}" = "celeborn-0.5.4" ]; then
+            EXTRA_PROFILE="-Pceleborn-0.5"
+          elif [ "${{ matrix.celeborn }}" = "celeborn-0.6.3" ]; then
+            EXTRA_PROFILE="-Pceleborn-0.6"
+          fi
+          echo "EXTRA_PROFILE: ${EXTRA_PROFILE}"
+          if [ ! -e "/opt/apache-${{ matrix.celeborn }}-bin.tgz" ]; then
+            echo "WARNING: please pre-install your required package in docker image since the downloading is throttled by this site."
+            wget -nv https://www.apache.org/dyn/closer.lua/celeborn/${{ matrix.celeborn }}/apache-${{ matrix.celeborn }}-bin.tgz?action=download -O /opt/apache-${{ matrix.celeborn }}-bin.tgz
+          fi
+          cd /opt && rm -rf shims && mkdir -p celeborn && \
+          tar xzf apache-${{ matrix.celeborn }}-bin.tgz -C /opt/celeborn --strip-components=1 && cd celeborn && \
+          mv ./conf/celeborn-env.sh.template ./conf/celeborn-env.sh && \
+          bash -c "echo -e 'CELEBORN_MASTER_MEMORY=8g\nCELEBORN_WORKER_MEMORY=8g\nCELEBORN_WORKER_OFFHEAP_MEMORY=16g' > ./conf/celeborn-env.sh" && \
+          bash -c "echo -e 'celeborn.worker.commitFiles.threads 32\nceleborn.worker.sortPartition.threads 16' > ./conf/celeborn-defaults.conf" && \
+          bash ./sbin/start-master.sh && bash ./sbin/start-worker.sh && \
+          cd $GITHUB_WORKSPACE/tools/gluten-it && \
+          GLUTEN_IT_JVM_ARGS=-Xmx16G sbin/gluten-it.sh queries-compare \
+            --extra-conf=spark.celeborn.client.spark.shuffle.writer=${{ matrix.writer }} \
+            --extra-conf=spark.sql.shuffle.partitions=16 \
+            --extra-conf=spark.celeborn.client.eagerlyCreateInputStream.threads=4 \
+            --local --preset=velox-with-celeborn --benchmark-type=h --error-on-memleak --off-heap-size=16g -s=1.0 --threads=16 --iterations=1 && \
+          GLUTEN_IT_JVM_ARGS=-Xmx16G sbin/gluten-it.sh queries-compare \
+            --local --preset=velox-with-celeborn --extra-conf=spark.celeborn.client.spark.shuffle.writer=${{ matrix.writer }} \
+            --extra-conf=spark.gluten.sql.columnar.shuffle.celeborn.useRssSort=true \
+            --extra-conf=spark.sql.shuffle.partitions=16 \
+            --extra-conf=spark.celeborn.client.eagerlyCreateInputStream.threads=4 \
+            --benchmark-type=ds --error-on-memleak \
+            --off-heap-size=16g -s=1.0 --threads=16 --iterations=1
+          if [ "${{ matrix.writer }}" = "sort" ]; then
+            GLUTEN_IT_JVM_ARGS=-Xmx16G sbin/gluten-it.sh queries-compare \
+              --local --preset=velox-with-celeborn --extra-conf=spark.celeborn.client.spark.shuffle.writer=${{ matrix.writer }} \
+              --extra-conf=spark.gluten.sql.columnar.shuffle.celeborn.useRssSort=false \
+              --extra-conf=spark.celeborn.client.eagerlyCreateInputStream.threads=4 \
+              --extra-conf=spark.sql.shuffle.partitions=16 \
+              --benchmark-type=ds --error-on-memleak \
+              --off-heap-size=16g -s=1.0 --threads=16 --iterations=1
+          fi
+
+  cpp-test-udf-test:
+    if: fromJSON(inputs.changes).cpp == 'true'
+    runs-on: ubuntu-22.04
+    container: apache/gluten:centos-9-jdk8
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # 'check.py tidy commit' diffs HEAD^..HEAD, which a depth-1 clone lacks: the
+          # diff comes back empty and the check passes without inspecting anything.
+          fetch-depth: 2
+      - name: Install Stash restore dependencies # the stash action needs gh and jq, absent from this container
+        run: |
+          case "$(uname -m)" in
+            x86_64) ARCH=amd64 ;;
+            aarch64) ARCH=arm64 ;;
+            *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+          esac
+          curl -fsSL "https://github.com/cli/cli/releases/download/v2.63.2/gh_2.63.2_linux_${ARCH}.tar.gz" \
+            | tar -xz -C /usr/local --strip-components=1 "gh_2.63.2_linux_${ARCH}/bin/gh"
+          curl -fsSL -o /usr/local/bin/jq "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-${ARCH}"
+          chmod +x /usr/local/bin/jq
+          gh --version && jq --version
+      - name: Get Ccache from Apache Stash
+        id: ccache-stash
+        uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos9-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+      - name: Get Ccache from actions/cache (fallback on Stash miss)
+        if: steps.ccache-stash.outputs.stash-hit != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos9-release-shared-${{runner.arch}}-${{github.sha}}
+          restore-keys: |
+            ccache-centos9-release-shared-${{runner.arch}}
+      - name: Build Gluten native libraries
+        run: |
+          df -a
+          bash dev/ci-velox-buildshared-centos-9.sh
+          ccache -s
+      # Runs in this job because clang-tidy needs the compilation database and header tree
+      # the build just produced; only 'cpp/build/' is uploaded, so shipping
+      # 'compile_commands.json' to another job leaves its '-I' paths dangling.
+      - name: Check Clang Tidy
+        # Advisory until observed green: clang-tidy re-parses a database written by
+        # gcc-toolset-12, so toolchain-level diagnostics are still possible.
+        continue-on-error: true
+        env:
+          # Make the GCC-generated database clang-safe: point clang at the libstdc++ the
+          # build used, and mirror the '-Wno-' flags cpp/CMakeLists.txt adds on its Clang
+          # branch, which the database lacks while still carrying '-Werror'.
+          CLANG_TIDY_EXTRA_ARGS: >-
+            --extra-arg=--gcc-toolchain=/opt/rh/gcc-toolset-12/root/usr
+            --extra-arg=-Wno-error
+            --extra-arg=-Wno-unknown-warning-option
+            --extra-arg=-Wno-implicit-int-float-conversion
+            --extra-arg=-Wno-nullability-completeness
+            --extra-arg=-Wno-mismatched-tags
+        run: |
+          # check.py shells out to git; the workspace is owned by another UID.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          # Skip the toolchain install when no C++ changed; check.py itself already no-ops.
+          if ! git diff --name-only HEAD^ HEAD | grep -qE '^cpp/.*\.(cc|cpp|h)$'; then
+            echo "No C++ changes in this pull request; skipping clang-tidy."
+            exit 0
+          fi
+          dnf install -y clang-tools-extra # TODO remove after image update
+          pip3 install regex
+          clang-tidy --version # log the version so finding changes trace to a clang bump
+          python3 dev/check.py tidy commit
+      - name: Run CPP unit test
+        run: |
+          cd ./cpp/build && ctest -V
+      - name: Run CPP benchmark test
+        run: |
+          $MVN_CMD clean test -Pspark-3.5 -Pbackends-velox -pl backends-velox -am \
+          -DtagsToInclude="org.apache.gluten.tags.GenerateExample" -Dtest=none -DfailIfNoTests=false -Dexec.skip
+          # This test depends on files generated by the above mvn test.
+          ./cpp/build/velox/benchmarks/generic_benchmark --with-shuffle --partitioning hash --threads 1 --iterations 1 \
+          --conf $(realpath backends-velox/generated-native-benchmark/conf_12_0_*.ini) \
+          --plan $(realpath backends-velox/generated-native-benchmark/plan_12_0_*.json) \
+          --data $(realpath backends-velox/generated-native-benchmark/data_12_0_*_0.parquet),$(realpath backends-velox/generated-native-benchmark/data_12_0_*_1.parquet)
+      - name: Run UDF test
+        run: |
+          yum install -y java-17-openjdk-devel
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+          export PATH=$JAVA_HOME/bin:$PATH
+          java -version
+          # Depends on --build_example=ON.
+          $MVN_CMD test -Pspark-3.5 -Pbackends-velox -Pjava-17 -Piceberg -Pdelta -Ppaimon -DtagsToExclude=org.apache.gluten.tags.EnhancedFeaturesTest \
+          -DtagsToInclude=org.apache.gluten.tags.UDFTest \
+          -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/"
+      - name: Run CPP benchmark test for Spark 4.0
+        run: |
+          export SPARK_SCALA_VERSION=2.13
+          yum install -y java-17-openjdk-devel
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+          export PATH=$JAVA_HOME/bin:$PATH
+          $MVN_CMD clean test -Pspark-4.0 -Pjava-17 -Pscala-2.13 -Pbackends-velox -pl backends-velox -am \
+          -DtagsToInclude="org.apache.gluten.tags.GenerateExample" -Dtest=none -DfailIfNoTests=false -Dexec.skip
+          # This test depends on files generated by the above mvn test.
+          ./cpp/build/velox/benchmarks/generic_benchmark --with-shuffle --partitioning hash --threads 1 --iterations 1 \
+          --conf $(realpath backends-velox/generated-native-benchmark/conf_12_0_*.ini) \
+          --plan $(realpath backends-velox/generated-native-benchmark/plan_12_0_*.json) \
+          --data $(realpath backends-velox/generated-native-benchmark/data_12_0_*_0.parquet),$(realpath backends-velox/generated-native-benchmark/data_12_0_*_1.parquet)
+      - name: "Save ccache"
+        if: always()
+        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos9-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+          include-hidden-files: true
+      - name: Upload test report
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ github.job }}-report
+          path: '**/surefire-reports/TEST-*.xml'
+      - name: Upload unit tests log files
+        if: ${{ !success() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ github.job }}-test-log
+          path: "**/target/*.log"
+
+  build-cudf-centos-9:
+    if: fromJSON(inputs.changes).cpp == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: "node-cleanup" # by default the free runner does not have enough disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          sudo docker builder prune -a
+      - run: df -h | sort -k 5 -nr # check disk space for debug
+
+      - uses: actions/checkout@v7
+      - name: Get Ccache from Apache Stash
+        id: ccache-stash
+        uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos9-cudf-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+      - name: Get Ccache from actions/cache (fallback on Stash miss)
+        if: steps.ccache-stash.outputs.stash-hit != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos9-cudf-release-shared-${{runner.arch}}-${{github.sha}}
+          restore-keys: |
+            ccache-centos9-cudf-release-shared-${{runner.arch}}
+      - name: Build Gluten native libraries
+        run: |
+          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:centos-9-jdk17-cuda13.1-cudf bash -c "
+          set -e
+          rm -rf /opt/rh/gcc-toolset-12 && ln -s /opt/rh/gcc-toolset-14 /opt/rh/gcc-toolset-12 # hack to use gcc 14, should upgrade in Velox build script later
+          df -a
+          dnf autoremove -y && dnf clean all
+          dnf remove -y cuda-toolkit-12* && dnf install -y cuda-toolkit-13-1
+          pip3 install cmake==4.3.2
+          ls -l /usr/local/
+          source /opt/rh/gcc-toolset-12/enable
+
+          export CMAKE_BUILD_PARALLEL_LEVEL=4
+          export NUM_THREADS=4
+          export CCACHE_DIR=/work/.ccache
+          export LD_LIBRARY_PATH=/work/ep/build-velox/build/velox_ep/_build/release/_deps/curl-build/lib:$LD_LIBRARY_PATH
+          mkdir -p /work/.ccache
+
+          cd /work
+          bash dev/builddeps-veloxbe.sh --run_setup_script=OFF --build_arrow=OFF --build_tests=ON --build_benchmarks=ON --enable_gpu=ON
+          rm -rf ep/build-velox/build/velox_ep
+          build/mvn clean package -Pbackends-velox -Pspark-3.4 -DskipTests
+          ccache -s
+          "
+
+      - name: "Save ccache"
+        if: always()
+        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos9-cudf-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+          include-hidden-files: true
+
+  build-fast-build-test:
+    if: >-
+      fromJSON(inputs.changes).java == 'true' ||
+      fromJSON(inputs.changes).cpp == 'true'
+    runs-on: ubuntu-22.04
+    container: apache/gluten:centos-8-jdk17
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build with fast-build profile (Spark 4.0, Java 17)
+        run: |
+          cd $GITHUB_WORKSPACE/
+          $MVN_CMD clean test-compile -Pspark-4.0 -Pscala-2.13 -Pbackends-velox -Pspark-ut -Piceberg,delta,paimon -Pfast-build
+
+  build-test-spark42:
+    if: >-
+      fromJSON(inputs.changes).java == 'true' ||
+      fromJSON(inputs.changes).shims42 == 'true' ||
+      fromJSON(inputs.changes).cpp == 'true'
+    runs-on: ubuntu-22.04
+    container: apache/gluten:centos-8-jdk17
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build Spark 4.2 Velox (Java 17, Scala 2.13)
+        run: |
+          cd $GITHUB_WORKSPACE/
+          $MVN_CMD clean install -Pspark-4.2 -Pjava-17 -Pscala-2.13 -Pbackends-velox -DskipTests

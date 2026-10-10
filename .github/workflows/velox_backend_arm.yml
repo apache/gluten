@@ -46,7 +46,7 @@ env:
   CCACHE_DIR: "${{ github.workspace }}/.ccache"
 
 concurrency:
-  group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
+  group: ${{ github.repository }}-${{ github.event.pull_request.number || github.head_ref || github.sha }}-${{ github.workflow }}
   cancel-in-progress: true
 
 jobs:
@@ -70,7 +70,8 @@ jobs:
           changed=$(git diff --name-only "$BASE" "$HEAD")
           echo "$changed"
 
-          match() { echo "$changed" | grep -qE "$1" && echo true || echo false; }
+          regular_changed=$(echo "$changed" | grep -vE '^(backends-velox/src-iceberg-upstream/|gluten-ut/src-iceberg-upstream/|\.github/workflows/util/iceberg-upstream/|\.github/workflows/iceberg_spark_ut\.yml$)' || true)
+          match() { echo "$regular_changed" | grep -qE "$1" && echo true || echo false; }
 
           echo "cpp=$(match      '^(cpp/|ep/build-velox/|dev/)')"                                            >> $GITHUB_OUTPUT
           echo "java=$(match     '^(\.github/workflows/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi|paimon)/|gluten-ut/(common/|test/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
@@ -78,6 +79,9 @@ jobs:
 
   build-native-lib-centos-9:
     needs: detect-changes
+    if: >-
+      needs.detect-changes.outputs.cpp == 'true' || needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.tools_it == 'true'
     runs-on: ubuntu-24.04-arm
     container: apache/gluten:vcpkg-centos-9
     steps:

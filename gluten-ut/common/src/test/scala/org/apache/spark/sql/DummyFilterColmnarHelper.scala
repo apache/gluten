@@ -105,6 +105,16 @@ object DummyFilterColmnarHelper {
         .config("spark.shuffle.manager", "org.apache.spark.shuffle.sort.ColumnarShuffleManager")
     }
     builders.foreach(builder.withExtensions)
+    withNewSession(builder)(f)
+  }
+
+  private[sql] def withNewSession(builder: SparkSession.Builder)(f: SparkSession => Unit): Unit = {
+    // Hive suite discovery can leave a session active before this suite runs.
+    // getOrCreate would reuse it and ignore the planner extensions on this builder.
+    (SparkSession.getActiveSession.toSeq ++ SparkSession.getDefaultSession.toSeq)
+      .distinct.foreach(_.stop())
+    SparkSession.clearActiveSession()
+    SparkSession.clearDefaultSession()
     val spark = builder.getOrCreate()
     try f(spark)
     finally {

@@ -1,0 +1,159 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Velox Backend (x86 integration)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/velox_backend_x86_integration.yml'
+      - '.github/workflows/velox_backend_x86_tests.yml'
+      - '.github/workflows/util/tpc-build.py'
+      - '.github/workflows/velox_native_build.yml'
+      - 'gluten-ras/**'
+      - 'pom.xml'
+      - 'backends-velox/**'
+      - 'gluten-uniffle/**'
+      - 'gluten-celeborn/**'
+      - 'gluten-core/**'
+      - 'gluten-substrait/**'
+      - 'gluten-arrow/**'
+      - 'gluten-delta/**'
+      - 'gluten-iceberg/**'
+      - 'gluten-hudi/**'
+      - 'gluten-paimon/**'
+      - 'gluten-ut/**'
+      - 'package/**'
+      - 'shims/**'
+      - 'tools/gluten-it/**'
+      - 'ep/build-velox/**'
+      - 'cpp/**'
+      - 'dev/**'
+      - 'build/mvn'
+  # Nightly full run. PR runs trim the TPC matrices to representative JDKs and
+  # skip the OOM / random-kill chaos jobs unless native code changed (see
+  # detect-changes' `full_run` output); this scheduled run restores the full
+  # breadth once a day, so a combo dropped from the per-PR tier can stay broken
+  # for at most a day. It also gives the default branch a post-merge signal,
+  # which the per-PR-only trigger above never provided. 02:00 avoids the
+  # 00:00 velox_nightly.yml and 05:00 delta_spark_ut.yml slots.
+  schedule:
+    - cron: '0 2 * * *'
+  # On-demand full run (e.g. to re-check an extended combo before a release).
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+  MVN_CMD: 'build/mvn -ntp'
+  WGET_CMD: 'wget -nv'
+  CCACHE_DIR: "${{ github.workspace }}/.ccache"
+  # spark.sql.ansi.enabled defaults to false.
+  SPARK_ANSI_SQL_MODE: false
+
+concurrency:
+  group: ${{ github.repository }}-${{ github.event.pull_request.number || github.head_ref || github.sha }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  # Reuse the existing path selectors. TPC, C++/UDF, GPU, fast-build and
+  # Spark 4.2 checks migrated here from x86; their test selections are retained.
+  detect-changes:
+    # Every job chains off this one, so the fork guard here skips the whole
+    # workflow: a fork with Actions enabled would otherwise burn ~1800 runner
+    # minutes nightly on a signal nobody reads.
+    if: github.event_name != 'schedule' || github.repository_owner == 'apache'
+    runs-on: ubuntu-22.04
+    outputs:
+      changes: ${{ toJSON(steps.filter.outputs) }}
+      full_run: ${{ steps.filter.outputs.full_run }}
+      cpp:      ${{ steps.filter.outputs.cpp }}
+      java:     ${{ steps.filter.outputs.java }}
+      shims34:  ${{ steps.filter.outputs.shims34 }}
+      shims35:  ${{ steps.filter.outputs.shims35 }}
+      shims40:  ${{ steps.filter.outputs.shims40 }}
+      shims41:  ${{ steps.filter.outputs.shims41 }}
+      shims42:  ${{ steps.filter.outputs.shims42 }}
+      tools_it: ${{ steps.filter.outputs.tools_it }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Validate shared test builds
+        run: python3 -m unittest discover -s gluten-ut/src-ci/test/python
+      - name: Detect changed paths
+        id: filter
+        run: |
+          event="${{ github.event_name }}"
+          if [ "$event" = "schedule" ] || [ "$event" = "workflow_dispatch" ]; then
+            # schedule / workflow_dispatch: no PR diff to inspect.
+            # For scheduled runs, skip entirely when no commits landed in the
+            # last 24 hours — avoids burning runner minutes on idle days.
+            if [ "$event" = "schedule" ]; then
+              recent=$(git log --oneline --after="24 hours ago" HEAD | wc -l)
+              if [ "$recent" -eq 0 ]; then
+                echo "No commits in the last 24 hours -- skipping nightly run."
+                for flag in cpp java shims34 shims35 shims40 shims41 shims42 tools_it; do
+                  echo "$flag=false" >> $GITHUB_OUTPUT
+                done
+                echo "full_run=false" >> $GITHUB_OUTPUT
+                exit 0
+              fi
+            fi
+            # Run everything, including the extended matrices PR runs skip.
+            for flag in cpp java shims34 shims35 shims40 shims41 shims42 tools_it; do
+              echo "$flag=true" >> $GITHUB_OUTPUT
+            done
+            echo "full_run=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "full_run=false" >> $GITHUB_OUTPUT
+          BASE=${{ github.event.pull_request.base.sha }}
+          HEAD=${{ github.sha }}
+          changed=$(git diff --name-only "$BASE" "$HEAD")
+          echo "$changed"
+
+          regular_changed=$(echo "$changed" | grep -vE '^(backends-velox/src-iceberg-upstream/|gluten-ut/src-iceberg-upstream/|\.github/workflows/util/iceberg-upstream/|\.github/workflows/iceberg_spark_ut\.yml$)' || true)
+          match() { echo "$regular_changed" | grep -qE "$1" && echo true || echo false; }
+
+          echo "cpp=$(match      '^(cpp/|ep/build-velox/|dev/)')"                                            >> $GITHUB_OUTPUT
+          echo "java=$(match     '^(\.github/workflows/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi|paimon)/|gluten-ut/(common/|test/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
+          echo "shims34=$(match  '^(shims/(spark34|common)/|gluten-ut/spark34/)')"                           >> $GITHUB_OUTPUT
+          echo "shims35=$(match  '^(shims/(spark35|common)/|gluten-ut/spark35/)')"                           >> $GITHUB_OUTPUT
+          echo "shims40=$(match  '^(shims/(spark40|common)/|gluten-ut/spark40/)')"                           >> $GITHUB_OUTPUT
+          echo "shims41=$(match  '^(shims/(spark41|common)/|gluten-ut/spark41/)')"                           >> $GITHUB_OUTPUT
+          echo "shims42=$(match  '^(shims/(spark42|common)/|gluten-ut/spark42/)')"                           >> $GITHUB_OUTPUT
+          echo "tools_it=$(match '^tools/gluten-it/')"                                                       >> $GITHUB_OUTPUT
+
+  build-native-lib-centos-8:
+    needs: detect-changes
+    if: >-
+      needs.detect-changes.outputs.cpp == 'true' || needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.tools_it == 'true' || needs.detect-changes.outputs.shims42 == 'true'
+    uses: ./.github/workflows/velox_native_build.yml
+    with:
+      revision: ${{ github.sha }}
+      artifact: velox-native-lib-centos-8-${{ github.sha }}
+      save-cache: true
+
+  regular-tests:
+    needs: [detect-changes, build-native-lib-centos-8]
+    uses: ./.github/workflows/velox_backend_x86_tests.yml
+    with:
+      changes: ${{ needs.detect-changes.outputs.changes }}

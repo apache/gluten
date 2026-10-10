@@ -1,0 +1,103 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Velox Backend (Spark 4.2)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/velox_backend_spark42.yml'
+      - '.github/workflows/velox_native_build.yml'
+      - '.github/workflows/velox_jvm_tests.yml'
+      - '.github/workflows/util/jvm-test-build.py'
+      - '.github/workflows/util/jvm-test-timings.json'
+      - 'gluten-ut/src-ci/**'
+      - 'pom.xml'
+      - 'backends-velox/**'
+      - '!backends-velox/src-iceberg-upstream/**'
+      - 'gluten-uniffle/**'
+      - 'gluten-celeborn/**'
+      - 'gluten-ras/**'
+      - 'gluten-core/**'
+      - 'gluten-substrait/**'
+      - 'gluten-arrow/**'
+      - 'gluten-delta/**'
+      - 'gluten-iceberg/**'
+      - 'gluten-hudi/**'
+      - 'gluten-paimon/**'
+      - 'gluten-ut/common/**'
+      - 'gluten-ut/test/**'
+      - 'gluten-ut/pom.xml'
+      - 'gluten-ut/spark42/**'
+      - 'package/**'
+      - 'shims/common/**'
+      - 'shims/spark42/**'
+      - 'ep/build-velox/**'
+      - 'cpp/**'
+      - 'dev/**'
+      - 'build/mvn'
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.repository }}-${{ github.event.pull_request.number || github.head_ref || github.sha }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+# Main added five Spark 4.2 unit-test jobs after the x86 workflow was split.
+# Keep them independent: x86 already has 19 concurrent jobs. Share one compiled
+# reactor across all five shards, retaining standard, extended and Hive selections.
+jobs:
+  detect-changes:
+    if: github.event_name != 'schedule' || github.repository_owner == 'apache'
+    runs-on: ubuntu-22.04
+    outputs:
+      run: ${{ steps.changes.outputs.run }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Skip idle nightly runs
+        id: changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = schedule ] && [ -z "$(git log --oneline --after='24 hours ago' HEAD)" ]; then
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          fi
+
+  build-native-lib:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.run == 'true'
+    uses: ./.github/workflows/velox_native_build.yml
+    with:
+      revision: ${{ github.sha }}
+      artifact: velox-native-lib-spark42-${{ github.sha }}
+
+  spark-test-spark42:
+    needs: build-native-lib
+    uses: ./.github/workflows/velox_jvm_tests.yml
+    with:
+      configuration: spark42
+      shards: '[0, 1, 2, 3, 4]'
+      image: apache/gluten:centos-9-jdk17
+      native-artifact: velox-native-lib-spark42-${{ github.sha }}

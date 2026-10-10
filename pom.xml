@@ -2350,6 +2350,38 @@
       </build>
     </profile>
 
+    <!-- Test shards restore a build from the same commit and run the normal test lifecycle. -->
+    <profile>
+      <id>ci-reuse-test-build</id>
+      <properties>
+        <spotless.check.skip>true</spotless.check.skip>
+        <scalastyle.skip>true</scalastyle.skip>
+        <checkstyle.skip>true</checkstyle.skip>
+      </properties>
+      <build>
+        <pluginManagement>
+          <plugins>
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-compiler-plugin</artifactId>
+              <configuration>
+                <skipMain>true</skipMain>
+                <skip>true</skip>
+              </configuration>
+            </plugin>
+            <plugin>
+              <groupId>net.alchim31.maven</groupId>
+              <artifactId>scala-maven-plugin</artifactId>
+              <configuration>
+                <skipMain>true</skipMain>
+                <skip>true</skip>
+              </configuration>
+            </plugin>
+          </plugins>
+        </pluginManagement>
+      </build>
+    </profile>
+
     <!-- Profiles for different platforms -->
     <profile>
       <id>darwin-x86</id>

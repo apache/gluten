@@ -434,10 +434,6 @@
       <activation>
         <activeByDefault>false</activeByDefault>
       </activation>
-      <properties>
-        <!-- The version should be same with the version in assertj-core -->
-        <byte-buddy.version>1.14.18</byte-buddy.version>
-      </properties>
       <dependencies>
         <dependency>
           <groupId>org.apache.gluten</groupId>
@@ -445,18 +441,26 @@
           <version>${project.version}</version>
         </dependency>
         <dependency>
-          <groupId>org.apache.gluten</groupId>
-          <artifactId>gluten-iceberg</artifactId>
-          <version>${project.version}</version>
-          <type>test-jar</type>
-          <scope>test</scope>
-        </dependency>
-        <dependency>
           <groupId>org.apache.iceberg</groupId>
           <artifactId>iceberg-spark-runtime-${sparkbundle.version}_${scala.binary.version}</artifactId>
           <version>${iceberg.version}</version>
           <scope>provided</scope>
         </dependency>
+      </dependencies>
+    </profile>
+    <profile>
+      <id>iceberg-upstream-test</id>
+      <properties>
+        <!-- The version should be same with the version in assertj-core -->
+        <byte-buddy.version>1.14.18</byte-buddy.version>
+        <iceberg.upstream.test.classes>${project.build.directory}/iceberg-upstream-test-classes-${sparkbundle.version}_${scala.binary.version}</iceberg.upstream.test.classes>
+        <iceberg.upstream.reports>${project.build.directory}/iceberg-upstream-reports</iceberg.upstream.reports>
+        <!-- Upstream concurrency tests have short deadlines; avoid competing Spark contexts. -->
+        <iceberg.upstream.forks>1</iceberg.upstream.forks>
+        <iceberg.upstream.shard>0</iceberg.upstream.shard>
+        <iceberg.upstream.shards>1</iceberg.upstream.shards>
+      </properties>
+      <dependencies>
         <dependency>
           <groupId>org.apache.iceberg</groupId>
           <artifactId>iceberg-spark-${sparkbundle.version}_${scala.binary.version}</artifactId>
@@ -554,17 +558,31 @@
           <version>3.53.2.0</version>
           <scope>test</scope>
         </dependency>
-      </dependencies>
-    </profile>
-    <profile>
-      <id>iceberg-test</id>
-      <activation>
-        <activeByDefault>false</activeByDefault>
-      </activation>
-      <properties>
-        <hadoop.version>3.4.1</hadoop.version>
-      </properties>
-      <dependencies>
+        <dependency>
+          <groupId>org.junit.platform</groupId>
+          <artifactId>junit-platform-launcher</artifactId>
+          <version>1.11.4</version>
+          <scope>test</scope>
+        </dependency>
+        <!-- Published upstream tests use unshaded Iceberg APIs. -->
+        <dependency>
+          <groupId>org.apache.iceberg</groupId>
+          <artifactId>iceberg-spark-${sparkbundle.version}_${scala.binary.version}</artifactId>
+          <version>${iceberg.version}</version>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
+          <groupId>org.apache.iceberg</groupId>
+          <artifactId>iceberg-spark-extensions-${sparkbundle.version}_${scala.binary.version}</artifactId>
+          <version>${iceberg.version}</version>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
+          <groupId>org.apache.iceberg</groupId>
+          <artifactId>iceberg-hive-metastore</artifactId>
+          <version>${iceberg.version}</version>
+          <scope>test</scope>
+        </dependency>
         <dependency>
           <groupId>org.apache.iceberg</groupId>
           <artifactId>iceberg-open-api</artifactId>
@@ -581,6 +599,168 @@
           <scope>test</scope>
         </dependency>
       </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>compile-iceberg-coverage-listener</id>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <phase>process-test-classes</phase>
+                <configuration>
+                  <target>
+                    <!-- Compile only the observer and its tests, without copied upstream classes. -->
+                    <mkdir dir="${iceberg.upstream.test.classes}"/>
+                    <!-- Some upstream tests resolve classpath fixtures as filesystem paths. -->
+                    <unzip dest="${iceberg.upstream.test.classes}">
+                      <restrict>
+                        <path refid="maven.test.classpath"/>
+                        <name name="**/org/apache/iceberg/*-tests.jar"/>
+                      </restrict>
+                      <patternset excludes="**/*.class,META-INF/**,LICENSE,NOTICE,iceberg-build.properties"/>
+                    </unzip>
+                    <javac destdir="${iceberg.upstream.test.classes}" encoding="UTF-8" includeantruntime="false" release="17">
+                      <src path="${project.basedir}/src-iceberg-upstream/test/java"/>
+                      <src path="${project.basedir}/../gluten-ut/src-iceberg-upstream/test/java"/>
+                      <classpath refid="maven.test.classpath"/>
+                    </javac>
+                    <copy todir="${iceberg.upstream.test.classes}">
+                      <fileset dir="${project.basedir}/src-iceberg-upstream/test/resources"/>
+                    </copy>
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>iceberg-upstream</id>
+                <configuration>
+                  <!-- Only the coverage listener is shared with the unchanged upstream tests. -->
+                  <testClassesDirectory>${iceberg.upstream.test.classes}</testClassesDirectory>
+                  <classpathDependencyExcludes>
+                    <classpathDependencyExclude>org.apache.iceberg:iceberg-spark-runtime-*</classpathDependencyExclude>
+                    <classpathDependencyExclude>org.apache.avro:avro</classpathDependencyExclude>
+                    <classpathDependencyExclude>org.apache.parquet:*</classpathDependencyExclude>
+                    <classpathDependencyExclude>org.apache.datasketches:*</classpathDependencyExclude>
+                    <classpathDependencyExclude>org.apache.orc:orc-core</classpathDependencyExclude>
+                    <classpathDependencyExclude>org.apache.orc:orc-shims</classpathDependencyExclude>
+                    <classpathDependencyExclude>org.mockito:*</classpathDependencyExclude>
+                    <classpathDependencyExclude>net.bytebuddy:*</classpathDependencyExclude>
+                    <classpathDependencyExclude>org.objenesis:*</classpathDependencyExclude>
+                  </classpathDependencyExcludes>
+                  <!-- Use Iceberg's Avro, Parquet, DataSketches and nohive ORC runtime. -->
+                  <additionalClasspathDependencies>
+                    <dependency>
+                      <groupId>org.apache.iceberg</groupId>
+                      <artifactId>iceberg-spark-${sparkbundle.version}_${scala.binary.version}</artifactId>
+                      <version>${iceberg.version}</version>
+                    </dependency>
+                    <!-- Iceberg 1.10/1.11 use Mockito 4.11, including static mocks. -->
+                    <dependency>
+                      <groupId>org.mockito</groupId>
+                      <artifactId>mockito-inline</artifactId>
+                      <version>4.11.0</version>
+                    </dependency>
+                  </additionalClasspathDependencies>
+                  <dependenciesToScan>
+                    <dependency>org.apache.iceberg:iceberg-spark-${sparkbundle.version}_${scala.binary.version}:test-jar:tests</dependency>
+                    <dependency>org.apache.iceberg:iceberg-spark-extensions-${sparkbundle.version}_${scala.binary.version}:test-jar:tests</dependency>
+                  </dependenciesToScan>
+                  <!-- JUnit discovers tests in every upstream class, including inherited tests. -->
+                  <includes>
+                    <include>org/apache/iceberg/**/*.class</include>
+                  </includes>
+                  <failIfNoTests>true</failIfNoTests>
+                  <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
+                  <forkCount>${iceberg.upstream.forks}</forkCount>
+                  <reuseForks>false</reuseForks>
+                  <forkedProcessTimeoutInSeconds>2400</forkedProcessTimeoutInSeconds>
+                  <reportsDirectory>${iceberg.upstream.reports}</reportsDirectory>
+                  <redirectTestOutputToFile>true</redirectTestOutputToFile>
+                  <argLine>${argLine} ${extraJavaTestArgs} -Xmx2g</argLine>
+                  <systemPropertyVariables>
+                    <iceberg.upstream.shard>${iceberg.upstream.shard}</iceberg.upstream.shard>
+                    <iceberg.upstream.shards>${iceberg.upstream.shards}</iceberg.upstream.shards>
+                    <spark.plugins>org.apache.gluten.GlutenPlugin</spark.plugins>
+                    <spark.sql.ansi.enabled>false</spark.sql.ansi.enabled>
+                    <spark.extraListeners>org.apache.gluten.integration.IcebergExecutionListener</spark.extraListeners>
+                    <junit.jupiter.execution.parallel.enabled>false</junit.jupiter.execution.parallel.enabled>
+                    <junit.jupiter.extensions.autodetection.enabled>true</junit.jupiter.extensions.autodetection.enabled>
+                    <junit.jupiter.execution.order.random.seed>0</junit.jupiter.execution.order.random.seed>
+                    <gluten.iceberg.coverage.dir>${iceberg.upstream.reports}</gluten.iceberg.coverage.dir>
+                    <spark.memory.offHeap.enabled>true</spark.memory.offHeap.enabled>
+                    <spark.memory.offHeap.size>2g</spark.memory.offHeap.size>
+                    <spark.ui.enabled>false</spark.ui.enabled>
+                    <spark.gluten.ui.enabled>false</spark.gluten.ui.enabled>
+                  </systemPropertyVariables>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>spark-4.1</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>iceberg-upstream</id>
+                <configuration>
+                  <!-- Iceberg 1.11's REST test fixture uses Jetty 12 (not published in its POM). -->
+                  <classpathDependencyExcludes combine.children="append">
+                    <classpathDependencyExclude>org.eclipse.jetty:*</classpathDependencyExclude>
+                    <classpathDependencyExclude>jakarta.servlet:jakarta.servlet-api</classpathDependencyExclude>
+                  </classpathDependencyExcludes>
+                  <additionalClasspathDependencies combine.children="append">
+                    <!-- Iceberg 1.11's inherited format tests reference these shared helpers. -->
+                    <dependency>
+                      <groupId>org.apache.iceberg</groupId>
+                      <artifactId>iceberg-parquet</artifactId>
+                      <version>${iceberg.version}</version>
+                      <classifier>test-fixtures</classifier>
+                      <type>test-jar</type>
+                    </dependency>
+                    <dependency>
+                      <groupId>org.apache.iceberg</groupId>
+                      <artifactId>iceberg-orc</artifactId>
+                      <version>${iceberg.version}</version>
+                      <type>test-jar</type>
+                    </dependency>
+                    <dependency>
+                      <groupId>org.eclipse.jetty.ee10</groupId>
+                      <artifactId>jetty-ee10-servlet</artifactId>
+                      <version>12.1.8</version>
+                    </dependency>
+                    <dependency>
+                      <groupId>org.eclipse.jetty.compression</groupId>
+                      <artifactId>jetty-compression-server</artifactId>
+                      <version>12.1.8</version>
+                    </dependency>
+                    <dependency>
+                      <groupId>org.eclipse.jetty.compression</groupId>
+                      <artifactId>jetty-compression-gzip</artifactId>
+                      <version>12.1.8</version>
+                    </dependency>
+                  </additionalClasspathDependencies>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
     </profile>
     <profile>
       <id>delta</id>

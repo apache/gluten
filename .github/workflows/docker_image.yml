@@ -249,6 +249,7 @@ jobs:
     if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ${{ matrix.os }}
     strategy:
+      max-parallel: 2
       matrix:
         os: [ ubuntu-latest, ubuntu-24.04-arm ]
         jdk: [jdk8, jdk11, jdk17]
@@ -312,6 +313,7 @@ jobs:
     if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ${{ matrix.os }}
     strategy:
+      max-parallel: 2
       matrix:
         os: [ ubuntu-22.04, ubuntu-22.04-arm ]
         jdk: [jdk8, jdk11, jdk17]
@@ -510,6 +512,7 @@ jobs:
     if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ubuntu-latest
     strategy:
+      max-parallel: 4
       matrix:
         digests: [ centos-8-jdk8, centos-8-jdk11, centos-8-jdk17, centos-9-jdk8, centos-9-jdk11, centos-9-jdk17 ]
     needs:

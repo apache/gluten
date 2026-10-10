@@ -1,0 +1,148 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Velox JVM tests
+
+on:
+  workflow_call:
+    inputs:
+      configuration:
+        required: true
+        type: string
+      image:
+        required: true
+        type: string
+      native-artifact:
+        required: true
+        type: string
+      shards:
+        type: string
+        default: '[0]'
+
+# Build once per configuration; class shards execute concurrently without recompilation.
+# Keep upstream's default job timeout for cold dependency/build caches.
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    container: ${{ inputs.image }}
+    env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+      JAVA_HOME: /usr/lib/jvm/java-17-openjdk
+      CI_TEST_CONFIGURATION: ${{ inputs.configuration }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.native-artifact }}
+          path: cpp/build/releases/
+      - name: Compile the complete test reactor once
+        shell: bash
+        run: |
+          test -x "$JAVA_HOME/bin/java"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          profiles=$(python3 .github/workflows/util/jvm-test-build.py arguments --configuration "$CI_TEST_CONFIGURATION")
+          build/mvn -ntp clean test-compile $profiles -DskipTests
+          build/mvn -ntp help:effective-pom $profiles -Doutput="$RUNNER_TEMP/effective-pom.xml"
+          python3 .github/workflows/util/jvm-test-build.py pack \
+            --archive "$RUNNER_TEMP/velox-test-build.zip" --configuration "$CI_TEST_CONFIGURATION" \
+            --effective-pom "$RUNNER_TEMP/effective-pom.xml" -- $profiles
+      - uses: actions/upload-artifact@v7
+        with:
+          name: velox-test-build-${{ inputs.configuration }}
+          path: ${{ runner.temp }}/velox-test-build.zip
+          compression-level: 1
+          if-no-files-found: error
+          retention-days: 1
+
+  test:
+    needs: build
+    runs-on: ubuntu-22.04
+    container: ${{ inputs.image }}
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        shard: ${{ fromJSON(inputs.shards) }}
+    env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+      JAVA_HOME: /usr/lib/jvm/java-17-openjdk
+      SPARK_ANSI_SQL_MODE: false
+      CI_TEST_CONFIGURATION: ${{ inputs.configuration }}
+      CI_TEST_SHARD: ${{ matrix.shard }}
+      CI_TEST_SHARDS: ${{ toJSON(fromJSON(inputs.shards)) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: velox-test-build-${{ inputs.configuration }}
+          path: ${{ runner.temp }}
+      - name: Prepare Spark and Python runtime
+        shell: bash
+        run: |
+          test -x "$JAVA_HOME/bin/java"
+          echo "PATH=$JAVA_HOME/bin:$PATH" >> "$GITHUB_ENV"
+          case "$CI_TEST_CONFIGURATION" in
+            spark34) spark_home=spark34; scala=2.12; pyspark=3.4.4 ;;
+            spark35|enhanced-spark35|enhanced-spark35-slow) spark_home=spark35; scala=2.12; pyspark=3.5.5 ;;
+            spark35-scala213) spark_home=spark35-scala-2.13; scala=2.13; pyspark=3.5.5 ;;
+            spark40|spark40-hive|enhanced-spark40) spark_home=spark40; scala=2.13; pyspark=3.5.5 ;;
+            spark41|spark41-slow) spark_home=spark41; scala=2.13; pyspark=3.5.5 ;;
+            spark42) spark_home=spark42; scala=2.13; pyspark=3.5.5 ;;
+            *) echo "Unknown test configuration: $CI_TEST_CONFIGURATION" >&2; exit 1 ;;
+          esac
+          echo "CI_SPARK_TEST_HOME=/opt/shims/$spark_home/spark_home/" >> "$GITHUB_ENV"
+          if [ "$CI_TEST_CONFIGURATION" = spark34 ]; then
+            echo "SPARK_HOME=/opt/shims/$spark_home/spark_home/" >> "$GITHUB_ENV"
+          fi
+          if [ "$CI_TEST_CONFIGURATION" != spark34 ]; then
+            echo "SPARK_TESTING=1" >> "$GITHUB_ENV"
+          fi
+          # Only standard selections use PySpark. Preserve the existing runtime
+          # versions; slow-only configurations do not install unused packages.
+          case "$CI_TEST_CONFIGURATION" in
+            spark40-hive|spark41-slow|enhanced-spark35-slow) exit 0 ;;
+          esac
+          echo "SPARK_SCALA_VERSION=$scala" >> "$GITHUB_ENV"
+          if [ "$CI_TEST_CONFIGURATION" = spark41 ] || [ "$CI_TEST_CONFIGURATION" = spark42 ]; then
+            dnf install -y python3.11 python3.11-pip python3.11-devel
+            alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+            alternatives --set python3 /usr/bin/python3.11
+          else
+            dnf module -y install python39
+            alternatives --set python3 /usr/bin/python3.9
+          fi
+          pip3 install setuptools==77.0.3
+          pip3 install "pyspark==$pyspark" cython pandas==2.2.3 pyarrow==20.0.0
+      - name: Run assigned classes with clean fixtures
+        shell: bash
+        run: |
+          profiles=$(python3 .github/workflows/util/jvm-test-build.py arguments --configuration "$CI_TEST_CONFIGURATION")
+          count=$(python3 -c 'import json, os; print(len(json.loads(os.environ["CI_TEST_SHARDS"])))')
+          python3 .github/workflows/util/jvm-test-build.py run \
+            --archive "$RUNNER_TEMP/velox-test-build.zip" --configuration "$CI_TEST_CONFIGURATION" \
+            --shard "$CI_TEST_SHARD" --shards "$count" \
+            --reports "$RUNNER_TEMP/test-reports" -- $profiles "-DargLine=-Dspark.test.home=$CI_SPARK_TEST_HOME"
+      - name: Upload all selection reports and logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: spark-test-${{ inputs.configuration }}-shard${{ matrix.shard }}-report
+          path: ${{ runner.temp }}/test-reports/
+      - name: Upload golden files
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: spark-test-${{ inputs.configuration }}-shard${{ matrix.shard }}-golden-files
+          path: /tmp/tpch-approved-plan/**
