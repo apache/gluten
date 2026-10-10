@@ -73,14 +73,16 @@ Open follow-ups are tracked in [#12743](https://github.com/apache/gluten/issues/
 
 ## PR workflow layout and execution budget
 
-The budget is **80 minutes for normal Velox PR verification with warm caches**.
+The performance target is **80 minutes for normal Velox PR verification with warm caches**.
 Independent workflows start from the same PR event, so their elapsed times overlap;
 end-to-end verification takes the longest workflow, not the sum of their times.
-Scheduled maintenance, releases, Delta-specific verification and cold native builds
-are outside this budget. GitHub runner queueing is outside job execution timeouts.
-The time estimates below are projections from existing hosted reports, not results
-of a hosted run of this local revision. Timeouts fail unfinished checks; they do not
-make partial test coverage pass.
+Cold caches must still allow the full build and tests to finish. These jobs retain
+the same [default 360-minute job timeout](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idtimeout-minutes)
+as main. This is a limit for stuck jobs, not an expected duration. An 80-minute
+timeout would cancel healthy cold runs without making them faster or cheaper.
+Scheduled maintenance, releases, Delta-specific verification, cold builds and cold
+SF30 generation are outside the warm-cache target. Compare actual elapsed time and
+runner-minutes for equivalent cold or warm runs; the estimates below are projections.
 
 The before column is `origin/main` at `680ba5c39` (including the new Spark 4.2 unit tests).
 Counts expand matrices and called workflows into actual runner jobs, omit skipped
@@ -102,21 +104,21 @@ split into 28 JVM-workflow jobs, 40 integration-workflow jobs and 8 Spark 4.2 jo
 The extra build jobs replace compilation previously repeated inside each consumer; a higher job
 count does not by itself mean more runner-minutes.
 
-The normal warm-cache PR target is **60–75 minutes overall**, with an **80-minute
-active execution budget**. C++ PRs may approach that limit because the random-kill
-TPC-DS workload contains a particularly slow query. Historical warm examples before
+The normal warm-cache PR target is **60–75 minutes overall**, aiming to stay within
+**80 minutes**. C++ PRs may approach that target because the random-kill
+TPC-DS workload contains a particularly slow query. Historical examples before
 this change took [82 minutes for x86](https://github.com/apache/gluten/actions/runs/37917650510),
 [102 minutes for enhanced](https://github.com/apache/gluten/actions/runs/37917650544),
 and [113 minutes for a C++ x86 run](https://github.com/apache/gluten/actions/runs/37917116480).
 
-| Critical dependency chain | Configured execution budget |
-| --- | --- |
-| x86 JVM / Spark 4.2 | Detection 1 + native 6 + compile 10 + tests 60 = **77 min** |
-| Enhanced | Detection 1 + native 8 + compile 10 + tests 60 = **79 min** |
-| Integration with shared builds | Detection 1 + native 6 + compile 8 + tests 65 = **80 min** |
-| Integration auxiliary / Uniffle | Detection 1 + native 6 + job 72 = **79 min** |
-| ARM TPC / C++ | Detection 1 + native 10 + TPC 69, or detection 1 + C++ 79 = **80 min** |
-| Iceberg | Prepare 1 + native 6 + JVM 7 + tests 60 + gate 2 = **76 min** |
+The old slowest SF30 job took [106m 15s](https://github.com/apache/gluten/actions/runs/37917116480/job/113777443681)
+and [87m 44s](https://github.com/apache/gluten/actions/runs/38025188257/job/114154600798)
+in two samples. Both included fresh data generation. The new cold-data path retains
+that work and shares compilation, so it should remain in the same approximate
+90–110-minute range with a warm native cache; a full native cache miss adds build
+time in either design. This cold estimate still needs hosted validation.
+With SF30 data cached, generation is avoided and the warm-cache target applies.
+The workflow audit enforces concurrency; adding job timeouts cannot prove a runtime target.
 
 ### Where the jobs went
 
@@ -179,13 +181,18 @@ production code with `fast-build` and `-DskipTests`, which also packages the tes
 jars required by downstream reactor modules without executing root tests; the
 `gluten-it` build still runs its own tests. `tpc-build.py` transfers the complete
 runtime JAR directory and validates the commit, Spark, JDK and shuffle configuration.
+Producers identify their Git checkout; consumers compare the artifact against
+`GITHUB_SHA`, since minimal containers use checkout's REST archive without Git metadata.
+Cold Maven dependencies, container startup and artifact upload have the same
+timeout headroom as the existing pipeline.
 Consumers continue executing the existing queries in their original OS/JDK environments.
 
 Random-kill still runs all queries once across three jobs. Query 72 has its own job;
 the other two partition the remaining queries. In the historical C++ sample, query
 72 alone took about 59 minutes and data generation took about 30 minutes. Reusing
 that input data is essential to the warm-cache budget. An expired or invalidated
-fixture cache causes regeneration, not skipped tests, and falls outside that estimate.
+fixture cache causes regeneration, not skipped tests. The default job timeout allows
+generation and all queries to finish on either a cache hit or a miss.
 
 ### Caches and artifacts
 
@@ -210,8 +217,8 @@ The [Apache policy](https://infra.apache.org/github-actions-policy.html) limits 
 workflow to 20 simultaneous jobs across all matrices and reusable calls.
 `workflow-concurrency.py` expands the complete job dependency graph, resolves literal
 reusable-workflow matrix inputs, applies matrix caps and considers overlapping
-branches. License CI runs this audit and its tests, including the 80-minute PR
-execution-budget regression test. Docker's caps reduce its peak from 22 to 14;
+branches. License CI runs this audit and its tests. Performance is checked against
+actual job durations, separately from cancellation limits. Docker's caps reduce its peak from 22 to 14;
 its 31 total jobs are unchanged.
 
 ```bash

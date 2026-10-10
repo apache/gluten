@@ -71,7 +71,7 @@ jobs:
       - name: Warm the vanilla Spark stress fixture for PRs
         if: steps.tpcds-data.outputs.cache-hit != 'true'
         run: |
-          build/mvn -ntp clean install -Pbackends-velox,fast-build,spark-3.5 -Dmaven.test.skip=true
+          build/mvn -ntp clean install -Pbackends-velox,fast-build,spark-3.5 -DskipTests
           cd tools/gluten-it
           "$GITHUB_WORKSPACE/build/mvn" -ntp clean install -Pspark-3.5
           GLUTEN_IT_JVM_ARGS=-Xmx6G sbin/gluten-it.sh data-gen-only --local --benchmark-type=ds -s=30.0 --threads=12

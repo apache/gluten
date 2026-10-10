@@ -25,7 +25,6 @@ import argparse
 from collections import deque
 import itertools
 import json
-import math
 from pathlib import Path
 import re
 import subprocess
@@ -76,7 +75,7 @@ def resolve(value, inputs):
     return value
 
 
-def expand(path, read, prefix="", stack=(), inputs=None, job_weight=None):
+def expand(path, read, prefix="", stack=(), inputs=None):
     if path in stack:
         raise ValueError("Recursive workflow call: " + path)
     workflow = yaml.safe_load(read(path))
@@ -109,15 +108,12 @@ def expand(path, read, prefix="", stack=(), inputs=None, job_weight=None):
                 identifier + "/",
                 stack + (path,),
                 job.get("with", {}),
-                job_weight,
             )
             weights.update(child_weights)
             edges.update(child_edges)
             groups[name] = set(child_weights)
         else:
-            weights[identifier] = (
-                job_weight(job) if job_weight else matrix_width(job.get("strategy", {}))
-            )
+            weights[identifier] = matrix_width(job.get("strategy", {}))
             groups[name] = {identifier}
     for name, job in jobs.items():
         needs = job.get("needs", [])
@@ -127,51 +123,6 @@ def expand(path, read, prefix="", stack=(), inputs=None, job_weight=None):
                 for after in groups[name]:
                     edges.add((before, after))
     return weights, edges
-
-
-def pr_timeout(job):
-    """Budget all PR matrix waves; unresolved expressions fail rather than undercount."""
-    timeout = job.get("timeout-minutes")
-    if type(timeout) is not int or timeout < 1:
-        raise ValueError("PR jobs require a positive literal timeout-minutes")
-    strategy = dict(job.get("strategy", {}))
-    matrix = dict(strategy.get("matrix", {}))
-    for key, value in matrix.items():
-        if isinstance(value, str):
-            # The integration matrices explicitly choose full or PR lists. Keep
-            # this deliberately narrow so a different expression requires review.
-            match = re.fullmatch(
-                r"\$\{\{\s*fromJSON\(fromJSON\(inputs\.changes\)\.full_run == 'true'"
-                r"\s*&& '[^']*'\s*\|\| '([^']*)'\)\s*\}\}",
-                value,
-            )
-            if not match:
-                raise ValueError("Unresolved PR matrix: " + value)
-            matrix[key] = json.loads(match[1])
-    strategy["matrix"] = matrix
-    cap = strategy.pop("max-parallel", None)
-    count = matrix_width(strategy)
-    return timeout * math.ceil(count / (cap or count))
-
-
-def critical_path(weights, edges):
-    """Active execution budget; runner queueing is outside job timeouts."""
-    remaining, finished = dict(weights), {}
-    while remaining:
-        ready = [
-            node
-            for node in remaining
-            if all(before in finished for before, after in edges if after == node)
-        ]
-        if not ready:
-            raise ValueError("Cyclic job dependencies")
-        for node in ready:
-            start = max(
-                (finished[before] for before, after in edges if after == node),
-                default=0,
-            )
-            finished[node] = start + remaining.pop(node)
-    return max(finished.values(), default=0)
 
 
 def peak(weights, edges):

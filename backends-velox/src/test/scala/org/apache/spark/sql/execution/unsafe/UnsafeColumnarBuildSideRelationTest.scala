@@ -74,17 +74,22 @@ class UnsafeColumnarBuildSideRelationTest extends SharedSparkSession {
   }
 
   override protected def afterAll(): Unit = {
-    // Makes sure all the underlying UnsafeByteArray instances become GC non-reachable and
-    // be released after a full-GC.
-    unsafeRelWithIdentityMode = null
-    unsafeRelWithHashMode = null
-    // Clean up the broadcast build side cache to release any cached serialized hash tables
-    VeloxBroadcastBuildSideCache.cleanAll()
-    System.gc()
-    Thread.sleep(1000)
-    // Since we trigger GC in beforeAll() to clean up residual memory from previous test suites,
-    // initialGlobalBytes should be accurate and this assertion should be stable.
-    assert(GlobalOffHeapMemory.currentBytes() == initialGlobalBytes)
+    try {
+      // Makes sure all the underlying UnsafeByteArray instances become GC non-reachable and
+      // be released after a full-GC.
+      unsafeRelWithIdentityMode = null
+      unsafeRelWithHashMode = null
+      // Clean up the broadcast build side cache to release any cached serialized hash tables
+      VeloxBroadcastBuildSideCache.cleanAll()
+      System.gc()
+      Thread.sleep(1000)
+      // Since we trigger GC in beforeAll() to clean up residual memory from previous test suites,
+      // initialGlobalBytes should be accurate and this assertion should be stable.
+      assert(GlobalOffHeapMemory.currentBytes() == initialGlobalBytes)
+    } finally {
+      // SharedSparkSession must stop its non-Hive session before the next suite starts.
+      super.afterAll()
+    }
   }
 
   private def randomBytes(size: Int): Array[Byte] = {

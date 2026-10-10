@@ -28,7 +28,7 @@ SPEC.loader.exec_module(concurrency)
 
 
 class WorkflowConcurrencyTest(unittest.TestCase):
-    def test_pr_workflows_budget_all_dependencies_and_matrix_waves(self):
+    def test_pr_workflows_respect_concurrency_limit(self):
         root = SCRIPT.parents[3]
         for workflow in (
             "velox_backend_x86",
@@ -42,32 +42,8 @@ class WorkflowConcurrencyTest(unittest.TestCase):
                 weights, edges = concurrency.expand(
                     ".github/workflows/" + workflow + ".yml",
                     lambda path: (root / path).read_text(),
-                    job_weight=concurrency.pr_timeout,
-                )
-                self.assertLessEqual(concurrency.critical_path(weights, edges), 80)
-                weights, edges = concurrency.expand(
-                    ".github/workflows/" + workflow + ".yml",
-                    lambda path: (root / path).read_text(),
                 )
                 self.assertLessEqual(concurrency.peak(weights, edges), 20)
-        self.assertEqual(
-            120,
-            concurrency.pr_timeout(
-                {
-                    "timeout-minutes": 60,
-                    "strategy": {"max-parallel": 2, "matrix": {"shard": [0, 1, 2]}},
-                }
-            ),
-        )
-        with self.assertRaisesRegex(ValueError, "Unresolved"):
-            concurrency.pr_timeout(
-                {
-                    "timeout-minutes": 60,
-                    "strategy": {
-                        "matrix": {"shard": "${{ needs.discovery.outputs.shards }}"}
-                    },
-                }
-            )
 
     def test_called_matrix_uses_explicit_shards_and_defaults(self):
         files = {

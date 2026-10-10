@@ -53,7 +53,6 @@ jobs:
   # Detect which parts of the codebase were modified so downstream jobs can
   # skip work that is irrelevant to the change.
   detect-changes:
-    timeout-minutes: 1
     runs-on: ubuntu-22.04
     outputs:
       cpp:      ${{ steps.filter.outputs.cpp }}
@@ -79,7 +78,6 @@ jobs:
           echo "tools_it=$(match '^tools/gluten-it/')"                                                       >> $GITHUB_OUTPUT
 
   build-native-lib-centos-9:
-    timeout-minutes: 10
     needs: detect-changes
     if: >-
       needs.detect-changes.outputs.cpp == 'true' || needs.detect-changes.outputs.java == 'true' ||
@@ -136,7 +134,6 @@ jobs:
           if-no-files-found: error
 
   tpc-test-centos8:
-    timeout-minutes: 69
     needs: [detect-changes, build-native-lib-centos-9]
     if: >-
       needs.detect-changes.outputs.cpp == 'true' ||
@@ -184,7 +181,6 @@ jobs:
             --local --preset=velox --benchmark-type=ds --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1
 
   cpp-test-udf-test:
-    timeout-minutes: 79
     needs: detect-changes
     if: needs.detect-changes.outputs.cpp == 'true'
     runs-on: ubuntu-24.04-arm

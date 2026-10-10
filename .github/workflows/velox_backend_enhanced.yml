@@ -59,7 +59,6 @@ jobs:
   # Detect which parts of the codebase were modified so downstream jobs can
   # skip work that is irrelevant to the change.
   detect-changes:
-    timeout-minutes: 1
     runs-on: ubuntu-22.04
     outputs:
       cpp:     ${{ steps.filter.outputs.cpp }}
@@ -89,8 +88,6 @@ jobs:
           echo "shims40=$(match '^(shims/(spark40|common)/|gluten-ut/spark40/)')"                            >> $GITHUB_OUTPUT
 
   build-native-lib-centos-8:
-    # Includes saving ccache and uploading the native libraries: 1 + 8 + 10 + 60 = 79.
-    timeout-minutes: 8
     needs: detect-changes
     if: >-
       needs.detect-changes.outputs.cpp == 'true' || needs.detect-changes.outputs.java == 'true' ||

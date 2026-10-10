@@ -33,9 +33,9 @@ on:
 
 jobs:
   build:
+    # A cache miss must be able to finish, using the same timeout allowance as main.
     runs-on: ubuntu-22.04
     container: ${{ inputs.image }}
-    timeout-minutes: 6
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
       CCACHE_DIR: '${{ github.workspace }}/.ccache'

@@ -19,6 +19,7 @@
 import argparse
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import zipfile
@@ -26,19 +27,22 @@ import zipfile
 LIBRARY = Path("tools/gluten-it/package/target/lib")
 
 
-def identity(checkout, spark, java, shuffle):
-    revision = subprocess.check_output(
-        [
-            "git",
-            "-c",
-            "safe.directory=" + str(checkout),
-            "-C",
-            str(checkout),
-            "rev-parse",
-            "HEAD",
-        ],
-        universal_newlines=True,
-    ).strip()
+def identity(checkout, spark, java, shuffle, revision=None):
+    if revision is None:
+        revision = subprocess.check_output(
+            [
+                "git",
+                "-c",
+                "safe.directory=" + str(checkout),
+                "-C",
+                str(checkout),
+                "rev-parse",
+                "HEAD",
+            ],
+            universal_newlines=True,
+        ).strip()
+    if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise ValueError("Expected a full checkout commit SHA")
     return dict(revision=revision, spark=spark, java=java, shuffle=shuffle)
 
 
@@ -83,9 +87,17 @@ if __name__ == "__main__":
     parser.add_argument("--spark", required=True)
     parser.add_argument("--java", required=True)
     parser.add_argument("--shuffle", default="plain")
+    parser.add_argument(
+        "--revision",
+        help="Expected commit for restore; use GITHUB_SHA for REST checkouts without Git",
+    )
     args = parser.parse_args()
+    if args.revision is not None and args.mode != "restore":
+        parser.error("--revision is only supported for restore; pack verifies Git HEAD")
     checkout = Path.cwd().resolve()
     operation = pack if args.mode == "pack" else restore
     operation(
-        checkout, args.archive, identity(checkout, args.spark, args.java, args.shuffle)
+        checkout,
+        args.archive,
+        identity(checkout, args.spark, args.java, args.shuffle, args.revision),
     )

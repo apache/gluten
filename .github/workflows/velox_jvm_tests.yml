@@ -31,11 +31,10 @@ on:
         type: string
         default: '[0]'
 
-# PR execution budget: detection 1 + native 6 + compilation 10 + tests 60 = 77 minutes.
 # Build once per configuration; class shards execute concurrently without recompilation.
+# Keep upstream's default job timeout for cold dependency/build caches.
 jobs:
   build:
-    timeout-minutes: 10
     runs-on: ubuntu-22.04
     container: ${{ inputs.image }}
     env:
@@ -69,7 +68,6 @@ jobs:
 
   test:
     needs: build
-    timeout-minutes: 60
     runs-on: ubuntu-22.04
     container: ${{ inputs.image }}
     strategy:

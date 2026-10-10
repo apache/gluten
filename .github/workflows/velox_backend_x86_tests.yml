@@ -31,6 +31,8 @@ env:
 
 # Integration tests run independently of JVM unit tests. Matrix caps include
 # overlapping producer, consumer and auxiliary jobs.
+# Retain upstream's default job timeout so cold builds and SF30 generation finish.
+# Warm-cache performance targets are measured separately from cancellation limits.
 jobs:
   build-tpc-default:
     if: >-
@@ -78,7 +80,6 @@ jobs:
           - spark: spark-4.1
             java: java-11
 
-    timeout-minutes: 8
     runs-on: ubuntu-22.04
     container: ${{ matrix.java == 'java-8' && 'apache/gluten:centos-8-jdk8' || matrix.java == 'java-11' && 'apache/gluten:centos-8-jdk11' || matrix.java == 'java-17' && 'apache/gluten:centos-9-jdk17' || 'apache/gluten:ubuntu22-m2-cache' }}
     env:
@@ -147,7 +148,6 @@ jobs:
           ${{ fromJSON(fromJSON(inputs.changes).full_run == 'true'
           && '["celeborn-0.6.3", "celeborn-0.5.4"]'
           || '["celeborn-0.6.3"]') }}
-    timeout-minutes: 8
     runs-on: ubuntu-22.04
     container: apache/gluten:centos-8-jdk8
     env:
@@ -200,7 +200,6 @@ jobs:
 
   tpc-test-ubuntu:
     needs: build-tpc-default
-    timeout-minutes: 65
     if: >-
       fromJSON(inputs.changes).cpp == 'true' ||
       fromJSON(inputs.changes).java == 'true' ||
@@ -299,6 +298,7 @@ jobs:
           export JAVA_HOME=/usr/lib/jvm/${{ matrix.java }}-openjdk-amd64
           echo "JAVA_HOME: $JAVA_HOME"
           python3 "$GITHUB_WORKSPACE/.github/workflows/util/tpc-build.py" restore \
+            --revision "$GITHUB_SHA" \
             --archive "$RUNNER_TEMP/tpc-build/runtime.zip" --spark "${{ matrix.spark }}" \
             --java "${{ matrix.java }}" --shuffle "plain"
           cd "$GITHUB_WORKSPACE/tools/gluten-it"
@@ -332,7 +332,6 @@ jobs:
 
   tpc-test-centos8:
     needs: build-tpc-default
-    timeout-minutes: 65
     if: >-
       fromJSON(inputs.changes).cpp == 'true' ||
       fromJSON(inputs.changes).java == 'true' ||
@@ -408,6 +407,7 @@ jobs:
       - name: Restore gluten-it
         run: |
           python3 "$GITHUB_WORKSPACE/.github/workflows/util/tpc-build.py" restore \
+            --revision "$GITHUB_SHA" \
             --archive "$RUNNER_TEMP/tpc-build/runtime.zip" --spark "${{ matrix.spark }}" \
             --java "${{ matrix.java }}" --shuffle "plain"
       - name: Run TPC-H / TPC-DS
@@ -425,7 +425,6 @@ jobs:
     # changes its ~60 runner-minutes rarely produce PR-specific signal; the
     # nightly full_run still exercises it daily.
     needs: build-tpc-default
-    timeout-minutes: 65
     if: >-
       fromJSON(inputs.changes).full_run == 'true' ||
       fromJSON(inputs.changes).cpp == 'true'
@@ -473,6 +472,7 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/
           python3 "$GITHUB_WORKSPACE/.github/workflows/util/tpc-build.py" restore \
+            --revision "$GITHUB_SHA" \
             --archive "$RUNNER_TEMP/tpc-build/runtime.zip" --spark "${{ matrix.spark }}" \
             --java "java-8" --shuffle "plain"
           cd "$GITHUB_WORKSPACE/tools/gluten-it"
@@ -561,7 +561,6 @@ jobs:
     # most expensive TPC job (~190 runner-minutes). Per-PR only for native
     # changes; nightly full_run covers the rest.
     needs: build-tpc-default
-    timeout-minutes: 65
     if: >-
       fromJSON(inputs.changes).full_run == 'true' ||
       fromJSON(inputs.changes).cpp == 'true'
@@ -610,6 +609,7 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/
           python3 "$GITHUB_WORKSPACE/.github/workflows/util/tpc-build.py" restore \
+            --revision "$GITHUB_SHA" \
             --archive "$RUNNER_TEMP/tpc-build/runtime.zip" --spark "${{ matrix.spark }}" \
             --java "java-8" --shuffle "plain"
           cd "$GITHUB_WORKSPACE/tools/gluten-it"
@@ -637,7 +637,6 @@ jobs:
             --data-gen=skip  --random-kill-tasks --no-session-reuse $selection
 
   tpc-test-centos8-uniffle:
-    timeout-minutes: 72
     if: >-
       fromJSON(inputs.changes).cpp == 'true' ||
       fromJSON(inputs.changes).java == 'true' ||
@@ -689,7 +688,6 @@ jobs:
 
   tpc-test-ubuntu-2204-celeborn:
     needs: build-tpc-celeborn
-    timeout-minutes: 65
     if: >-
       fromJSON(inputs.changes).cpp == 'true' ||
       fromJSON(inputs.changes).java == 'true' ||
@@ -730,6 +728,7 @@ jobs:
       - name: Restore gluten-it
         run: |
           python3 "$GITHUB_WORKSPACE/.github/workflows/util/tpc-build.py" restore \
+            --revision "$GITHUB_SHA" \
             --archive "$RUNNER_TEMP/tpc-build/runtime.zip" --spark "${{ matrix.spark }}" \
             --java "java-8" --shuffle "${{ matrix.celeborn }}"
       - name: TPC-H SF1.0 && TPC-DS SF1.0 Parquet local spark3.5 with ${{ matrix.celeborn }}
@@ -775,7 +774,6 @@ jobs:
           fi
 
   cpp-test-udf-test:
-    timeout-minutes: 72
     if: fromJSON(inputs.changes).cpp == 'true'
     runs-on: ubuntu-22.04
     container: apache/gluten:centos-9-jdk8
@@ -901,7 +899,6 @@ jobs:
           path: "**/target/*.log"
 
   build-cudf-centos-9:
-    timeout-minutes: 72
     if: fromJSON(inputs.changes).cpp == 'true'
     runs-on: ubuntu-22.04
     steps:
@@ -961,7 +958,6 @@ jobs:
           include-hidden-files: true
 
   build-fast-build-test:
-    timeout-minutes: 72
     if: >-
       fromJSON(inputs.changes).java == 'true' ||
       fromJSON(inputs.changes).cpp == 'true'
@@ -975,7 +971,6 @@ jobs:
           $MVN_CMD clean test-compile -Pspark-4.0 -Pscala-2.13 -Pbackends-velox -Pspark-ut -Piceberg,delta,paimon -Pfast-build
 
   build-test-spark42:
-    timeout-minutes: 72
     if: >-
       fromJSON(inputs.changes).java == 'true' ||
       fromJSON(inputs.changes).shims42 == 'true' ||

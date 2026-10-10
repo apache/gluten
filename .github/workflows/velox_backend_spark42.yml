@@ -64,12 +64,10 @@ concurrency:
 # Main added five Spark 4.2 unit-test jobs after the x86 workflow was split.
 # Keep them independent: x86 already has 19 concurrent jobs. Share one compiled
 # reactor across all five shards, retaining standard, extended and Hive selections.
-# PR execution budget: detection 1 + native 6 + compilation 10 + tests 60 = 77 minutes.
 jobs:
   detect-changes:
     if: github.event_name != 'schedule' || github.repository_owner == 'apache'
     runs-on: ubuntu-22.04
-    timeout-minutes: 1
     outputs:
       run: ${{ steps.changes.outputs.run }}
     steps:

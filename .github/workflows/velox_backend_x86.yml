@@ -93,7 +93,6 @@ jobs:
     # minutes nightly on a signal nobody reads.
     if: github.event_name != 'schedule' || github.repository_owner == 'apache'
     runs-on: ubuntu-22.04
-    timeout-minutes: 1
     outputs:
       changes: ${{ toJSON(steps.filter.outputs) }}
       full_run: ${{ steps.filter.outputs.full_run }}
