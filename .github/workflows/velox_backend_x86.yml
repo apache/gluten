@@ -1348,6 +1348,13 @@ jobs:
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
+      - name: Prepare
+        run: |
+          dnf module -y install python39 && \
+          alternatives --set python3 /usr/bin/python3.9 && \
+          pip3 install setuptools==77.0.3 && \
+          pip3 install pyspark==3.5.5 cython && \
+          pip3 install pandas==2.2.3 pyarrow==20.0.0
       - name: Build and Run unit test for Spark 4.0 (slow tests, ${{ matrix.suite }})
         run: |
           cd $GITHUB_WORKSPACE/
@@ -1477,6 +1484,15 @@ jobs:
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
+      - name: Prepare
+        run: |
+          dnf install -y python3.11 python3.11-pip python3.11-devel && \
+          ls -la /usr/bin/python3.11 && \
+          alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 && \
+          alternatives --set python3 /usr/bin/python3.11 && \
+          pip3 install setuptools==77.0.3 && \
+          pip3 install pyspark==3.5.5 cython && \
+          pip3 install pandas==2.2.3 pyarrow==20.0.0
       - name: Build and Run unit test for Spark 4.1 (slow tests, ${{ matrix.suite }})
         run: |
           cd $GITHUB_WORKSPACE/
