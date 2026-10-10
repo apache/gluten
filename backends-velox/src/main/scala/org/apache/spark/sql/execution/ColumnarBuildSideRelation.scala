@@ -231,14 +231,13 @@ case class ColumnarBuildSideRelation(
         try {
           // Build the hash table
           hashTableData(droppedDuplicates) = hashJoinBuilder
-            .nativeBuild(
+            .nativeBuildWithTask(
               broadcastContext.buildHashTableId,
               batchArray.toArray,
               joinKeys,
-              broadcastContext.filterBuildColumns,
-              broadcastContext.filterPropagatesNulls,
+              broadcastContext.filterPlan,
+              broadcastContext.filterInputNames,
               broadcastContext.substraitJoinType.ordinal(),
-              broadcastContext.hasMixedFiltCondition,
               broadcastContext.isExistenceJoin,
               SubstraitUtil.toNameStruct(newOutput).toByteArray,
               broadcastContext.isNullAwareAntiJoin,

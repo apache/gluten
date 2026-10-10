@@ -67,4 +67,21 @@ public class HashJoinBuilder implements RuntimeAware {
       boolean isNullAwareAntiJoin,
       long bloomFilterPushdownSize,
       int broadcastHashTableBuildThreads);
+
+  /**
+   * Builds the hash table by running Velox HashBuild in a dedicated Velox task. The join filter is
+   * passed as serialized by BroadcastHashJoinFilter.
+   */
+  public native long nativeBuildWithTask(
+      String buildHashTableId,
+      long[] batchHandlers,
+      String[] joinKeys,
+      byte[] filterPlan,
+      String[] filterInputNames,
+      int joinType,
+      boolean isExistenceJoin,
+      byte[] namedStruct,
+      boolean isNullAwareAntiJoin,
+      long bloomFilterPushdownSize,
+      int broadcastHashTableBuildThreads);
 }
