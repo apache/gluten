@@ -17,8 +17,8 @@
 package org.apache.gluten.expression
 
 import org.apache.spark.sql.catalyst.{FunctionIdentifier, InternalRow}
-import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
-import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionInfo, UnaryExpression}
+import org.apache.spark.sql.catalyst.catalog.{CatalogFunction, SessionCatalog}
+import org.apache.spark.sql.catalyst.expressions.{Expression, UnaryExpression}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.types.DataType
 
@@ -63,15 +63,17 @@ object VeloxDummyExpression {
 
   private val identifier = new FunctionIdentifier(VELOX_DUMMY_EXPRESSION)
 
-  def registerFunctions(registry: FunctionRegistry): Unit = {
-    registry.registerFunction(
-      identifier,
-      new ExpressionInfo(classOf[VeloxDummyExpression].getName, VELOX_DUMMY_EXPRESSION),
-      (e: Seq[Expression]) => VeloxDummyExpression(e.head)
+  // Register through SessionCatalog: since Spark 4.2 (SPARK-55964) FunctionRegistry rejects
+  // unqualified identifiers, while SessionCatalog qualifies them on every Spark version.
+  def registerFunctions(catalog: SessionCatalog): Unit = {
+    catalog.registerFunction(
+      CatalogFunction(identifier, classOf[VeloxDummyExpression].getName, Seq.empty),
+      overrideIfExists = true,
+      Some((e: Seq[Expression]) => VeloxDummyExpression(e.head))
     )
   }
 
-  def unregisterFunctions(registry: FunctionRegistry): Unit = {
-    registry.dropFunction(identifier)
+  def unregisterFunctions(catalog: SessionCatalog): Unit = {
+    catalog.unregisterFunction(identifier)
   }
 }
