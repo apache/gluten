@@ -28,6 +28,8 @@ import org.apache.spark.sql.{DataFrame, GlutenQueryTest, Row}
 
 import java.util.concurrent.atomic.AtomicBoolean
 
+import scala.util.Try
+
 abstract class GlutenQueryComparisonTest extends GlutenQueryTest {
 
   private val isFallbackCheckDisabled0 = new AtomicBoolean(false)
@@ -70,6 +72,32 @@ abstract class GlutenQueryComparisonTest extends GlutenQueryTest {
       customCheck,
       noFallBack,
       cache)
+  }
+
+  /**
+   * Like `runQueryAndCompare`, but in ANSI mode also accepts a query that fails on vanilla Spark,
+   * which happens when ANSI mode rejects its input (for example, a malformed string cast to a
+   * number). In that case, checks that Gluten fails too.
+   */
+  protected def runQueryAndCompareOrBothFail(
+      sqlStr: String,
+      compareResult: Boolean = true,
+      noFallBack: Boolean = true,
+      cache: Boolean = false)(customCheck: DataFrame => Unit): Unit = {
+    if (spark.sessionState.conf.ansiEnabled) {
+      val vanillaFailed = withSQLConf(vanillaSparkConfs(): _*) {
+        Try(spark.sql(sqlStr).collect()).isFailure
+      }
+      if (vanillaFailed) {
+        // TODO: Also compare the error class once native errors are translated into Spark
+        // exceptions.
+        withClue(s"Vanilla Spark failed but Gluten did not for query: $sqlStr\n") {
+          intercept[Exception](spark.sql(sqlStr).collect())
+        }
+        return
+      }
+    }
+    runQueryAndCompare(sqlStr, compareResult, noFallBack, cache)(customCheck)
   }
 
   protected def compareResultsAgainstVanillaSpark(
