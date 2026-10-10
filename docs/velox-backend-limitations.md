@@ -47,6 +47,21 @@ Velox only supports double quotes surrounded strings, not single quotes, in JSON
 
 Velox doesn't support [*] in path when get_json_object function is called and returns null instead.
 
+##### `from_json` — case-insensitive JSON key matching
+
+Velox's `from_json` matches JSON object keys **case-insensitively**, while Spark always matches them **case-sensitively** (JSON keys are case-sensitive by the JSON specification, and Spark honors that regardless of the `spark.sql.caseSensitive` setting).
+
+This means that when a JSON string contains a key that differs in case from the target schema field (e.g., JSON key `"ID"` vs. schema field `id`), Gluten will extract the value while Spark returns `null`.
+
+```sql
+-- Spark returns null for {"ID":2}; Gluten (Velox) returns 2.
+SELECT from_json('{"ID":2}', 'id INT');
+```
+
+This difference cannot be detected at planning time (it depends on runtime data), so no automatic fallback is applied. If your data contains JSON keys whose case differs from the schema field names, either transform the data upstream or disable Velox offloading for the affected query.
+
+Note: `from_json` already falls back to vanilla Spark when `spark.sql.caseSensitive = true` is set, but the key-case mismatch described above occurs even with the default `spark.sql.caseSensitive = false`.
+
 #### Parquet read conf
 Gluten supports `spark.files.ignoreCorruptFiles` with default false, if true, the behavior is same as config false.
 Gluten ignores `spark.sql.parquet.datetimeRebaseModeInRead`, it only returns what write in parquet file. It does not consider the difference between legacy
