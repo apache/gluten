@@ -185,7 +185,7 @@ jobs:
       SPARK_TESTING: true
     container: apache/gluten:centos-8-jdk8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Download All Artifacts
         uses: actions/download-artifact@v4
         with:
@@ -235,7 +235,7 @@ jobs:
       LC_ALL: C.UTF-8
     container: apache/gluten:centos-8-jdk8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Download All Artifacts
         uses: actions/download-artifact@v4
         with:
