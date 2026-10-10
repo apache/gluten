@@ -207,6 +207,12 @@
       </activation>
       <dependencies>
         <dependency>
+          <groupId>org.apache.gluten</groupId>
+          <artifactId>gluten-iceberg</artifactId>
+          <version>${project.version}</version>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
           <groupId>org.apache.iceberg</groupId>
           <artifactId>iceberg-spark-runtime-${sparkbundle.version}_${scala.binary.version}</artifactId>
           <version>${iceberg.version}</version>

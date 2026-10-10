@@ -114,8 +114,17 @@ object GlutenIcebergSourceUtil {
             lengths.add(task.length())
             partitionColumns.add(getPartitionColumns(task, readPartitionSchema))
             deleteFilesList.add(task.deletes())
-            metadataColumns.add(
-              genMetadataColumns(metadataColumnNames, filePath, task.start(), task.length()))
+            val fileMetadata =
+              genMetadataColumns(metadataColumnNames, filePath, task.start(), task.length())
+            if (BackendsApiManager.getSettings.supportIcebergRowLineageRead()) {
+              Option(task.file().firstRowId()).foreach {
+                value => fileMetadata.put("$first_row_id", value.toString)
+              }
+              Option(task.file().dataSequenceNumber()).foreach {
+                value => fileMetadata.put("$data_sequence_number", value.toString)
+              }
+            }
+            metadataColumns.add(fileMetadata)
             val currentFileFormat = convertFileFormat(task.file().format())
             if (fileFormat == ReadFileFormat.UnknownFormat) {
               fileFormat = currentFileFormat
@@ -150,6 +159,12 @@ object GlutenIcebergSourceUtil {
     val fieldIds = new JHashMap[String, Integer]()
     getTable(sparkScan).schema().columns().asScala.foreach {
       field => fieldIds.put(field.name(), field.fieldId())
+    }
+    Seq(MetadataColumns.ROW_ID, MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER).foreach {
+      field =>
+        if (sparkScan.readSchema().fieldNames.exists(_.equalsIgnoreCase(field.name()))) {
+          fieldIds.put(field.name(), field.fieldId())
+        }
     }
     fieldIds
   }
