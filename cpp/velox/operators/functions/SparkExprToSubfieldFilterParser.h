@@ -14,6 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+#pragma once
+
+#include "velox/common/config/Config.h"
 #include "velox/expression/ExprToSubfieldFilter.h"
 
 namespace gluten {
@@ -23,8 +27,8 @@ namespace gluten {
 /// 2) The supported functions vary.
 class SparkExprToSubfieldFilterParser : public facebook::velox::exec::ExprToSubfieldFilterParser {
  public:
-  explicit SparkExprToSubfieldFilterParser(bool scanBloomFilterPushdownEnabled)
-      : scanBloomFilterPushdownEnabled_(scanBloomFilterPushdownEnabled) {}
+  explicit SparkExprToSubfieldFilterParser(std::shared_ptr<const facebook::velox::config::ConfigBase> backendConf)
+      : backendConf_(std::move(backendConf)) {}
 
   std::optional<std::pair<facebook::velox::common::Subfield, std::unique_ptr<facebook::velox::common::Filter>>>
   leafCallToSubfieldFilter(
@@ -33,7 +37,7 @@ class SparkExprToSubfieldFilterParser : public facebook::velox::exec::ExprToSubf
       bool negated) override;
 
  private:
-  const bool scanBloomFilterPushdownEnabled_;
+  const std::shared_ptr<const facebook::velox::config::ConfigBase> backendConf_;
 };
 
 } // namespace gluten
