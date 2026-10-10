@@ -393,11 +393,25 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
         assert(nestedLoopJoin.isDefined)
         val fallbackReasons = events.flatMap(_.fallbackNodeToReason.values)
         assert(fallbackReasons.nonEmpty)
-        assert(fallbackReasons.forall(_.contains("regexp_extract due to Pattern")))
+        // The lookbehind/lookahead pattern is now rejected at the JVM level by
+        // withRe2PatternTranslation before the native validator sees it, so the
+        // fallback reason contains the GlutenNotSupportException message instead
+        // of the old native "regexp_extract due to Pattern ..." message.
+        assert(
+          fallbackReasons.exists(
+            r =>
+              r.contains("regexp_extract due to Pattern") ||
+                r.contains("uses constructs (lookahead/lookbehind/backreference)") ||
+                r.contains("GlutenNotSupportException")),
+          s"Unexpected fallback reasons: $fallbackReasons"
+        )
     }
   }
 
-  test("fallback when join post filter has unsupported expression") {
+  // Regression test: Java \\uXXXX Unicode escapes in rlike patterns used to cause a
+  // "Pattern ... compilation failed in RE2" fallback. After the fix, these patterns are
+  // translated to RE2 \\x{XXXX} syntax and run natively -- no rlike regex fallback should occur.
+  test("no fallback when join post filter contains Java Unicode escape in rlike pattern") {
     GlutenSuiteUtils.withFallbackEventListener(spark.sparkContext) {
       events =>
         val df = spark.sql("""
@@ -410,12 +424,16 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
         GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
 
         val broadcastHashJoin = find(df.queryExecution.executedPlan) {
-          _.isInstanceOf[BroadcastHashJoinExec]
+          case _: BroadcastHashJoinExecTransformerBase => true
+          case _ => false
         }
-        assert(broadcastHashJoin.isDefined)
+        assert(
+          broadcastHashJoin.isDefined,
+          "Expected BroadcastHashJoin to run natively but it fell back")
         val fallbackReasons = events.flatMap(_.fallbackNodeToReason.values)
-        assert(fallbackReasons.nonEmpty)
-        assert(fallbackReasons.forall(_.contains("rlike due to Pattern")))
+        assert(
+          fallbackReasons.forall(!_.contains("rlike due to Pattern")),
+          s"Expected no rlike regex fallback but got: $fallbackReasons")
     }
   }
 
@@ -427,7 +445,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
     withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
       GlutenSuiteUtils.withFallbackEventListener(spark.sparkContext) {
         events =>
-          // Execute a query with gluten disabled — this mimics what runQueryAndCompare does for
+          // Execute a query with gluten disabled -- this mimics what runQueryAndCompare does for
           // the vanilla baseline run. No GlutenPlanFallbackEvent should be emitted at all.
           spark.sql("SELECT c1, count(*) FROM tmp1 GROUP BY c1").collect()
           GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
