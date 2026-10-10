@@ -44,7 +44,7 @@ abstract class ColumnarToColumnarExec(override val child: SparkPlan)
       "numInputBatches" -> SQLMetrics.createMetric(sparkContext, "number of input batches"),
       "numOutputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"),
       "numOutputBatches" -> SQLMetrics.createMetric(sparkContext, "number of output batches"),
-      "selfTime" -> SQLMetrics.createTimingMetric(sparkContext, "time to convert batches")
+      "selfTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "time to convert batches")
     )
 
   override protected def doExecute(): RDD[InternalRow] = throw new UnsupportedOperationException()
@@ -58,11 +58,11 @@ abstract class ColumnarToColumnarExec(override val child: SparkPlan)
 
     child.executeColumnar().mapPartitions {
       in =>
-        // Self millis = Out millis - In millis.
-        val selfMillis = new AtomicLong(0L)
+        // Self nanos = Out nanos - In nanos.
+        val selfNanos = new AtomicLong(0L)
         val wrappedIn = Iterators
           .wrap(in)
-          .collectReadMillis(inMillis => selfMillis.getAndAdd(-inMillis))
+          .collectReadNanos(inNanos => selfNanos.getAndAdd(-inNanos))
           .create()
           .map {
             inBatch =>
@@ -74,10 +74,10 @@ abstract class ColumnarToColumnarExec(override val child: SparkPlan)
         val builder = Iterators
           .wrap(out)
           .protectInvocationFlow()
-          .collectReadMillis(outMillis => selfMillis.getAndAdd(outMillis))
+          .collectReadNanos(outNanos => selfNanos.getAndAdd(outNanos))
           .recycleIterator {
             closeIterator(out)
-            selfTime += selfMillis.get()
+            selfTime += selfNanos.get()
           }
         if (needRecyclePayload) {
           builder.recyclePayload(_.close())

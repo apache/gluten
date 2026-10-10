@@ -34,7 +34,7 @@ object Iterators {
     def recyclePayload(closeCallback: (A) => Unit): WrapperBuilder[A]
     def recycleIterator(completionCallback: => Unit): WrapperBuilder[A]
     def collectLifeMillis(onCollected: Long => Unit): WrapperBuilder[A]
-    def collectReadMillis(onAdded: Long => Unit): WrapperBuilder[A]
+    def collectReadNanos(onAdded: Long => Unit): WrapperBuilder[A]
     def asInterruptible(context: TaskContext): WrapperBuilder[A]
     def protectInvocationFlow(): WrapperBuilder[A]
     def create(): Iterator[A]

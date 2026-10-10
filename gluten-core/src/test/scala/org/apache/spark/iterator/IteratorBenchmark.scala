@@ -62,34 +62,34 @@ object IteratorBenchmark extends BenchmarkBase {
           version =>
             Iterators
               .wrap(version, makeScalaIterator)
-              .collectReadMillis { _ => }
+              .collectReadNanos { _ => }
               .create()
         }
         compareIterator("5 Levels Nesting - read") {
           version =>
             Iterators
               .wrap(version, makeScalaIterator)
-              .collectReadMillis { _ => }
-              .collectReadMillis { _ => }
-              .collectReadMillis { _ => }
-              .collectReadMillis { _ => }
-              .collectReadMillis { _ => }
+              .collectReadNanos { _ => }
+              .collectReadNanos { _ => }
+              .collectReadNanos { _ => }
+              .collectReadNanos { _ => }
+              .collectReadNanos { _ => }
               .create()
         }
         compareIterator("10 Levels Nesting - read") {
           version =>
             Iterators
               .wrap(version, makeScalaIterator)
-              .collectReadMillis { _ => }
-              .collectReadMillis { _ => }
-              .collectReadMillis { _ => }
-              .collectReadMillis { _ => }
-              .collectReadMillis { _ => }
-              .collectReadMillis { _ => }
-              .collectReadMillis { _ => }
-              .collectReadMillis { _ => }
-              .collectReadMillis { _ => }
-              .collectReadMillis { _ => }
+              .collectReadNanos { _ => }
+              .collectReadNanos { _ => }
+              .collectReadNanos { _ => }
+              .collectReadNanos { _ => }
+              .collectReadNanos { _ => }
+              .collectReadNanos { _ => }
+              .collectReadNanos { _ => }
+              .collectReadNanos { _ => }
+              .collectReadNanos { _ => }
+              .collectReadNanos { _ => }
               .create()
         }
         compareIterator("1 Levels Nesting - recycle") {

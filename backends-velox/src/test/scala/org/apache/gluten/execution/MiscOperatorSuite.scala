@@ -784,6 +784,8 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
       assert(metrics("numInputBatches").value == 14)
       assert(metrics("numOutputRows").value == 27)
       assert(metrics("numOutputBatches").value == 2)
+      assert(metrics("selfTime").metricType == "nsTiming")
+      assert(metrics("selfTime").value > 0)
     }
 
     withSQLConf(

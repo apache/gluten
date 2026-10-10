@@ -115,23 +115,21 @@ object IteratorsV1 {
     }
   }
 
+  // Reports each read's duration in nanoseconds. Converting each read to milliseconds would
+  // truncate any read shorter than one millisecond to zero.
   private class ReadTimeAccumulator[A](in: Iterator[A], onAdded: Long => Unit) extends Iterator[A] {
 
     override def hasNext: Boolean = {
       val prev = System.nanoTime()
       val out = in.hasNext
-      val after = System.nanoTime()
-      val duration = TimeUnit.NANOSECONDS.toMillis(after - prev)
-      onAdded(duration)
+      onAdded(System.nanoTime() - prev)
       out
     }
 
     override def next(): A = {
       val prev = System.nanoTime()
       val out = in.next()
-      val after = System.nanoTime()
-      val duration = TimeUnit.NANOSECONDS.toMillis(after - prev)
-      onAdded(duration)
+      onAdded(System.nanoTime() - prev)
       out
     }
   }
@@ -195,7 +193,7 @@ object IteratorsV1 {
       this
     }
 
-    override def collectReadMillis(onAdded: Long => Unit): WrapperBuilder[A] = {
+    override def collectReadNanos(onAdded: Long => Unit): WrapperBuilder[A] = {
       wrapped = new ReadTimeAccumulator[A](wrapped, onAdded)
       this
     }
