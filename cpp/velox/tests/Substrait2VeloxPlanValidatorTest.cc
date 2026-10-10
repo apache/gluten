@@ -83,6 +83,19 @@ TEST_F(Substrait2VeloxPlanValidatorTest, group) {
   ASSERT_FALSE(validatePlan(substraitPlan));
 }
 
+TEST_F(Substrait2VeloxPlanValidatorTest, kafkaReadRequiresNativeSupport) {
+  ::substrait::Plan plan;
+  auto* read = plan.add_relations()->mutable_rel()->mutable_read();
+  read->set_stream_kafka(true);
+  read->mutable_base_schema()->add_names("offset");
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
+#ifdef ENABLE_KAFKA
+  EXPECT_TRUE(validatePlan(plan));
+#else
+  EXPECT_FALSE(validatePlan(plan));
+#endif
+}
+
 TEST_F(Substrait2VeloxPlanValidatorTest, expandSelectionMustBeTopLevelField) {
   const auto makePlan = [](bool nestedSelection) {
     ::substrait::Plan plan;

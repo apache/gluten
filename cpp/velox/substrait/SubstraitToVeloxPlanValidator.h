@@ -45,6 +45,7 @@ class SubstraitToVeloxPlanValidator {
             .hive = kHiveConnectorId,
             .iceberg = kIcebergConnectorId,
             .iterator = kIteratorConnectorId,
+            .kafka = kKafkaConnectorId,
             .cudfHive = kCudfHiveConnectorId},
         std::nullopt,
         std::nullopt,

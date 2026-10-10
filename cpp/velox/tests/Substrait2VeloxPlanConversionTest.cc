@@ -29,6 +29,9 @@
 
 #include "FilePathGenerator.h"
 #include "compute/VeloxBackend.h"
+#ifdef ENABLE_KAFKA
+#include "operators/reader/KafkaSplitInfo.h"
+#endif
 
 using namespace facebook::velox;
 using namespace facebook::velox::test;
@@ -426,5 +429,94 @@ TEST_F(Substrait2VeloxPlanConversionTest, aggregateMaskMustBeTopLevelField) {
       makeConverter()->toVeloxPlan(makeAggregateRel(/*nestedMask=*/true)),
       "Aggregation Operator only supports a top-level field mask.");
 }
+
+TEST_F(Substrait2VeloxPlanConversionTest, serializedFileSplit) {
+  ::substrait::Plan plan;
+  auto* read = plan.add_relations()->mutable_rel()->mutable_read();
+  read->mutable_base_schema()->add_names("offset");
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
+
+  ::substrait::ReadRel_LocalFiles files;
+  auto* file = files.add_items();
+  file->set_uri_file("file:///tmp/kafka-join.parquet");
+  file->set_start(10);
+  file->set_length(20);
+  file->mutable_parquet();
+
+  auto node = planConverter_->toVeloxPlan(plan, {}, {files.SerializeAsString()});
+  const auto& split = planConverter_->splitInfos().at(node->id());
+  EXPECT_EQ(split->paths, std::vector<std::string>{"file:///tmp/kafka-join.parquet"});
+  EXPECT_EQ(split->starts, std::vector<uint64_t>{10});
+  EXPECT_EQ(split->lengths, std::vector<uint64_t>{20});
+}
+
+TEST_F(Substrait2VeloxPlanConversionTest, kafkaReadValidation) {
+  ::substrait::ReadRel read;
+  read.set_stream_kafka(true);
+  read.mutable_base_schema()->add_names("offset");
+  read.mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
+  SubstraitToVeloxPlanConverter converter(
+      pool(), veloxCfg_.get(), {}, VeloxConnectorIds{.kafka = "kafka-test"}, std::nullopt, std::nullopt, true);
+#ifdef ENABLE_KAFKA
+  auto node = converter.toVeloxPlan(read);
+  auto scan = std::dynamic_pointer_cast<const core::TableScanNode>(node);
+  ASSERT_NE(scan, nullptr);
+  EXPECT_EQ(scan->tableHandle()->connectorId(), "kafka-test");
+  EXPECT_EQ(converter.splitInfos().at(node->id())->leafType, SplitInfo::LeafType::TABLE_SCAN);
+#else
+  VELOX_ASSERT_USER_THROW(converter.toVeloxPlan(read), "Gluten was built without ENABLE_KAFKA");
+#endif
+}
+
+#ifdef ENABLE_KAFKA
+TEST_F(Substrait2VeloxPlanConversionTest, mixedKafkaAndFileSplits) {
+  ::substrait::ReadRel kafkaRead;
+  kafkaRead.set_stream_kafka(true);
+  kafkaRead.mutable_base_schema()->add_names("offset");
+  kafkaRead.mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
+  auto fileRead = kafkaRead;
+  fileRead.set_stream_kafka(false);
+
+  ::substrait::ReadRel_StreamKafka kafka;
+  kafka.mutable_topic_partition()->set_topic("test-topic");
+  kafka.mutable_topic_partition()->set_partition(2);
+  kafka.set_start_offset(5);
+  kafka.set_end_offset(9);
+  kafka.set_poll_timeout_ms(1000);
+  kafka.set_fail_on_data_loss(true);
+  (*kafka.mutable_params())["bootstrap.servers"] = "localhost:9092";
+
+  ::substrait::ReadRel_LocalFiles files;
+  files.add_items()->set_uri_file("file:///tmp/kafka-join.parquet");
+  files.mutable_items(0)->mutable_parquet();
+
+  for (const bool kafkaFirst : {true, false}) {
+    SubstraitToVeloxPlanConverter converter(
+        pool(),
+        veloxCfg_.get(),
+        {},
+        VeloxConnectorIds{.hive = facebook::velox::exec::test::kHiveConnectorId, .kafka = "kafka-test"});
+    converter.setRawSplitInfos(
+        kafkaFirst ? std::vector<std::string>{kafka.SerializeAsString(), files.SerializeAsString()}
+                   : std::vector<std::string>{files.SerializeAsString(), kafka.SerializeAsString()});
+    auto first = converter.toVeloxPlan(kafkaFirst ? kafkaRead : fileRead);
+    auto second = converter.toVeloxPlan(kafkaFirst ? fileRead : kafkaRead);
+    const auto& kafkaNode = kafkaFirst ? first : second;
+    const auto& fileNode = kafkaFirst ? second : first;
+    auto splitInfo = std::dynamic_pointer_cast<KafkaSplitInfo>(converter.splitInfos().at(kafkaNode->id()));
+    ASSERT_NE(splitInfo, nullptr);
+    auto split = splitInfo->toConnectorSplit("kafka-test");
+    EXPECT_EQ(split->topic, "test-topic");
+    EXPECT_EQ(split->partition, 2);
+    EXPECT_EQ(split->startOffset, 5);
+    EXPECT_EQ(split->endOffset, 9);
+    EXPECT_EQ(split->pollTimeoutMs, 1000);
+    EXPECT_TRUE(split->failOnDataLoss);
+    EXPECT_EQ(split->kafkaParams.at("bootstrap.servers"), "localhost:9092");
+    EXPECT_EQ(
+        converter.splitInfos().at(fileNode->id())->paths, std::vector<std::string>{"file:///tmp/kafka-join.parquet"});
+  }
+}
+#endif
 
 } // namespace gluten
