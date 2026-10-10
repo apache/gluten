@@ -17,6 +17,8 @@
 
 #include "JniUdf.h"
 #include "jni/JniCommon.h"
+#include "substrait/SubstraitParser.h"
+#include "substrait/VeloxToSubstraitType.h"
 #include "udf/UdfLoader.h"
 #include "utils/Exception.h"
 
@@ -29,6 +31,38 @@ const std::string kUdfResolverClassPath = "Lorg/apache/spark/sql/expression/UDFR
 static jclass udfResolverClass;
 static jmethodID registerUDFMethod;
 static jmethodID registerUDAFMethod;
+static jmethodID registerRegistryUDFMethod;
+static jmethodID registerRegistryUDAFMethod;
+
+jobject udfResolverInstance(JNIEnv* env) {
+  return env->GetStaticObjectField(
+      udfResolverClass, env->GetStaticFieldID(udfResolverClass, "MODULE$", kUdfResolverClassPath.c_str()));
+}
+
+// Reads a serialized substrait Type holding a struct of argument types.
+std::vector<facebook::velox::TypePtr> parseArgTypes(JNIEnv* env, jbyteArray argTypes) {
+  const auto safeArray = gluten::getByteArrayElementsSafe(env, argTypes);
+  ::substrait::Type parsed;
+  if (!parsed.ParseFromArray(safeArray.elems(), safeArray.length())) {
+    throw gluten::GlutenException("Failed to parse the argument types of a UDF/UDAF call");
+  }
+  GLUTEN_CHECK(parsed.has_struct_(), "Expected a struct of argument types");
+
+  std::vector<facebook::velox::TypePtr> types;
+  types.reserve(parsed.struct_().types_size());
+  for (const auto& type : parsed.struct_().types()) {
+    types.push_back(gluten::SubstraitParser::parseType(type));
+  }
+  return types;
+}
+
+jbyteArray serializeType(JNIEnv* env, const ::substrait::Type& type) {
+  std::string output;
+  type.SerializeToString(&output);
+  jbyteArray result = env->NewByteArray(output.length());
+  env->SetByteArrayRegion(result, 0, output.length(), reinterpret_cast<const jbyte*>(output.c_str()));
+  return result;
+}
 
 } // namespace
 
@@ -43,6 +77,9 @@ void gluten::initVeloxJniUDF(JNIEnv* env) {
   // methods
   registerUDFMethod = getMethodIdOrError(env, udfResolverClass, "registerUDF", "(Ljava/lang/String;[B[BZZ)V");
   registerUDAFMethod = getMethodIdOrError(env, udfResolverClass, "registerUDAF", "(Ljava/lang/String;[B[B[BZZ)V");
+  registerRegistryUDFMethod = getMethodIdOrError(env, udfResolverClass, "registerRegistryUDF", "(Ljava/lang/String;)V");
+  registerRegistryUDAFMethod =
+      getMethodIdOrError(env, udfResolverClass, "registerRegistryUDAF", "(Ljava/lang/String;)V");
 }
 
 void gluten::finalizeVeloxJniUDF(JNIEnv* env) {
@@ -91,4 +128,71 @@ void gluten::jniRegisterFunctionSignatures(JNIEnv* env) {
     }
     checkException(env);
   }
+
+  for (const auto& name : udfLoader->getRegistryUdfNames()) {
+    env->CallVoidMethod(udfResolverInstance(env), registerRegistryUDFMethod, env->NewStringUTF(name.c_str()));
+    checkException(env);
+  }
+
+  for (const auto& name : udfLoader->getRegistryUdafNames()) {
+    env->CallVoidMethod(udfResolverInstance(env), registerRegistryUDAFMethod, env->NewStringUTF(name.c_str()));
+    checkException(env);
+  }
+}
+
+namespace {
+// One field per argument: the type to cast it to, or NOTHING where it binds as
+// it is. NOTHING reads back as Spark's NullType, which is never a real coercion
+// target, so it serves as the "no cast here" marker.
+::substrait::Type coercionsToSubstrait(
+    google::protobuf::Arena& arena,
+    gluten::VeloxToSubstraitTypeConvertor& convertor,
+    const std::vector<facebook::velox::TypePtr>& coercions) {
+  ::substrait::Type out;
+  auto* structType = out.mutable_struct_();
+  structType->set_nullability(::substrait::Type::NULLABILITY_REQUIRED);
+  for (const auto& coercion : coercions) {
+    if (coercion == nullptr) {
+      structType->add_types()->mutable_nothing();
+    } else {
+      *structType->add_types() = convertor.toSubstraitType(arena, coercion);
+    }
+  }
+  return out;
+}
+} // namespace
+
+jbyteArray gluten::jniResolveUdfType(JNIEnv* env, jstring name, jbyteArray argTypes) {
+  const auto resolved = UdfLoader::resolveUdfType(jStringToCString(env, name), parseArgTypes(env, argTypes));
+  if (!resolved.has_value()) {
+    return nullptr;
+  }
+
+  google::protobuf::Arena arena;
+  VeloxToSubstraitTypeConvertor convertor;
+  ::substrait::Type out;
+  auto* structType = out.mutable_struct_();
+  structType->set_nullability(::substrait::Type::NULLABILITY_REQUIRED);
+  *structType->add_types() = convertor.toSubstraitType(arena, resolved->returnType);
+  *structType->add_types() = coercionsToSubstrait(arena, convertor, resolved->coercions);
+  return serializeType(env, out);
+}
+
+jbyteArray gluten::jniResolveUdafTypes(JNIEnv* env, jstring name, jbyteArray argTypes) {
+  const auto resolved = UdfLoader::resolveUdafTypes(jStringToCString(env, name), parseArgTypes(env, argTypes));
+  if (!resolved.has_value()) {
+    return nullptr;
+  }
+
+  google::protobuf::Arena arena;
+  VeloxToSubstraitTypeConvertor convertor;
+  // Everything travels as one struct so the JVM gets it from a single call and
+  // can reuse ConverterUtils to read it back.
+  ::substrait::Type out;
+  auto* structType = out.mutable_struct_();
+  structType->set_nullability(::substrait::Type::NULLABILITY_REQUIRED);
+  *structType->add_types() = convertor.toSubstraitType(arena, resolved->returnType);
+  *structType->add_types() = convertor.toSubstraitType(arena, resolved->intermediateType);
+  *structType->add_types() = coercionsToSubstrait(arena, convertor, resolved->coercions);
+  return serializeType(env, out);
 }

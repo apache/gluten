@@ -21,6 +21,8 @@ import org.apache.gluten.exception.{GlutenException, GlutenNotSupportException}
 import org.apache.gluten.expression._
 import org.apache.gluten.extension.injector.FunctionDescription
 import org.apache.gluten.jni.JniWorkspace
+import org.apache.gluten.substrait.`type`.TypeBuilder
+import org.apache.gluten.udf.UdfJniWrapper
 
 import org.apache.spark.{SparkConf, SparkFiles}
 import org.apache.spark.deploy.SparkHadoopUtil
@@ -33,17 +35,20 @@ import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateFunction
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.types.DataTypeUtils
 import org.apache.spark.sql.errors.QueryExecutionErrors
+import org.apache.spark.sql.hive.HiveUDAFInspector
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DataType, StructField, StructType}
+import org.apache.spark.sql.types.{DataType, NullType, StructField, StructType}
 import org.apache.spark.util.Utils
 
 import java.io.File
 import java.net.URI
 import java.nio.file.{Files, FileVisitOption, Paths}
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
-import scala.collection.JavaConverters.asScalaIteratorConverter
+import scala.collection.JavaConverters.{asScalaIteratorConverter, seqAsJavaListConverter}
 import scala.collection.mutable
+import scala.util.control.NonFatal
 
 case class UserDefinedAggregateFunction(
     name: String,
@@ -132,6 +137,40 @@ object UDFResolver extends Logging {
   private val UDAFMap =
     mutable.HashMap[String, mutable.ListBuffer[UDAFSignature]]()
 
+  // Functions the library declared by name alone. They have no entry in UDFMap
+  // / UDAFMap because no signature was stated for them: the one the library
+  // registered with Velox is the signature, and it is bound per call site.
+  //
+  // Exposed like UDFNames / UDAFNames above so a test can restore them: every
+  // register call below writes two of these four sets, and a name left behind
+  // in one of them outlives the test that registered it.
+  val RegistryUDFNames = mutable.HashSet[String]()
+  val RegistryUDAFNames = mutable.HashSet[String]()
+
+  // Memoize native resolution, which is a JNI call per distinct call shape.
+  // Written during planning, so unlike the registration maps these need to be
+  // safe for concurrent access.
+  //
+  // Scalar and aggregate resolutions are held apart because a name can be both:
+  // Velox keeps its scalar and aggregate registries separately, so a library is
+  // free to declare one of each. A single map keyed on (name, argument types)
+  // would hand an aggregate call the scalar answer.
+  // A resolved call: the types it produced, plus the type to cast each argument
+  // to, None where it binds as it is.
+  private case class RegistryResolution(
+      returnType: ExpressionType,
+      intermediateType: Option[ExpressionType],
+      coercions: Seq[Option[DataType]]) {
+
+    /** Whether binding required widening an argument, rather than matching it as it stands. */
+    def needsCoercion: Boolean = coercions.exists(_.isDefined)
+  }
+
+  private val registryUdfResolutions =
+    new ConcurrentHashMap[(String, Seq[DataType]), Option[RegistryResolution]]()
+  private val registryUdafResolutions =
+    new ConcurrentHashMap[(String, Seq[DataType]), Option[RegistryResolution]]()
+
   private val LIB_EXTENSION = ".so"
 
   // Called by JNI.
@@ -184,6 +223,33 @@ object UDFResolver extends Logging {
     )
   }
 
+  // Called by JNI.
+  def registerRegistryUDF(name: String): Unit = {
+    RegistryUDFNames += name
+    // UDFNames gates whether a call is offloaded at all, in
+    // VeloxHiveUDFTransformer and getFunctionDescriptions.
+    UDFNames += name
+    logInfo(s"Registered UDF by name, signature from the Velox registry: $name")
+  }
+
+  // Called by JNI.
+  def registerRegistryUDAF(name: String): Unit = {
+    RegistryUDAFNames += name
+    UDAFNames += name
+    logInfo(s"Registered UDAF by name, signature from the Velox registry: $name")
+  }
+
+  private def aggBufferAttributesOf(intermediateType: DataType): Seq[AttributeReference] =
+    intermediateType match {
+      case StructType(fields) =>
+        fields.zipWithIndex.map {
+          case (f, index) =>
+            AttributeReference(s"agg_inter_$index", f.dataType, f.nullable)()
+        }
+      case t =>
+        Seq(AttributeReference(s"agg_inter", t)())
+    }
+
   private def registerUDAF(
       name: String,
       returnType: ExpressionType,
@@ -193,16 +259,7 @@ object UDFResolver extends Logging {
       allowTypeConversion: Boolean): Unit = {
     assert(argTypes.dataType.isInstanceOf[StructType])
 
-    val aggBufferAttributes: Seq[AttributeReference] =
-      intermediateTypes.dataType match {
-        case StructType(fields) =>
-          fields.zipWithIndex.map {
-            case (f, index) =>
-              AttributeReference(s"agg_inter_$index", f.dataType, f.nullable)()
-          }
-        case t =>
-          Seq(AttributeReference(s"agg_inter", t)())
-      }
+    val aggBufferAttributes = aggBufferAttributesOf(intermediateTypes.dataType)
 
     val v =
       UDAFMap.getOrElseUpdate(name, mutable.ListBuffer[UDAFSignature]())
@@ -386,14 +443,135 @@ object UDFResolver extends Logging {
     }
   }
 
-  def getUdfExpression(name: String, alias: String)(children: Seq[Expression]): UDFExpression = {
+  // Velox types carry no nullability, so it is not part of the question being asked here.
+  private def encodeArgTypes(argTypes: Seq[DataType]): Array[Byte] = {
+    val argTypeNodes = argTypes.map(t => ConverterUtils.getTypeNode(t, nullable = true))
+    TypeBuilder.makeStruct(false, argTypeNodes.asJava).toProtobuf.toByteArray
+  }
+
+  private def logNoBind(name: String, argTypes: Seq[DataType]): Unit =
+    logDebug(
+      s"No Velox signature of $name binds to ${argTypes.map(_.simpleString).mkString(", ")}.")
+
+  // NullType marks an argument that binds as it is; it is never a real cast target.
+  private def parseCoercions(coercions: DataType): Seq[Option[DataType]] =
+    coercions.asInstanceOf[StructType].fields.map {
+      field => if (field.dataType == NullType) None else Some(field.dataType)
+    }.toSeq
+
+  private def resolveUdfFromRegistry(
+      name: String,
+      argTypes: Seq[DataType]): Option[RegistryResolution] = {
+    registryUdfResolutions.computeIfAbsent(
+      (name, argTypes),
+      _ =>
+        try {
+          UdfJniWrapper.resolveUdfType(name, encodeArgTypes(argTypes)) match {
+            case null =>
+              logNoBind(name, argTypes)
+              None
+            case resolved =>
+              ConverterUtils.parseFromBytes(resolved).dataType match {
+                case StructType(Array(returnField, coercionsField)) =>
+                  Some(
+                    RegistryResolution(
+                      ExpressionType(returnField.dataType, returnField.nullable),
+                      None,
+                      parseCoercions(coercionsField.dataType)))
+                case other =>
+                  throw new GlutenException(
+                    s"Expected a {returnType, coercions} struct for $name, got $other")
+              }
+          }
+        } catch {
+          // A native failure arrives as GlutenException, which failValidationWithException
+          // rethrows instead of falling back. "Nothing bound" is the same answer and the caller
+          // already turns that into a GlutenNotSupportException. Inside computeIfAbsent so the
+          // None is cached, since resolution is deterministic in (name, argTypes).
+          case NonFatal(e) =>
+            logWarning(
+              s"Failed to resolve $name -> ${argTypes.map(_.simpleString).mkString(", ")} " +
+                s"against the Velox registry; falling back.",
+              e)
+            None
+        }
+    )
+  }
+
+  /**
+   * Like resolveUdfFromRegistry, for an aggregate. Returns the return type and the intermediate
+   * type, both taken from the one signature that bound, or None if none did.
+   */
+  private def resolveUdafFromRegistry(
+      name: String,
+      argTypes: Seq[DataType]): Option[RegistryResolution] = {
+    registryUdafResolutions.computeIfAbsent(
+      (name, argTypes),
+      _ =>
+        try {
+          UdfJniWrapper.resolveUdafTypes(name, encodeArgTypes(argTypes)) match {
+            case null =>
+              logNoBind(name, argTypes)
+              None
+            case resolved =>
+              ConverterUtils.parseFromBytes(resolved).dataType match {
+                case StructType(Array(returnField, intermediateField, coercionsField)) =>
+                  Some(
+                    RegistryResolution(
+                      ExpressionType(returnField.dataType, returnField.nullable),
+                      Some(
+                        ExpressionType(intermediateField.dataType, intermediateField.nullable)),
+                      parseCoercions(coercionsField.dataType)
+                    ))
+                case other =>
+                  throw new GlutenException(
+                    s"Expected a {returnType, intermediateType, coercions} struct for $name, " +
+                      s"got $other")
+              }
+          }
+        } catch {
+          // See resolveUdfFromRegistry.
+          case NonFatal(e) =>
+            logWarning(
+              s"Failed to resolve $name -> ${argTypes.map(_.simpleString).mkString(", ")} " +
+                s"against the Velox registry; falling back.",
+              e)
+            None
+        }
+    )
+  }
+
+  // Velox reported which arguments have to be widened; Spark's Cast performs it,
+  // the same as applyCast does for a stated signature.
+  private def applyCoercions(
+      children: Seq[Expression],
+      coercions: Seq[Option[DataType]]): Seq[Expression] =
+    children.zipAll(coercions, null, None).map {
+      case (child, Some(toType)) => Cast(child, toType)
+      case (child, None) => child
+    }
+
+  /**
+   * Whether a call may use a binding that had to widen one of its arguments, under Hive's implicit
+   * conversions -- the only rules the native side knows.
+   *
+   * Gluten stands in for whatever would otherwise have run, so this follows from that: a function
+   * reached through a hive UDF class replaces Hive's own argument handling, while one reached any
+   * other way is bound as it stands. A ScalaUDF/ScalaUDAF has already been coerced by the analyzer,
+   * and a function called by its own name is replacing nothing at all.
+   */
+  def getUdfExpression(name: String, alias: String, allowHiveCoercion: Boolean = false)(
+      children: Seq[Expression]): UDFExpression = {
     def errorMessage: String =
       s"UDF $name -> ${children.map(_.dataType.simpleString).mkString(", ")} is not registered."
 
+    val argTypes = children.map(_.dataType)
     val allowTypeConversion = checkAllowTypeConversion
-    val signatures =
-      UDFMap.getOrElse(name, throw new GlutenNotSupportException(errorMessage)).toSeq
-    tryBind(signatures, children.map(_.dataType), allowTypeConversion) match {
+    val signatures = UDFMap.getOrElse(name, mutable.ListBuffer.empty[UDFSignature]).toSeq
+
+    // A stated signature wins over a registry lookup, so a library can pin one
+    // call shape by hand and leave the rest to Velox.
+    tryBind(signatures, argTypes, allowTypeConversion) match {
       case Some((sig, withTypeConversion)) =>
         UDFExpression(
           name,
@@ -403,20 +581,48 @@ object UDFResolver extends Logging {
           if (!withTypeConversion) children
           else applyCast(children, sig)
         )
+      case None if RegistryUDFNames.contains(name) =>
+        resolveUdfFromRegistry(name, argTypes)
+          .filter(r => allowHiveCoercion || !r.needsCoercion) match {
+          case Some(resolution) =>
+            UDFExpression(
+              name,
+              alias,
+              resolution.returnType.dataType,
+              resolution.returnType.nullable,
+              applyCoercions(children, resolution.coercions))
+          case None =>
+            throw new GlutenNotSupportException(errorMessage)
+        }
       case None =>
         throw new GlutenNotSupportException(errorMessage)
     }
   }
 
-  def getUdafExpression(name: String)(children: Seq[Expression]): UserDefinedAggregateFunction = {
+  /**
+   * Whether an aggregate's arguments may be widened to reach a signature. The scalar equivalent is
+   * inline in VeloxHiveUDFTransformer, since HiveSimpleUDF is private to the hive package.
+   *
+   * Which rules apply to an aggregate. Hive's conversions describe how Hive resolves an overload,
+   * so they apply only where Hive resolved one: an old-style UDAF, which Spark wraps in a
+   * GenericUDAFBridge that resolves over the iterate methods. Anything else -- an
+   * AbstractGenericUDAFResolver, or a ScalaUDAF the analyzer has already coerced -- binds as it
+   * stands, and a mismatch there is a disagreement between the Velox signature and what the
+   * aggregate accepts, better surfaced by falling back than papered over with a cast nobody chose.
+   */
+  def udafAllowsHiveCoercion(aggregateFunc: Expression): Boolean =
+    HiveUDAFInspector.isBridgedLegacyUDAF(aggregateFunc)
+
+  def getUdafExpression(name: String, allowHiveCoercion: Boolean = false)(
+      children: Seq[Expression]): UserDefinedAggregateFunction = {
     def errorMessage: String =
       s"UDAF $name -> ${children.map(_.dataType.simpleString).mkString(", ")} is not registered."
 
+    val argTypes = children.map(_.dataType)
     val allowTypeConversion = checkAllowTypeConversion
-    val signatures =
-      UDAFMap.getOrElse(name, throw new GlutenNotSupportException(errorMessage)).toSeq
+    val signatures = UDAFMap.getOrElse(name, mutable.ListBuffer.empty[UDAFSignature]).toSeq
 
-    tryBind(signatures, children.map(_.dataType), allowTypeConversion) match {
+    tryBind(signatures, argTypes, allowTypeConversion) match {
       case Some((sig, withTypeConversion)) =>
         UserDefinedAggregateFunction(
           name,
@@ -426,6 +632,20 @@ object UDFResolver extends Logging {
           else applyCast(children, sig),
           sig.intermediateAttrs
         )
+      case None if RegistryUDAFNames.contains(name) =>
+        resolveUdafFromRegistry(name, argTypes)
+          .filter(r => allowHiveCoercion || !r.needsCoercion) match {
+          case Some(resolution) =>
+            UserDefinedAggregateFunction(
+              name,
+              resolution.returnType.dataType,
+              resolution.returnType.nullable,
+              applyCoercions(children, resolution.coercions),
+              aggBufferAttributesOf(resolution.intermediateType.get.dataType)
+            )
+          case None =>
+            throw new GlutenNotSupportException(errorMessage)
+        }
       case None =>
         throw new GlutenNotSupportException(errorMessage)
     }

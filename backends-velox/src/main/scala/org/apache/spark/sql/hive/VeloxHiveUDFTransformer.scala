@@ -30,8 +30,11 @@ object VeloxHiveUDFTransformer {
     val (udfName, udfClassName) = HiveUDFTransformer.getHiveUDFNameAndClassName(expr)
 
     if (UDFResolver.UDFNames.contains(udfClassName)) {
+      // Hive's conversions describe how it resolves a method overload, which only a simple UDF
+      // goes through: HiveSimpleUDF picks an evaluate method with them, while a GenericUDF or
+      // GenericUDTF is handed the actual ObjectInspectors and decides for itself.
       val udfExpression = UDFResolver
-        .getUdfExpression(udfClassName, udfName)(expr.children)
+        .getUdfExpression(udfClassName, udfName, expr.isInstanceOf[HiveSimpleUDF])(expr.children)
       udfExpression.getTransformer(
         ExpressionConverter.replaceWithExpressionTransformer(udfExpression.children, attributeSeq)
       )

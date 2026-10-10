@@ -20,6 +20,7 @@
 #include <velox/functions/Macros.h>
 #include <velox/functions/Registerer.h>
 #include <velox/functions/lib/aggregates/AverageAggregateBase.h>
+#include <velox/functions/prestosql/aggregates/ArbitraryAggregate.h>
 
 #include "udf/Udaf.h"
 #include "udf/examples/UdfCommon.h"
@@ -101,6 +102,8 @@ class AverageAggregate {
   };
 };
 
+const std::string kMyAvgRegistryName = "myudaf_avg_registry";
+
 class MyAvgRegisterer final : public gluten::UdafRegisterer {
   int getNumUdaf() override {
     return 2;
@@ -113,11 +116,15 @@ class MyAvgRegisterer final : public gluten::UdafRegisterer {
   }
 
   void registerSignatures() override {
-    registerSimpleAverageAggregate();
+    registerSimpleAverageAggregate(name_);
+    // The same aggregate declared by name, with the two concrete signatures it already has.
+    // Widening an integer reaches both, at different cost, so this is what exercises the
+    // candidate ranking rather than a single match.
+    registerSimpleAverageAggregate(registryName_);
   }
 
  private:
-  exec::AggregateRegistrationResult registerSimpleAverageAggregate() {
+  exec::AggregateRegistrationResult registerSimpleAverageAggregate(const std::string& name) {
     std::vector<std::shared_ptr<exec::AggregateFunctionSignature>> signatures;
 
     signatures.push_back(exec::AggregateFunctionSignatureBuilder()
@@ -133,14 +140,14 @@ class MyAvgRegisterer final : public gluten::UdafRegisterer {
                              .build());
 
     return exec::registerAggregateFunction(
-        name_,
+        name,
         std::move(signatures),
-        [this](
+        [name](
             core::AggregationNode::Step step,
             const std::vector<TypePtr>& argTypes,
             const TypePtr& resultType,
             const core::QueryConfig& /*config*/) -> std::unique_ptr<exec::Aggregate> {
-          VELOX_CHECK_LE(argTypes.size(), 1, "{} takes at most one argument", name_);
+          VELOX_CHECK_LE(argTypes.size(), 1, "{} takes at most one argument", name);
           auto inputType = argTypes[0];
           if (exec::isRawInput(step)) {
             switch (inputType->kind()) {
@@ -149,7 +156,7 @@ class MyAvgRegisterer final : public gluten::UdafRegisterer {
               case TypeKind::DOUBLE:
                 return std::make_unique<SimpleAggregateAdapter<AverageAggregate<double>>>(step, argTypes, resultType);
               default:
-                VELOX_FAIL("Unknown input type for {} aggregation {}", name_, inputType->kindName());
+                VELOX_FAIL("Unknown input type for {} aggregation {}", name, inputType->kindName());
             }
           } else {
             switch (resultType->kind()) {
@@ -168,6 +175,7 @@ class MyAvgRegisterer final : public gluten::UdafRegisterer {
   }
 
   const std::string name_ = "test.org.apache.spark.sql.MyDoubleAvg";
+  const std::string& registryName_ = kMyAvgRegistryName;
   const char* myAvgArgFloat_[1] = {kFloat};
   const char* myAvgArgDouble_[1] = {kDouble};
 
@@ -175,6 +183,37 @@ class MyAvgRegisterer final : public gluten::UdafRegisterer {
 };
 
 } // namespace myavg
+
+namespace myarbitrary {
+
+// name: myudaf_arbitrary
+// signatures:
+//    T -> T, intermediate T
+// type: RegistryUdafEntry
+//
+// Nothing restates this signature for Gluten. A UdafEntry would, and since T
+// is a type variable that means one entry per supported type with the return
+// and intermediate types written out in each. A RegistryUdafEntry names the
+// aggregate and Gluten resolves both types from the Velox aggregate registry
+// per call site.
+const std::string kMyArbitraryName = "myudaf_arbitrary";
+
+// The same aggregate under a hive UDAF class name. An aggregate is only reachable from SQL
+// through one, so this is what lets a query call it and exercise the partial / final split
+// across a shuffle.
+const std::string kMyArbitraryHiveName = "test.org.apache.spark.sql.MyDoubleSum";
+
+void registerMyArbitrary() {
+  // Companion functions are required, not optional: a grouped aggregation splits into partial
+  // and final stages, and the plan validator looks for <name>_partial and <name>_merge_extract
+  // in the Velox registry. Without them the aggregate falls back to the JVM.
+  facebook::velox::aggregate::prestosql::registerArbitraryAggregate(
+      {kMyArbitraryName, kMyArbitraryHiveName},
+      /*withCompanionFunctions=*/true,
+      /*overwrite=*/true);
+}
+
+} // namespace myarbitrary
 
 std::vector<std::shared_ptr<gluten::UdafRegisterer>>& globalRegisters() {
   static std::vector<std::shared_ptr<gluten::UdafRegisterer>> registerers;
@@ -191,6 +230,16 @@ void setupRegisterers() {
   inited = true;
 }
 } // namespace
+
+DEFINE_GET_NUM_REGISTRY_UDAF {
+  return 3;
+}
+
+DEFINE_GET_REGISTRY_UDAF_ENTRIES {
+  registryUdafEntries[0] = {myarbitrary::kMyArbitraryName.c_str()};
+  registryUdafEntries[1] = {myarbitrary::kMyArbitraryHiveName.c_str()};
+  registryUdafEntries[2] = {myavg::kMyAvgRegistryName.c_str()};
+}
 
 DEFINE_GET_NUM_UDAF {
   setupRegisterers();
@@ -217,4 +266,6 @@ DEFINE_REGISTER_UDAF {
   for (const auto& registerer : globalRegisters()) {
     registerer->registerSignatures();
   }
+
+  myarbitrary::registerMyArbitrary();
 }
