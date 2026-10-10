@@ -91,6 +91,72 @@
           </execution>
         </executions>
       </plugin>
+      <plugin>
+        <!--
+          Jars for ArrowNettyCompatSuite, which runs a child JVM with Spark 3.5's
+          arrow-memory-netty (12.0.1) next to a given Netty version. They stay out of this module's
+          own classpath, whose Arrow and Netty versions do not reproduce the incompatibility.
+        -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <version>3.6.1</version>
+        <executions>
+          <execution>
+            <id>copy-netty-compat-jars</id>
+            <goals>
+              <goal>copy</goal>
+            </goals>
+            <phase>generate-test-resources</phase>
+            <configuration>
+              <skip>${skipTests}</skip>
+              <artifactItems>
+                <artifactItem>
+                  <groupId>org.apache.arrow</groupId>
+                  <artifactId>arrow-memory-netty</artifactId>
+                  <version>12.0.1</version>
+                  <outputDirectory>${project.build.directory}/netty-compat/arrow-memory-netty-12.0.1</outputDirectory>
+                </artifactItem>
+                <artifactItem>
+                  <groupId>io.netty</groupId>
+                  <artifactId>netty-buffer</artifactId>
+                  <version>4.1.96.Final</version>
+                  <outputDirectory>${project.build.directory}/netty-compat/netty-4.1.96.Final</outputDirectory>
+                </artifactItem>
+                <artifactItem>
+                  <groupId>io.netty</groupId>
+                  <artifactId>netty-common</artifactId>
+                  <version>4.1.96.Final</version>
+                  <outputDirectory>${project.build.directory}/netty-compat/netty-4.1.96.Final</outputDirectory>
+                </artifactItem>
+                <artifactItem>
+                  <groupId>io.netty</groupId>
+                  <artifactId>netty-buffer</artifactId>
+                  <version>4.1.118.Final</version>
+                  <outputDirectory>${project.build.directory}/netty-compat/netty-4.1.118.Final</outputDirectory>
+                </artifactItem>
+                <artifactItem>
+                  <groupId>io.netty</groupId>
+                  <artifactId>netty-common</artifactId>
+                  <version>4.1.118.Final</version>
+                  <outputDirectory>${project.build.directory}/netty-compat/netty-4.1.118.Final</outputDirectory>
+                </artifactItem>
+                <artifactItem>
+                  <groupId>io.netty</groupId>
+                  <artifactId>netty-buffer</artifactId>
+                  <version>4.2.12.Final</version>
+                  <outputDirectory>${project.build.directory}/netty-compat/netty-4.2.12.Final</outputDirectory>
+                </artifactItem>
+                <artifactItem>
+                  <groupId>io.netty</groupId>
+                  <artifactId>netty-common</artifactId>
+                  <version>4.2.12.Final</version>
+                  <outputDirectory>${project.build.directory}/netty-compat/netty-4.2.12.Final</outputDirectory>
+                </artifactItem>
+              </artifactItems>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
     <outputDirectory>target/scala-${scala.binary.version}/classes</outputDirectory>
     <testOutputDirectory>target/scala-${scala.binary.version}/test-classes</testOutputDirectory>
