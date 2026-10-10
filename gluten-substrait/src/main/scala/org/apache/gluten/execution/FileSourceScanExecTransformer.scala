@@ -24,6 +24,7 @@ import org.apache.gluten.utils.FileIndexUtil
 
 import org.apache.spark.Partition
 import org.apache.spark.sql.catalyst.TableIdentifier
+import org.apache.spark.sql.catalyst.csv.CSVExprUtils
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Expression, PlanExpression}
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.util.truncatedString
@@ -37,6 +38,8 @@ import org.apache.spark.util.SparkVersionUtil
 import org.apache.spark.util.collection.BitSet
 
 import org.apache.commons.lang3.StringUtils
+
+import scala.util.Try
 
 case class FileSourceScanExecTransformer(
     @transient override val relation: HadoopFsRelation,
@@ -196,8 +199,33 @@ abstract class FileSourceScanExecTransformerBase(
         s"Unsupported matching schema column names " +
           s"by field ids in native scan.")
     }
+    if (fileFormat == ReadFileFormat.TextReadFormat) {
+      csvFieldDelimiter match {
+        case Some(d) if isSingleAscii(d) =>
+        case Some(d) =>
+          return ValidationResult.failed(
+            "Only a single ASCII character field delimiter is supported in native text scan, " +
+              s"got '$d'.")
+        case None =>
+          return ValidationResult.failed(
+            s"Cannot decode the CSV field delimiter '$rawCsvFieldDelimiter'.")
+      }
+    }
     super.doValidateInternal()
   }
+
+  // Spark's CSVOptions takes `sep` over the legacy `delimiter` alias.
+  private def rawCsvFieldDelimiter: String =
+    relation.options.getOrElse("sep", relation.options.getOrElse("delimiter", ","))
+
+  // The delimiter after decoding escapes such as `\t`, as CSVOptions does. None when it cannot be
+  // decoded, for which Spark raises an error.
+  private def csvFieldDelimiter: Option[String] =
+    Try(CSVExprUtils.toDelimiterStr(rawCsvFieldDelimiter)).toOption
+
+  // The native reader splits on the first byte of the delimiter.
+  private def isSingleAscii(delimiter: String): Boolean =
+    delimiter.length == 1 && delimiter.charAt(0) <= 0x7f
 
   override def metricsUpdater(): MetricsUpdater =
     BackendsApiManager.getMetricsApiInstance
@@ -211,11 +239,11 @@ abstract class FileSourceScanExecTransformerBase(
     this.fileFormat match {
       case ReadFileFormat.TextReadFormat =>
         var options: Map[String, String] = Map()
+        csvFieldDelimiter.foreach(d => options += ("field_delimiter" -> d))
         relation.options.foreach {
-          case ("delimiter", v) => options += ("field_delimiter" -> v)
           case ("quote", v) => options += ("quote" -> v)
           case ("header", v) =>
-            val cnt = if (v == "true") 1 else 0
+            val cnt = if ("true".equalsIgnoreCase(v)) 1 else 0
             options += ("header" -> cnt.toString)
           case ("escape", v) => options += ("escape" -> v)
           case ("nullvalue", v) => options += ("nullValue" -> v)
