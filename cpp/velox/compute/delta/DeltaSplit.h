@@ -101,7 +101,8 @@ struct HiveDeltaSplit : public connector::hive::HiveConnectorSplit {
       std::optional<DeltaFileStatistics> statistics = std::nullopt,
       DeltaRowIndexFilterType filterType = DeltaRowIndexFilterType::kKeepAll,
       const std::unordered_map<std::string, std::string>& infoColumns = {},
-      std::optional<FileProperties> fileProperties = std::nullopt);
+      std::optional<FileProperties> fileProperties = std::nullopt,
+      std::optional<dwio::common::ColumnMappingMode> columnMappingMode = std::nullopt);
 };
 
 } // namespace gluten::delta

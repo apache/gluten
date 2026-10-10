@@ -34,7 +34,7 @@ class VeloxLocalCacheSuite extends VeloxWholeStageTransformerSuite {
       .set(VeloxConfig.COLUMNAR_VELOX_FILE_HANDLE_CACHE_ENABLED.key, "true")
   }
 
-  testWithSpecifiedSparkVersion("read example parquet files", "3.5", "3.5") {
+  testWithSpecifiedSparkVersion("read example parquet files", "3.5") {
     withTable("test_table") {
       val dir = new File(getClass.getResource(resourcePath).getFile)
       val files = dir.listFiles

@@ -35,7 +35,8 @@ HiveDeltaSplit::HiveDeltaSplit(
     std::optional<DeltaFileStatistics> statistics,
     DeltaRowIndexFilterType filterType,
     const std::unordered_map<std::string, std::string>& infoColumns,
-    std::optional<FileProperties> fileProperties)
+    std::optional<FileProperties> fileProperties,
+    std::optional<dwio::common::ColumnMappingMode> columnMappingMode)
     : HiveConnectorSplit(
           connectorId,
           filePath,
@@ -52,7 +53,8 @@ HiveDeltaSplit::HiveDeltaSplit(
           infoColumns,
           fileProperties,
           std::nullopt,
-          std::nullopt),
+          std::nullopt,
+          columnMappingMode),
       deletionVector(std::move(deletionVector)),
       statistics(std::move(statistics)),
       filterType(filterType) {}

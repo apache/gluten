@@ -21,6 +21,9 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.catalyst.expressions.AttributeReference
+import org.apache.spark.sql.catalyst.plans.logical.LocalRelation
+import org.apache.spark.sql.classic.ClassicDataset
 import org.apache.spark.sql.execution.LocalTableScanExec
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.types._
@@ -69,6 +72,22 @@ class VeloxLocalTableScanSuite
     val df = createDF(rows, schema)
     checkAnswer(df, rows)
     assertHasVeloxLocalTableScan(df)
+  }
+
+  // Before Spark 4.2 (SPARK-57725), Spark itself fails to resolve a plan with a null-named
+  // attribute.
+  testWithMinSparkVersion("LocalTableScan with a null-named attribute", "4.2") {
+    val attrs = Seq(AttributeReference(null, IntegerType)(), AttributeReference("b", IntegerType)())
+    val relation = LocalRelation.fromExternalRows(attrs, Seq(Row(1, 2)))
+    // With and without offloading the LocalTableScan itself.
+    Seq("true", "false").foreach {
+      offload =>
+        withSQLConf("spark.gluten.sql.columnar.localTableScan" -> offload) {
+          val df = ClassicDataset.ofRows(spark, relation).select("b")
+          checkAnswer(df, Row(2))
+          checkGlutenPlan[ProjectExecTransformer](df)
+        }
+    }
   }
 
   test("LocalTableScan with numeric types") {

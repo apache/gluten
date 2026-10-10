@@ -25,22 +25,6 @@ cd ${GLUTEN_HOME}
 ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --build_arrow=OFF --build_tests=OFF --build_benchmarks=OFF \
                            --build_examples=OFF --enable_s3=ON --enable_gcs=ON --enable_hdfs=ON --enable_abfs=ON
 
-JAVA_VERSION=$("java" -version 2>&1 | awk -F '"' '/version/ {print $2}')
-
-if [[ $JAVA_VERSION == 1.8* ]]; then
-  echo "Java 8 is being used."
-else
-  echo "Error: Java 8 is required. Current version is $JAVA_VERSION."
-  exit 1
-fi
-
-# Build Gluten for Spark 3.3 with Java 8. All feature modules are enabled.
-for spark_version in 3.3
-do
-  ${GLUTEN_HOME}/build/mvn clean install -Pbackends-velox -Pspark-${spark_version} -Pceleborn,uniffle \
-                    -Piceberg,delta,hudi,paimon -DskipTests
-done
-
 sudo curl -Lo /etc/yum.repos.d/corretto.repo https://yum.corretto.aws/corretto.repo
 sudo yum install -y java-17-amazon-corretto-devel
 export JAVA_HOME=/usr/lib/jvm/java-17-amazon-corretto

@@ -13,6 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+if(ENABLE_BOLT)
+  include(bolt.CMakeLists.cmake)
+  return()
+endif()
+
 cmake_minimum_required(VERSION 3.16)
 message(STATUS "Building using CMake version: ${CMAKE_VERSION}")
 
@@ -75,6 +80,7 @@ endif()
 
 set(GLUTEN_PREFIX_INCLUDE_DIRS)
 if(CMAKE_INSTALL_PREFIX
+   AND NOT ENABLE_GLUTEN_VCPKG
    AND NOT CMAKE_INSTALL_PREFIX STREQUAL "/usr/local"
    AND IS_DIRECTORY "${CMAKE_INSTALL_PREFIX}/include")
   list(APPEND GLUTEN_PREFIX_INCLUDE_DIRS "${CMAKE_INSTALL_PREFIX}/include")
@@ -242,7 +248,7 @@ function(ADD_TEST_CASE TEST_NAME)
   endif()
 
   add_executable(${TEST_NAME} ${SOURCES})
-  target_link_libraries(${TEST_NAME} gluten google::glog GTest::gtest
+  target_link_libraries(${TEST_NAME} gluten glog::glog GTest::gtest
                         GTest::gtest_main Threads::Threads)
   target_include_directories(${TEST_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/core)
 

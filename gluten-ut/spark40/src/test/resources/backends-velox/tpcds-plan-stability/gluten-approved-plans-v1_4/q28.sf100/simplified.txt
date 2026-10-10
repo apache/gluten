@@ -7,7 +7,7 @@ VeloxColumnarToRow
             VeloxBroadcastNestedLoopJoinExecTransformer
               ProjectExecTransformer [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price)]
                 RegularHashAggregateExecTransformer [sum,count,count,count] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count]
-                  RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count,sum,count,count,count]
+                  FlushableHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count,sum,count,count,count]
                     RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),sum,count,count,sum,count,count]
                       InputIteratorTransformer
                         InputAdapter
@@ -25,7 +25,7 @@ VeloxColumnarToRow
                     WholeStageCodegenTransformer (3)
                       ProjectExecTransformer [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price)]
                         RegularHashAggregateExecTransformer [sum,count,count,count] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count]
-                          RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count,sum,count,count,count]
+                          FlushableHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count,sum,count,count,count]
                             RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),sum,count,count,sum,count,count]
                               InputIteratorTransformer
                                 InputAdapter
@@ -43,7 +43,7 @@ VeloxColumnarToRow
                   WholeStageCodegenTransformer (5)
                     ProjectExecTransformer [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price)]
                       RegularHashAggregateExecTransformer [sum,count,count,count] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count]
-                        RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count,sum,count,count,count]
+                        FlushableHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count,sum,count,count,count]
                           RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),sum,count,count,sum,count,count]
                             InputIteratorTransformer
                               InputAdapter
@@ -61,7 +61,7 @@ VeloxColumnarToRow
                 WholeStageCodegenTransformer (7)
                   ProjectExecTransformer [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price)]
                     RegularHashAggregateExecTransformer [sum,count,count,count] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count]
-                      RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count,sum,count,count,count]
+                      FlushableHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count,sum,count,count,count]
                         RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),sum,count,count,sum,count,count]
                           InputIteratorTransformer
                             InputAdapter
@@ -79,7 +79,7 @@ VeloxColumnarToRow
               WholeStageCodegenTransformer (9)
                 ProjectExecTransformer [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price)]
                   RegularHashAggregateExecTransformer [sum,count,count,count] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count]
-                    RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count,sum,count,count,count]
+                    FlushableHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count,sum,count,count,count]
                       RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),sum,count,count,sum,count,count]
                         InputIteratorTransformer
                           InputAdapter
@@ -97,7 +97,7 @@ VeloxColumnarToRow
             WholeStageCodegenTransformer (11)
               ProjectExecTransformer [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price)]
                 RegularHashAggregateExecTransformer [sum,count,count,count] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count]
-                  RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count,sum,count,count,count]
+                  FlushableHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),count(ss_list_price),sum,count,count,count,sum,count,count,count]
                     RegularHashAggregateExecTransformer [ss_list_price] [avg(UnscaledValue(ss_list_price)),count(ss_list_price),sum,count,count,sum,count,count]
                       InputIteratorTransformer
                         InputAdapter

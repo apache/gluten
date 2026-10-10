@@ -150,4 +150,57 @@ TEST_F(Substrait2VeloxPlanValidatorTest, aggregateMaskMustBeTopLevelField) {
   EXPECT_FALSE(validatePlan(nestedPlan));
 }
 
+TEST_F(Substrait2VeloxPlanValidatorTest, castFromUnknown) {
+  const auto validateCast = [&](const RowTypePtr& inputType,
+                                const std::function<void(::substrait::Expression*)>& setInput,
+                                const std::function<void(::substrait::Type*)>& setToType) {
+    ::substrait::Expression expression;
+    auto* cast = expression.mutable_cast();
+    setInput(cast->mutable_input());
+    setToType(cast->mutable_type());
+
+    auto planValidator = std::make_shared<SubstraitToVeloxPlanValidator>(pool_.get());
+    return planValidator->validate(expression, inputType, {});
+  };
+
+  // A null constant, e.g. Spark's NullType, is expressed as the Nothing type.
+  const auto setNullInput = [](::substrait::Expression* input) {
+    input->mutable_literal()->mutable_null()->mutable_nothing();
+  };
+  const auto setNullableI32 = [](::substrait::Type* type) {
+    type->mutable_i32()->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+  };
+
+  // Casting from Nothing is allowed for both scalar and complex target types.
+  EXPECT_TRUE(validateCast(ROW({}, {}), setNullInput, setNullableI32));
+
+  EXPECT_TRUE(validateCast(ROW({}, {}), setNullInput, [&](::substrait::Type* type) {
+    auto* list = type->mutable_list();
+    list->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+    setNullableI32(list->mutable_type());
+  }));
+
+  EXPECT_TRUE(validateCast(ROW({}, {}), setNullInput, [&](::substrait::Type* type) {
+    auto* map = type->mutable_map();
+    map->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+    setNullableI32(map->mutable_key());
+    setNullableI32(map->mutable_value());
+  }));
+
+  EXPECT_TRUE(validateCast(ROW({}, {}), setNullInput, [&](::substrait::Type* type) {
+    auto* structType = type->mutable_struct_();
+    structType->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+    structType->add_names("");
+    setNullableI32(structType->add_types());
+  }));
+
+  // Casting a complex type to an unrelated type is still not allowed.
+  EXPECT_FALSE(validateCast(
+      ROW({"a"}, {ARRAY(INTEGER())}),
+      [](::substrait::Expression* input) {
+        input->mutable_selection()->mutable_direct_reference()->mutable_struct_field()->set_field(0);
+      },
+      setNullableI32));
+}
+
 } // namespace gluten

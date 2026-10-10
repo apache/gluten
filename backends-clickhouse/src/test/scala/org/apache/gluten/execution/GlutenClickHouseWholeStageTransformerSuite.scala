@@ -65,7 +65,6 @@ class GlutenClickHouseWholeStageTransformerSuite
 
   val CH_DEFAULT_STORAGE_DIR = "/data"
 
-  protected def spark33: Boolean = sparkVersion.equals("3.3")
   protected def spark35: Boolean = sparkVersion.equals("3.5")
 
   def AlmostEqualsIsRel(expected: Double, actual: Double, EPSILON: Double = DBL_EPSILON): Unit = {
@@ -155,15 +154,16 @@ class GlutenClickHouseWholeStageTransformerSuite
   final override protected val resourcePath: String = "" // ch not need this
   override protected val fileFormat: String = "parquet"
 
-  protected def testSparkVersionLE33(testName: String, testTag: Tag*)(testFun: => Any): Unit = {
-    if (isSparkVersionLE("3.3")) {
-      test(testName, testTag: _*)(testFun)
-    } else {
-      ignore(s"[$SPARK_VERSION_SHORT]-$testName", testTag: _*)(testFun)
-    }
+  /**
+   * These cases only ever passed on Spark 3.3, which is no longer supported. They are registered as
+   * ignored rather than deleted so that they stay visible in the test report until someone either
+   * makes them pass on a supported version or removes them.
+   */
+  protected def ignoreSpark33OnlyCase(testName: String, testTag: Tag*)(testFun: => Any): Unit = {
+    ignore(s"[$SPARK_VERSION_SHORT]-$testName", testTag: _*)(testFun)
   }
 
-  lazy val pruningTimeValueSpark: Int = if (isSparkVersionLE("3.3")) -1 else 0
+  lazy val pruningTimeValueSpark: Int = 0
 
   override protected def prepareTestTables(): Unit = {}
 }

@@ -291,7 +291,6 @@ object ExpressionMappings {
     Sig[DynamicPruningExpression](DYNAMIC_PRUNING_EXPRESSION),
     Sig[CheckOverflow](CHECK_OVERFLOW),
     Sig[MakeDecimal](MAKE_DECIMAL),
-    Sig[PromotePrecision](PROMOTE_PRECISION),
     Sig[SparkPartitionID](SPARK_PARTITION_ID),
     Sig[AtLeastNNonNulls](AT_LEAST_N_NON_NULLS),
     Sig[WidthBucket](WIDTH_BUCKET),
@@ -308,6 +307,7 @@ object ExpressionMappings {
     Sig[KnownNullable](KNOWN_NULLABLE),
     Sig[TimestampAdd](TIMESTAMP_ADD),
     Sig[TimestampDiff](TIMESTAMP_DIFF),
+    Sig[ConvertTimezone](CONVERT_TIMEZONE),
     Sig[RoundFloor](FLOOR),
     Sig[RoundCeil](CEIL)
   ) ++ SparkShimLoader.getSparkShims.scalarExpressionMappings

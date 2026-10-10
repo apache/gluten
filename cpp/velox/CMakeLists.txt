@@ -176,6 +176,7 @@ set(VELOX_SRCS
     memory/VeloxMemoryManager.cc
     operators/functions/RegistrationAllFunctions.cc
     operators/functions/delta/DeltaBitmapAggregator.cc
+    operators/functions/overlay/GetMapValue.cc
     operators/functions/overlay/RegisterFunctionOverlay.cc
     operators/functions/RowConstructorWithNull.cc
     operators/functions/SparkExprToSubfieldFilterParser.cc
@@ -246,6 +247,11 @@ if(BUILD_TEST_UTILS)
 endif()
 
 add_library(velox SHARED ${VELOX_SRCS})
+
+if(ENABLE_GLUTEN_VCPKG)
+  find_package(xxHash CONFIG REQUIRED)
+  target_link_libraries(velox PUBLIC xxHash::xxhash)
+endif()
 
 # Keep ABI sensitive Velox feature macros in sync
 set(GLUTEN_VELOX_CMAKE_CACHE "${VELOX_BUILD_PATH}/CMakeCache.txt")
@@ -336,6 +342,7 @@ if(BUILD_TESTS)
   import_library(
     facebook::velox::vector_test_lib
     ${VELOX_BUILD_PATH}/velox/vector/tests/utils/libvelox_vector_test_lib.a)
+  target_link_libraries(facebook::velox::vector_test_lib INTERFACE GTest::gtest)
   import_library(
     facebook::velox::dwio_common_test
     ${VELOX_BUILD_PATH}/velox/dwio/common/tests/utils/libvelox_dwio_common_test_utils.a
@@ -344,11 +351,27 @@ if(BUILD_TESTS)
     facebook::velox::file_test_utils
     ${VELOX_BUILD_PATH}/velox/common/file/tests/libvelox_file_test_utils.a)
   import_library(
+    facebook::velox::vector_fuzzer_util
+    ${VELOX_BUILD_PATH}/velox/vector/fuzzer/libvelox_vector_fuzzer_util.a)
+  import_library(
+    facebook::velox::constrained_vector_generator
+    ${VELOX_BUILD_PATH}/velox/vector/fuzzer/libvelox_constrained_vector_generator.a
+  )
+  target_link_libraries(facebook::velox::constrained_vector_generator
+                        INTERFACE facebook::velox::vector_fuzzer_util)
+  import_library(
+    facebook::velox::vector_fuzzer
+    ${VELOX_BUILD_PATH}/velox/vector/fuzzer/libvelox_vector_fuzzer.a)
+  target_link_libraries(
+    facebook::velox::vector_fuzzer
+    INTERFACE facebook::velox::vector_fuzzer_util
+              facebook::velox::constrained_vector_generator)
+  import_library(
     facebook::velox::exec_test_lib
     ${VELOX_BUILD_PATH}/velox/exec/tests/utils/libvelox_exec_test_lib.a)
   target_link_libraries(
     facebook::velox::exec_test_lib
-    INTERFACE facebook::velox::vector_test_lib
+    INTERFACE facebook::velox::vector_test_lib facebook::velox::vector_fuzzer
               facebook::velox::dwio_common_test
               facebook::velox::file_test_utils)
   target_link_libraries(velox PUBLIC facebook::velox::exec_test_lib)
@@ -360,6 +383,12 @@ target_link_libraries(velox PUBLIC ${GLUTEN_ROARING_LINK_LIBRARY})
 
 find_re2()
 target_link_libraries(velox PUBLIC ${RE2_LIBRARY})
+
+if(ENABLE_GLUTEN_VCPKG)
+  # FBThrift -> mvfst -> fizz -> OpenSSL; with VCPKG_DYNAMIC_OPENSSL=ON vcpkg
+  # only provides libssl.so/libcrypto.so, so resolve it before forcing ".a".
+  find_package(OpenSSL REQUIRED)
+endif()
 
 set(CMAKE_FIND_LIBRARY_SUFFIXES_BCK ${CMAKE_FIND_LIBRARY_SUFFIXES})
 set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
@@ -423,29 +452,9 @@ endif()
 target_link_libraries(velox PUBLIC Folly::folly)
 
 # Link thrift libraries - check vcpkg first, then fall back to system libraries
-# Determine vcpkg triplet directory based on architecture
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)")
-  set(VCPKG_TRIPLET_DIR "x64-linux-avx")
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(aarch64)|(arm64)")
-  set(VCPKG_TRIPLET_DIR "arm64-linux-neon")
-else()
-  message(
-    WARNING
-      "Unknown processor type for vcpkg: ${CMAKE_SYSTEM_PROCESSOR}, defaulting to x64-linux-avx"
-  )
-  set(VCPKG_TRIPLET_DIR "x64-linux-avx")
-endif()
-
-if(DEFINED VCPKG_INSTALLED_DIR
-   AND EXISTS "${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftcpp2.a")
-  message(
-    STATUS
-      "Using vcpkg thrift libraries from ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}"
-  )
-  target_link_libraries(
-    velox
-    PRIVATE ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftcpp2.a
-            ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftprotocol.a)
+if(ENABLE_GLUTEN_VCPKG)
+  find_package(FBThrift CONFIG REQUIRED)
+  target_link_libraries(velox PUBLIC FBThrift::thriftcpp2)
 else()
   set(THRIFT_LIBRARY_DIRS)
   if(CMAKE_INSTALL_PREFIX)
@@ -550,6 +559,12 @@ endif()
 
 if(ENABLE_GPU)
   set(cudf_DIR "${VELOX_BUILD_PATH}/_deps/cudf-build")
+  # cudf's build-tree export only calls find_dependency(rapids_logger) when
+  # rapids_logger is not a static library, which is the case since rapids_logger
+  # 0.3.0 (rapids-cmake 26.10). rapids_logger is built inside Velox's _deps tree
+  # and never installed, so its config is findable only there. Harmless when
+  # rapids_logger is static and never searched for.
+  set(rapids_logger_DIR "${VELOX_BUILD_PATH}/_deps/rapids_logger-build")
   find_package(cudf CONFIG REQUIRED)
 
   import_library(

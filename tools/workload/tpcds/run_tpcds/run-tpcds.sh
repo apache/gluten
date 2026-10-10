@@ -37,4 +37,4 @@ cat tpcds_parquet.scala | ${SPARK_HOME}/bin/spark-shell \
   # e.g.
   #   --conf spark.gluten.loadLibFromJar=true \
   #   --jars /PATH_TO_GLUTEN_HOME/package/target/thirdparty-lib/gluten-thirdparty-lib-ubuntu-22.04-x86_64.jar,
-  #          /PATH_TO_GLUTEN_HOME/package/target/gluten-velox-bundle-spark3.3_2.12-ubuntu_22.04_x86_64-1.x.x-SNAPSHOT.jar
+  #          /PATH_TO_GLUTEN_HOME/package/target/gluten-velox-bundle-spark3.5_2.12-ubuntu_22.04_x86_64-1.x.x-SNAPSHOT.jar

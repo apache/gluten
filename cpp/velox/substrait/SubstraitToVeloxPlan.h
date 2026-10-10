@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "SubstraitToVeloxExpr.h"
 #include "TypeUtils.h"
 #include "compute/VeloxConnectorIds.h"
@@ -67,6 +69,10 @@ struct SplitInfo {
 
   /// The schema of the table being scanned.
   RowTypePtr tableSchema;
+
+  /// Optional scan-level column mapping mode. Gluten may set this differently
+  /// for different scans or partitions in the same Velox QueryCtx.
+  std::optional<dwio::common::ColumnMappingMode> columnMappingMode;
 
   /// Make SplitInfo polymorphic
   virtual ~SplitInfo() = default;

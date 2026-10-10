@@ -114,6 +114,8 @@ add_velox_test(velox_rss_sort_shuffle_writer_test SOURCES
 add_velox_test(velox_sort_shuffle_writer_test SOURCES
                VeloxSortShuffleWriterTest.cc)
 
+add_velox_test(velox_shuffle_reader_test SOURCES VeloxShuffleReaderTest.cc)
+
 # TODO: ORC is not well supported. add_velox_test(orc_test SOURCES OrcTest.cc)
 add_velox_test(
   velox_operators_test
@@ -140,6 +142,8 @@ add_velox_test(spark_functions_test SOURCES SparkFunctionTest.cc
 add_velox_test(runtime_test SOURCES RuntimeTest.cc)
 add_velox_test(velox_memory_test SOURCES MemoryManagerTest.cc)
 add_velox_test(buffer_outputstream_test SOURCES BufferOutputStreamTest.cc)
+add_velox_test(velox_whole_stage_dumper_test SOURCES
+               VeloxWholeStageDumperTest.cc)
 if(ENABLE_S3)
   add_velox_test(gluten_s3_file_system_test SOURCES GlutenS3FileSystemTest.cc)
 endif()

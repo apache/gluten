@@ -192,6 +192,20 @@ VeloxColumnarToRow
          +- Scan hive spark_catalog.default.tbl [col1#11], HiveTableRelation [`spark_catalog`.`default`.`tbl`, org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe, Data Cols: [col1#11], Partition Cols: []]
 ```
 
+## Natively Only UDF Registration
+
+This is an alternative to the registration described above, for a UDF that is implemented only in Velox and has no Java counterpart.
+
+This is off by default. Set `spark.gluten.sql.columnar.backend.velox.nativeUDF.bypassRegistration=true` to turn it on.
+
+Once enabled, a UDF whose registered name contains no dot is added to the session's function registry under that name, provided the name is not already a Spark built-in and no other loaded UDF differs from it only in case. It needs no matching Hive UDF class, no jar on the classpath, and no `CREATE TEMPORARY FUNCTION` — register it under a name with no dot, such as `my_udf`, and call it directly:
+
+```
+spark-sql (default)> select my_udf(col1) from tbl;
+```
+
+**There is no fallback with this method.** A name registered this way has no Java implementation behind it, so a query that Gluten cannot offload fails instead of falling back to the JVM. Use the registration described above whenever the fallback path is required.
+
 ## Configurations
 
 | Parameters                                                     | Description                                                                                                 |
@@ -199,6 +213,7 @@ VeloxColumnarToRow
 | spark.gluten.sql.columnar.backend.velox.udfLibraryPaths        | Path to the udf/udaf libraries.                                                                             |
 | spark.gluten.sql.columnar.backend.velox.driver.udfLibraryPaths | Path to the udf/udaf libraries on driver node. Only applicable on yarn-client mode.                         |
 | spark.gluten.sql.columnar.backend.velox.udfAllowTypeConversion | Whether to inject possible `cast` to convert mismatched data types from input to one registered signatures. |
+| spark.gluten.sql.columnar.backend.velox.nativeUDF.bypassRegistration | Call a UDF by the name it was registered with, without writing a Java class for it. There is then no Java version to fall back to, so a query Gluten cannot run natively will fail. Defaults to `false`. |
 
 # Pandas UDFs (a.k.a. Vectorized UDFs)
 

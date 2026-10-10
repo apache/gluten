@@ -108,7 +108,9 @@ public class ThrowOnOomMemoryTarget implements MemoryTarget {
         Thread.sleep(sleepTime);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
-        break;
+        // A killed/cancelled task must not be reported as an off-heap OOM.
+        throw new RuntimeException(
+            "Interrupted while waiting for enough off-heap memory to be granted", e);
       }
       sleepTime *= 2;
       sleeps++;

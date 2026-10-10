@@ -23,6 +23,13 @@
 
 namespace gluten {
 
+class GlutenParquetWriterFactory : public facebook::velox::parquet::ParquetWriterFactory {
+ public:
+  std::shared_ptr<facebook::velox::dwio::common::FormatSpecificOptions> createFormatOptions(
+      const facebook::velox::config::ConfigBase& connectorConfig,
+      const facebook::velox::config::ConfigBase& session) const override;
+};
+
 std::shared_ptr<facebook::velox::dwio::common::WriterOptions> makeParquetWriteOption(
     const std::unordered_map<std::string, std::string>& sparkConfs);
 

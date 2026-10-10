@@ -17,7 +17,7 @@
 package org.apache.gluten.backendsapi.velox
 
 import org.apache.gluten.backendsapi.{BackendsApiManager, RuleApi}
-import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.extension._
 import org.apache.gluten.extension.columnar._
 import org.apache.gluten.extension.columnar.MiscColumnarRules.{PreventBatchTypeMismatchInTableCache, RemoveGlutenTableCacheColumnarToRow, RemoveTopmostColumnarToRow, RewriteSubqueryBroadcast}
@@ -34,7 +34,7 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.datasources.noop.GlutenNoopWriterRule
-import org.apache.spark.util.SparkVersionUtil
+import org.apache.spark.sql.expression.UDFResolver
 
 class VeloxRuleApi extends RuleApi {
   import VeloxRuleApi._
@@ -68,6 +68,10 @@ object VeloxRuleApi {
     if (BackendsApiManager.getSettings.supportAppendDataExec()) {
       injector.injectPlannerStrategy(SparkShimLoader.getSparkShims.getRewriteCreateTableAsSelect(_))
     }
+
+    if (VeloxConfig.nativeUDFBypassRegistration) {
+      UDFResolver.getFunctionDescriptions.foreach(injector.injectFunction)
+    }
   }
 
   /**
@@ -89,6 +93,7 @@ object VeloxRuleApi {
 
     // Legacy: Pre-transform rules.
     injector.injectPreTransform(_ => RemoveTransitions)
+    injector.injectPreTransform(_ => VeloxBroadcastNestedLoopJoinRewriteRule())
     injector.injectPreTransform(_ => PushDownInputFileExpression.PreOffload)
     injector.injectPreTransform(c => FallbackOnANSIMode.apply(c.session))
     injector.injectPreTransform(c => FallbackMultiCodegens.apply(c.session))
@@ -104,12 +109,10 @@ object VeloxRuleApi {
       Seq(
         RewriteIn,
         RewriteMultiChildrenCount,
-        RewriteJoin) ++
-        (if (SparkVersionUtil.eqSpark33) Seq(AlignExpandOutputTypes) else Seq.empty) ++
-        Seq(
-          PullOutPreProject,
-          PullOutPostProject,
-          ProjectColumnPruning)
+        RewriteJoin,
+        PullOutPreProject,
+        PullOutPostProject,
+        ProjectColumnPruning)
     injector.injectTransform(
       c =>
         HeuristicTransform.WithRewrites(
@@ -123,6 +126,7 @@ object VeloxRuleApi {
     injector.injectPostTransform(_ => PartialFallbackRules())
     injector.injectPostTransform(_ => RemoveNativeWriteFilesSortAndProject())
     injector.injectPostTransform(_ => PushDownFilterToScan)
+    injector.injectPostTransform(_ => ScanMapKeyPruning)
     injector.injectPostTransform(_ => PushDownInputFileExpression.PostOffload)
     injector.injectPostTransform(_ => EnsureLocalSortRequirements)
     injector.injectPostTransform(_ => EliminateLocalSort)
@@ -138,9 +142,6 @@ object VeloxRuleApi {
 
     // Gluten columnar: Post rules.
     injector.injectPost(c => RemoveTopmostColumnarToRow(c.session, c.caller.isAqe()))
-    SparkShimLoader.getSparkShims
-      .getExtendedColumnarPostRules()
-      .foreach(each => injector.injectPost(c => each(c.session)))
     injector.injectPost(c => ColumnarCollapseTransformStages(new GlutenConfig(c.sqlConf)))
     injector.injectPost(_ => GenerateTransformStageId())
     injector.injectPost(c => CudfNodeValidationRule(new GlutenConfig(c.sqlConf)))

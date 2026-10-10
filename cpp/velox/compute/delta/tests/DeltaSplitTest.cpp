@@ -56,13 +56,16 @@ TEST(DeltaSplitTest, SplitCarriesDeletionVectorDescriptor) {
       std::nullopt,
       DeltaRowIndexFilterType::kIfContained,
       std::unordered_map<std::string, std::string>{},
-      std::nullopt);
+      std::nullopt,
+      facebook::velox::dwio::common::ColumnMappingMode::kName);
 
   ASSERT_TRUE(split->deletionVector.has_value());
   EXPECT_EQ(split->deletionVector->cardinality, 2);
   ASSERT_TRUE(split->deletionVector->serializedPayloadView.has_value());
   EXPECT_EQ(split->deletionVector->serializedPayloadView->size, payload.size());
   EXPECT_EQ(split->filterType, DeltaRowIndexFilterType::kIfContained);
+  ASSERT_TRUE(split->columnMappingMode.has_value());
+  EXPECT_EQ(split->columnMappingMode.value(), facebook::velox::dwio::common::ColumnMappingMode::kName);
 }
 
 TEST(DeltaSplitTest, LogicalRowCountSubtractsDeletionVectorCardinality) {

@@ -23,6 +23,7 @@ import org.apache.gluten.expression.ConverterUtils.FunctionConfig
 import org.apache.gluten.substrait.`type`.{TypeBuilder, TypeNode}
 import org.apache.gluten.substrait.{AggregationParams, SubstraitContext}
 import org.apache.gluten.substrait.expression.{AggregateFunctionNode, ExpressionBuilder, ExpressionNode, ScalarFunctionNode}
+import org.apache.gluten.substrait.expression.CastNode.CastMode
 import org.apache.gluten.substrait.extensions.{AdvancedExtensionNode, ExtensionBuilder}
 import org.apache.gluten.substrait.rel.{RelBuilder, RelNode}
 import org.apache.gluten.utils.VeloxIntermediateData
@@ -63,6 +64,14 @@ abstract class HashAggregateExecTransformer(
     // TODO: We should have a check to make sure the returned schema actually matches the output
     //  data. Since "resultExpressions" is not actually in used by Velox.
     super.output
+  }
+
+  // Velox holds a map accumulator for the aggregates that can carry one -- arbitrary, and the
+  // spark first / last family, use NonNumericArbitrary. The base transformer is shared with the
+  // other backends, which have not been shown to, so widen it here rather than there.
+  override protected def checkType(dataType: DataType): Boolean = dataType match {
+    case _: MapType => true
+    case other => super.checkType(other)
   }
 
   override protected def doTransform(context: SubstraitContext): TransformContext = {
@@ -136,7 +145,8 @@ abstract class HashAggregateExecTransformer(
                     .makeCast(
                       ConverterUtils.getTypeNode(sparkType, nullable = false),
                       ExpressionBuilder.makeSelection(colIdx, adjustedOrders(idx)),
-                      SQLConf.get.ansiEnabled))
+                      if (SQLConf.get.ansiEnabled) CastMode.ANSI else CastMode.LEGACY
+                    ))
               } else {
                 // Velox and Spark have the same type
                 expressionNodes.add(ExpressionBuilder.makeSelection(colIdx, adjustedOrders(idx)))
@@ -337,7 +347,7 @@ abstract class HashAggregateExecTransformer(
                       ExpressionBuilder.makeCast(
                         ConverterUtils.getTypeNode(veloxType, attr.nullable),
                         aggFuncInputAttrNode,
-                        SQLConf.get.ansiEnabled)
+                        if (SQLConf.get.ansiEnabled) CastMode.ANSI else CastMode.LEGACY)
                     } else {
                       newInputAttributes += attr
                       aggFuncInputAttrNode

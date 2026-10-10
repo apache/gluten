@@ -21,7 +21,6 @@ import org.apache.gluten.exception.GlutenException
 import org.apache.gluten.execution.{ValidatablePlan, WriteFilesExecTransformer}
 import org.apache.gluten.extension.columnar.transition.{Convention, ConventionReq}
 import org.apache.gluten.extension.columnar.transition.Convention.RowType
-import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.TaskContext
 import org.apache.spark.internal.io.FileCommitProtocol
@@ -96,7 +95,7 @@ abstract class ColumnarWriteFilesExec protected (
         val sparkPartitionId = TaskContext.get().partitionId()
         val sparkAttemptNumber = TaskContext.get().taskAttemptId().toInt & Int.MaxValue
 
-        val ret = SparkShimLoader.getSparkShims.writeFilesExecuteTask(
+        val ret = GlutenFileFormatWriter.writeFilesExecuteTask(
           description,
           jobTrackerID,
           sparkStageId,

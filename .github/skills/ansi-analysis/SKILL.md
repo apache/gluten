@@ -66,7 +66,7 @@ The script loads the same shared prompt and calls the GitHub Models API.
 
 When the user pastes one failing test:
 1. Locate its JSON entry under `target/ansi-offload/`
-2. Apply the self-investigation steps from shared.md (extract Velox file:line, check `isAnsiSupported`, cross-check `withAnsiEvalMode` in the shim)
+2. Apply the self-investigation steps from shared.md (extract Velox file:line, check `isAnsiSupported`, cross-check `withAnsiEvalMode` in ExpressionUtils)
 3. Output: Symptom / Root Cause / Fix Point / Representative Tests / Estimated Impact
 
 ## Step 5 — Optional PR comment

@@ -21,7 +21,7 @@ import org.apache.gluten.execution.GlutenPlan
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.catalyst.expressions.Attribute
-import org.apache.spark.sql.execution.InputIteratorTransformer
+import org.apache.spark.sql.execution.{ColumnarInputAdapter, InputIteratorTransformer}
 import org.apache.spark.task.TaskResources
 
 import scala.collection.JavaConverters._
@@ -87,7 +87,10 @@ class GlutenClickHouseTPCDSMetricsSuite extends GlutenClickHouseTPCDSAbstractSui
     ) {
       () =>
         val allGlutenPlans = wholeStageTransformer.collect {
-          case g: GlutenPlan if !g.isInstanceOf[InputIteratorTransformer] => g
+          case g: GlutenPlan
+              if !g.isInstanceOf[InputIteratorTransformer] &&
+                !g.isInstanceOf[ColumnarInputAdapter] =>
+            g
         }
 
         assert(allGlutenPlans.size == 30)

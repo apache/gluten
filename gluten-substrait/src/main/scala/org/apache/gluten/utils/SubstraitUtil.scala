@@ -26,7 +26,7 @@ import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression}
 import org.apache.spark.sql.catalyst.plans.{ExistenceJoin, FullOuter, InnerLike, JoinType, LeftAnti, LeftOuter, LeftSemi, RightOuter}
 
 import com.google.protobuf.{Any, DoubleValue, Int32Value, Int64Value, Message, StringValue}
-import io.substrait.proto.{JoinRel, NamedStruct, NestedLoopJoinRel, Type}
+import io.substrait.proto.{JoinRel, NamedStruct, NestedLoopJoinRel, ReadRel, Type}
 
 import java.lang.{Double => JDouble, Long => JLong}
 import java.util.{Collections, List => JList}
@@ -78,6 +78,14 @@ object SubstraitUtil {
     // so that it can be correctly parsed into JSON string on the cpp side.
     BackendsApiManager.getTransformerApiInstance.packPBMessage(
       TypeBuilder.makeStruct(false, inputTypeNodes.asJava).toProtobuf)
+  }
+
+  /** Wrap a Gluten payload as the detail of a Substrait `ReadRel.ExtensionTable`. */
+  def packExtensionTable(detail: Message): ReadRel.ExtensionTable = {
+    ReadRel.ExtensionTable
+      .newBuilder()
+      .setDetail(BackendsApiManager.getTransformerApiInstance.packPBMessage(detail))
+      .build()
   }
 
   def toSubstraitExpression(

@@ -31,4 +31,7 @@ abstract class InternalRowSparkCompatible
 
   override def getGeometry(ordinal: Int): Nothing =
     throw new UnsupportedOperationException()
+
+  override def getBinaryView(ordinal: Int): Nothing =
+    throw new UnsupportedOperationException()
 }

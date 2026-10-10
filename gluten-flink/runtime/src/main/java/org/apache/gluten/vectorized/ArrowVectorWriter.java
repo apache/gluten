@@ -51,6 +51,10 @@ public abstract class ArrowVectorWriter {
               IntegerType.class,
               (fieldType, allocator, vector) -> new IntVectorWriter(fieldType, allocator, vector)),
           Map.entry(
+              TinyIntType.class,
+              (fieldType, allocator, vector) ->
+                  new TinyIntVectorWriter(fieldType, allocator, vector)),
+          Map.entry(
               BooleanType.class,
               (fieldType, allocator, vector) ->
                   new BooleanVectorWriter(fieldType, allocator, vector)),
@@ -154,6 +158,7 @@ class FieldVectorCreator {
       Map.ofEntries(
           Map.entry(BooleanType.class, (dataType, timeZoneId) -> ArrowType.Bool.INSTANCE),
           Map.entry(IntegerType.class, (dataType, timeZoneId) -> new ArrowType.Int(8 * 4, true)),
+          Map.entry(TinyIntType.class, (dataType, timeZoneId) -> new ArrowType.Int(8 * 1, true)),
           Map.entry(BigIntType.class, (dataType, timeZoneId) -> new ArrowType.Int(8 * 8, true)),
           Map.entry(
               DoubleType.class,
@@ -280,6 +285,27 @@ class IntVectorWriter extends BaseVectorWriter<IntVector, Integer> {
 
   @Override
   protected void setValue(int index, Integer value) {
+    this.typedVector.setSafe(index, value);
+  }
+}
+
+class TinyIntVectorWriter extends BaseVectorWriter<TinyIntVector, Byte> {
+  public TinyIntVectorWriter(Type fieldType, BufferAllocator allocator, FieldVector vector) {
+    super(vector);
+  }
+
+  @Override
+  protected Byte getValue(RowData rowData, int fieldIndex) {
+    return rowData.getByte(fieldIndex);
+  }
+
+  @Override
+  protected Byte getValue(ArrayData arrayData, int index) {
+    return arrayData.getByte(index);
+  }
+
+  @Override
+  protected void setValue(int index, Byte value) {
     this.typedVector.setSafe(index, value);
   }
 }

@@ -1109,7 +1109,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
           threadMemoryPool);
 
       hashTableBuilders[t] = std::move(builder);
-      otherTables[t] = std::move(hashTableBuilders[t]->uniqueTable());
+      otherTables[t] = hashTableBuilders[t]->uniqueTable();
     });
 
     futures.push_back(std::move(future));

@@ -29,7 +29,8 @@ case class VeloxBroadcastBuildSideRDD(
     @transient private val sc: SparkContext,
     broadcasted: broadcast.Broadcast[BuildSideRelation],
     broadcastContext: BroadcastHashJoinContext,
-    isBNL: Boolean = false)
+    isBNL: Boolean = false,
+    cudfEnabled: Boolean = false)
   extends BroadcastBuildSideRDD(sc, broadcasted) {
 
   override def genBroadcastBuildSideIterator(): Iterator[ColumnarBatch] = {
@@ -48,8 +49,17 @@ case class VeloxBroadcastBuildSideRDD(
     // reusable table and a CPU-fallback join builds from this stream as usual.
     val output = if (isBNL || !offload || GlutenConfig.get.enableColumnarCudf) {
       val relation = broadcasted.value.asReadOnlyCopy()
+      // cudfEnabled is the consuming stage's own tag (TransformSupport#offloadCuda).
+      val batches = relation match {
+        case columnar: ColumnarBuildSideRelation =>
+          columnar.deserialized(cudfEnabled)
+        case unsafe: UnsafeColumnarBuildSideRelation =>
+          unsafe.deserialized(cudfEnabled)
+        case other =>
+          other.deserialized
+      }
       Iterators
-        .wrap(relation.deserialized)
+        .wrap(batches)
         .recyclePayload(batch => batch.close())
         .create()
     } else {
