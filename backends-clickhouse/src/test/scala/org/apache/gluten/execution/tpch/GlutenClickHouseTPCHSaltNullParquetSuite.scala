@@ -25,6 +25,7 @@ import org.apache.spark.{SparkConf, SparkEnv, SparkException}
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.catalyst.optimizer.{BuildLeft, ConstantFolding, NullPropagation}
 import org.apache.spark.sql.execution.{ColumnarToRowExec, ReusedSubqueryExec, SubqueryExec}
+import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.functions.{col, rand, when}
 import org.apache.spark.sql.internal.SQLConf
 
@@ -640,6 +641,29 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
         |order by n_regionkey,n_nationkey,n_name,n_sum
         |""".stripMargin
     compareResultsAgainstVanillaSpark(sql, true, { _ => })
+  }
+
+  test("window range with a non-integral bound falls back") {
+    // Spark casts the bound to the decimal key type, so both arrive as non-integral literals. Check
+    // with and without native validation, which this suite turns off by default.
+    Seq("true", "false").foreach {
+      nativeValidation =>
+        withSQLConf(GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> nativeValidation) {
+          Seq("1.5 preceding", "10 preceding").foreach {
+            bound =>
+              val sql =
+                s"""
+                   |select n_nationkey, n_regionkey,
+                   |  count(*) over (partition by n_regionkey
+                   |    order by cast(n_nationkey as decimal(10, 2))
+                   |    range between $bound and current row) as cnt
+                   |from nation
+                   |order by n_regionkey, n_nationkey
+                   |""".stripMargin
+              runQueryAndCompare(sql, noFallBack = false)(checkSparkPlan[WindowExec])
+          }
+        }
+    }
   }
 
   test("windows") {
