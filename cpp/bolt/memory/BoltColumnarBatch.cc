@@ -64,14 +64,14 @@ void BoltColumnarBatch::ensureFlattened() {
   flattened_ = true;
 }
 
-std::shared_ptr<ArrowSchema> BoltColumnarBatch::exportArrowSchema() {
+std::shared_ptr<ArrowSchema> BoltColumnarBatch::exportArrowSchema(bool) {
   auto out = std::make_shared<ArrowSchema>();
   ensureFlattened();
   bolt::exportToArrow(rowVector_, *out, ArrowUtils::getBridgeOptions());
   return out;
 }
 
-std::shared_ptr<ArrowArray> BoltColumnarBatch::exportArrowArray() {
+std::shared_ptr<ArrowArray> BoltColumnarBatch::exportArrowArray(bool) {
   auto out = std::make_shared<ArrowArray>();
   ensureFlattened();
   bolt::exportToArrow(rowVector_, *out, rowVector_->pool(), ArrowUtils::getBridgeOptions());
