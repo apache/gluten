@@ -21,6 +21,7 @@ import org.apache.spark.TaskContext
 import org.apache.spark.api.python.{BasePythonRunner, ChainedPythonFunctions, PythonWorker}
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.execution.python.EvalPythonExec.ArgumentMetadata
+import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 import java.io.DataOutputStream
@@ -62,5 +63,9 @@ abstract class BasePythonRunnerShim(
       context: TaskContext): Writer = {
     createNewWriter(env, worker, inputIterator, partitionIndex, context)
   }
+
+  protected def pythonRunnerConfMap: Map[String, String] = Map.empty
+
+  protected def pythonInputSchema: StructType = new StructType()
 
 }

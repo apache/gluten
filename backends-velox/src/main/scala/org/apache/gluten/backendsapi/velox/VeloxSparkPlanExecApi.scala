@@ -30,10 +30,9 @@ import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.expression.{ExpressionBuilder, ExpressionNode, WindowFunctionNode}
 import org.apache.gluten.vectorized.{ColumnarBatchSerializer, ColumnarBatchSerializeResult}
 
-import org.apache.spark.{ShuffleDependency, SparkEnv, SparkException}
+import org.apache.spark.{ShuffleDependency, SparkEnv}
 import org.apache.spark.api.python.{ColumnarArrowEvalPythonExec, PullOutArrowEvalPythonPreProjectHelper}
 import org.apache.spark.internal.Logging
-import org.apache.spark.memory.SparkMemoryUtil
 import org.apache.spark.rdd.RDD
 import org.apache.spark.serializer.Serializer
 import org.apache.spark.shuffle.{GenShuffleReaderParameters, GenShuffleWriterParameters, GlutenShuffleReaderWrapper, GlutenShuffleWriterWrapper, VeloxShuffleUtils}
@@ -66,8 +65,7 @@ import org.apache.spark.task.TaskResources
 import io.substrait.proto.JoinRel
 import org.apache.commons.lang3.ClassUtils
 
-import javax.ws.rs.core.UriBuilder
-
+import java.net.URI
 import java.util.{ArrayList => JArrayList, List => JList}
 import java.util.Locale
 
@@ -167,9 +165,27 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     }
   }
 
-  override def getDecimalArithmeticExprName(exprName: String, allowPrecisionLoss: Boolean): String =
-    if (!allowPrecisionLoss) { exprName + "_deny_precision_loss" }
-    else { exprName }
+  /**
+   * In ANSI mode, decimal Add, Subtract and Multiply map to Velox's checked_ functions, which throw
+   * on overflow instead of returning null.
+   */
+  override def getDecimalArithmeticExprName(
+      exprName: String,
+      original: BinaryArithmetic,
+      allowPrecisionLoss: Boolean): String = {
+    val name = if (ExpressionUtils.withAnsiEvalMode(original)) {
+      original match {
+        case _: Add => ExpressionNames.CHECKED_ADD
+        case _: Subtract => ExpressionNames.CHECKED_SUBTRACT
+        case _: Multiply => ExpressionNames.CHECKED_MULTIPLY
+        case _ => exprName
+      }
+    } else {
+      exprName
+    }
+    if (!allowPrecisionLoss) { name + "_deny_precision_loss" }
+    else { name }
+  }
 
   /** Transform map_entries to Substrait. */
   override def genMapEntriesTransformer(
@@ -888,10 +904,9 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     val buildSideRowCount = serialized.map(_.numRows).sum
     val rawSize = serialized.map(_.sizeInBytes()).sum
     if (rawSize >= GlutenConfig.get.maxBroadcastTableSize) {
-      throw new SparkException(
-        "Cannot broadcast the table that is larger than " +
-          s"${SparkMemoryUtil.bytesToString(GlutenConfig.get.maxBroadcastTableSize)}: " +
-          s"${SparkMemoryUtil.bytesToString(rawSize)}")
+      throw BroadcastUtils.cannotBroadcastTableOverMaxTableBytesError(
+        GlutenConfig.get.maxBroadcastTableSize,
+        rawSize)
     }
     numOutputRows += buildSideRowCount
     dataSize += rawSize
@@ -1126,10 +1141,31 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       left: ExpressionTransformer,
       right: ExpressionTransformer,
       original: GetMapValue): ExpressionTransformer = {
-    GenericExpressionTransformer(
-      ExpressionMappings.expressionsMap(classOf[ElementAt]),
-      Seq(left, right),
-      original)
+    // Emitted as get_map_value (Gluten function overlay) rather than rewritten
+    // to element_at: the map-only subscript is subfield-pushdown capable, so a
+    // scan remaining filter on m['k'] extracts m["k"] and keeps map-key
+    // pruning effective.
+    GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
+  }
+
+  /**
+   * ElementAt on a map is emitted as get_map_value, like GetMapValue, so that a scan remaining
+   * filter such as element_at(m, 'k').x = 1 extracts the subfield m["k"] and map-key pruning stays
+   * effective; Velox's element_at also serves arrays and is not subfield-pushdown capable, so it
+   * would add the bare column m and keep every entry. The two agree on maps: the value under the
+   * key, or NULL when it is absent. In ANSI mode a missing key is an error instead, and the mapped
+   * element_at is kept.
+   */
+  override def genElementAtTransformer(
+      substraitExprName: String,
+      left: ExpressionTransformer,
+      right: ExpressionTransformer,
+      original: ElementAt): ExpressionTransformer = {
+    if (original.left.dataType.isInstanceOf[MapType] && !original.failOnError) {
+      GenericExpressionTransformer(ExpressionNames.GET_MAP_VALUE, Seq(left, right), original)
+    } else {
+      GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
+    }
   }
 
   override def genStringToMapTransformer(
@@ -1147,6 +1183,30 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         ExpressionNames.STR_TO_MAP,
         StrToMapRestrictions.ONLY_SUPPORT_MAP_KEY_DEDUP_POLICY
       )
+    }
+    GenericExpressionTransformer(substraitExprName, children, expr)
+  }
+
+  override def genFormatNumberTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      expr: Expression): ExpressionTransformer = {
+    // Velox registers format_number only for integral and floating-point input with an integer
+    // number of decimal places. Reject the other Spark forms here so the fallback reason names
+    // the documented restriction instead of a generic native validation failure.
+    expr.children.head.dataType match {
+      case _: DecimalType =>
+        GlutenExceptionUtil.throwsNotFullySupported(
+          ExpressionNames.FORMAT_NUMBER,
+          FormatNumberRestrictions.NOT_SUPPORT_DECIMAL_INPUT)
+      case _ =>
+    }
+    expr.children(1).dataType match {
+      case _: StringType =>
+        GlutenExceptionUtil.throwsNotFullySupported(
+          ExpressionNames.FORMAT_NUMBER,
+          FormatNumberRestrictions.NOT_SUPPORT_STRING_FORMAT)
+      case _ =>
     }
     GenericExpressionTransformer(substraitExprName, children, expr)
   }
@@ -1356,10 +1416,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       case "local" =>
         path
       case "heap-over-local" =>
-        val rewritten = UriBuilder
-          .fromPath(path)
-          .scheme("jol")
-          .toString
+        val rewritten = new URI("jol", null, path, null, null).toString
         rewritten
       case other =>
         throw new IllegalStateException(s"Unsupported fs: $other")

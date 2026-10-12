@@ -63,6 +63,13 @@ class ColumnarArrowPythonRunner(
   // Keep this source compatible with older Spark profiles where PythonEvalType differs.
   private val SQL_ARROW_BATCHED_UDF = 101
 
+  // On Spark 4.2 the runner config and (for Arrow-batched UDFs) the input schema are delivered to
+  // the worker via runnerConf/evalConf instead of the writeCommand prefix (see BasePythonRunnerShim
+  // and Spark's ArrowPythonRunner/ArrowPythonWithNamedArgumentRunner). These are no-ops on <4.2.
+  override protected def pythonRunnerConfMap: Map[String, String] = conf
+
+  override protected def pythonInputSchema: StructType = schema
+
   override val bufferSize: Int = SQLConf.get.pandasUDFBufferSize
   require(
     bufferSize >= 4,
@@ -148,14 +155,20 @@ class ColumnarArrowPythonRunner(
       context: TaskContext): Writer = {
     new Writer(env, worker, inputIterator, partitionIndex, context) {
       override protected def writeCommand(dataOut: DataOutputStream): Unit = {
-        // Write config for the worker as a number of key -> value pairs of strings
-        dataOut.writeInt(conf.size)
-        for ((k, v) <- conf) {
-          PythonRDD.writeUTF(k, dataOut)
-          PythonRDD.writeUTF(v, dataOut)
-        }
-        if (SparkVersionUtil.gteSpark41 && evalType == SQL_ARROW_BATCHED_UDF) {
-          PythonRDD.writeUTF(schema.json, dataOut)
+        // Spark 4.2 (SPARK-51384) writes evalType -> runnerConf -> evalConf -> writeCommand, so the
+        // config and input schema flow through runnerConf/evalConf (see BasePythonRunnerShim) and
+        // writeCommand must emit only the UDF definitions. Older profiles carry the config prefix
+        // here, exactly as before.
+        if (!SparkVersionUtil.gteSpark42) {
+          // Write config for the worker as a number of key -> value pairs of strings
+          dataOut.writeInt(conf.size)
+          for ((k, v) <- conf) {
+            PythonRDD.writeUTF(k, dataOut)
+            PythonRDD.writeUTF(v, dataOut)
+          }
+          if (SparkVersionUtil.gteSpark41 && evalType == SQL_ARROW_BATCHED_UDF) {
+            PythonRDD.writeUTF(schema.json, dataOut)
+          }
         }
         ColumnarArrowPythonRunner.this.writeUdf(dataOut, argMetas)
       }

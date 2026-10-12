@@ -100,18 +100,27 @@ When running the script, the `--spark_home` arg should be set to either:
   ```
   # Define a directory to use for the Spark files and the latest Spark version
   export spark_dir=/tmp/spark
-  export spark_version=3.5
+  export spark_version=4.1
 
   # Run the install-spark-resources.sh script
   .github/workflows/util/install-spark-resources.sh ${spark_version} ${spark_dir}
   ```
   After running the `install-spark-resources.sh`, the `--spark_home` for the document generation script will be
-  something like: `--spark_home=${spark_dir}/shims/spark35/spark_home"`
+  something like: `--spark_home=${spark_dir}/shims/spark41/spark_home"`
 
 Use the following command to generate and update the support status:
 ```shell
 python3 tools/scripts/gen-function-support-docs.py --spark_home=/path/to/spark_source_code
 ```
+
+The support status is generated with `spark.sql.ansi.enabled=false`. When ANSI mode is enabled, Gluten falls back
+to vanilla Spark for the whole query (see `spark.gluten.sql.ansiFallback.enabled`). Spark 4.x enables ANSI mode by
+default, so the script runs the test suites with `SPARK_ANSI_SQL_MODE=false` and turns off the ANSI mode that
+`GlutenSQLQueryTestSuite` forces for its regular test cases. It also runs a few SQL query test files that are excluded
+from CI on Spark 4.x because of known result gaps, since they exercise functions that need to be documented.
+
+See [Updating the Function Support Docs](developers/UpdateFunctionSupportDocs.md) for moving the script to a new
+Spark version and auditing the generated status.
 
 Please check the links below for the detailed support status of each category:
 

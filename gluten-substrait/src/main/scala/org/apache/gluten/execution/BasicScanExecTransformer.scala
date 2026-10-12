@@ -79,6 +79,24 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
       s"${getClass.toString} does not support push down filters.")
   }
 
+  /**
+   * Required subfields per top-level column, set by the backend map-key pruning rule. Key is the
+   * normalized column name; values are the paths the query accesses under it, for example
+   * `c.m["k1"].f1`. Serialized into the ReadRel advanced extension so the native reader keeps only
+   * the map entries those paths name.
+   */
+  def requiredMapSubfields: Map[String, Seq[SubfieldPath]] = Map.empty
+
+  /** Whether this scan supports map-key pruning via required subfields. */
+  def supportsMapKeyPruning: Boolean = false
+
+  /** Copy the scan with required subfield paths for map-key pruning. */
+  def withRequiredMapSubfields(
+      subfields: Map[String, Seq[SubfieldPath]]): BasicScanExecTransformer = {
+    throw new UnsupportedOperationException(
+      s"${getClass.toString} does not support map-key pruning.")
+  }
+
   def getMetadataColumns(): Seq[AttributeReference]
 
   /** This can be used to report FileFormat for a file based scan operator. */
@@ -188,7 +206,12 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
     val optimization =
       BackendsApiManager.getTransformerApiInstance.packPBMessage(
         StringValue.newBuilder.setValue(s"isMergeTree=$mergeTreeFlag\n").build)
-    val extensionNode = ExtensionBuilder.makeAdvancedExtension(optimization, null)
+    val enhancement = if (requiredMapSubfields.isEmpty) {
+      null
+    } else {
+      BackendsApiManager.getTransformerApiInstance.packRequiredSubfields(requiredMapSubfields)
+    }
+    val extensionNode = ExtensionBuilder.makeAdvancedExtension(optimization, enhancement)
 
     val readNode = RelBuilder.makeReadRel(
       typeNodes,
