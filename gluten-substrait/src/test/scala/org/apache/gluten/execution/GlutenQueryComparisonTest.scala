@@ -79,7 +79,7 @@ abstract class GlutenQueryComparisonTest extends GlutenQueryTest {
    * which happens when ANSI mode rejects its input (for example, a malformed string cast to a
    * number). In that case, checks that Gluten fails too.
    */
-  protected def runQueryAndCompareOrBothFail(
+  protected def runQueryAndCheck(
       sqlStr: String,
       compareResult: Boolean = true,
       noFallBack: Boolean = true,

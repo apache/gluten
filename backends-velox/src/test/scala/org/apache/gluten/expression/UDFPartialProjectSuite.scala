@@ -155,7 +155,7 @@ class UDFPartialProjectSuite extends WholeStageTransformerSuite {
   }
 
   test("udf in agg simple") {
-    runQueryAndCompareOrBothFail(
+    runQueryAndCheck(
       """select sum(hash(plus_one(l_extendedprice)) + hash(l_orderkey) ) as revenue
         | from   lineitem""".stripMargin) {
       checkGlutenPlan[ColumnarPartialProjectExec]
