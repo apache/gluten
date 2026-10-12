@@ -17,6 +17,7 @@
 package org.apache.gluten.substrait.expression;
 
 import org.apache.gluten.exception.GlutenException;
+import org.apache.gluten.exception.GlutenNotSupportException;
 import org.apache.gluten.expression.ExpressionConverter;
 import org.apache.gluten.substrait.SubstraitContext;
 import org.apache.gluten.substrait.type.TypeNode;
@@ -72,6 +73,23 @@ public class WindowFunctionNode implements Serializable {
     this.originalInputAttributes = originalInputAttributes;
   }
 
+  // A bound that does not parse as a long, such as the -1.50 of RANGE BETWEEN 1.5 PRECEDING on a
+  // decimal key, throws GlutenNotSupportException so the window falls back; a
+  // NumberFormatException would fail the query instead.
+  private static Long parseOffset(org.apache.spark.sql.catalyst.expressions.Expression boundType) {
+    String raw = String.valueOf(boundType.eval(null));
+    try {
+      return Long.parseLong(raw);
+    } catch (NumberFormatException e) {
+      throw new GlutenNotSupportException(
+          "Window frame bound is not a long offset: "
+              + raw
+              + " ("
+              + boundType.dataType().simpleString()
+              + ")");
+    }
+  }
+
   private Expression.WindowFunction.Bound.Builder setBound(
       Expression.WindowFunction.Bound.Builder builder,
       org.apache.spark.sql.catalyst.expressions.Expression boundType) {
@@ -102,7 +120,7 @@ public class WindowFunctionNode implements Serializable {
                           .asScala()
                           .toSeq())
                   .doTransform(new SubstraitContext());
-          Long offset = Long.valueOf(boundType.eval(null).toString());
+          Long offset = parseOffset(boundType);
           if (offset < 0) {
             Expression.WindowFunction.Bound.Preceding.Builder refPrecedingBuilder =
                 Expression.WindowFunction.Bound.Preceding.newBuilder();
@@ -118,7 +136,7 @@ public class WindowFunctionNode implements Serializable {
           // Used when
           // 1. Velox backend and frame type is ROW
           // 2. Clickhouse backend
-          Long offset = Long.valueOf(boundType.eval(null).toString());
+          Long offset = parseOffset(boundType);
           if (offset < 0) {
             Expression.WindowFunction.Bound.Preceding.Builder offsetPrecedingBuilder =
                 Expression.WindowFunction.Bound.Preceding.newBuilder();

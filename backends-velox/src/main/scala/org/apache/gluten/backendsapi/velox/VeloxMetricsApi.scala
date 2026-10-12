@@ -332,6 +332,9 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "abandonedPartialAggregationRows" -> SQLMetrics.createMetric(
         sparkContext,
         "number of rows after partial aggregation abandonment"),
+      "toIntermediateFastPathCalls" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of toIntermediate fast path calls"),
       "loadedToValueHook" -> SQLMetrics.createMetric(
         sparkContext,
         "number of pushdown aggregations"),

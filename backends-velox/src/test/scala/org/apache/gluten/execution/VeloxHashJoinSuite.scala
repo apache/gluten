@@ -19,13 +19,14 @@ package org.apache.gluten.execution
 import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.sql.shims.SparkShimLoader
 
-import org.apache.spark.SparkConf
+import org.apache.spark.{SparkConf, SparkException}
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.expressions.AttributeReference
 import org.apache.spark.sql.execution.{ColumnarBroadcastExchangeExec, ColumnarSubqueryBroadcastExec, InputIteratorTransformer, SerializedHashTableBroadcastRelation}
 import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
 import org.apache.spark.sql.execution.joins.BuildSideRelation
 import org.apache.spark.sql.execution.joins.HashedRelationBroadcastMode
+import org.apache.spark.sql.functions.broadcast
 
 class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
   override protected val resourcePath: String = "/tpch-data-parquet"
@@ -687,4 +688,13 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
         })
   }
 
+  test("Broadcast over maxBroadcastTableSize fails with Spark's error condition") {
+    withSQLConf("spark.sql.maxBroadcastTableSize" -> "100") {
+      val df = spark.range(1000).toDF()
+      val ex = intercept[SparkException] {
+        df.join(broadcast(df), "id").collect()
+      }
+      assert(ex.getErrorClass == "_LEGACY_ERROR_TEMP_2249")
+    }
+  }
 }

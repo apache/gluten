@@ -1,0 +1,77 @@
+VeloxColumnarToRow
+  WholeStageCodegenTransformer (10)
+    SortExecTransformer [o_year]
+      InputIteratorTransformer
+        InputAdapter
+          ColumnarExchange [o_year] #1
+            VeloxResizeBatches
+              WholeStageCodegenTransformer (9)
+                ProjectExecTransformer [o_year,sum(CASE WHEN (nation = BRAZIL) THEN volume ELSE 0 END),sum(volume)]
+                  RegularHashAggregateExecTransformer [o_year,sum,isEmpty,sum,isEmpty] [sum(CASE WHEN (nation = BRAZIL) THEN volume ELSE 0 END),sum(volume),sum,isEmpty,sum,isEmpty]
+                    InputIteratorTransformer
+                      InputAdapter
+                        ColumnarExchange [o_year,sum,isEmpty,sum,isEmpty] #2
+                          VeloxResizeBatches
+                            WholeStageCodegenTransformer (8)
+                              ProjectExecTransformer [o_year,sum,isEmpty,sum,isEmpty]
+                                FlushableHashAggregateExecTransformer [o_year,_pre_x,volume] [sum,isEmpty,sum,isEmpty,sum,isEmpty,sum,isEmpty,sum,isEmpty]
+                                  ProjectExecTransformer [o_orderdate,l_extendedprice,l_discount,n_name]
+                                    BroadcastHashJoinExecTransformer [n_regionkey,r_regionkey]
+                                      ProjectExecTransformer [l_extendedprice,l_discount,o_orderdate,n_regionkey,n_name]
+                                        BroadcastHashJoinExecTransformer [s_nationkey,n_nationkey]
+                                          ProjectExecTransformer [l_extendedprice,l_discount,s_nationkey,o_orderdate,n_regionkey]
+                                            BroadcastHashJoinExecTransformer [c_nationkey,n_nationkey]
+                                              ProjectExecTransformer [l_extendedprice,l_discount,s_nationkey,o_orderdate,c_nationkey]
+                                                BroadcastHashJoinExecTransformer [o_custkey,c_custkey]
+                                                  ProjectExecTransformer [l_extendedprice,l_discount,s_nationkey,o_custkey,o_orderdate]
+                                                    BroadcastHashJoinExecTransformer [l_orderkey,o_orderkey]
+                                                      ProjectExecTransformer [l_orderkey,l_extendedprice,l_discount,s_nationkey]
+                                                        BroadcastHashJoinExecTransformer [l_suppkey,s_suppkey]
+                                                          ProjectExecTransformer [l_orderkey,l_suppkey,l_extendedprice,l_discount]
+                                                            BroadcastHashJoinExecTransformer [p_partkey,l_partkey]
+                                                              ProjectExecTransformer [p_partkey]
+                                                                FilterExecTransformer [p_type,p_partkey]
+                                                                  FileSourceScanExecTransformer parquet spark_catalog.default.part [p_partkey,p_type]
+                                                              InputIteratorTransformer
+                                                                InputAdapter
+                                                                  ColumnarBroadcastExchange #3
+                                                                    WholeStageCodegenTransformer (1)
+                                                                      FilterExecTransformer [l_partkey,l_suppkey,l_orderkey]
+                                                                        FileSourceScanExecTransformer parquet spark_catalog.default.lineitem [l_orderkey,l_partkey,l_suppkey,l_extendedprice,l_discount]
+                                                          InputIteratorTransformer
+                                                            InputAdapter
+                                                              ColumnarBroadcastExchange #4
+                                                                WholeStageCodegenTransformer (2)
+                                                                  FilterExecTransformer [s_suppkey,s_nationkey]
+                                                                    FileSourceScanExecTransformer parquet spark_catalog.default.supplier [s_suppkey,s_nationkey]
+                                                      InputIteratorTransformer
+                                                        InputAdapter
+                                                          ColumnarBroadcastExchange #5
+                                                            WholeStageCodegenTransformer (3)
+                                                              FilterExecTransformer [o_orderdate,o_orderkey,o_custkey]
+                                                                FileSourceScanExecTransformer parquet spark_catalog.default.orders [o_orderkey,o_custkey,o_orderdate]
+                                                  InputIteratorTransformer
+                                                    InputAdapter
+                                                      ColumnarBroadcastExchange #6
+                                                        WholeStageCodegenTransformer (4)
+                                                          FilterExecTransformer [c_custkey,c_nationkey]
+                                                            FileSourceScanExecTransformer parquet spark_catalog.default.customer [c_custkey,c_nationkey]
+                                              InputIteratorTransformer
+                                                InputAdapter
+                                                  ColumnarBroadcastExchange #7
+                                                    WholeStageCodegenTransformer (5)
+                                                      FilterExecTransformer [n_nationkey,n_regionkey]
+                                                        FileSourceScanExecTransformer parquet spark_catalog.default.nation [n_nationkey,n_regionkey]
+                                          InputIteratorTransformer
+                                            InputAdapter
+                                              ColumnarBroadcastExchange #8
+                                                WholeStageCodegenTransformer (6)
+                                                  FilterExecTransformer [n_nationkey]
+                                                    FileSourceScanExecTransformer parquet spark_catalog.default.nation [n_nationkey,n_name]
+                                      InputIteratorTransformer
+                                        InputAdapter
+                                          ColumnarBroadcastExchange #9
+                                            WholeStageCodegenTransformer (7)
+                                              ProjectExecTransformer [r_regionkey]
+                                                FilterExecTransformer [r_name,r_regionkey]
+                                                  FileSourceScanExecTransformer parquet spark_catalog.default.region [r_regionkey,r_name]

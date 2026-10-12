@@ -164,6 +164,7 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
 
   override def getDecimalArithmeticExprName(
       exprName: String,
+      original: BinaryArithmetic,
       allowPrecisionLoss: Boolean): String =
     if (!allowPrecisionLoss) { exprName + "_deny_precision_loss" }
     else { exprName }

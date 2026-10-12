@@ -11,6 +11,7 @@ that are easy to get wrong.
 - [Build Guide (Velox backend)](docs/get-started/Velox.md)
 - [Build Guide (ClickHouse backend)](docs/get-started/ClickHouse.md)
 - [C++ Coding Style](docs/developers/CppCodingStyle.md)
+- [Updating the Function Support Docs](docs/developers/UpdateFunctionSupportDocs.md)
 
 ## Build Order (Important)
 

@@ -12,6 +12,11 @@
         "lz4",
         "double-conversion",
         "bzip2",
+        {
+          "name": "arrow",
+          "default-features": false,
+          "features": ["testing"]
+        },
         "curl",
         "lzo",
         "re2",
@@ -48,6 +53,7 @@
         "xsimd",
         "simdjson",
         "xxhash",
+        "libxml2",
         "protobuf",
         "benchmark",
         "icu",
