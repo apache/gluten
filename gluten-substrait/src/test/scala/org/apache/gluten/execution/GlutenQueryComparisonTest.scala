@@ -85,8 +85,10 @@ abstract class GlutenQueryComparisonTest extends GlutenQueryTest {
       noFallBack: Boolean = true,
       cache: Boolean = false)(customCheck: DataFrame => Unit): Unit = {
     if (spark.sessionState.conf.ansiEnabled) {
-      val vanillaFailed = withSQLConf(vanillaSparkConfs(): _*) {
-        Try(spark.sql(sqlStr).collect()).isFailure
+      // withSQLConf returns Unit before Spark 4.0, so the result is captured in a var.
+      var vanillaFailed = false
+      withSQLConf(vanillaSparkConfs(): _*) {
+        vanillaFailed = Try(spark.sql(sqlStr).collect()).isFailure
       }
       if (vanillaFailed) {
         // TODO: Also compare the error class once native errors are translated into Spark
