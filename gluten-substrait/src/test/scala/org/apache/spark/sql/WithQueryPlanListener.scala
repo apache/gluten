@@ -53,6 +53,8 @@ trait WithQueryPlanListener extends SharedSparkSession with AnyFunSuiteLike {
       pos: Position): Unit = {
     super.test(testName, testTags: _*) {
       testFun
+      // Query execution listeners are notified asynchronously; wait for all the plans.
+      spark.sparkContext.listenerBus.waitUntilEmpty()
       listeners().foreach(_.invokeAll())
     }(pos)
   }
@@ -83,19 +85,28 @@ object WithQueryPlanListener {
     with AdaptiveSparkPlanHelper {
     private val plans = mutable.ArrayBuffer[SparkPlan]()
 
+    // Called on the listener bus thread, while invokeAll() runs on the test thread.
     override def onSuccess(funcName: String, qe: QueryExecution, durationNs: Long): Unit = {
       val plan = qe.executedPlan
-      plans += plan
+      plans.synchronized {
+        plans += plan
+      }
     }
 
     override def onFailure(funcName: String, qe: QueryExecution, exception: Exception): Unit = {}
 
     def invokeAll(): Unit = {
-      while (plans.nonEmpty) {
-        val plansCopy = Seq[SparkPlan](plans.toSeq: _*)
-        plans.clear()
+      var plansCopy = takePlans()
+      while (plansCopy.nonEmpty) {
         plansCopy.foreach(plan => listeners.foreach(listener => listener.apply(plan)))
+        plansCopy = takePlans()
       }
+    }
+
+    private def takePlans(): Seq[SparkPlan] = plans.synchronized {
+      val plansCopy = plans.toList
+      plans.clear()
+      plansCopy
     }
   }
 
