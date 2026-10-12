@@ -270,9 +270,11 @@ void parseLocalFileNodes(
 
 std::shared_ptr<const facebook::velox::core::PlanNode> VeloxPlanConverter::toVeloxPlan(
     const ::substrait::Plan& substraitPlan,
-    std::vector<::substrait::ReadRel_LocalFiles> localFiles) {
+    std::vector<::substrait::ReadRel_LocalFiles> localFiles,
+    std::vector<std::string> rawSplitInfos) {
   if (!validationMode_) {
     parseLocalFileNodes(&substraitVeloxPlanConverter_, veloxCfg_, localFiles);
+    substraitVeloxPlanConverter_.setRawSplitInfos(std::move(rawSplitInfos));
   }
 
   return substraitVeloxPlanConverter_.toVeloxPlan(substraitPlan);

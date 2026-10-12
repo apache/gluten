@@ -159,6 +159,9 @@ class SubstraitToVeloxPlanConverter {
   // Construct a cuDF value stream node.
   core::PlanNodePtr constructCudfValueStreamNode(const ::substrait::ReadRel& sRead, int32_t streamIdx);
 
+  // Construct a Kafka stream node for reading from Kafka topics.
+  core::PlanNodePtr constructKafkaStreamNode(const ::substrait::ReadRel& sRead);
+
   // This is only used in benchmark and enable query trace, which will load all the data to ValuesNode.
   core::PlanNodePtr constructValuesNode(const ::substrait::ReadRel& sRead, int32_t streamIdx);
 
@@ -202,6 +205,11 @@ class SubstraitToVeloxPlanConverter {
 
   void setSplitInfos(std::vector<std::shared_ptr<SplitInfo>> splitInfos) {
     splitInfos_ = splitInfos;
+  }
+
+  /// The serialized split infos, in the same order as the ones passed to setSplitInfos.
+  void setRawSplitInfos(std::vector<std::string> rawSplitInfos) {
+    rawSplitInfos_ = std::move(rawSplitInfos);
   }
 
   /// The input iterators not inlined to VeloxPlan. They should be then manually added to the Velox task
@@ -303,6 +311,7 @@ class SubstraitToVeloxPlanConverter {
 
   int32_t splitInfoIdx_{0};
   std::vector<std::shared_ptr<SplitInfo>> splitInfos_;
+  std::vector<std::string> rawSplitInfos_;
 
   /// The Expression converter used to convert Substrait representations into
   /// Velox expressions.
