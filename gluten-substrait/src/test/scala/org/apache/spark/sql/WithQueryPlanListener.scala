@@ -28,6 +28,8 @@ import org.scalactic.source.Position
 import org.scalatest.Tag
 import org.scalatest.funsuite.AnyFunSuiteLike
 
+import java.util.concurrent.TimeUnit
+
 import scala.collection.mutable
 import scala.reflect.ClassTag
 // format: off
@@ -54,7 +56,7 @@ trait WithQueryPlanListener extends SharedSparkSession with AnyFunSuiteLike {
     super.test(testName, testTags: _*) {
       testFun
       // Query execution listeners are notified asynchronously; wait for all the plans.
-      spark.sparkContext.listenerBus.waitUntilEmpty()
+      waitForListenerBus()
       listeners().foreach(_.invokeAll())
     }(pos)
   }
@@ -65,9 +67,17 @@ trait WithQueryPlanListener extends SharedSparkSession with AnyFunSuiteLike {
   }
 
   override def afterEach(): Unit = {
-    listeners().foreach(listener => spark.sessionState.listenerManager.unregister(listener))
-    super.afterEach()
+    // Let any in-flight notifications finish before unregistering, e.g. when the test failed.
+    try waitForListenerBus()
+    finally {
+      listeners().foreach(listener => spark.sessionState.listenerManager.unregister(listener))
+      super.afterEach()
+    }
   }
+
+  // The no-arg waitUntilEmpty() gives up after 10s, which a slow CI runner can exceed.
+  private def waitForListenerBus(): Unit =
+    spark.sparkContext.listenerBus.waitUntilEmpty(TimeUnit.SECONDS.toMillis(30))
 
   private def listeners() = {
     spark.sessionState.listenerManager
