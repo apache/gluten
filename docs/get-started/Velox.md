@@ -257,6 +257,27 @@ Currently there are several ways to access S3 in Spark. Please refer [Velox S3](
 
 Please refer [GCS](VeloxGCS.md)
 
+## Timezone database (tzdata) support
+
+Velox resolves timezone names using the IANA timezone database, normally found at `/usr/share/zoneinfo`. This works out of
+the box on CentOS-based images, which ship `tzdata` at that path, but may fail on minimal base images (e.g. Red Hat UBI9)
+where `tzdata` is not installed by default. Velox's vendored `tzdb` honors the `TZDIR` environment variable to override
+this location, which can be set the same way as other native env vars consumed by Gluten (see `LIBHDFS3_CONF` and
+`KRB5CCNAME` above):
+
+```
+// Spark local mode
+export TZDIR="/path/to/zoneinfo"
+
+// Spark Yarn cluster mode
+--conf spark.executorEnv.TZDIR="/path/to/zoneinfo"
+--conf spark.driverEnv.TZDIR="/path/to/zoneinfo"
+
+// Spark on Kubernetes (driver env uses a different config key)
+--conf spark.executorEnv.TZDIR="/path/to/zoneinfo"
+--conf spark.kubernetes.driverEnv.TZDIR="/path/to/zoneinfo"
+```
+
 # Remote Shuffle Service Support
 
 ## Celeborn support
