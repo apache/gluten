@@ -584,7 +584,11 @@ object VeloxAggregateFunctionsBuilder {
         case e: GlutenNotSupportException =>
           HiveUDAFInspector.getUDAFClassName(aggregateFunc) match {
             case Some(udafClass) if UDFResolver.UDAFNames.contains(udafClass) =>
-              (udafClass, UDFResolver.getUdafExpression(udafClass)(aggregateFunc.children))
+              (
+                udafClass,
+                UDFResolver.getUdafExpression(
+                  udafClass,
+                  UDFResolver.udafAllowsHiveCoercion(aggregateFunc))(aggregateFunc.children))
             case _ => throw e
           }
         case e: Throwable => throw e

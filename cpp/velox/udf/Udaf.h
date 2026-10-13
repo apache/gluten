@@ -40,4 +40,29 @@ struct UdafEntry {
 #define GLUTEN_REGISTER_UDAF registerUdf
 #define DEFINE_REGISTER_UDAF extern "C" void GLUTEN_REGISTER_UDAF()
 
+// Declares a UDAF by name. See RegistryUdfEntry in Udf.h for the rationale.
+//
+// Both the return type and the intermediate type are resolved from the Velox
+// aggregate registry against the actual argument types. That is what keeps the
+// intermediate type Gluten plans for in step with the one Velox produces: a
+// UdafEntry restates it by hand, so the two can drift, and a partial
+// aggregation then exchanges a state the other side cannot read.
+//
+// An aggregate declared this way has to be registered with Velox companion
+// functions. A grouped aggregation splits into partial and final stages, and
+// the plan validator resolves <name>_partial and <name>_merge_extract from the
+// registry; without them the aggregate falls back to the JVM.
+struct RegistryUdafEntry {
+  // Name the aggregate is registered under in the Velox aggregate registry,
+  // and the name a query calls it by.
+  const char* name;
+};
+
+#define GLUTEN_GET_NUM_REGISTRY_UDAF getNumRegistryUdaf
+#define DEFINE_GET_NUM_REGISTRY_UDAF extern "C" int GLUTEN_GET_NUM_REGISTRY_UDAF()
+
+#define GLUTEN_GET_REGISTRY_UDAF_ENTRIES getRegistryUdafEntries
+#define DEFINE_GET_REGISTRY_UDAF_ENTRIES \
+  extern "C" void GLUTEN_GET_REGISTRY_UDAF_ENTRIES(gluten::RegistryUdafEntry* registryUdafEntries)
+
 } // namespace gluten

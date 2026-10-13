@@ -169,6 +169,26 @@ JNIEXPORT void JNICALL Java_org_apache_gluten_udf_UdfJniWrapper_registerFunction
   JNI_METHOD_END()
 }
 
+JNIEXPORT jbyteArray JNICALL Java_org_apache_gluten_udf_UdfJniWrapper_resolveUdfType( // NOLINT
+    JNIEnv* env,
+    jclass,
+    jstring name,
+    jbyteArray argTypes) {
+  JNI_METHOD_START
+  return jniResolveUdfType(env, name, argTypes);
+  JNI_METHOD_END(nullptr)
+}
+
+JNIEXPORT jbyteArray JNICALL Java_org_apache_gluten_udf_UdfJniWrapper_resolveUdafTypes( // NOLINT
+    JNIEnv* env,
+    jclass,
+    jstring name,
+    jbyteArray argTypes) {
+  JNI_METHOD_START
+  return jniResolveUdafTypes(env, name, argTypes);
+  JNI_METHOD_END(nullptr)
+}
+
 JNIEXPORT jobject JNICALL
 Java_org_apache_gluten_vectorized_PlanEvaluatorJniWrapper_nativeValidateWithFailureReason( // NOLINT
     JNIEnv* env,

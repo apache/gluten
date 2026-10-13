@@ -18,6 +18,8 @@ package org.apache.gluten.expression
 
 import org.apache.gluten.backendsapi.velox.VeloxBackendSettings
 import org.apache.gluten.config.VeloxConfig
+import org.apache.gluten.exception.GlutenNotSupportException
+import org.apache.gluten.execution.HashAggregateExecTransformer
 import org.apache.gluten.execution.ProjectExecTransformer
 import org.apache.gluten.execution.WindowExecTransformer
 import org.apache.gluten.tags.{SkipTest, UDFTest}
@@ -25,10 +27,13 @@ import org.apache.gluten.tags.{SkipTest, UDFTest}
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{GlutenQueryTest, Row, SparkSession}
 import org.apache.spark.sql.catalyst.FunctionIdentifier
+import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Cast}
 import org.apache.spark.sql.catalyst.plans.SQLHelper
 import org.apache.spark.sql.execution.ProjectExec
+import org.apache.spark.sql.execution.exchange.ShuffleExchangeLike
 import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.expression.UDFResolver
+import org.apache.spark.sql.types.{ArrayType, DataType, DoubleType, FloatType, IntegerType, LongType, MapType, StringType}
 
 import java.nio.file.Paths
 
@@ -318,6 +323,317 @@ abstract class VeloxUdfSuite extends GlutenQueryTest with SQLHelper {
       // The injected function has no JVM implementation to fall back to, so the call is
       // rejected rather than silently returning a result from somewhere else.
       assert(e.getMessage.contains("myudf_plus_one"))
+    }
+  }
+
+  // libmyudf declares myudf_map_cardinality as a RegistryUdfEntry: a name and nothing else. Its
+  // signature, map(K,V) -> bigint, was never restated for Gluten, so the argument and return
+  // types come from binding each call against what Velox holds for the name.
+  test("native udf declared by name resolves its signature from the velox registry") {
+    assert(UDFResolver.UDFNames.contains("myudf_map_cardinality"))
+
+    val df = spark.sql(
+      "SELECT myudf_map_cardinality(map(col1, col2, 'z', col2)) " +
+        "FROM VALUES ('a', 1.0D), ('b', 2.0D) AS t(col1, col2)")
+    checkGlutenPlan[ProjectExecTransformer](df)
+    assert(df.schema.head.dataType == LongType)
+    checkAnswer(df, Seq(Row(2L), Row(2L)))
+  }
+
+  test("native udf declared by name binds a type combination no entry would list") {
+    // A nested value type: the kind of shape that a UdfEntry grid would have to spell out.
+    val df = spark.sql(
+      "SELECT myudf_map_cardinality(map(col1, array(col2, col2))) " +
+        "FROM VALUES ('a', 1L), ('b', 2L) AS t(col1, col2)")
+    checkGlutenPlan[ProjectExecTransformer](df)
+    checkAnswer(df, Seq(Row(1L), Row(1L)))
+  }
+
+  // A by-name declaration whose Velox signature has no type variables is resolved to concrete
+  // types once at registration, so it binds exactly like a UdfEntry -- including the cast that
+  // udfAllowTypeConversion allows. Spark inserts no cast of its own here: UDFExpression does not
+  // implement ExpectsInputTypes, so nothing in the analyzer coerces a Gluten UDF call.
+  test("native udf declared by name binds an exact call with no conversion") {
+    val df = spark.sql("SELECT myudf_registry_plus_one(col1) FROM VALUES (1L), (2L) AS t(col1)")
+    checkGlutenPlan[ProjectExecTransformer](df)
+    checkAnswer(df, Seq(Row(2L), Row(3L)))
+  }
+
+  // A function called by its own name is standing in for nothing, so it binds as it stands.
+  test("native udf declared by name does not coerce its arguments") {
+    val e = intercept[Exception] {
+      spark.sql("SELECT myudf_registry_plus_one(col1) FROM VALUES (1), (2) AS t(col1)").collect()
+    }
+    assert(e.getMessage.contains("myudf_registry_plus_one"))
+  }
+
+  // Hive would have widened the argument itself, so a function standing in for a hive UDF binds
+  // by Hive's implicit conversions. No config gates it: a registry-declared function states no
+  // signature of its own, so there is nothing for the library or the session to opt into.
+  test("a call standing in for a hive udf coerces by hive's rules") {
+    val call = UDFResolver.getUdfExpression(
+      "myudf_registry_plus_one",
+      "myudf_registry_plus_one",
+      allowHiveCoercion = true)(Seq(AttributeReference("c", IntegerType)()))
+    assert(call.dataType == LongType)
+    assert(call.children.head.isInstanceOf[Cast])
+    assert(call.children.head.dataType == LongType)
+  }
+
+  // The shape this is for: an existing hive UDF whose native counterpart states no signature.
+  // Reached the ordinary way, through a hive class name and CREATE TEMPORARY FUNCTION, with no
+  // UdfEntry anywhere and bypassRegistration playing no part.
+  //
+  // Backed by a table rather than a VALUES list: a HiveSimpleUDF is still evaluable during
+  // logical optimization, so ConvertToLocalRelation would fold the call away before Gluten sees
+  // it. A by-name UDF is Unevaluable by then and does not have that problem.
+  test("a hive udf declared by name offloads, and coerces as hive would") {
+    val hiveClass = "org.apache.gluten.udf.RegistryHiveUDF"
+    val tbl = "test_registry_hive_udf"
+    withTempPath {
+      dir =>
+        try {
+          assert(UDFResolver.UDFNames.contains(hiveClass))
+          spark.sql(s"CREATE TEMPORARY FUNCTION registry_hive_udf AS '$hiveClass'")
+          spark.sql(s"""
+                       |CREATE EXTERNAL TABLE $tbl
+                       |LOCATION 'file://$dir'
+                       |AS SELECT * FROM VALUES ('a', 1), ('x', 2) AS t(s, n)
+                       |""".stripMargin)
+
+          // Matching types bind as they stand.
+          val exact = spark.sql(s"SELECT registry_hive_udf(s, 'b') FROM $tbl")
+          checkGlutenPlan[ProjectExecTransformer](exact)
+          checkAnswer(exact, Seq(Row("a b"), Row("x b")))
+
+          // An integer against a string argument: Hive would have converted it at evaluation, so
+          // the offloaded call widens it and must agree with what the JVM UDF produces.
+          val query = s"SELECT registry_hive_udf(n, 'b') FROM $tbl"
+          val offloaded = spark.sql(query)
+          checkGlutenPlan[ProjectExecTransformer](offloaded)
+          val offloadedResult = offloaded.collect()
+
+          UDFResolver.UDFNames.remove(hiveClass)
+          try {
+            val fallback = spark.sql(query)
+            checkSparkPlan[ProjectExec](fallback)
+            assert(offloadedResult.sameElements(fallback.collect()))
+          } finally {
+            UDFResolver.UDFNames.add(hiveClass)
+          }
+        } finally {
+          spark.sql(s"DROP TABLE IF EXISTS $tbl")
+          spark.sql("DROP TEMPORARY FUNCTION IF EXISTS registry_hive_udf")
+        }
+    }
+  }
+
+  // int -> bigint, which the previous two tests use, is permitted by Velox's own coercion rules
+  // as well, so it cannot tell the two rule sets apart. numeric -> string can: Hive allows it and
+  // a hive UDF taking a Text depends on it, while Velox's defaults are numeric widening only.
+  test("hive coercion widens a numeric to a string, which velox's own rules would not") {
+    val call = UDFResolver.getUdfExpression(
+      "myudf_registry_string_string",
+      "myudf_registry_string_string",
+      allowHiveCoercion = true)(
+      Seq(AttributeReference("n", IntegerType)(), AttributeReference("s", StringType)()))
+    assert(call.dataType == StringType)
+    assert(call.children.head.isInstanceOf[Cast])
+    assert(call.children.head.dataType == StringType)
+    assert(!call.children(1).isInstanceOf[Cast])
+  }
+
+  // map(K,V), bigint -> bigint: generic in the data, concrete in the control parameter. Only the
+  // concrete position is widened; the generic ones bind as they are.
+  test("hive coercion widens only the concrete position of a partly generic signature") {
+    val args = Seq(
+      AttributeReference("m", MapType(StringType, DoubleType))(),
+      AttributeReference("n", IntegerType)())
+
+    val call = UDFResolver.getUdfExpression(
+      "myudf_map_size_plus",
+      "myudf_map_size_plus",
+      allowHiveCoercion = true)(args)
+    assert(call.dataType == LongType)
+    assert(!call.children.head.isInstanceOf[Cast], "the map position should bind as it is")
+    assert(call.children(1).isInstanceOf[Cast])
+    assert(call.children(1).dataType == LongType)
+
+    // Without the hive rules the integer does not match and nothing binds.
+    intercept[GlutenNotSupportException] {
+      UDFResolver.getUdfExpression("myudf_map_size_plus", "m", allowHiveCoercion = false)(args)
+    }
+  }
+
+  // Both positions are the same variable, so binding has to settle on a type both arguments
+  // reach. Velox takes their least common supertype and widens the narrower one; the point of
+  // pinning it is that this is binder behaviour Gluten depends on rather than implements.
+  test("hive coercion binds a fully generic signature to the common supertype") {
+    val call = UDFResolver.getUdfExpression("myudf_generic_pair", "p", allowHiveCoercion = true)(
+      Seq(AttributeReference("a", IntegerType)(), AttributeReference("b", LongType)()))
+    assert(call.dataType == LongType)
+    assert(call.children.head.isInstanceOf[Cast])
+    assert(call.children.head.dataType == LongType, "the narrower argument is widened")
+    assert(!call.children(1).isInstanceOf[Cast], "the wider argument is left alone")
+  }
+
+  // Two signatures reachable at the same cost. Rather than picking one, Velox reports no winner
+  // and the call does not bind, which for a hive UDF means falling back to the JVM.
+  test("an ambiguous widening binds nothing rather than guessing") {
+    val args = Seq(AttributeReference("a", IntegerType)(), AttributeReference("b", IntegerType)())
+    intercept[GlutenNotSupportException] {
+      UDFResolver.getUdfExpression("myudf_ambiguous", "amb", allowHiveCoercion = true)(args)
+    }
+  }
+
+  // The aggregate side ranks candidates itself, since no Velox entry point returns the
+  // intermediate type alongside the coercions. An integer reaches both of this aggregate's
+  // signatures, real more cheaply than double, so the cheaper one has to win.
+  test("hive coercion picks the cheapest of several aggregate signatures") {
+    val udaf = UDFResolver.getUdafExpression("myudaf_avg_registry", allowHiveCoercion = true)(
+      Seq(AttributeReference("v", IntegerType)()))
+    assert(udaf.dataType == FloatType, "real is a cheaper widening than double")
+    assert(udaf.children.head.isInstanceOf[Cast])
+    assert(udaf.children.head.dataType == FloatType)
+    // The buffer has to come from the same signature that won, not from another candidate.
+    assert(udaf.aggBufferAttributes.map(_.dataType) == Seq(DoubleType, LongType))
+  }
+
+  // Hive only converts when both types are primitive -- implicitConvertible(TypeInfo, TypeInfo)
+  // returns false unless both categories are PRIMITIVE. Velox's coercer would instead recurse and
+  // widen array(int) to array(bigint), so that has to be refused.
+  test("hive coercion does not widen inside a container") {
+    intercept[GlutenNotSupportException] {
+      UDFResolver.getUdfExpression("myudf_generic_pair", "p", allowHiveCoercion = true)(
+        Seq(
+          AttributeReference("a", ArrayType(IntegerType))(),
+          AttributeReference("b", ArrayType(LongType))()))
+    }
+  }
+
+  // VeloxToSubstraitType has no decimal case, so a short decimal would be reported over the wire
+  // as its TypeKind, BIGINT -- the JVM would take this decimal-returning call for a
+  // long-returning one and read the result as a long. Silently wrong is worse than not offloaded,
+  // so a decimal in the reply has to decline instead.
+  test("a decimal return type declines rather than reporting a long") {
+    intercept[GlutenNotSupportException] {
+      UDFResolver.getUdfExpression("myudf_decimal_return", "d", allowHiveCoercion = true)(
+        Seq(AttributeReference("a", LongType)()))
+    }
+  }
+
+  // The same limit applies to a coercion target, which travels in the same reply. Decimal is
+  // therefore left out of the Hive rule table, so a decimal position binds nothing at all.
+  test("a decimal argument is not a coercion target") {
+    intercept[GlutenNotSupportException] {
+      UDFResolver.getUdfExpression("myudf_decimal_return", "d", allowHiveCoercion = true)(
+        Seq(AttributeReference("a", IntegerType)()))
+    }
+  }
+
+  // Binding is exact first: a call that matches a signature as it stands must not pick up a cast
+  // just because another signature is reachable by widening.
+  test("an exact call binds without any widening") {
+    val call = UDFResolver.getUdfExpression("myudf_ambiguous", "amb", allowHiveCoercion = true)(
+      Seq(AttributeReference("a", LongType)(), AttributeReference("b", DoubleType)()))
+    assert(call.dataType == LongType)
+    assert(call.children.forall(c => !c.isInstanceOf[Cast]), s"unexpected cast in ${call.children}")
+  }
+
+  test("native udf declared by name rejects a call that binds to no signature") {
+    // Only map(K,V) is registered in Velox. An array argument resolves to nothing, and since a
+    // by-name udf has no JVM implementation behind it the call is rejected at analysis rather
+    // than offloaded with a guessed type.
+    val e = intercept[Exception] {
+      spark.sql("SELECT myudf_map_cardinality(array(col1)) FROM VALUES (1L) AS t(col1)").collect()
+    }
+    // Pin the reason, so the test cannot pass on an unrelated analysis failure.
+    val causes = Iterator.iterate(e: Throwable)(_.getCause).takeWhile(_ != null).toSeq
+    assert(
+      causes.exists {
+        c =>
+          c.isInstanceOf[GlutenNotSupportException] &&
+          c.getMessage.contains("myudf_map_cardinality -> array<bigint>")
+      },
+      s"expected an unresolved-signature failure, got: ${causes.map(_.toString).mkString("; ")}"
+    )
+  }
+
+  // libmyudaf declares myudaf_arbitrary the same way, and its Velox signature is T -> T with
+  // intermediate T. A UDAF is only reachable from SQL through a hive UDAF class name, so the
+  // resolution is driven directly here. Both the result type and the aggregation buffer come
+  // from the signature that binds.
+  test("native udaf declared by name resolves its return and intermediate types per call site") {
+    assert(UDFResolver.UDAFNames.contains("myudaf_arbitrary"))
+
+    Seq[DataType](
+      LongType,
+      StringType,
+      MapType(StringType, ArrayType(LongType))
+    ).foreach {
+      argType =>
+        val udaf = UDFResolver.getUdafExpression("myudaf_arbitrary")(
+          Seq(AttributeReference("c", argType)()))
+        // arbitrary(T) returns T and accumulates in T.
+        assert(udaf.dataType == argType, s"return type for $argType")
+        assert(
+          udaf.aggBufferAttributes.map(_.dataType) == Seq(argType),
+          s"aggregation buffer for $argType")
+    }
+  }
+
+  test("native udaf declared by name exchanges partial state across a shuffle") {
+    // libmyudaf also registers the aggregate under this hive UDAF class name, which is the only
+    // way a query can reach a UDAF. A grouped aggregation splits into partial and final stages
+    // around a shuffle, so the intermediate type resolved from the Velox signature is what the
+    // two stages have to agree on -- the disagreement a restated intermediateType can introduce
+    // is exactly what would fail here.
+    val tbl = "test_registry_udaf_shuffle"
+    val udafClass = "test.org.apache.spark.sql.MyDoubleSum"
+    withTempPath {
+      dir =>
+        try {
+          assert(UDFResolver.UDAFNames.contains(udafClass))
+
+          spark.sql(s"""
+                       |CREATE TEMPORARY FUNCTION my_arbitrary
+                       |AS '$udafClass'
+                       |""".stripMargin)
+          spark.sql(s"""
+                       |CREATE EXTERNAL TABLE $tbl
+                       |LOCATION 'file://$dir'
+                       |AS SELECT * FROM VALUES
+                       |  ('a', 1.0D), ('a', 1.0D), ('b', 2.0D), ('b', 2.0D) AS t(k, v)
+                       |""".stripMargin)
+
+          val df = spark.sql(
+            s"SELECT k, my_arbitrary(v) AS agg FROM $tbl GROUP BY k ORDER BY k")
+
+          val plan = df.queryExecution.executedPlan
+          val aggregates = plan.collect { case h: HashAggregateExecTransformer => h }
+          assert(
+            aggregates.size >= 2,
+            s"expected a partial and a final native aggregate, got ${aggregates.size} in:\n$plan")
+          assert(
+            plan.exists(_.isInstanceOf[ShuffleExchangeLike]),
+            s"expected the partial state to cross a shuffle in:\n$plan")
+
+          // Every row in a group carries the same value, so which one arbitrary keeps does not
+          // change the answer.
+          checkAnswer(df, Seq(Row("a", 1.0d), Row("b", 2.0d)))
+        } finally {
+          spark.sql(s"DROP TABLE IF EXISTS $tbl")
+          spark.sql("DROP TEMPORARY FUNCTION IF EXISTS my_arbitrary")
+        }
+    }
+  }
+
+  test("native udaf declared by name reports a call that binds to no signature") {
+    // arbitrary takes one argument. A miss has to surface as an unsupported expression so the
+    // aggregate falls back to the JVM, not as a silently wrong buffer schema.
+    intercept[GlutenNotSupportException] {
+      UDFResolver.getUdafExpression("myudaf_arbitrary")(
+        Seq(AttributeReference("a", LongType)(), AttributeReference("b", LongType)()))
     }
   }
 }
