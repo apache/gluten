@@ -42,14 +42,14 @@ The status applies to `spark.sql.ansi.enabled=false`. When ANSI mode is enabled,
 | &                  | BitwiseAnd          | S        |                |
 | <<                 | ShiftLeft           | S        |                |
 | >>                 | ShiftRight          | S        |                |
-| >>>                | ShiftRightUnsigned  |          |                |
+| >>>                | ShiftRightUnsigned  | S        |                |
 | ^                  | BitwiseXor          | S        |                |
 | bit_count          | BitwiseCount        | S        |                |
 | bit_get            | BitwiseGet          | S        |                |
 | getbit             | BitwiseGet          | S        |                |
 | shiftleft          | ShiftLeft           | S        |                |
 | shiftright         | ShiftRight          | S        |                |
-| shiftrightunsigned | ShiftRightUnsigned  |          |                |
+| shiftrightunsigned | ShiftRightUnsigned  | S        |                |
 | &#124;             | BitwiseOr           | S        |                |
 | ~                  | BitwiseNot          | S        |                |
 

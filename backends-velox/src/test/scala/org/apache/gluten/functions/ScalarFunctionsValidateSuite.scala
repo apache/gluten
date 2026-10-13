@@ -197,6 +197,46 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("shiftrightunsigned") {
+    withTempPath {
+      path =>
+        withTempView("shift_input") {
+          Seq[(Integer, java.lang.Long, Integer)](
+            (8, 8L, 1),
+            (-1, -1L, 1),
+            (Int.MinValue, Long.MinValue, 1),
+            (Int.MinValue, Long.MinValue, 31),
+            (-1, -1L, 32),
+            (-1, -1L, 33),
+            (-1, -1L, 63),
+            (-1, -1L, 64),
+            (-1, -1L, 65),
+            (-1, -1L, -1),
+            (Int.MinValue, Long.MinValue, Int.MaxValue),
+            (null, null, 1),
+            (1, 1L, null)
+          )
+            .toDF("int_value", "long_value", "shift")
+            .write
+            .parquet(path.getCanonicalPath)
+
+          spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("shift_input")
+
+          runQueryAndCompare(
+            """
+              |SELECT
+              |  shiftrightunsigned(int_value, shift),
+              |  int_value >>> shift,
+              |  shiftrightunsigned(long_value, shift),
+              |  long_value >>> shift
+              |FROM shift_input
+              |""".stripMargin) {
+            checkGlutenPlan[ProjectExecTransformer]
+          }
+        }
+    }
+  }
+
   test("array_aggregate") {
     withTempPath {
       path =>
