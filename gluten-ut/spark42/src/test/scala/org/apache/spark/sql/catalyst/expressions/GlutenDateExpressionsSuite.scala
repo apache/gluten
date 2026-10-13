@@ -38,6 +38,29 @@ class GlutenDateExpressionsSuite
   extends DateExpressionsSuite
   with GlutenExpressionOffloadTracker
   with GlutenTestsTrait {
+
+  // Velox also fails on the overflow, but with a VeloxUserError ("Could not convert Timestamp(...)
+  // to microseconds") instead of an ArithmeticException. Accept either.
+  testGluten("TruncTimestamp of Long.MinValue overflows with ArithmeticException") {
+    withDefaultTimeZone(UTC) {
+      val minTimestamp = Literal.create(Long.MinValue, TimestampType)
+      Seq("YEAR", "QUARTER", "MONTH", "WEEK", "DAY", "HOUR", "MINUTE", "SECOND", "MILLISECOND")
+        .foreach {
+          fmt =>
+            val e = intercept[Exception] {
+              checkEvaluation(TruncTimestamp(Literal.create(fmt, StringType), minTimestamp), null)
+            }
+            val causes = Iterator.iterate[Throwable](e)(_.getCause).takeWhile(_ != null).toSeq
+            assert(
+              causes.exists(
+                c =>
+                  c.isInstanceOf[ArithmeticException] ||
+                    Option(c.getMessage).exists(_.contains("Could not convert Timestamp"))),
+              s"Unexpected exception for $fmt: $e"
+            )
+        }
+    }
+  }
   override protected def offloadCategory: String = "datetime"
   override def testIntegralInput(testFunc: Number => Unit): Unit = {
     def checkResult(input: Long): Unit = {

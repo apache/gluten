@@ -188,7 +188,7 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("months_between")
     .exclude(
       "TruncTimestamp of Long.MinValue overflows with ArithmeticException"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
+    ) // Rewritten in GlutenDateExpressionsSuite: Velox throws a different error type.
   enableSuite[GlutenDecimalExpressionSuite]
   enableSuite[GlutenDecimalPrecisionSuite]
   enableSuite[GlutenGeneratorExpressionSuite]
