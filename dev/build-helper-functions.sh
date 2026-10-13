@@ -212,7 +212,7 @@ function cmake_install {
   ${SUDO} cmake --install "${BINARY_DIR}"
 }
 
-function install_librdkafka (
+function install_librdkafka() (
   local version="v2.13.0"
   source "${GLUTEN_DIR}/dev/build-helper-functions.sh"
   # Reuse the Kafka build directory on repeat installs.
