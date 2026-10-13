@@ -34,8 +34,8 @@
 #include <cudf/null_mask.hpp>
 #include <cudf/types.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
-#include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
+#include <cuda/stream>
 
 using namespace facebook::velox;
 
@@ -44,7 +44,7 @@ namespace gluten {
 namespace {
 
 struct DispatchColumn {
-  rmm::cuda_stream_view stream;
+  cuda::stream_ref stream;
   rmm::device_async_resource_ref mr;
   const std::vector<std::shared_ptr<arrow::Buffer>>& buffers;
   const int32_t numRows;
@@ -57,7 +57,7 @@ struct DispatchColumn {
 
     auto mask = cudf::create_null_mask(numRows, cudf::mask_state::UNINITIALIZED, stream, mr);
     auto copySize = std::min(static_cast<size_t>(buffer->size()), mask.size());
-    CUDF_CUDA_TRY(cudaMemcpyAsync(mask.data(), buffer->data(), copySize, cudaMemcpyHostToDevice, stream.value()));
+    CUDF_CUDA_TRY(cudaMemcpyAsync(mask.data(), buffer->data(), copySize, cudaMemcpyHostToDevice, stream.get()));
     return mask;
   }
 
@@ -72,7 +72,7 @@ struct DispatchColumn {
     // === Step 2: allocate GPU device buffers and copy ===
     rmm::device_buffer dataBuf(values->size(), stream, mr);
     CUDF_CUDA_TRY(
-        cudaMemcpyAsync(dataBuf.data(), values->data(), values->size(), cudaMemcpyHostToDevice, stream.value()));
+        cudaMemcpyAsync(dataBuf.data(), values->data(), values->size(), cudaMemcpyHostToDevice, stream.get()));
 
     auto nullBuf = getMaskBuffer(nulls);
 
@@ -92,7 +92,7 @@ struct DispatchColumn {
     // --- 2. Copy offsets to GPU ---
     rmm::device_buffer offsetBuf(offsets->size(), stream, mr);
     CUDF_CUDA_TRY(
-        cudaMemcpyAsync(offsetBuf.data(), offsets->data(), offsets->size(), cudaMemcpyHostToDevice, stream.value()));
+        cudaMemcpyAsync(offsetBuf.data(), offsets->data(), offsets->size(), cudaMemcpyHostToDevice, stream.get()));
 
     // --- 3. Empty null mask (no nulls in offset column) ---
     auto nullBuf = cudf::create_null_mask(0, cudf::mask_state::UNALLOCATED, stream, mr);
@@ -125,8 +125,8 @@ struct DispatchColumn {
     auto offsetColumn = getOffsetsColumn(offsets);
 
     rmm::device_buffer chars(valueBuffer->size(), stream, mr);
-    CUDF_CUDA_TRY(cudaMemcpyAsync(
-        chars.data(), valueBuffer->data_as<uint8_t>(), chars.size(), cudaMemcpyDefault, stream.value()));
+    CUDF_CUDA_TRY(
+        cudaMemcpyAsync(chars.data(), valueBuffer->data_as<uint8_t>(), chars.size(), cudaMemcpyDefault, stream.get()));
     return cudf::make_strings_column(numRows, std::move(offsetColumn), std::move(chars), nullCount, std::move(mask));
   }
 };
