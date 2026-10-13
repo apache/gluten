@@ -16,6 +16,33 @@
  */
 package org.apache.spark.sql
 
+import org.apache.spark.{SparkException, SparkRuntimeException, SparkThrowable}
+
 class GlutenResolveDefaultColumnsSuite
   extends ResolveDefaultColumnsSuite
-  with GlutenSQLTestsTrait {}
+  with GlutenSQLTestsTrait {
+
+  // Velox runs the write-side CHAR/VARCHAR length check, so the failure is a SparkException with
+  // Velox's message instead of a SparkRuntimeException with EXCEED_LIMIT_LENGTH.
+  testGluten(
+    "SPARK-57187: non-foldable default exceeding CHAR/VARCHAR length fails at INSERT time " +
+      "(explicit DEFAULT keyword)") {
+    Seq("CHAR", "VARCHAR").foreach {
+      typeName =>
+        withTable("t") {
+          sql(s"CREATE TABLE t(i INT, s $typeName(1) DEFAULT current_user()) USING parquet")
+          val e = intercept[SparkThrowable](sql("INSERT INTO t VALUES (1, DEFAULT)"))
+          e match {
+            case _: SparkRuntimeException =>
+              checkError(
+                exception = e,
+                condition = "EXCEED_LIMIT_LENGTH",
+                parameters = Map("limit" -> "1"))
+            case sparkException: SparkException =>
+              assert(sparkException.getMessage.contains("Exceeds allowed length limitation: 1"))
+            case _ => fail(s"Unexpected exception: $e")
+          }
+        }
+    }
+  }
+}
