@@ -82,6 +82,9 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def veloxOrcScanEnabled: Boolean =
     getConf(VELOX_ORC_SCAN_ENABLED)
 
+  def scanMapKeyPruningEnabled: Boolean =
+    getConf(SCAN_MAP_KEY_PRUNING_ENABLED)
+
   def floatingPointMode: String = getConf(FLOATING_POINT_MODE)
 
   def enableRewriteCastArrayToString: Boolean =
@@ -278,6 +281,17 @@ object VeloxConfig extends ConfigRegistry {
       .doc("The split preload per task")
       .intConf
       .createWithDefault(2)
+
+  val SCAN_MAP_KEY_PRUNING_ENABLED =
+    buildConf("spark.gluten.sql.columnar.backend.velox.scanMapKeyPruningEnabled")
+      .doc(
+        "When true, a map column read by a native Parquet scan is declared to Velox with only " +
+          "the constant keys the query looks up (m['k'], element_at(m, 'k'), null checks), so " +
+          "the reader skips the other entries. Applies when every use of the map sits in the " +
+          "filters and projections directly above the scan and the map is dropped before any " +
+          "other operator sees it; otherwise the map is read whole. See ScanMapKeyPruning.")
+      .booleanConf
+      .createWithDefault(false)
 
   val COLUMNAR_VELOX_GLOG_VERBOSE_LEVEL =
     buildConf("spark.gluten.sql.columnar.backend.velox.glogVerboseLevel")

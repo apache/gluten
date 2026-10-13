@@ -165,9 +165,27 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     }
   }
 
-  override def getDecimalArithmeticExprName(exprName: String, allowPrecisionLoss: Boolean): String =
-    if (!allowPrecisionLoss) { exprName + "_deny_precision_loss" }
-    else { exprName }
+  /**
+   * In ANSI mode, decimal Add, Subtract and Multiply map to Velox's checked_ functions, which throw
+   * on overflow instead of returning null.
+   */
+  override def getDecimalArithmeticExprName(
+      exprName: String,
+      original: BinaryArithmetic,
+      allowPrecisionLoss: Boolean): String = {
+    val name = if (ExpressionUtils.withAnsiEvalMode(original)) {
+      original match {
+        case _: Add => ExpressionNames.CHECKED_ADD
+        case _: Subtract => ExpressionNames.CHECKED_SUBTRACT
+        case _: Multiply => ExpressionNames.CHECKED_MULTIPLY
+        case _ => exprName
+      }
+    } else {
+      exprName
+    }
+    if (!allowPrecisionLoss) { name + "_deny_precision_loss" }
+    else { name }
+  }
 
   /** Transform map_entries to Substrait. */
   override def genMapEntriesTransformer(
@@ -1123,10 +1141,31 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       left: ExpressionTransformer,
       right: ExpressionTransformer,
       original: GetMapValue): ExpressionTransformer = {
-    GenericExpressionTransformer(
-      ExpressionMappings.expressionsMap(classOf[ElementAt]),
-      Seq(left, right),
-      original)
+    // Emitted as get_map_value (Gluten function overlay) rather than rewritten
+    // to element_at: the map-only subscript is subfield-pushdown capable, so a
+    // scan remaining filter on m['k'] extracts m["k"] and keeps map-key
+    // pruning effective.
+    GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
+  }
+
+  /**
+   * ElementAt on a map is emitted as get_map_value, like GetMapValue, so that a scan remaining
+   * filter such as element_at(m, 'k').x = 1 extracts the subfield m["k"] and map-key pruning stays
+   * effective; Velox's element_at also serves arrays and is not subfield-pushdown capable, so it
+   * would add the bare column m and keep every entry. The two agree on maps: the value under the
+   * key, or NULL when it is absent. In ANSI mode a missing key is an error instead, and the mapped
+   * element_at is kept.
+   */
+  override def genElementAtTransformer(
+      substraitExprName: String,
+      left: ExpressionTransformer,
+      right: ExpressionTransformer,
+      original: ElementAt): ExpressionTransformer = {
+    if (original.left.dataType.isInstanceOf[MapType] && !original.failOnError) {
+      GenericExpressionTransformer(ExpressionNames.GET_MAP_VALUE, Seq(left, right), original)
+    } else {
+      GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
+    }
   }
 
   override def genStringToMapTransformer(

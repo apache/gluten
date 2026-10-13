@@ -1,0 +1,133 @@
+VeloxColumnarToRow
+  TakeOrderedAndProjectExecTransformer [s_store_name1,s_store_id1,d_week_seq1,(sun_sales1 / sun_sales2),(mon_sales1 / mon_sales2),(tue_sales1 / tue_sales2),(wed_sales1 / wed_sales2),(thu_sales1 / thu_sales2),(fri_sales1 / fri_sales2),(sat_sales1 / sat_sales2)]
+    WholeStageCodegenTransformer (14)
+      ProjectExecTransformer [s_store_name1,s_store_id1,d_week_seq1,sun_sales1,sun_sales2,mon_sales1,mon_sales2,tue_sales1,tue_sales2,wed_sales1,wed_sales2,thu_sales1,thu_sales2,fri_sales1,fri_sales2,sat_sales1,sat_sales2]
+        BroadcastHashJoinExecTransformer [s_store_id1,d_week_seq1,s_store_id2,d_week_seq2]
+          ProjectExecTransformer [s_store_name,d_week_seq,s_store_id,sun_sales,mon_sales,tue_sales,wed_sales,thu_sales,fri_sales,sat_sales]
+            BroadcastHashJoinExecTransformer [d_week_seq,d_week_seq]
+              ProjectExecTransformer [d_week_seq,sun_sales,mon_sales,tue_sales,wed_sales,thu_sales,fri_sales,sat_sales,s_store_id,s_store_name]
+                BroadcastHashJoinExecTransformer [ss_store_sk,s_store_sk]
+                  ProjectExecTransformer [d_week_seq,ss_store_sk,sum(UnscaledValue(CASE WHEN (d_day_name = Sunday   ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Monday   ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Tuesday  ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Wednesday) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Thursday ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Friday   ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Saturday ) THEN ss_sales_price END))]
+                    RegularHashAggregateExecTransformer [d_week_seq,ss_store_sk,sum,sum,sum,sum,sum,sum,sum] [sum(UnscaledValue(CASE WHEN (d_day_name = Sunday   ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Monday   ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Tuesday  ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Wednesday) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Thursday ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Friday   ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Saturday ) THEN ss_sales_price END)),sum,sum,sum,sum,sum,sum,sum]
+                      InputIteratorTransformer
+                        InputAdapter
+                          ColumnarExchange [d_week_seq,ss_store_sk,sum,sum,sum,sum,sum,sum,sum] #1
+                            VeloxResizeBatches
+                              WholeStageCodegenTransformer (4)
+                                ProjectExecTransformer [d_week_seq,ss_store_sk,sum,sum,sum,sum,sum,sum,sum]
+                                  FlushableHashAggregateExecTransformer [d_week_seq,ss_store_sk,_pre_x,_pre_x,_pre_x,_pre_x,_pre_x,_pre_x,_pre_x] [sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum]
+                                    ProjectExecTransformer [ss_store_sk,d_week_seq,d_day_name,ss_sales_price]
+                                      BroadcastHashJoinExecTransformer [ss_sold_date_sk,d_date_sk]
+                                        FilterExecTransformer [ss_store_sk]
+                                          FileSourceScanExecTransformer parquet spark_catalog.default.store_sales [ss_store_sk,ss_sales_price,ss_sold_date_sk]
+                                        InputIteratorTransformer
+                                          InputAdapter
+                                            ColumnarBroadcastExchange #2
+                                              WholeStageCodegenTransformer (3)
+                                                FilterExecTransformer [d_date_sk,d_week_seq]
+                                                  Subquery #1
+                                                    VeloxColumnarToRow
+                                                      WholeStageCodegenTransformer (2)
+                                                        RegularHashAggregateExecTransformer [bloom_filter_agg(xxhash64(d_week_seq, 42), 335, 8990, 0, 0),bloomFilter,buf,buf]
+                                                          InputIteratorTransformer
+                                                            InputAdapter
+                                                              ColumnarExchange #3
+                                                                VeloxResizeBatches
+                                                                  WholeStageCodegenTransformer (1)
+                                                                    FlushableHashAggregateExecTransformer [_pre_x] [buf,buf,buf]
+                                                                      ProjectExecTransformer [d_week_seq]
+                                                                        FilterExecTransformer [d_month_seq,d_week_seq]
+                                                                          FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_month_seq,d_week_seq]
+                                                  FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_date_sk,d_week_seq,d_day_name]
+                                                    Subquery #1
+                                                      VeloxColumnarToRow
+                                                        WholeStageCodegenTransformer (2)
+                                                          RegularHashAggregateExecTransformer [bloom_filter_agg(xxhash64(d_week_seq, 42), 335, 8990, 0, 0),bloomFilter,buf,buf]
+                                                            InputIteratorTransformer
+                                                              InputAdapter
+                                                                ColumnarExchange #3
+                                                                  VeloxResizeBatches
+                                                                    WholeStageCodegenTransformer (1)
+                                                                      FlushableHashAggregateExecTransformer [_pre_x] [buf,buf,buf]
+                                                                        ProjectExecTransformer [d_week_seq]
+                                                                          FilterExecTransformer [d_month_seq,d_week_seq]
+                                                                            FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_month_seq,d_week_seq]
+                  InputIteratorTransformer
+                    InputAdapter
+                      ColumnarBroadcastExchange #4
+                        WholeStageCodegenTransformer (5)
+                          FilterExecTransformer [s_store_sk,s_store_id]
+                            FileSourceScanExecTransformer parquet spark_catalog.default.store [s_store_sk,s_store_id,s_store_name]
+              InputIteratorTransformer
+                InputAdapter
+                  ColumnarBroadcastExchange #5
+                    WholeStageCodegenTransformer (6)
+                      ProjectExecTransformer [d_week_seq]
+                        FilterExecTransformer [d_month_seq,d_week_seq]
+                          FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_month_seq,d_week_seq]
+          InputIteratorTransformer
+            InputAdapter
+              ColumnarBroadcastExchange #6
+                WholeStageCodegenTransformer (13)
+                  ProjectExecTransformer [d_week_seq,s_store_id,sun_sales,mon_sales,tue_sales,wed_sales,thu_sales,fri_sales,sat_sales]
+                    BroadcastHashJoinExecTransformer [d_week_seq,d_week_seq]
+                      ProjectExecTransformer [d_week_seq,sun_sales,mon_sales,tue_sales,wed_sales,thu_sales,fri_sales,sat_sales,s_store_id]
+                        BroadcastHashJoinExecTransformer [ss_store_sk,s_store_sk]
+                          ProjectExecTransformer [d_week_seq,ss_store_sk,sum(UnscaledValue(CASE WHEN (d_day_name = Sunday   ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Monday   ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Tuesday  ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Wednesday) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Thursday ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Friday   ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Saturday ) THEN ss_sales_price END))]
+                            RegularHashAggregateExecTransformer [d_week_seq,ss_store_sk,sum,sum,sum,sum,sum,sum,sum] [sum(UnscaledValue(CASE WHEN (d_day_name = Sunday   ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Monday   ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Tuesday  ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Wednesday) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Thursday ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Friday   ) THEN ss_sales_price END)),sum(UnscaledValue(CASE WHEN (d_day_name = Saturday ) THEN ss_sales_price END)),sum,sum,sum,sum,sum,sum,sum]
+                              InputIteratorTransformer
+                                InputAdapter
+                                  ColumnarExchange [d_week_seq,ss_store_sk,sum,sum,sum,sum,sum,sum,sum] #7
+                                    VeloxResizeBatches
+                                      WholeStageCodegenTransformer (10)
+                                        ProjectExecTransformer [d_week_seq,ss_store_sk,sum,sum,sum,sum,sum,sum,sum]
+                                          FlushableHashAggregateExecTransformer [d_week_seq,ss_store_sk,_pre_x,_pre_x,_pre_x,_pre_x,_pre_x,_pre_x,_pre_x] [sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum]
+                                            ProjectExecTransformer [ss_store_sk,d_week_seq,d_day_name,ss_sales_price]
+                                              BroadcastHashJoinExecTransformer [ss_sold_date_sk,d_date_sk]
+                                                FilterExecTransformer [ss_store_sk]
+                                                  FileSourceScanExecTransformer parquet spark_catalog.default.store_sales [ss_store_sk,ss_sales_price,ss_sold_date_sk]
+                                                InputIteratorTransformer
+                                                  InputAdapter
+                                                    ColumnarBroadcastExchange #8
+                                                      WholeStageCodegenTransformer (9)
+                                                        FilterExecTransformer [d_date_sk,d_week_seq]
+                                                          Subquery #2
+                                                            VeloxColumnarToRow
+                                                              WholeStageCodegenTransformer (8)
+                                                                RegularHashAggregateExecTransformer [bloom_filter_agg(xxhash64(d_week_seq, 42), 335, 8990, 0, 0),bloomFilter,buf,buf]
+                                                                  InputIteratorTransformer
+                                                                    InputAdapter
+                                                                      ColumnarExchange #9
+                                                                        VeloxResizeBatches
+                                                                          WholeStageCodegenTransformer (7)
+                                                                            FlushableHashAggregateExecTransformer [_pre_x] [buf,buf,buf]
+                                                                              ProjectExecTransformer [d_week_seq]
+                                                                                FilterExecTransformer [d_month_seq,d_week_seq]
+                                                                                  FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_month_seq,d_week_seq]
+                                                          FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_date_sk,d_week_seq,d_day_name]
+                                                            Subquery #2
+                                                              VeloxColumnarToRow
+                                                                WholeStageCodegenTransformer (8)
+                                                                  RegularHashAggregateExecTransformer [bloom_filter_agg(xxhash64(d_week_seq, 42), 335, 8990, 0, 0),bloomFilter,buf,buf]
+                                                                    InputIteratorTransformer
+                                                                      InputAdapter
+                                                                        ColumnarExchange #9
+                                                                          VeloxResizeBatches
+                                                                            WholeStageCodegenTransformer (7)
+                                                                              FlushableHashAggregateExecTransformer [_pre_x] [buf,buf,buf]
+                                                                                ProjectExecTransformer [d_week_seq]
+                                                                                  FilterExecTransformer [d_month_seq,d_week_seq]
+                                                                                    FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_month_seq,d_week_seq]
+                          InputIteratorTransformer
+                            InputAdapter
+                              ColumnarBroadcastExchange #10
+                                WholeStageCodegenTransformer (11)
+                                  FilterExecTransformer [s_store_sk,s_store_id]
+                                    FileSourceScanExecTransformer parquet spark_catalog.default.store [s_store_sk,s_store_id]
+                      InputIteratorTransformer
+                        InputAdapter
+                          ColumnarBroadcastExchange #11
+                            WholeStageCodegenTransformer (12)
+                              ProjectExecTransformer [d_week_seq]
+                                FilterExecTransformer [d_month_seq,d_week_seq]
+                                  FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_month_seq,d_week_seq]

@@ -49,6 +49,11 @@ object ConverterUtils extends Logging {
   }
 
   def normalizeColName(name: String): String = {
+    // An attribute may carry a null name (e.g. built from a StructField with a null name,
+    // SPARK-57725). Map it to an empty name; generated column names stay unique via the exprId.
+    if (name == null) {
+      return ""
+    }
     val caseSensitive = SQLConf.get.caseSensitiveAnalysis
     if (caseSensitive) name else name.toLowerCase(Locale.ROOT)
   }
