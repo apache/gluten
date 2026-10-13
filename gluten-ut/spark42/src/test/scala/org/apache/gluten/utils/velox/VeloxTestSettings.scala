@@ -1215,7 +1215,7 @@ class VeloxTestSettings extends BackendTestSettings {
     ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
     .exclude(
       "array_join with nullable nullReplacement under whole-stage codegen"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
+    ) // Rewritten in GlutenDataFrameFunctionsSuite: the plan has no WholeStageCodegenExec.
   enableSuite[GlutenDataFrameHintSuite]
   enableSuite[GlutenDataFrameImplicitsSuite]
   enableSuite[GlutenDataFrameJoinSuite]
