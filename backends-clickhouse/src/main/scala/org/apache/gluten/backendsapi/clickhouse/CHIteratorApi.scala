@@ -64,12 +64,12 @@ class CHIteratorApi extends IteratorApi with Logging with LogLevelUtil {
     val resolver = org.apache.spark.sql.internal.SQLConf.get.resolver
     schema.foreach {
       field =>
-        val newField = names.find(n => resolver(n, field.name)) match {
+        val resolvedField = names.find(n => resolver(n, field.name)) match {
           case Some(physicalName) =>
             StructField(physicalName, field.dataType, field.nullable, field.metadata)
           case None => field
         }
-        dataSchema += newField
+        dataSchema += resolvedField
     }
     StructType(dataSchema.toSeq)
   }

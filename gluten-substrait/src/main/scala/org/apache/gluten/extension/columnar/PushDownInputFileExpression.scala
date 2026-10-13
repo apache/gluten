@@ -45,21 +45,13 @@ import scala.collection.mutable
 object PushDownInputFileExpression {
 
   /**
-   * Metadata key used to mark AttributeReferences that were injected by PreOffload to carry
-   * input-file function values (input_file_name, input_file_block_start, input_file_block_length).
-   * BasicScanExecTransformer.makeColumnTypeNode checks this key and emits METADATA_COL for these
-   * attributes so that Velox classifies them as kSynthesized (infoColumns) rather than kRegular,
-   * avoiding a "Cannot map from same table column to different outputs in table scan" collision
-   * when a user data column has the same case-insensitive name (e.g. Input_File_Name vs injected
-   * input_file_name).
+   * Metadata key used to mark AttributeReferences injected by PreOffload for input-file functions.
+   * Emits METADATA_COL so Velox classifies them as infoColumns (kSynthesized) rather than kRegular.
    */
   val GLUTEN_INPUT_FILE_COL_ATTR_KEY = "__gluten_input_file_col__"
 
   /**
-   * Metadata key that stores the canonical (Spark) prettyName of the input-file function (e.g.
-   * "input_file_name") for an injected attribute. When a caseSensitive=false name collision forces
-   * us to give the injected attribute a mangled schema name, this key lets BasicScanExecTransformer
-   * recover the canonical name and pass the correct value to the Velox split infoColumns map.
+   * Metadata key storing the canonical input-file function name when mangled schema names are used.
    */
   val GLUTEN_INPUT_FILE_CANON_KEY = "__gluten_input_file_canon__"
 
@@ -184,10 +176,8 @@ object PushDownInputFileExpression {
     }
 
   /**
-   * Returns the private schema name used for an injected input-file alias when a
-   * caseSensitive=false name collision is detected. The mangled name starts with the
-   * GLUTEN_INPUT_FILE_COL_ATTR_KEY prefix, guaranteeing it can never collide with a real user
-   * column (real columns cannot be named with double-underscore Gluten-internal identifiers).
+   * Returns a mangled schema name prefixed with [[GLUTEN_INPUT_FILE_COL_ATTR_KEY]] to avoid name
+   * collisions with user columns.
    */
   private[columnar] def mangledSchemaName(prettyName: String): String =
     s"$GLUTEN_INPUT_FILE_COL_ATTR_KEY${prettyName}__"
@@ -213,23 +203,9 @@ object PushDownInputFileExpression {
     }
 
     /**
-     * Returns the set of input-file function prettyNames (e.g. "input_file_name") whose injected
-     * aliases must be given mangled schema names because a user column in the scan output
-     * normalises (via ConverterUtils.normalizeColName) to the same lowercase string.
-     *
-     * Under caseSensitive=true, normalizeColName preserves case, so "Input_File_Name" and
-     * "input_file_name" remain distinct -- no mangling needed, empty set returned. However, a user
-     * column whose name is an exact lowercase match to the function prettyName (e.g.
-     * "input_file_name") will still be detected as a collision even under caseSensitive=true,
-     * because both names normalise to the same string. In that case the injected alias is mangled
-     * AND the scan is fallback-tagged (in addMetadataCol) so the JVM scan sets the InputFileName
-     * thread-local.
-     *
-     * Under caseSensitive=false, normalizeColName lowercases all names. A user column
-     * "Input_File_Name" lowercases to "input_file_name", colliding with the injected alias of the
-     * same name in the Velox NamedStruct schema. In this case we return {"input_file_name"} so that
-     * the alias is given the private name mangledSchemaName("input_file_name") instead, avoiding
-     * the Velox "Cannot map from same table column to different outputs" error.
+     * Returns the set of input-file function prettyNames whose injected aliases must be given
+     * mangled schema names due to collisions with user columns in the scan output under case
+     * normalization.
      */
     private def collidingInputFilePrettyNames(plan: SparkPlan): Set[String] = {
       val inputFilePrettyNames = Set(
@@ -421,13 +397,8 @@ object PushDownInputFileExpression {
           val newProjList = projectList.map {
             expr => rewriteExpr(expr, replacedExprs).asInstanceOf[NamedExpression]
           }
-          // Use expression ID to determine whether the injected metadata attribute is already
-          // present in the scan output. Name-based dedup via toLowerCase is incorrect under
-          // caseSensitive=true: a user column named e.g. "Input_File_Name" would collapse to
-          // "input_file_name" and be treated as a duplicate of the injected metadata attribute,
-          // causing the metadata attr to be dropped while the rewritten project list still holds
-          // a reference to it, producing a dangling-attribute IllegalStateException.
-          // The injected attributes are freshly created (new exprId) so identity is reliable.
+          // Dedup injected attributes by exprId rather than name to prevent erroneously dropping
+          // metadata attributes when user column names differ only by casing.
           val existingExprIds = child.output.map(_.exprId).toSet
           val newAttrs = replacedExprs.values.toSeq
             .map(_.toAttribute.asInstanceOf[AttributeReference])
