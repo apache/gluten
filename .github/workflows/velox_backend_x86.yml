@@ -44,7 +44,8 @@ on:
   # breadth once a day, so a combo dropped from the per-PR tier can stay broken
   # for at most a day. It also gives the default branch a post-merge signal,
   # which the per-PR-only trigger above never provided. 02:00 avoids the
-  # 00:00 velox_nightly.yml and 05:00 delta_spark_ut.yml slots.
+  # 00:00 velox_nightly.yml, 05:00 delta_spark_ut.yml and 07:00
+  # iceberg_spark_ut.yml slots.
   schedule:
     - cron: '0 2 * * *'
   # On-demand full run (e.g. to re-check an extended combo before a release).

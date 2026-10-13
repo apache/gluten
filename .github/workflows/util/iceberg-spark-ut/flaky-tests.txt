@@ -1,0 +1,28 @@
+# Quarantined flaky Iceberg-on-Gluten tests.
+#
+# These tests fail NON-DETERMINISTICALLY under Gluten/Velox: the same build
+# passes them on one CI run and fails them on the next. They therefore cannot
+# live in a known-failures baseline -- baselining them turns the gate red on
+# every run where they PASS (fail-on-fixed), while leaving them out turns it red
+# on every run where they FAIL. The Iceberg Spark UT (Gluten) gate treats a
+# quarantined test as NEUTRAL: it never counts as a regression when it fails,
+# nor as now-passing when it passes, and it is excluded from the regenerated
+# baseline.
+#
+# Shared by both Spark targets (flakiness is rarely version specific); the
+# known-failures baselines are per target.
+#
+# Format: <class-glob>#<exact test name>. The CLASS part is an fnmatch glob so a
+# single line can cover a family of generated variants (e.g. `*TestMergeOnRead*`
+# = every merge-on-read variant); the TEST name is matched exactly. Lines
+# starting with '#' are comments. Note that Iceberg's JUnit 5 parameterized
+# tests carry their parameters in the test name (e.g.
+# `testFoo(String)[1]`), so an entry must reproduce the name exactly as the
+# JUnit XML reports it.
+#
+# Prefer fixing the underlying bug and REMOVING the entry over growing this
+# list. Every entry should reference a tracking issue for the root cause.
+#
+# NOTE: when a bug surfaces on a DIFFERENT test each run (so matching by name is
+# whack-a-mole), quarantine it by ERROR SIGNATURE in flaky-error-patterns.txt
+# instead.

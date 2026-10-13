@@ -65,3 +65,30 @@ To refresh the baseline after fixing something, run the workflow with `update_ba
 See [.github/workflows/util/delta-spark-ut/README.md](https://github.com/apache/gluten/blob/main/.github/workflows/util/delta-spark-ut/README.md)
 for the gate, the flaky-test quarantine and baseline bootstrapping.
 Open follow-ups are tracked in [#12743](https://github.com/apache/gluten/issues/12743).
+
+## Iceberg Spark UT
+`iceberg_spark_ut.yml` is the Iceberg counterpart of the Delta pipeline: it runs Apache Iceberg's own `spark`
+and `spark-extensions` test classes against Gluten/Velox, for Spark 3.4/3.5 + Scala 2.12 and Spark 4.0 + Scala
+2.13, and gates each run against a committed baseline of known failures
+(`.github/workflows/util/iceberg-spark-ut/known-failures-spark-<version>.txt`, one per target) with the same
+script the Delta pipeline uses.
+
+It needs no upstream clone and no Gluten bundle jar, because Iceberg publishes its Spark test classes as
+`-tests.jar` artifacts that Gluten's `-Piceberg` profile already declares.
+Surefire is pointed at those jars with `-DdependenciesToScan`, so the whole upstream suite runs (~195 test
+classes per Spark version).
+Gluten is enabled without patching any upstream source: no Iceberg test sets `spark.plugins`, and Spark's
+`SparkConf` picks up `spark.*` JVM system properties, so the Gluten conf is passed through surefire's
+`argLine` and reaches every `SparkSession` the tests build.
+
+This pipeline replaced the ~35 upstream Iceberg test classes that used to be copied into
+`backends-velox/src-iceberg-spark34/` and run inside the Spark-3.4 `spark-test-spark34` jobs; only Gluten's
+own `TestTPCHStoragePartitionedJoins` (no upstream equivalent) and the two base classes it extends remain
+there.
+
+It runs per PR only when Iceberg-relevant paths change (`gluten-iceberg/**`,
+`backends-velox/src-iceberg*/**`, or the pipeline's own files), nightly at 07:00 UTC for full coverage, and on
+demand via `workflow_dispatch` -- the manual run also chooses which Spark target(s) to test and can seed the
+baseline (`update_baseline=true`, then commit the `iceberg-spark-ut-known-failures-<version>` artifact).
+See [.github/workflows/util/iceberg-spark-ut/README.md](https://github.com/apache/gluten/blob/main/.github/workflows/util/iceberg-spark-ut/README.md)
+for the sharding, the local repro command and baseline bootstrapping.
