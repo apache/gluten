@@ -68,8 +68,9 @@ trait WithQueryPlanListener extends SharedSparkSession with AnyFunSuiteLike {
 
   override def afterEach(): Unit = {
     // Let any in-flight notifications finish before unregistering, e.g. when the test failed.
-    try waitForListenerBus()
-    finally {
+    try {
+      waitForListenerBus()
+    } finally {
       listeners().foreach(listener => spark.sessionState.listenerManager.unregister(listener))
       super.afterEach()
     }
