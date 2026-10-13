@@ -19,6 +19,7 @@ package org.apache.spark.sql.hive.execution
 import org.apache.spark.SparkFiles
 import org.apache.spark.sql.GlutenTestSetWithSystemPropertyTrait
 import org.apache.spark.sql.hive.HiveUtils.{builtinHiveVersion => hiveVersion}
+import org.apache.spark.sql.hive.test.{HiveTestJars, TestUDTFJar}
 import org.apache.spark.tags.SlowHiveTest
 
 import java.io.File
@@ -31,6 +32,7 @@ class GlutenHiveQuerySuite
 
   override def testNameBlackList: Seq[String] = Seq(
     "ADD FILE command",
+    "ADD JAR command 2",
     "SPARK-33084: Add jar support Ivy URI in SQL"
   )
 
@@ -69,5 +71,30 @@ class GlutenHiveQuerySuite
             s"org.apache.hive.hcatalog_hive-hcatalog-core-$hiveVersion.jar"))
           .count() > 0)
     }
+  }
+
+  // SPARK-56353 dropped the TestUDTF.jar `assume`, so this test now runs. TestHive.getHiveFile
+  // resolves to a path inside the spark-hive tests jar, which LOAD DATA cannot read.
+  testGluten("ADD JAR command 2") {
+    val testJar = HiveTestJars.getHiveHcatalogCoreJar().toURI
+    val testData = hiveResourcePath("data/files/sample.json").toUri
+    sql(s"ADD JAR $testJar")
+    withTable("t1") {
+      sql("""CREATE TABLE t1(a string, b string)
+            |ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe'""".stripMargin)
+      sql(s"""LOAD DATA LOCAL INPATH "$testData" INTO TABLE t1""")
+      sql("select * from src join t1 on src.key = t1.a")
+    }
+    assert(
+      sql("list jars")
+        .filter(_.getString(0).contains(HiveTestJars.getHiveHcatalogCoreJar().getName))
+        .count() > 0)
+    assert(
+      sql("list jar")
+        .filter(_.getString(0).contains(HiveTestJars.getHiveHcatalogCoreJar().getName))
+        .count() > 0)
+    val testJar2 = TestUDTFJar.jar.getCanonicalPath
+    sql(s"ADD JAR $testJar2")
+    assert(sql(s"list jar $testJar").count() == 1)
   }
 }
