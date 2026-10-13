@@ -50,6 +50,33 @@ class GlutenHiveQuerySuite
     assert(sql(s"list file $testFile").count() == 1)
   }
 
+  // SPARK-56353 dropped the TestUDTF.jar `assume`, so this test now runs. TestHive.getHiveFile
+  // resolves to a path inside the spark-hive tests jar, which LOAD DATA cannot read.
+  // Keep it before the Ivy test below, as in HiveQuerySuite: that test adds another
+  // hive-hcatalog-core jar, and `LIST JAR` matches jars by file name.
+  testGluten("ADD JAR command 2") {
+    val testJar = HiveTestJars.getHiveHcatalogCoreJar().toURI
+    val testData = hiveResourcePath("data/files/sample.json").toUri
+    sql(s"ADD JAR $testJar")
+    withTable("t1") {
+      sql("""CREATE TABLE t1(a string, b string)
+            |ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe'""".stripMargin)
+      sql(s"""LOAD DATA LOCAL INPATH "$testData" INTO TABLE t1""")
+      sql("select * from src join t1 on src.key = t1.a")
+    }
+    assert(
+      sql("list jars")
+        .filter(_.getString(0).contains(HiveTestJars.getHiveHcatalogCoreJar().getName))
+        .count() > 0)
+    assert(
+      sql("list jar")
+        .filter(_.getString(0).contains(HiveTestJars.getHiveHcatalogCoreJar().getName))
+        .count() > 0)
+    val testJar2 = TestUDTFJar.jar.getCanonicalPath
+    sql(s"ADD JAR $testJar2")
+    assert(sql(s"list jar $testJar").count() == 1)
+  }
+
   testGluten("SPARK-33084: Add jar support Ivy URI in SQL") {
     val testData = hiveResourcePath("data/files/sample.json").toUri
     withTable("t") {
@@ -73,28 +100,4 @@ class GlutenHiveQuerySuite
     }
   }
 
-  // SPARK-56353 dropped the TestUDTF.jar `assume`, so this test now runs. TestHive.getHiveFile
-  // resolves to a path inside the spark-hive tests jar, which LOAD DATA cannot read.
-  testGluten("ADD JAR command 2") {
-    val testJar = HiveTestJars.getHiveHcatalogCoreJar().toURI
-    val testData = hiveResourcePath("data/files/sample.json").toUri
-    sql(s"ADD JAR $testJar")
-    withTable("t1") {
-      sql("""CREATE TABLE t1(a string, b string)
-            |ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe'""".stripMargin)
-      sql(s"""LOAD DATA LOCAL INPATH "$testData" INTO TABLE t1""")
-      sql("select * from src join t1 on src.key = t1.a")
-    }
-    assert(
-      sql("list jars")
-        .filter(_.getString(0).contains(HiveTestJars.getHiveHcatalogCoreJar().getName))
-        .count() > 0)
-    assert(
-      sql("list jar")
-        .filter(_.getString(0).contains(HiveTestJars.getHiveHcatalogCoreJar().getName))
-        .count() > 0)
-    val testJar2 = TestUDTFJar.jar.getCanonicalPath
-    sql(s"ADD JAR $testJar2")
-    assert(sql(s"list jar $testJar").count() == 1)
-  }
 }
