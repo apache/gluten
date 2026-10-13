@@ -246,6 +246,9 @@ concat_velox_param
 # Keep VELOX_HOME visible to child processes such as Maven's build-info generation step.
 export VELOX_HOME
 
+# Expose dependency installers as explicit commands when setup is skipped.
+source "$GLUTEN_DIR/dev/build-helper-functions.sh"
+
 function build_arrow {
   if vcpkg_is_active; then
     echo "ERROR: build_arrow is deprecated with --enable_vcpkg=ON; Arrow is managed by Gluten vcpkg." >&2
@@ -353,6 +356,9 @@ function setup_dependencies {
   fi
   if [[ "$ENABLE_S3" == "ON" || "$ENABLE_GCS" == "ON" || "$ENABLE_HDFS" == "ON" || "$ENABLE_ABFS" == "ON" ]]; then
     install_adapters
+  fi
+  if [ "$ENABLE_KAFKA" = "ON" ] && ! vcpkg_is_active; then
+    install_librdkafka
   fi
   popd
 }

@@ -31,12 +31,12 @@ Please set them via `--`, e.g. `--build_type=Release`.
 | build_arrow            | Build arrow java/cpp and install the libs in local. Can turn it OFF after first build.        | ON      |
 | spark_version          | Build for specified version of Spark(3.4, 3.5, 4.0, 4.1, ALL). `ALL` means build for all versions. | ALL     |
 
-Use `--enable_kafka=ON` to enable Kafka streaming reads. With `--enable_vcpkg=ON`,
-vcpkg installs librdkafka. Without vcpkg, the platform setup scripts install
-`librdkafka-dev` on Ubuntu/Debian, `librdkafka-devel` on RPM-based Linux platforms,
-or `librdkafka` through Homebrew on macOS. With `--run_setup_script=OFF`, install
-librdkafka separately and make its CMake package or `rdkafka++` pkg-config metadata
-available to the build.
+With `--enable_kafka=ON`, dependency setup installs librdkafka via vcpkg or from
+source. For non-vcpkg builds with `--run_setup_script=OFF`, install it first:
+
+```bash
+./dev/builddeps-veloxbe.sh --enable_kafka=ON --run_setup_script=OFF install_librdkafka
+```
 
 ### Environment variables for build
 These environment variables can be set before running build scripts to control build behavior.
