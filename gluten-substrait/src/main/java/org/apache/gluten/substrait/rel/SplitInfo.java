@@ -31,4 +31,9 @@ public interface SplitInfo extends Serializable {
   List<String> preferredLocations();
 
   Message toProtobuf();
+
+  /** Serialized split passed to the native reader. Callers must not modify the returned bytes. */
+  default byte[] toProtobufBytes() {
+    return toProtobuf().toByteArray();
+  }
 }
