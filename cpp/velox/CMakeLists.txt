@@ -496,7 +496,47 @@ else()
   target_link_libraries(velox PUBLIC external::simdjson)
 endif()
 
+# Restore the platform's default suffixes before looking for optional dynamic
+# dependencies such as librdkafka.
 set(CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES_BCK})
+
+# Find and link librdkafka for Kafka streaming support
+if(ENABLE_KAFKA)
+  target_compile_definitions(velox PUBLIC ENABLE_KAFKA)
+  find_package(RdKafka CONFIG QUIET)
+  if(RdKafka_FOUND AND TARGET RdKafka::rdkafka++)
+    message(STATUS "Found RdKafka: ${RdKafka_DIR}")
+    target_link_libraries(velox PUBLIC RdKafka::rdkafka++)
+  else()
+    # Try to find librdkafka using pkg-config
+    find_package(PkgConfig QUIET)
+    if(PKG_CONFIG_FOUND)
+      pkg_check_modules(RDKAFKA QUIET IMPORTED_TARGET rdkafka++)
+      if(RDKAFKA_FOUND)
+        message(STATUS "Found librdkafka via pkg-config: ${RDKAFKA_LIBRARIES}")
+        target_link_libraries(velox PUBLIC PkgConfig::RDKAFKA)
+      else()
+        message(
+          FATAL_ERROR
+            "ENABLE_KAFKA is ON but the librdkafka C++ library was not found. "
+            "Install librdkafka-dev (Ubuntu/Debian), librdkafka-devel (RPM-based "
+            "Linux), or librdkafka (Homebrew). For an existing installation, "
+            "set RdKafka_DIR or CMAKE_PREFIX_PATH to locate its CMake package, "
+            "or PKG_CONFIG_PATH to the directory containing rdkafka++.pc. "
+            "To build without Kafka, pass --enable_kafka=OFF to the build script "
+            "or -DENABLE_KAFKA=OFF to CMake.")
+      endif()
+    else()
+      message(
+        FATAL_ERROR
+          "ENABLE_KAFKA is ON but the librdkafka C++ CMake target was not found "
+          "and pkg-config is unavailable. Install pkg-config, or set RdKafka_DIR "
+          "or CMAKE_PREFIX_PATH to an installation providing RdKafka::rdkafka++. "
+          "To build without Kafka, pass --enable_kafka=OFF to the build script "
+          "or -DENABLE_KAFKA=OFF to CMake.")
+    endif()
+  endif()
+endif()
 
 # Adopted from Velox's CMakeLists.txt.
 # https://github.com/facebookincubator/velox/pull/11410

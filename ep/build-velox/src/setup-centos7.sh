@@ -233,7 +233,7 @@ $SUDO dnf makecache
 
 # dnf install dependency libraries
 dnf_install epel-release dnf-plugins-core # For ccache, ninja
-dnf_install ccache wget which libevent-devel \
+dnf_install ccache wget which libevent-devel librdkafka-devel \
   yasm \
   openssl-devel libzstd-devel lz4-devel double-conversion-devel \
   curl-devel libxml2-devel libgsasl-devel libuuid-devel patch libicu-devel tzdata

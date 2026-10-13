@@ -41,7 +41,7 @@ RUN set -ex; \
     sed -i -e "s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-Stream-* || true; \
     dnf install -y --setopt=install_weak_deps=False gcc-toolset-12; \
     echo "check_certificate = off" >> ~/.wgetrc; \
-    yum install -y java-${JAVA_VERSION}-openjdk-devel patch wget git perl; \
+    yum install -y java-${JAVA_VERSION}-openjdk-devel patch wget git perl librdkafka-devel; \
     mirror_host="https://www.apache.org/dyn/closer.lua"; \
     wget -nv ${mirror_host}/celeborn/celeborn-0.5.4/apache-celeborn-0.5.4-bin.tgz?action=download -O /opt/apache-celeborn-0.5.4-bin.tgz; \
     wget -nv ${mirror_host}/celeborn/celeborn-0.6.3/apache-celeborn-0.6.3-bin.tgz?action=download -O /opt/apache-celeborn-0.6.3-bin.tgz; \

@@ -66,11 +66,17 @@ fi
 
 function process_setup_ubuntu {
   sed -i "s|run_and_time install_arrow||g" scripts/setup-ubuntu.sh
+  if ! grep -q 'librdkafka-dev' scripts/setup-ubuntu.sh; then
+    sed -i 's/libevent-dev /libevent-dev librdkafka-dev /' scripts/setup-ubuntu.sh
+  fi
   echo "Using setup script from Velox"
 }
 
 function process_setup_centos9 {
   sed -i "s|run_and_time install_arrow||g" scripts/setup-centos9.sh
+  if ! grep -q 'librdkafka-devel' scripts/setup-centos9.sh; then
+    sed -i 's/libevent-devel /libevent-devel librdkafka-devel /' scripts/setup-centos9.sh
+  fi
   echo "Using setup script from Velox"
 }
 
@@ -98,6 +104,9 @@ function process_setup_tencentos32 {
 function process_setup_macos {
   if ! grep -Fq 'FOLLY_USE_JEMALLOC=OFF' scripts/setup-common.sh; then
     sed -i '' 's/local FOLLY_FLAGS=(/local FOLLY_FLAGS=(-DFOLLY_USE_JEMALLOC=OFF /' scripts/setup-common.sh
+  fi
+  if ! grep -q 'librdkafka' scripts/setup-macos.sh; then
+    sed -i '' 's/MACOS_VELOX_DEPS="/MACOS_VELOX_DEPS="librdkafka /' scripts/setup-macos.sh
   fi
 }
 
