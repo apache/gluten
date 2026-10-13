@@ -319,9 +319,6 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenMathExpressionsSuite]
     // Spark round UT for round(3.1415,3) is not correct.
     .exclude("round/bround/floor/ceil")
-    .exclude(
-      "SPARK-56089: asinh/acosh fdlibm algorithm coverage"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenMiscExpressionsSuite]
   enableSuite[GlutenNondeterministicSuite]
     .exclude("MonotonicallyIncreasingID")
@@ -902,9 +899,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-47238: Test broadcast threshold for generated code")
   enableSuite[GlutenBroadcastExchangeSuite]
     .exclude("SPARK-52962: broadcast exchange should not reset metrics") // Add Gluten test
-    .exclude(
-      "SPARK-56455: broadcast should fail when table size exceeds maxBroadcastTableSize"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenLocalBroadcastExchangeSuite]
   enableSuite[GlutenCoalesceShufflePartitionsSuite]
     // Rewrite for Gluten. Change details are in the inline comments in individual tests.
@@ -916,9 +910,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("replace partial and final hash aggregate together with sort aggregate")
     .exclude("do not replace hash aggregate if child does not have sort order")
     .exclude("do not replace hash aggregate if there is no group-by column")
-    .exclude(
-      "Gluten - do not replace hash aggregate if child does not have sort order"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenReuseExchangeAndSubquerySuite]
   enableSuite[GlutenSameResultSuite]
   enableSuite[GlutenSortSuite]
@@ -1361,7 +1352,6 @@ class VeloxTestSettings extends BackendTestSettings {
     // TODO: fix on Spark-4.1 introduced by https://github.com/apache/spark/pull/47856
     .exclude("SPARK-49386: test SortMergeJoin (with spill by size threshold)")
   enableSuite[GlutenMathFunctionsSuite]
-    .exclude("acosh") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenMapStatusEndToEndSuite]
   enableSuite[GlutenMetadataCacheSuite]
     .exclude("SPARK-16336,SPARK-27961 Suggest fixing FileNotFoundException")
