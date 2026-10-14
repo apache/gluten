@@ -36,6 +36,15 @@
 set -euo pipefail
 export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
 export PATH=$JAVA_HOME/bin:$PATH
+# Delta 4.4's build publishes a pinned Unity Catalog with
+# project/scripts/setup_unitycatalog_main.sh and then looks for it under $HOME,
+# while sbt publishes under the JVM's user.home. GitHub sets HOME=/github/home in
+# container jobs but the JVM takes the passwd entry (/root, where the sbt caches
+# live too), so the check fails. Point HOME at the passwd entry.
+if command -v getent > /dev/null; then
+  HOME="$(getent passwd "$(id -u)" | cut -d: -f6)"
+  export HOME
+fi
 # Gluten/JDK17 test JVM flags (--add-opens + Netty property), shared with local
 # dev runs. Sets JAVA_TOOL_OPTIONS so it reaches the sbt launcher + forked JVMs.
 # shellcheck source=./java-test-args.sh
@@ -114,6 +123,7 @@ rm -f "$SBT_DONE_MARKER" "$WATCHDOG_KILL_MARKER"
   JPS="${JAVA_HOME}/bin/jps"
   silent_limit=900   # 15 min with no new test output => treat as hung
   dumps=0
+  forks_seen=0       # set once a test fork has run; a later silence with none left = a dead fork
   fork_pids() {
     # The sbt test fork's main class is sbt.ForkMain. Prefer jps (reads
     # the main class from hsperfdata, robust to sbt's @argfile launch);
@@ -164,6 +174,7 @@ rm -f "$SBT_DONE_MARKER" "$WATCHDOG_KILL_MARKER"
     # but (correctly) don't kill could exhaust the budget and leave a later real
     # fork hang un-dumped and un-killed for the rest of the run.
     [ "$silent" -lt "$silent_limit" ] && dumps=0
+    [ -n "$(fork_pids 2>/dev/null)" ] && forks_seen=1
     if [ "$silent" -ge "$silent_limit" ] && [ "$dumps" -lt 3 ]; then
       dumps=$(( dumps + 1 ))
       fork_matched="$(fork_pids | sort -un)"
@@ -204,6 +215,12 @@ rm -f "$SBT_DONE_MARKER" "$WATCHDOG_KILL_MARKER"
         echo "HANG WATCHDOG: killing wedged fork JVM(s) to unblock the shard:$(printf ' %s' $fork_matched)"
         touch "$WATCHDOG_KILL_MARKER"
         for pid in $fork_matched; do kill -KILL "$pid" 2>/dev/null; done
+      elif [ "$forks_seen" -eq 1 ]; then
+        # Test forks ran earlier but none is left: a fork died (e.g. a native crash) and
+        # sbt waits for it forever. Stop sbt so the shard ends and uploads its crash logs.
+        echo "HANG WATCHDOG: no test fork left after forks ran -- a fork likely crashed; stopping sbt."
+        touch "$WATCHDOG_KILL_MARKER"
+        for pid in $(all_java_pids | sort -un); do kill -KILL "$pid" 2>/dev/null; done
       else
         echo "HANG WATCHDOG: no sbt.ForkMain fork matched -- dumped all JVMs but leaving sbt running (likely a pre-fork resolve/compile stall, not a wedged test)."
       fi
