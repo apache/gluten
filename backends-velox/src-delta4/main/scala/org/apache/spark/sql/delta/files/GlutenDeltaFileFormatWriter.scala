@@ -64,6 +64,11 @@ import java.util.{Date, UUID}
  *  Logic is copied from FileFormatWriter from Spark 3.5 with added functionality to write partition
  *  values to data files. Specifically L123-126, L132, and L140 where it adds option
  *  WRITE_PARTITION_COLUMNS
+ *
+ *  It is Gluten's copy of Delta's files/DeltaFileFormatWriter and only runs writes that
+ *  GlutenDeltaNativeWriteGate accepts. Delta 4.4.1's version also merges the writer options into
+ *  the Hadoop conf (DataSourceUtilsShims.mergeWriteOptionsIntoHadoopConf) and records variant
+ *  statistics in its data writers; the gate keeps the writes those affect on Delta's writer.
  */
 object GlutenDeltaFileFormatWriter extends Logging {
 

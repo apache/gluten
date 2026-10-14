@@ -33,7 +33,7 @@ import org.apache.spark.sql.delta.stats.PreparedDeltaFileIndex
 import org.apache.spark.sql.execution.FileSourceScanExec
 import org.apache.spark.sql.execution.datasources.{FilePartition, HadoopFsRelation}
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{ArrayType, DataType, MapType, NullType, StructType}
 import org.apache.spark.util.collection.BitSet
 
 import scala.collection.JavaConverters._
@@ -96,6 +96,9 @@ case class DeltaScanTransformer(
   override protected def doValidateInternal(): ValidationResult = {
     if (cdfFilesHaveDeletionVectors) {
       return ValidationResult.failed(DeltaScanTransformer.DELETION_VECTOR_UNSUPPORTED)
+    }
+    if (requiredSchema.exists(field => DeltaScanTransformer.hasVoidOnlyStruct(field.dataType))) {
+      return ValidationResult.failed(DeltaScanTransformer.VOID_ONLY_STRUCT_UNSUPPORTED)
     }
     super.doValidateInternal()
   }
@@ -282,6 +285,20 @@ case class DeltaScanTransformer(
 object DeltaScanTransformer {
 
   val DELETION_VECTOR_UNSUPPORTED = "Deletion vector is not supported in native."
+
+  // Delta 4.4 keeps VOID columns in the read schema on Spark 4.1+, where earlier Delta dropped
+  // them. No file holds a VOID field, so Velox finds none of the struct's fields and reads the
+  // whole struct as NULL, where Spark reads a struct of NULL fields.
+  val VOID_ONLY_STRUCT_UNSUPPORTED = "Struct whose fields are all VOID is not supported in native."
+
+  private[execution] def hasVoidOnlyStruct(dataType: DataType): Boolean = dataType match {
+    case struct: StructType =>
+      (struct.nonEmpty && struct.forall(_.dataType == NullType)) ||
+      struct.exists(field => hasVoidOnlyStruct(field.dataType))
+    case array: ArrayType => hasVoidOnlyStruct(array.elementType)
+    case map: MapType => hasVoidOnlyStruct(map.keyType) || hasVoidOnlyStruct(map.valueType)
+    case _ => false
+  }
 
   def apply(scanExec: FileSourceScanExec): DeltaScanTransformer = {
     new DeltaScanTransformer(
