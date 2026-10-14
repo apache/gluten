@@ -476,7 +476,7 @@ object ColumnarPartialProjectExec {
             newExpr
           } else {
             // The expression is not supported by the native backend, then we traverse down the
-            // expression to find which expression the native backend does not support。
+            // expression to find which expression the native backend does not support.
             traverseUpExpression(p, replacedAlias, childOutput)
           }
         } catch {

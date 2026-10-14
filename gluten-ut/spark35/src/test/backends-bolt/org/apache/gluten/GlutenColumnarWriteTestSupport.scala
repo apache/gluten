@@ -16,7 +16,7 @@
  */
 package org.apache.gluten
 
-import org.apache.spark.sql.execution.{SparkPlan, ColumnarWriteFilesExec}
+import org.apache.spark.sql.execution.{ColumnarWriteFilesExec, SparkPlan}
 
 trait GlutenColumnarWriteTestSupport {
 
