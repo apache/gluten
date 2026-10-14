@@ -49,7 +49,10 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
       SQLConf.ANSI_ENABLED.key -> "false",
       SQLConf.SESSION_LOCAL_TIMEZONE.key -> "UTC",
       GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false",
-      DeltaSQLConf.DELTA_COLLECT_STATS.key -> "false"
+      DeltaSQLConf.DELTA_COLLECT_STATS.key -> "false",
+      // Delta writes partition columns into the data files by default, which the native
+      // writer does not do yet; keep partitioned tables on the native writer here.
+      "spark.databricks.delta.properties.defaults.writePartitionColumnsToParquet" -> "false"
     ) ++
       (if (isMac) {
          Seq(GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> "false")
