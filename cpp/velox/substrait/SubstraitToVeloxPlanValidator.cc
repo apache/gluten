@@ -127,6 +127,15 @@ bool SubstraitToVeloxPlanValidator::validateRound(
     return false;
   }
 
+  const auto& scale = arguments[1].value().literal();
+  if (scale.has_null() && scale.null().has_i32()) {
+    const auto valueType = exprConverter_->toVeloxExpr(arguments[0].value(), inputType)->type();
+    if (!valueType->isDecimal() &&
+        (valueType->isTinyint() || valueType->isSmallint() || valueType->isInteger() || valueType->isBigint())) {
+      return true;
+    }
+  }
+
   // Velox has different result with Spark on negative scale.
   auto typeCase = arguments[1].value().literal().literal_type_case();
   switch (typeCase) {

@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "operators/functions/RegistrationAllFunctions.h"
+#include "substrait/SubstraitToVeloxPlanValidator.h"
 #include "velox/common/base/tests/GTestUtils.h"
 #include "velox/core/Expressions.h"
 #include "velox/functions/sparksql/SparkQueryConfig.h"
@@ -123,6 +124,48 @@ TEST_F(SparkFunctionTest, roundWithDecimal) {
   runRoundWithDecimalTest<int32_t>(testRoundWithDecIntegralData<int32_t>());
   runRoundWithDecimalTest<int16_t>(testRoundWithDecIntegralData<int16_t>());
   runRoundWithDecimalTest<int8_t>(testRoundWithDecIntegralData<int8_t>());
+}
+
+TEST_F(SparkFunctionTest, integralRoundUsesSessionAnsi) {
+  const auto input = makeRowVector({makeNullableFlatVector<int8_t>({127, -128, 25, -25, std::nullopt})});
+  for (const auto ansi : {false, true}) {
+    queryCtx_->testingOverrideConfigUnsafe({{sparkAnsiEnabledConfigKey(), ansi ? "true" : "false"}});
+    const auto expression = "round(c0, cast(-1 as integer))";
+    if (ansi) {
+      VELOX_ASSERT_USER_THROW(evaluate(expression, input), "overflow");
+      facebook::velox::test::assertEqualVectors(
+          makeNullableFlatVector<int8_t>({std::nullopt, std::nullopt, 30, -30, std::nullopt}),
+          evaluate("try(round(c0, cast(-1 as integer)))", input));
+    } else {
+      facebook::velox::test::assertEqualVectors(
+          makeNullableFlatVector<int8_t>({-126, 126, 30, -30, std::nullopt}), evaluate(expression, input));
+    }
+  }
+}
+
+TEST_F(SparkFunctionTest, integralRoundNullScaleSkipsChild) {
+  queryCtx_->testingOverrideConfigUnsafe({{sparkAnsiEnabledConfigKey(), "true"}});
+  const auto input = makeRowVector({makeNullableFlatVector<int8_t>({127, -128, 25, std::nullopt})});
+  facebook::velox::test::assertEqualVectors(
+      makeNullableFlatVector<int8_t>({std::nullopt, std::nullopt, std::nullopt, std::nullopt}),
+      evaluate("round(round(c0, cast(-1 as integer)), cast(null as integer))", input));
+}
+
+TEST_F(SparkFunctionTest, integralRoundNullScaleValidation) {
+  ::substrait::Expression expression;
+  auto* function = expression.mutable_scalar_function();
+  function->set_function_reference(1);
+  function->add_arguments()
+      ->mutable_value()
+      ->mutable_selection()
+      ->mutable_direct_reference()
+      ->mutable_struct_field()
+      ->set_field(0);
+  function->add_arguments()->mutable_value()->mutable_literal()->mutable_null()->mutable_i32()->set_nullability(
+      ::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+  function->mutable_output_type()->mutable_i8()->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+  gluten::SubstraitToVeloxPlanValidator validator(pool());
+  EXPECT_TRUE(validator.validate(expression, ROW({"value"}, {TINYINT()}), {{1, "round:opt_i8_i32"}}));
 }
 
 TEST_F(SparkFunctionTest, expressionLevelAnsiCastIgnoresSessionAnsiOff) {
