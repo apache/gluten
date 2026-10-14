@@ -267,12 +267,21 @@ class GlutenSQLQueryTestSuite
     }
   }
 
+  // Additional test files to run, set by the function support doc generator for test files that are
+  // not in the supported list because of known result gaps but exercise functions to be documented.
+  // Lazy because createScalaTestCase runs from the constructor before this field is initialized.
+  private lazy val extraTests: Set[String] = sys.props
+    .get("gluten.test.sqlQueryTestSuite.extraTests")
+    .map(_.split(",").map(_.trim.toLowerCase(Locale.ROOT)).filter(_.nonEmpty).toSet)
+    .getOrElse(Set.empty)
+
   protected def createScalaTestCase(testCase: TestCase): Unit = {
+    val testName = testCase.name.toLowerCase(Locale.ROOT)
     if (
       // Modified for Gluten to use exact name matching.
-      !supportedList.exists(
-        t => testCase.name.toLowerCase(Locale.ROOT) == t.toLowerCase(Locale.ROOT)) ||
-      ignoreList.exists(t => testCase.name.toLowerCase(Locale.ROOT) == t.toLowerCase(Locale.ROOT))
+      !supportedList.exists(t => testName == t.toLowerCase(Locale.ROOT)) &&
+      !extraTests.contains(testName) ||
+      ignoreList.exists(t => testName == t.toLowerCase(Locale.ROOT))
     ) {
       // Create a test case to ignore this case.
       ignore(testCase.name) { /* Do nothing */ }
@@ -503,7 +512,13 @@ class GlutenSQLQueryTestSuite
           SQLConf.TIMESTAMP_TYPE.key,
           TimestampTypes.TIMESTAMP_NTZ.toString)
       case _ =>
-        localSparkSession.conf.set(SQLConf.ANSI_ENABLED.key, true)
+        // Regular test cases run with ANSI mode on, matching the golden files. The function
+        // support doc generator sets this system property to false to run them with ANSI mode
+        // off, because Gluten falls back the whole plan in ANSI mode and no per-function
+        // validation would be logged.
+        localSparkSession.conf.set(
+          SQLConf.ANSI_ENABLED.key,
+          !sys.props.get("gluten.test.sqlQueryTestSuite.ansiEnabled").contains("false"))
     }
 
     if (configSet.nonEmpty) {

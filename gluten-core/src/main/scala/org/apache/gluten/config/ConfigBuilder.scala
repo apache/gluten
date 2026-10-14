@@ -18,6 +18,7 @@ package org.apache.gluten.config
 
 import org.apache.spark.network.util.{ByteUnit, JavaUtils}
 
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 object BackendType extends Enumeration {
@@ -97,6 +98,10 @@ private[gluten] case class ConfigBuilder(key: String) {
     new TypedConfigBuilder(this, identity)
   }
 
+  def enumConf(e: Enumeration): TypedConfigBuilder[e.Value] = {
+    new TypedConfigBuilder(this, toEnum(_, e, key))
+  }
+
   def timeConf(unit: TimeUnit): TypedConfigBuilder[Long] = {
     new TypedConfigBuilder(this, timeFromString(_, unit), timeToString(_, unit))
   }
@@ -122,6 +127,16 @@ private[gluten] case class ConfigBuilder(key: String) {
 }
 
 private object ConfigHelpers {
+  def toEnum[E <: Enumeration](s: String, enumClass: E, key: String): enumClass.Value = {
+    try {
+      enumClass.withName(s.trim.toUpperCase(Locale.ROOT))
+    } catch {
+      case _: NoSuchElementException =>
+        throw new IllegalArgumentException(
+          s"$key should be one of ${enumClass.values.mkString(", ")}, but was $s")
+    }
+  }
+
   def toNumber[T](s: String, converter: String => T, key: String, configType: String): T = {
     try {
       converter(s.trim)
