@@ -54,7 +54,8 @@ class VeloxValidatorApi extends ValidatorApi with Logging {
             case _ => false
           }
           if (!supported) {
-            logDebug("Integral ROUND retains Spark execution for negative or unqualified scales.")
+            logDebug(
+              "Integral ROUND requires a folded INTEGER scale in [0, 400] or NULL; retaining Spark.")
           }
           supported
         case _ => true

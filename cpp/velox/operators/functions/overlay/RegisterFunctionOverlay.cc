@@ -25,7 +25,8 @@ using namespace facebook;
 namespace gluten {
 namespace {
 
-// Keep only the floating-point overlay; integral ROUND uses Velox's session ANSI handling.
+// Leave upstream integral registrations intact; SQL eligibility is controlled by validation.
+// Retain only the floating-point overlay here.
 void registerRoundFunction() {
   velox::registerFunction<RoundFunction, double, double>({"round"});
   velox::registerFunction<RoundFunction, float, float>({"round"});

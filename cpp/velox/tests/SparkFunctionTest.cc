@@ -166,6 +166,12 @@ TEST_F(SparkFunctionTest, integralRoundNullScaleValidation) {
   function->mutable_output_type()->mutable_i8()->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
   gluten::SubstraitToVeloxPlanValidator validator(pool());
   EXPECT_TRUE(validator.validate(expression, ROW({"value"}, {TINYINT()}), {{1, "round:opt_i8_i32"}}));
+
+  auto* cast = function->mutable_arguments(0)->mutable_value()->mutable_cast();
+  cast->mutable_type()->mutable_i8()->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+  cast->mutable_input()->mutable_selection()->mutable_direct_reference()->mutable_struct_field()->set_field(0);
+  gluten::SubstraitToVeloxPlanValidator castValidator(pool());
+  EXPECT_TRUE(castValidator.validate(expression, ROW({"value"}, {VARCHAR()}), {{1, "round:opt_i8_i32"}}));
 }
 
 TEST_F(SparkFunctionTest, expressionLevelAnsiCastIgnoresSessionAnsiOff) {
