@@ -77,6 +77,9 @@
     <delta.package.name>delta-spark</delta.package.name>
     <delta.version>3.3.2</delta.version>
     <delta.binary.version>33</delta.binary.version>
+    <!-- One Delta release serves every Spark 4.x profile: Delta publishes delta-spark_<spark>
+         for each Spark 4.x line from the same release, and the src-delta4 sources track it. -->
+    <delta4.version>4.4.1</delta4.version>
     <aws-java-sdk-dynamodb.version>1.12.797</aws-java-sdk-dynamodb.version>
     <celeborn.version>0.6.3</celeborn.version>
     <uniffle.version>0.10.0</uniffle.version>
@@ -1286,9 +1289,9 @@
         <sparkshim.artifactId>spark-sql-columnar-shims-spark40</sparkshim.artifactId>
         <spark.version>4.0.2</spark.version>
         <iceberg.version>1.10.0</iceberg.version>
-        <delta.package.name>delta-spark</delta.package.name>
-        <delta.version>4.0.1</delta.version>
-        <delta.binary.version>40</delta.binary.version>
+        <delta.package.name>delta-spark_${sparkbundle.version}</delta.package.name>
+        <delta.version>${delta4.version}</delta.version>
+        <delta.binary.version>4</delta.binary.version>
         <hudi.version>1.1.0</hudi.version>
         <fasterxml.version>2.18.2</fasterxml.version>
         <fasterxml.jackson.version>2.18.2</fasterxml.jackson.version>
@@ -1370,9 +1373,9 @@
         <spark.version>4.1.1</spark.version>
         <paimon.version>2.0.0</paimon.version>
         <iceberg.version>1.11.0</iceberg.version>
-        <delta.package.name>delta-spark_4.1</delta.package.name>
-        <delta.version>4.1.0</delta.version>
-        <delta.binary.version>40</delta.binary.version>
+        <delta.package.name>delta-spark_${sparkbundle.version}</delta.package.name>
+        <delta.version>${delta4.version}</delta.version>
+        <delta.binary.version>4</delta.binary.version>
         <hudi.version>1.2.0</hudi.version>
         <fasterxml.version>2.18.2</fasterxml.version>
         <fasterxml.jackson.version>2.18.2</fasterxml.jackson.version>
@@ -1455,13 +1458,13 @@
         <!-- Spark 4.2.0 uses Scala 2.13.18; override the shared scala-2.13
              profile (2.13.17) for Spark 4.2 builds only. -->
         <scala.version>2.13.18</scala.version>
-        <!-- No Spark 4.2 artifacts published for Iceberg/Delta/Hudi yet. These values are
-             placeholders inherited from spark-4.1; the delta/iceberg/hudi profiles are
-             opt-in (activeByDefault=false) and are NOT enabled on the Spark 4.2 CI lane. -->
+        <delta.package.name>delta-spark_${sparkbundle.version}</delta.package.name>
+        <delta.version>${delta4.version}</delta.version>
+        <delta.binary.version>4</delta.binary.version>
+        <!-- No Spark 4.2 artifacts published for Iceberg/Hudi yet. These values are
+             placeholders inherited from spark-4.1; the iceberg/hudi profiles are opt-in
+             (activeByDefault=false) and are NOT enabled on the Spark 4.2 CI lane. -->
         <iceberg.version>1.11.0</iceberg.version>
-        <delta.package.name>delta-spark_4.1</delta.package.name>
-        <delta.version>4.1.0</delta.version>
-        <delta.binary.version>40</delta.binary.version>
         <hudi.version>1.2.0</hudi.version>
         <!-- Spark 4.2.0 ships Jackson 2.21.2; jackson-annotations has no 2.21.2
              patch release, so it is pinned separately to 2.21. -->
