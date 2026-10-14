@@ -111,6 +111,7 @@ class VeloxValidatorApi extends ValidatorApi {
 
 object VeloxValidatorApi {
   private val nativeFormatFlags = Set('-', '+', ' ', '0')
+  // Match Velox's per-specifier output limit to prevent excessive allocations.
   private val maxNativeFormatWidth = 1 << 20
 
   private def supportsFormatString(formatString: FormatString): Boolean = {
