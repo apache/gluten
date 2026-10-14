@@ -378,6 +378,8 @@ commands_to_run=(${OTHER_ARGUMENTS[@]:-})
     get_velox
     if [ -z "${GLUTEN_VCPKG_ENABLED:-}" ] && [ $RUN_SETUP_SCRIPT == "ON" ]; then
       setup_dependencies
+    elif [ "$ENABLE_KAFKA" = "ON" ] && ! vcpkg_is_active; then
+      install_librdkafka
     fi
     build_velox_backend
   else
