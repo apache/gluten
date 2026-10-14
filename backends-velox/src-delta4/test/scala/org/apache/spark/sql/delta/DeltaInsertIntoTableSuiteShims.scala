@@ -32,4 +32,8 @@ object DeltaInsertIntoTableSuiteShims {
     } else {
       "INVALID_DEFAULT_VALUE.NOT_CONSTANT"
     }
+
+  val METADATA_MISMATCH_ERROR_CLASS = "DELTA_METADATA_MISMATCH"
+
+  val METADATA_MISMATCH_ERROR_PARAMETERS: Map[String, String] = Map.empty
 }
