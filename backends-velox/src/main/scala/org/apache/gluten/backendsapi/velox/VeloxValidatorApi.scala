@@ -27,7 +27,14 @@ import org.apache.gluten.substrait.plan.PlanNode
 import org.apache.gluten.validate.NativePlanValidationInfo
 import org.apache.gluten.vectorized.NativePlanEvaluator
 
-import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, FormatString, Literal}
+import org.apache.spark.internal.Logging
+import org.apache.spark.sql.catalyst.expressions.{
+  Attribute,
+  Expression,
+  FormatString,
+  Literal,
+  Round
+}
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.types._
@@ -39,17 +46,30 @@ import io.substrait.proto.SimpleExtensionDeclaration
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
 
-class VeloxValidatorApi extends ValidatorApi {
+class VeloxValidatorApi extends ValidatorApi with Logging {
   import VeloxValidatorApi._
 
   /** For velox backend, key validation is on native side. */
-  override def doExprValidate(substraitExprName: String, expr: Expression): Boolean = {
-    expr match {
-      // Both format_string and printf resolve to Spark's FormatString expression.
-      case formatString: FormatString =>
-        supportsFormatString(formatString)
-      case _ => true
-    }
+  override def doExprValidate(substraitExprName: String, expr: Expression): Boolean = expr match {
+    // Both format_string and printf resolve to Spark's FormatString expression.
+    case formatString: FormatString =>
+      supportsFormatString(formatString)
+    case round: Round =>
+      round.child.dataType match {
+        case ByteType | ShortType | IntegerType | LongType =>
+          // Negative scales can overflow, and Spark captures ANSI mode in the expression.
+          val supported = round.scale match {
+            case Literal(null, IntegerType) => true
+            case Literal(scale: Int, IntegerType) => scale >= 0 && scale <= 400
+            case _ => false
+          }
+          if (!supported) {
+            logDebug("Integral ROUND retains Spark execution for negative or unqualified scales.")
+          }
+          supported
+        case _ => true
+      }
+    case _ => true
   }
 
   override def doNativeValidateWithFailureReason(plan: PlanNode): ValidationResult = {
