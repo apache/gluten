@@ -53,6 +53,7 @@ class VeloxTestSettings extends BackendTestSettings {
   private val ansiNoFallback: Boolean =
     sys.props.get(GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key).contains("false")
   enableSuite[GlutenStringFunctionsSuite]
+  enableSuite[GlutenDecimalRoundSuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuiteCGOff]
   enableSuite[GlutenDataSourceV2DataFrameSessionCatalogSuite]

@@ -297,7 +297,7 @@ The status applies to `spark.sql.ansi.enabled=false`. When ANSI mode is enabled,
 | randn             | Randn                  | S        |                |
 | random            | Rand                   | S        |                |
 | rint              | Rint                   | S        |                |
-| round             | Round                  | S        |                |
+| round             | Round                  | PS       | Decimal scales in [-400, 400] and NULL are supported. Other decimal scales fall back to Spark. Integral and floating-point negative scales retain their existing fallback. |
 | sec               | Sec                    | S        |                |
 | sign              | Signum                 | S        |                |
 | signum            | Signum                 | S        |                |
@@ -538,4 +538,3 @@ The status applies to `spark.sql.ansi.enabled=false`. When ANSI mode is enabled,
 | xpath_number      | XPathDouble         |          |                |
 | xpath_short       | XPathShort          |          |                |
 | xpath_string      | XPathString         |          |                |
-

@@ -15,10 +15,13 @@
  * limitations under the License.
  */
 
+#include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "operators/functions/RegistrationAllFunctions.h"
+#include "substrait/SubstraitToVeloxPlanValidator.h"
 #include "velox/common/base/tests/GTestUtils.h"
 #include "velox/core/Expressions.h"
 #include "velox/functions/sparksql/SparkQueryConfig.h"
@@ -123,6 +126,41 @@ TEST_F(SparkFunctionTest, roundWithDecimal) {
   runRoundWithDecimalTest<int32_t>(testRoundWithDecIntegralData<int32_t>());
   runRoundWithDecimalTest<int16_t>(testRoundWithDecIntegralData<int16_t>());
   runRoundWithDecimalTest<int8_t>(testRoundWithDecIntegralData<int8_t>());
+}
+
+TEST_F(SparkFunctionTest, decimalRoundScaleValidation) {
+  const auto validate = [&](std::optional<int32_t> scale) {
+    ::substrait::Expression expression;
+    auto* function = expression.mutable_scalar_function();
+    function->set_function_reference(1);
+    function->add_arguments()
+        ->mutable_value()
+        ->mutable_selection()
+        ->mutable_direct_reference()
+        ->mutable_struct_field()
+        ->set_field(0);
+    auto* literal = function->add_arguments()->mutable_value()->mutable_literal();
+    if (scale.has_value()) {
+      literal->set_i32(scale.value());
+    } else {
+      literal->mutable_null()->mutable_i32()->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+    }
+    auto* output = function->mutable_output_type()->mutable_decimal();
+    output->set_precision(38);
+    output->set_scale(0);
+    output->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+    gluten::SubstraitToVeloxPlanValidator validator(pool());
+    return validator.validate(expression, ROW({"value"}, {DECIMAL(38, 0)}), {{1, "round:opt_dec<38,0>_i32"}});
+  };
+  for (const auto scale : {-400, -39, -38, -1, 0, 38, 400}) {
+    SCOPED_TRACE(scale);
+    EXPECT_TRUE(validate(scale));
+  }
+  EXPECT_TRUE(validate(std::nullopt));
+  for (const auto scale : {std::numeric_limits<int32_t>::min(), -401, 401, std::numeric_limits<int32_t>::max()}) {
+    SCOPED_TRACE(scale);
+    EXPECT_FALSE(validate(scale));
+  }
 }
 
 TEST_F(SparkFunctionTest, expressionLevelAnsiCastIgnoresSessionAnsiOff) {

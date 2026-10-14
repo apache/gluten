@@ -127,6 +127,19 @@ bool SubstraitToVeloxPlanValidator::validateRound(
     return false;
   }
 
+  const auto valueType = exprConverter_->toVeloxExpr(arguments[0].value(), inputType)->type();
+  if (valueType->isDecimal()) {
+    const auto& scale = arguments[1].value().literal();
+    if (scale.has_null() && scale.null().has_i32()) {
+      return true;
+    }
+    if (scale.has_i32() && scale.i32() >= -400 && scale.i32() <= 400) {
+      return true;
+    }
+    LOG_VALIDATION_MSG("Decimal ROUND requires an INTEGER scale in [-400, 400] or NULL.");
+    return false;
+  }
+
   // Velox has different result with Spark on negative scale.
   auto typeCase = arguments[1].value().literal().literal_type_case();
   switch (typeCase) {
