@@ -148,8 +148,10 @@ class SubstraitToVeloxPlanValidator {
   /// Validate aggregate rel.
   bool validateAggRelFunctionType(const ::substrait::AggregateRel& substraitAgg);
 
-  /// Validate the round scalar function.
-  bool validateRound(const ::substrait::Expression::ScalarFunction& scalarFunction, const RowTypePtr& inputType);
+  /// Validate the round scalar function using its already-converted arguments.
+  bool validateRound(
+      const ::substrait::Expression::ScalarFunction& scalarFunction,
+      const std::vector<core::TypedExprPtr>& params);
 
   /// Validate extract function.
   bool validateExtractExpr(const std::vector<core::TypedExprPtr>& params);

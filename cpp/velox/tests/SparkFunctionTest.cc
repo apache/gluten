@@ -129,16 +129,20 @@ TEST_F(SparkFunctionTest, roundWithDecimal) {
 }
 
 TEST_F(SparkFunctionTest, decimalRoundScaleValidation) {
-  const auto validate = [&](std::optional<int32_t> scale) {
+  const auto validate = [&](std::optional<int32_t> scale, bool castInput) {
     ::substrait::Expression expression;
     auto* function = expression.mutable_scalar_function();
     function->set_function_reference(1);
-    function->add_arguments()
-        ->mutable_value()
-        ->mutable_selection()
-        ->mutable_direct_reference()
-        ->mutable_struct_field()
-        ->set_field(0);
+    auto* value = function->add_arguments()->mutable_value();
+    if (castInput) {
+      auto* cast = value->mutable_cast();
+      auto* type = cast->mutable_type()->mutable_decimal();
+      type->set_precision(38);
+      type->set_scale(0);
+      type->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+      value = cast->mutable_input();
+    }
+    value->mutable_selection()->mutable_direct_reference()->mutable_struct_field()->set_field(0);
     auto* literal = function->add_arguments()->mutable_value()->mutable_literal();
     if (scale.has_value()) {
       literal->set_i32(scale.value());
@@ -150,16 +154,19 @@ TEST_F(SparkFunctionTest, decimalRoundScaleValidation) {
     output->set_scale(0);
     output->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
     gluten::SubstraitToVeloxPlanValidator validator(pool());
-    return validator.validate(expression, ROW({"value"}, {DECIMAL(38, 0)}), {{1, "round:opt_dec<38,0>_i32"}});
+    return validator.validate(
+        expression, ROW({"value"}, {castInput ? VARCHAR() : DECIMAL(38, 0)}), {{1, "round:opt_dec<38,0>_i32"}});
   };
   for (const auto scale : {-400, -39, -38, -1, 0, 38, 400}) {
     SCOPED_TRACE(scale);
-    EXPECT_TRUE(validate(scale));
+    EXPECT_TRUE(validate(scale, false));
   }
-  EXPECT_TRUE(validate(std::nullopt));
+  EXPECT_TRUE(validate(std::nullopt, false));
+  EXPECT_TRUE(validate(-1, true));
+  EXPECT_TRUE(validate(std::nullopt, true));
   for (const auto scale : {std::numeric_limits<int32_t>::min(), -401, 401, std::numeric_limits<int32_t>::max()}) {
     SCOPED_TRACE(scale);
-    EXPECT_FALSE(validate(scale));
+    EXPECT_FALSE(validate(scale, false));
   }
 }
 
