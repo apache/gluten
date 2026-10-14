@@ -20,14 +20,16 @@ import org.apache.gluten.IcebergDefaultValueUtil
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.execution.SparkDataSourceRDDPartition
-import org.apache.gluten.substrait.rel.{IcebergLocalFilesBuilder, SplitInfo}
-import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
+import org.apache.gluten.substrait.rel.{EncodedLocalFiles, IcebergLocalFilesBuilder, LocalFilesNode, SplitInfo}
+import org.apache.gluten.substrait.rel.LocalFilesNode.{ColumnMappingMode, ReadFileFormat}
+import org.apache.gluten.utils.SubstraitUtil
 
 import org.apache.spark.softaffinity.SoftAffinity
 import org.apache.spark.sql.catalyst.catalog.ExternalCatalogUtils
 import org.apache.spark.sql.connector.read.Scan
 import org.apache.spark.sql.types.StructType
 
+import io.substrait.proto.ReadRel
 import org.apache.iceberg._
 import org.apache.iceberg.io.{FileIO, SupportsStorageCredentials}
 import org.apache.iceberg.spark.SparkSchemaUtil
@@ -154,6 +156,53 @@ object GlutenIcebergSourceUtil {
     fieldIds
   }
 
+  /**
+   * Encode one supported task group without Spark input partitions or Java split nodes. Write each
+   * file directly to the LocalFiles wire format so only one file's protobuf is live at a time.
+   */
+  private[source] def encodeTaskGroup(
+      group: ScanTaskGroup[FileScanTask],
+      index: Int,
+      readPartitionSchema: StructType): EncodedLocalFiles = {
+    val encoded = new EncodedLocalFiles.Builder()
+    val readPartitionFields = readPartitionSchema.fieldNames.toSet
+    val mapping = ReadRel.LocalFiles.FileOrFiles.otherConstantMetadataColumnValues.newBuilder()
+      .setKey(LocalFilesNode.COLUMN_MAPPING_MODE_METADATA_KEY)
+      .setValue(SubstraitUtil.convertJavaObjectToAny(ColumnMappingMode.NAME.nativeName()))
+      .build()
+    val iceberg = ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.newBuilder()
+      .setParquet(ReadRel.LocalFiles.FileOrFiles.ParquetReadOptions.getDefaultInstance)
+      .build()
+    var firstPath: String = null
+    group.tasks().asScala.foreach {
+      task =>
+        require(
+          task.file().format() == FileFormat.PARQUET && task.deletes().isEmpty,
+          "Encoded Iceberg task groups require Parquet files without deletes")
+        val path = BackendsApiManager.getTransformerApiInstance
+          .encodeFilePathIfNeed(task.file().path().toString)
+        if (firstPath == null) {
+          firstPath = path
+        }
+        val file = ReadRel.LocalFiles.FileOrFiles.newBuilder()
+          .setUriFile(path)
+          .setPartitionIndex(index)
+          .setStart(task.start())
+          .setLength(task.length())
+          .setIceberg(iceberg)
+          .addOtherConstMetadataColumns(mapping)
+        foreachPartitionColumn(task, readPartitionFields) {
+          (key, value) =>
+            file.addPartitionColumns(
+              ReadRel.LocalFiles.FileOrFiles.partitionColumn.newBuilder()
+                .setKey(key).setValue(value))
+        }
+        encoded.addFile(file.build())
+    }
+    val locations = SoftAffinity.getFilePartitionLocations(Option(firstPath).toArray, Array.empty)
+    encoded.build(locations.toList.asJava)
+  }
+
   def getInitialDefaults(sparkScan: Scan): JHashMap[String, String] = {
     val initialDefaults = new JHashMap[String, String]()
     getTable(sparkScan).schema().columns().asScala.foreach {
@@ -187,6 +236,11 @@ object GlutenIcebergSourceUtil {
   }
 
   def getFileFormat(sparkScan: Scan): ReadFileFormat = {
+    sparkScan match {
+      case compact: CompactIcebergScan if compact.usesCompactPlanning =>
+        return ReadFileFormat.ParquetReadFormat
+      case _ =>
+    }
     asFileScanTask(getScanTasks(sparkScan)).foreach {
       task =>
         task.file().format() match {
@@ -199,42 +253,52 @@ object GlutenIcebergSourceUtil {
   }
 
   def getReadPartitionSchema(sparkScan: Scan): StructType = {
+    sparkScan match {
+      case compact: CompactIcebergScan if compact.usesCompactPlanning =>
+        return compact.partitionSchema
+      case _ =>
+    }
     asFileScanTask(getScanTasks(sparkScan)).foreach {
       task =>
-        val spec = task.spec()
-        if (spec.isPartitioned) {
-          val readFields = sparkScan.readSchema().fields.map(_.name).toSet
-          // Iceberg will generate some non-table fields as partition fields, such as x_bucket,
-          // which will not appear in readFields, they also cannot be filtered.
-          val tableFields = spec.schema().columns().asScala.map(_.name()).toSet
-          val voidTransformFields = getTable(sparkScan)
-            .spec()
-            .fields()
-            .asScala
-            .filter(
-              f => {
-                f.transform().isVoid
-              })
-            .map(_.name())
-            .toSet
-          val partitionFields =
-            spec
-              .partitionType()
-              .fields()
-              .asScala
-              .filter(f => !tableFields.contains(f.name) || readFields.contains(f.name()))
-              .filter(f => !voidTransformFields.contains(f.name()))
-          partitionFields.foreach {
-            field => TypeUtil.validatePartitionColumnType(field.`type`().typeId())
-          }
-
-          val icebergSchema = new Schema(partitionFields.toList.asJava)
-          return SparkSchemaUtil.convert(icebergSchema)
-        } else {
-          return new StructType()
-        }
+        return readPartitionSchema(task.spec(), getTable(sparkScan).spec(), sparkScan.readSchema())
     }
     throw new UnsupportedOperationException("Failed to get partition schema from iceberg scan.")
+  }
+
+  private[source] def readPartitionSchema(
+      spec: PartitionSpec,
+      currentSpec: PartitionSpec,
+      readSchema: StructType): StructType = {
+    if (spec.isPartitioned) {
+      val readFields = readSchema.fields.map(_.name).toSet
+      // Iceberg will generate some non-table fields as partition fields, such as x_bucket,
+      // which will not appear in readFields, they also cannot be filtered.
+      val tableFields = spec.schema().columns().asScala.map(_.name()).toSet
+      val voidTransformFields = currentSpec
+        .fields()
+        .asScala
+        .filter(
+          f => {
+            f.transform().isVoid
+          })
+        .map(_.name())
+        .toSet
+      val partitionFields =
+        spec
+          .partitionType()
+          .fields()
+          .asScala
+          .filter(f => !tableFields.contains(f.name) || readFields.contains(f.name()))
+          .filter(f => !voidTransformFields.contains(f.name()))
+      partitionFields.foreach {
+        field => TypeUtil.validatePartitionColumnType(field.`type`().typeId())
+      }
+
+      val icebergSchema = new Schema(partitionFields.toList.asJava)
+      SparkSchemaUtil.convert(icebergSchema)
+    } else {
+      new StructType()
+    }
   }
 
   private def getTable(sparkScan: Scan): Table = sparkScan match {
@@ -269,7 +333,14 @@ object GlutenIcebergSourceUtil {
       task: FileScanTask,
       readPartitionSchema: StructType): JHashMap[String, String] = {
     val partitionColumns = new JHashMap[String, String]()
-    val readPartitionFields = readPartitionSchema.fields.map(_.name).toSet
+    foreachPartitionColumn(task, readPartitionSchema.fieldNames.toSet) {
+      (key, value) => partitionColumns.put(key, value)
+    }
+    partitionColumns
+  }
+
+  private def foreachPartitionColumn(task: FileScanTask, readPartitionFields: Set[String])(
+      consume: (String, String) => Unit): Unit = {
     val spec = task.spec()
     val partition = task.partition()
     if (spec.isPartitioned) {
@@ -284,15 +355,14 @@ object GlutenIcebergSourceUtil {
           val partitionValue = partition.get(index, field.`type`().typeId().javaClass())
           val partitionType = field.`type`()
           if (partitionValue != null) {
-            partitionColumns.put(
+            consume(
               field.name(),
               TypeUtil.getPartitionValueString(partitionType, partitionValue))
           } else {
-            partitionColumns.put(field.name(), ExternalCatalogUtils.DEFAULT_PARTITION_NAME)
+            consume(field.name(), ExternalCatalogUtils.DEFAULT_PARTITION_NAME)
           }
       }
     }
-    partitionColumns
   }
 
   private def convertFileFormat(icebergFileFormat: FileFormat): ReadFileFormat =

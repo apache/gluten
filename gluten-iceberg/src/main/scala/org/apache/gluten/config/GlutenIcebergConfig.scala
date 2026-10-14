@@ -39,6 +39,13 @@ object GlutenIcebergConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(true)
 
+  val EARLY_TASK_ENCODING_ENABLED: ConfigEntry[Boolean] =
+    buildConf("spark.gluten.sql.columnar.iceberg.earlyTaskEncoding.enabled")
+      .doc("Encode supported Iceberg snapshot scan tasks before Spark statistics planning. " +
+        "Reduces retained driver heap for Velox reads. Unsupported scans use the existing path.")
+      .booleanConf
+      .createWithDefault(false)
+
   val ENABLE_NATIVE_WRITE: ConfigEntry[Boolean] =
     buildConf("spark.gluten.sql.columnar.iceberg.enableNativeWrite")
       .doc("Enable offloading Iceberg writes to the native backend. When disabled, Iceberg" +

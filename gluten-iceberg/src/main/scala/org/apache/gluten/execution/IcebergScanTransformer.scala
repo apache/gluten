@@ -29,14 +29,14 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{AttributeReference, DynamicPruningExpression, Expression, Literal}
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.connector.catalog.Table
-import org.apache.spark.sql.connector.read.Scan
+import org.apache.spark.sql.connector.read.{Batch, Scan}
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.execution.metric.SQLMetrics
 import org.apache.spark.sql.types.{ArrayType, DataType, StructType}
 
 import org.apache.iceberg.{BaseTable, MetadataColumns, SnapshotSummary, TableProperties}
 import org.apache.iceberg.avro.AvroSchemaUtil
-import org.apache.iceberg.spark.source.{GlutenIcebergSourceUtil, SparkTable}
+import org.apache.iceberg.spark.source.{CompactIcebergInputPartition, CompactIcebergScan, GlutenIcebergSourceUtil, SparkTable}
 import org.apache.iceberg.spark.source.metrics.NumSplits
 import org.apache.iceberg.types.{Type, Types}
 import org.apache.iceberg.types.Type.TypeID
@@ -67,6 +67,11 @@ case class IcebergScanTransformer(
   // So use Metric to get NumSplits, NumDeletes is not reported by native metric
   private val numSplits = SQLMetrics.createMetric(sparkContext, new NumSplits().description())
 
+  @transient override lazy val batch: Batch = scan match {
+    case compact: CompactIcebergScan => compact.nativeBatch()
+    case _ => scan.toBatch
+  }
+
   private lazy val icebergInitialDefaults =
     GlutenIcebergSourceUtil.getInitialDefaults(scan)
 
@@ -86,6 +91,14 @@ case class IcebergScanTransformer(
   }
 
   override def doValidateInternal(): ValidationResult = {
+    if (
+      scan.isInstanceOf[CompactIcebergScan] &&
+      scan.asInstanceOf[CompactIcebergScan].usesCompactPlanning &&
+      (getMetadataColumns().nonEmpty || runtimeFilters.nonEmpty || keyGroupedPartitioning.nonEmpty)
+    ) {
+      return ValidationResult.failed(
+        "Encoded Iceberg scans do not support metadata columns, runtime filters or data grouping")
+    }
     if (GlutenIcebergSourceUtil.hasVendedCredentials(scan)) {
       return ValidationResult.failed(
         "Iceberg scan uses catalog-vended credentials, which native readers do not support")
@@ -223,6 +236,20 @@ case class IcebergScanTransformer(
   override def getSplitInfosFromPartitions(
       partitions: Seq[(Partition, ReadFileFormat)]): Seq[SplitInfo] = {
     val metadataColumnNames = getMetadataColumns().map(_.name)
+    if (
+      scan.isInstanceOf[CompactIcebergScan] &&
+      scan.asInstanceOf[CompactIcebergScan].usesCompactPlanning
+    ) {
+      require(metadataColumnNames.isEmpty, "File metadata must use the ordinary Iceberg scan")
+      return partitions.map {
+        case (partition: SparkDataSourceRDDPartition, _) =>
+          require(partition.inputPartitions.size == 1, "Encoded task groups cannot be coalesced")
+          val compact = partition.inputPartitions.head.asInstanceOf[CompactIcebergInputPartition]
+          numSplits.add(compact.fileCount)
+          compact.split
+        case _ => throw new GlutenNotSupportException("Unsupported encoded Iceberg partition")
+      }
+    }
     partitions.map {
       case (partition, readFileFormat) =>
         partitionToSplitInfo(partition, readFileFormat, metadataColumnNames)

@@ -246,7 +246,7 @@ class VeloxIteratorApi extends IteratorApi with Logging {
     val splitInfoByteArray = inputPartition
       .asInstanceOf[GlutenPartition]
       .splitInfos
-      .map(splitInfo => splitInfo.toProtobuf.toByteArray)
+      .map(_.toProtobufBytes())
       .toArray
     val spillDirPath = SparkDirectoryUtil
       .get()
