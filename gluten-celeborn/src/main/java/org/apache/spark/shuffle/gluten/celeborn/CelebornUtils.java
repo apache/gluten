@@ -200,9 +200,20 @@ public class CelebornUtils {
       try {
         Class<?> clazz = Class.forName(className);
 
-        Constructor<?> constructor = clazz.getConstructor();
+        Constructor<?> matched = null;
+        for (Constructor<?> constructor : clazz.getConstructors()) {
+          if (isConstructorMatched(constructor, args)) {
+            matched = constructor;
+            break;
+          }
+        }
+        if (matched == null) {
+          throw new NoSuchMethodException(
+              className + ".<init> with " + args.length + " matched argument(s)");
+        }
+        matched.setAccessible(true);
 
-        return constructor.newInstance(args);
+        return matched.newInstance(args);
 
       } catch (ClassNotFoundException e) {
         return null;
@@ -210,6 +221,23 @@ public class CelebornUtils {
     } catch (Exception rethrow) {
       throw new RuntimeException(rethrow);
     }
+  }
+
+  private static boolean isConstructorMatched(Constructor<?> constructor, Object... args) {
+    Class<?>[] parameterTypes = constructor.getParameterTypes();
+    if (parameterTypes.length != args.length) {
+      return false;
+    }
+    for (int i = 0; i < parameterTypes.length; i++) {
+      if (args[i] == null) {
+        if (parameterTypes[i].isPrimitive()) {
+          return false;
+        }
+      } else if (!parameterTypes[i].isAssignableFrom(args[i].getClass())) {
+        return false;
+      }
+    }
+    return true;
   }
 
   public static CelebornShuffleHandle getCelebornShuffleHandle(
