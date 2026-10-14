@@ -345,21 +345,15 @@ object DeltaDeletionVectorScanInfo {
       new OnDiskDeletionVectorPayload(
         serializableHadoopConf,
         dvPath.toString,
-        requiredOffset(descriptor),
+        // An on-disk DV without an offset starts at the beginning of its file, as in Delta's
+        // DeletionVectorStoredBitmap.
+        descriptor.offset.getOrElse(0).toLong,
         descriptor.sizeInBytes,
-        readMetrics)
+        readMetrics
+      )
     } else {
       new InMemoryDeletionVectorPayload(serializeInlinePayload(hadoopConf, tablePath, descriptor))
     }
-  }
-
-  private def requiredOffset(descriptor: DeletionVectorDescriptor): Long = {
-    descriptor.offset
-      .map(_.toLong)
-      .getOrElse {
-        throw new IllegalStateException(
-          s"On-disk Delta deletion vector '${descriptor.storageType}' is missing its offset")
-      }
   }
 
   /**
