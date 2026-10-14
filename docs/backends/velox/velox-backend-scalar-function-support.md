@@ -1,6 +1,6 @@
 # Scalar Functions Support Status
 
-**Out of 433 scalar functions in Spark 4.1, Gluten currently fully supports 261 functions and partially supports 31 functions.**
+**Out of 433 scalar functions in Spark 4.1, Gluten currently fully supports 262 functions and partially supports 31 functions.**
 
 The status applies to `spark.sql.ansi.enabled=false`. When ANSI mode is enabled, Gluten falls back to vanilla Spark
 (see `spark.gluten.sql.ansiFallback.enabled`).
