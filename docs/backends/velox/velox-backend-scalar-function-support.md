@@ -297,7 +297,7 @@ The status applies to `spark.sql.ansi.enabled=false`. When ANSI mode is enabled,
 | randn             | Randn                  | S        |                |
 | random            | Rand                   | S        |                |
 | rint              | Rint                   | S        |                |
-| round             | Round                  | PS       | Integral scales in [0, 400] and NULL use upstream Velox. NULL scales skip child evaluation. Negative and unqualified extreme integral scales retain Spark's captured ANSI behavior. |
+| round             | Round                  | PS       | Integral scales in [0, 400] and NULL use upstream Velox. NULL scales skip child evaluation. Negative scales, scales outside [0, 400], and scales not folded to INTEGER literals fall back to Spark to preserve captured ANSI behavior. |
 | sec               | Sec                    | S        |                |
 | sign              | Signum                 | S        |                |
 | signum            | Signum                 | S        |                |
