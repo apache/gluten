@@ -2204,7 +2204,8 @@ class DeltaSuite
     // Now make a commit that comes from an "external" writer that deletes existing data and
     // changes the schema
     val actions = Seq(
-      Action.supportedProtocolVersion(featuresToExclude = Seq(CatalogOwnedTableFeature)),
+      Action.supportedProtocolVersion(featuresToExclude =
+        Seq(CatalogOwnedTableFeature, AdaptiveMetadataTableFeature)),
       newMetadata) ++ files.map(_.remove)
     deltaLog.store.write(
       FileNames.unsafeDeltaFile(deltaLog.logPath, snapshot.version + 1),
