@@ -197,7 +197,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  test("shiftrightunsigned") {
+  private def withUnsignedShiftInput(body: => Unit): Unit = {
     withTempPath {
       path =>
         withTempView("shift_input") {
@@ -221,19 +221,36 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
             .parquet(path.getCanonicalPath)
 
           spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("shift_input")
-
-          runQueryAndCompare(
-            """
-              |SELECT
-              |  shiftrightunsigned(int_value, shift),
-              |  int_value >>> shift,
-              |  shiftrightunsigned(long_value, shift),
-              |  long_value >>> shift
-              |FROM shift_input
-              |""".stripMargin) {
-            checkGlutenPlan[ProjectExecTransformer]
-          }
+          body
         }
+    }
+  }
+
+  test("shiftrightunsigned") {
+    withUnsignedShiftInput {
+      runQueryAndCompare(
+        """
+          |SELECT
+          |  shiftrightunsigned(int_value, shift),
+          |  shiftrightunsigned(long_value, shift)
+          |FROM shift_input
+          |""".stripMargin) {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+    }
+  }
+
+  testWithMinSparkVersion("unsigned shift operator", "4.0") {
+    withUnsignedShiftInput {
+      runQueryAndCompare(
+        """
+          |SELECT
+          |  int_value >>> shift,
+          |  long_value >>> shift
+          |FROM shift_input
+          |""".stripMargin) {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
     }
   }
 
