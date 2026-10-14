@@ -40,6 +40,7 @@
 #include "velox/experimental/cudf/exec/ToCudf.h"
 #endif
 #include "operators/plannodes/RowVectorStream.h"
+#include "velox/connectors/hive/iceberg/IcebergMetadataColumns.h"
 
 using namespace facebook;
 using facebook::velox::functions::sparksql::SparkQueryConfig;
@@ -612,8 +613,19 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
       configs[velox::core::QueryConfig::kSpillCompressionKind] = "none";
     }
 
+    const bool readsIcebergLineage = std::any_of(scanNodeIds_.begin(), scanNodeIds_.end(), [&](const auto& nodeId) {
+      using velox::connector::hive::iceberg::IcebergMetadataColumn;
+      const auto* scan = findTableScanNodeById(veloxPlan_, nodeId);
+      if (scan == nullptr || scan->tableHandle()->connectorId() != connectorIds_.iceberg) {
+        return false;
+      }
+      const auto* table = dynamic_cast<const velox::connector::hive::HiveTableHandle*>(scan->tableHandle().get());
+      return table && table->dataColumns() &&
+          (table->dataColumns()->containsChild(IcebergMetadataColumn::kRowIdColumnName) ||
+           table->dataColumns()->containsChild(IcebergMetadataColumn::kLastUpdatedSequenceNumberColumnName));
+    });
     configs[velox::core::QueryConfig::kHashProbeDynamicFilterPushdownEnabled] =
-        std::to_string(veloxCfg_->get<bool>(kHashProbeDynamicFilterPushdownEnabled, true));
+        std::to_string(!readsIcebergLineage && veloxCfg_->get<bool>(kHashProbeDynamicFilterPushdownEnabled, true));
     configs[velox::core::QueryConfig::kHashProbeBloomFilterPushdownMaxSize] =
         std::to_string(veloxCfg_->get<uint64_t>(kHashProbeBloomFilterPushdownMaxSize, 0));
     configs[velox::core::QueryConfig::kBypassHashProbeBloomFilterMinRows] = std::to_string(

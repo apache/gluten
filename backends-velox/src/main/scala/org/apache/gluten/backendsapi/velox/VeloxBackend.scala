@@ -563,6 +563,8 @@ object VeloxBackendSettings extends BackendSettingsApi {
 
   override def supportIcebergInitialDefaultRead(): Boolean = true
 
+  override def supportIcebergRowLineageRead(): Boolean = true
+
   override def reorderColumnsForPartitionWrite(): Boolean = true
 
   override def enableEnhancedFeatures(): Boolean = VeloxConfig.get.enableEnhancedFeatures()
