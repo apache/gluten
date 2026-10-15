@@ -20,7 +20,7 @@ import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.expression.{DecimalRoundTransformer, LiteralTransformer}
 import org.apache.gluten.substrait.SubstraitContext
 
-import org.apache.spark.sql.catalyst.expressions.{BoundReference, Literal, Round}
+import org.apache.spark.sql.catalyst.expressions.{Add, BoundReference, Cast, Literal, Round}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
@@ -54,6 +54,35 @@ class VeloxDecimalRoundSuite extends AnyFunSuite {
       assert(!validator.doExprValidate(
         "round",
         Round(value, BoundReference(1, IntegerType, nullable = false))))
+    }
+  }
+
+  test("decimal round accepts bounded foldable INTEGER scales without prior constant folding") {
+    val conf = new SQLConf
+    conf.setConfString(GlutenConfig.NATIVE_VALIDATION_ENABLED.key, "false")
+    conf.setConfString(SQLConf.ANSI_ENABLED.key, "true")
+    SQLConf.withExistingConf(conf) {
+      val validator = new VeloxValidatorApi
+      val value = BoundReference(0, DecimalType(38, 38), nullable = true)
+      Seq(-400, -1, 0, 400).foreach {
+        scale =>
+          assert(validator.doExprValidate(
+            "round",
+            Round(value, Add(Literal(scale), Literal(0)))))
+      }
+      assert(validator.doExprValidate(
+        "round",
+        Round(value, Cast(Literal.create(null, NullType), IntegerType))))
+      Seq(Add(Literal(-400), Literal(-1)), Add(Literal(400), Literal(1))).foreach {
+        scale => assert(!validator.doExprValidate("round", Round(value, scale)))
+      }
+      assert(!validator.doExprValidate(
+        "round",
+        Round(value, Cast(Literal.create(null, NullType), LongType))))
+      val error = intercept[Exception] {
+        validator.doExprValidate("round", Round(value, Cast(Literal("invalid-scale"), IntegerType)))
+      }
+      assert(error.getMessage.contains("invalid-scale"))
     }
   }
 }

@@ -19,8 +19,8 @@ package org.apache.spark.sql
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.ProjectExecTransformer
 
-import org.apache.spark.sql.catalyst.expressions.Round
-import org.apache.spark.sql.catalyst.optimizer.NullPropagation
+import org.apache.spark.sql.catalyst.expressions.{Literal, Round}
+import org.apache.spark.sql.catalyst.optimizer.{ConstantFolding, NullPropagation}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
@@ -131,6 +131,31 @@ class GlutenDecimalRoundSuite extends GlutenSQLTestsTrait {
         checkRound("CAST(NULL AS INT)")
         checkRound("-401", native = false)
         checkRound("401", native = false)
+      }
+    }
+  }
+
+  testGluten("decimal ROUND accepts foldable scales with constant folding disabled") {
+    withInput(DecimalType(3, 1), Seq("2.5", "-2.5", "0")) {
+      for (nativeValidation <- Seq("false", "true")) {
+        withSQLConf(
+          GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> nativeValidation,
+          SQLConf.OPTIMIZER_EXCLUDED_RULES.key ->
+            s"${ConstantFolding.ruleName},${NullPropagation.ruleName}"
+        ) {
+          val scales = sql("SELECT round(value, 1 - 2) FROM decimal_round_input")
+            .queryExecution.optimizedPlan.collect {
+              case node => node.expressions.flatMap(_.collect { case round: Round => round.scale })
+            }.flatten
+          assert(scales.nonEmpty)
+          assert(scales.forall(scale => scale.foldable && !scale.isInstanceOf[Literal]))
+          checkRound("1 - 2")
+          checkRound("-200 - 200")
+          checkRound("200 + 200")
+          checkRound("CAST(NULL AS INT)")
+          checkRound("400 + 1", native = false)
+          checkRound("-400 - 1", native = false)
+        }
       }
     }
   }

@@ -28,7 +28,7 @@ import org.apache.gluten.validate.NativePlanValidationInfo
 import org.apache.gluten.vectorized.NativePlanEvaluator
 
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, Literal, Round}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, EmptyRow, Expression, Round}
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.types._
@@ -48,13 +48,19 @@ class VeloxValidatorApi extends ValidatorApi with Logging {
    */
   override def doExprValidate(substraitExprName: String, expr: Expression): Boolean = expr match {
     case round: Round if round.child.dataType.isInstanceOf[DecimalType] =>
-      val supported = round.scale match {
-        case Literal(null, IntegerType) => true
-        case Literal(scale: Int, IntegerType) => scale >= -400 && scale <= 400
-        case _ => false
-      }
+      val scale = round.scale
+      val supported =
+        if (scale.dataType != IntegerType || !scale.foldable) {
+          false
+        } else {
+          scale.eval(EmptyRow) match {
+            case null => true
+            case value: Int => value >= -400 && value <= 400
+            case _ => false
+          }
+        }
       if (!supported) {
-        logDebug("Decimal ROUND requires a folded INTEGER scale in [-400, 400] or NULL.")
+        logDebug("Decimal ROUND requires a foldable INTEGER scale in [-400, 400] or NULL.")
       }
       supported
     case _ => true
