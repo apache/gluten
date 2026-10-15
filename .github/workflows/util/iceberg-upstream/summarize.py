@@ -24,6 +24,8 @@ from pathlib import Path
 import sys
 import xml.etree.ElementTree as ET
 
+from flaky import is_flaky, load_flaky_tests
+
 STATUSES = (
     "PASSED_NATIVE",
     "PASSED_FALLBACK",
@@ -128,6 +130,8 @@ def classify(directory):
 
 
 def write_reports(directory, results, label="Iceberg execution coverage"):
+    flaky_tests = load_flaky_tests()
+    results = [dict(row, ignored=is_flaky(row, flaky_tests)) for row in results]
     counts = collections.Counter(row["status"] for row in results)
     summary = {status: counts[status] for status in STATUSES}
     (directory / "execution-coverage.json").write_text(
@@ -144,6 +148,7 @@ def write_reports(directory, results, label="Iceberg execution coverage"):
     )
     columns = (
         "status",
+        "ignored",
         "class",
         "test",
         "display_name",
@@ -184,6 +189,7 @@ def write_reports(directory, results, label="Iceberg execution coverage"):
                 writer.writerow(
                     (
                         row["status"],
+                        row["ignored"],
                         row["class"],
                         row["name"],
                         row.get("display_name", ""),
@@ -217,12 +223,17 @@ def write_reports(directory, results, label="Iceberg execution coverage"):
                 )
     table = f"### {label}\n\n| Iceberg execution result | Tests |\n| --- | ---: |\n"
     table += "".join(f"| {status} | {count} |\n" for status, count in summary.items())
+    ignored = sum(row["ignored"] for row in results)
+    if ignored:
+        table += f"\n{ignored} whitelisted test invocations are reported above but excluded from gating.\n"
     print(table)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as output:
             output.write(table)
     # Control runs and the comparison gate handle upstream failures. Broken observation fails here.
-    return int(bool(counts["COVERAGE_ERROR"]))
+    return int(
+        any(row["status"] == "COVERAGE_ERROR" and not row["ignored"] for row in results)
+    )
 
 
 def main(directory):

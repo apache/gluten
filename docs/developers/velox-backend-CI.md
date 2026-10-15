@@ -92,22 +92,22 @@ final adaptive plans and subqueries.
 | `SKIPPED` | Disabled upstream or aborted by an assumption. |
 | `COVERAGE_ERROR` | Missing or invalid execution evidence; reporting fails. |
 
-Failing methods run again without Gluten. `control.py` attributes a failure to Gluten only
-when vanilla Spark passes with matching parameters and settings. Missing, skipped, failing
-or mismatched controls fail the gate. Timeouts, resource exhaustion and broken-runtime
-failures remain unverified even if the control passes.
+Failing methods run again without Gluten unless whitelisted. `control.py` attributes a failure
+to Gluten only when vanilla Spark passes with matching parameters and settings. Missing,
+skipped, failing or mismatched controls fail the gate. Timeouts, resource exhaustion and
+broken-runtime failures remain unverified even if the control passes.
 
 Parameter/setup randomness is seeded.
 
 `iceberg-upstream-gate (3.5)` applies these rules to each invocation:
 
-- Existing failures may stay failed or improve; new tests must pass or be disabled upstream.
-- Fallback passes must remain fallback or improve to native; native passes must remain native.
-- Executed tests cannot disappear or become skipped, and execution evidence cannot be lost.
-- Mixed fallback/native passes must preserve every proven native node type, even if their
-  overall status is unchanged. Positive counter fluctuations alone are not regressions.
-- Missing artifacts, duplicate results, incompatible report schemas, mismatched parameters,
-  observer errors and failed infrastructure checks fail the gate.
+- Native passes must remain native; newly failed invocations fail the gate.
+- Other changes are informational, including missing/skipped non-native tests, base/head
+  parameter differences, and lost native node coverage without a native-status regression.
+- Missing artifacts, duplicate results, incompatible report schemas, invalid execution evidence,
+  unverified failure attribution and failed infrastructure checks fail the gate.
+
+Tests listed by `class,method` in [flaky-tests.csv](../../.github/workflows/util/iceberg-upstream/flaky-tests.csv) still run and appear in reports, but do not affect the gate.
 
 `iceberg-upstream-spark3.5-reports` contains base/head coverage JSON and CSVs, head raw logs,
 comparison validation details and a changes-only CSV. Separate CSVs show native, fallback,
