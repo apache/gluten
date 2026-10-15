@@ -63,12 +63,14 @@ class VeloxValidatorApi extends ValidatorApi with Logging {
           // Negative scales can overflow, and Spark captures ANSI mode in the expression.
           val supported = round.scale match {
             case Literal(null, IntegerType) => true
-            case Literal(scale: Int, IntegerType) => scale >= 0 && scale <= 400
+            case Literal(scale: Int, IntegerType) =>
+              scale >= 0 && scale <= MaxQualifiedIntegralRoundScale
             case _ => false
           }
           if (!supported) {
             logDebug(
-              "Integral ROUND requires a folded INTEGER scale in [0, 400] or NULL; retaining Spark.")
+              s"Integral ROUND requires a folded INTEGER scale in [0, $MaxQualifiedIntegralRoundScale] " +
+                "or NULL; retaining Spark.")
           }
           supported
         case _ => true
@@ -135,6 +137,9 @@ class VeloxValidatorApi extends ValidatorApi with Logging {
 }
 
 object VeloxValidatorApi {
+  // Qualified compatibility bound, not the native INTEGER scale limit.
+  final private val MaxQualifiedIntegralRoundScale = 400
+
   private val nativeFormatFlags = Set('-', '+', ' ', '0')
   // Match Velox's per-specifier output limit to prevent excessive allocations.
   private val maxNativeFormatWidth = 1 << 20
@@ -279,7 +284,6 @@ object VeloxValidatorApi {
       }
     }
   }
-
   private def isPrimitiveType(dataType: DataType): Boolean = {
     val enableTimestampNtzValidation = VeloxConfig.get.enableTimestampNtzValidation
     dataType match {

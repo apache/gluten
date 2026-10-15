@@ -132,7 +132,7 @@ TEST_F(SparkFunctionTest, integralRoundUsesSessionAnsi) {
     queryCtx_->testingOverrideConfigUnsafe({{sparkAnsiEnabledConfigKey(), ansi ? "true" : "false"}});
     const auto expression = "round(c0, cast(-1 as integer))";
     if (ansi) {
-      VELOX_ASSERT_USER_THROW(evaluate(expression, input), "overflow");
+      VELOX_ASSERT_USER_THROW(evaluate(expression, input), "Arithmetic overflow: round(");
       facebook::velox::test::assertEqualVectors(
           makeNullableFlatVector<int8_t>({std::nullopt, std::nullopt, 30, -30, std::nullopt}),
           evaluate("try(round(c0, cast(-1 as integer)))", input));
