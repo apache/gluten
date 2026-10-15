@@ -129,6 +129,7 @@ object DeltaV2WriteOperators {
     }
 
     override def setNextObserver(nextTxnObserver: TransactionExecutionObserver): Unit = {
+      // Delta 4.3 adds getNextObserver; also delegate that getter when upgrading the API.
       underlying.setNextObserver(unwrap(nextTxnObserver))
     }
 

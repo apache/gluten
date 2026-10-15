@@ -21,11 +21,13 @@ import org.apache.spark.sql.delta.catalog.DeltaCatalog
 import org.apache.spark.sql.delta.fuzzer.{OptimisticTransactionPhases, PhaseLockingTransactionExecutionObserver}
 import org.apache.spark.sql.execution.datasources.v2.DeltaV2WriteOperators.withColumnarTransaction
 import org.apache.spark.sql.test.SharedSparkSession
+import org.apache.spark.tags.ExtendedSQLTest
 
 import io.delta.sql.DeltaSparkSessionExtension
 
 import scala.collection.mutable.ListBuffer
 
+@ExtendedSQLTest
 class DeltaTransactionObserverSuite extends SparkFunSuite with SharedSparkSession {
 
   override protected def sparkConf: SparkConf = {
@@ -87,7 +89,7 @@ class DeltaTransactionObserverSuite extends SparkFunSuite with SharedSparkSessio
         val deltaLog = DeltaLog.forTable(spark, dir.getCanonicalPath)
         TransactionExecutionObserver.withObserver(original) {
           withColumnarTransaction {
-            val transaction = deltaLog.startTransaction()
+            val transaction = deltaLog.startTransaction(catalogTableOpt = None)
             assert(transaction.isInstanceOf[GlutenOptimisticTransaction])
             val observer = TransactionExecutionObserver.getObserver
             assert(transaction.executionObserver eq observer)
@@ -152,7 +154,7 @@ class DeltaTransactionObserverSuite extends SparkFunSuite with SharedSparkSessio
 
           TransactionExecutionObserver.withObserver(original) {
             withColumnarTransaction {
-              val first = deltaLog.startTransaction()
+              val first = deltaLog.startTransaction(catalogTableOpt = None)
               assert(first.isInstanceOf[GlutenOptimisticTransaction])
               val firstObserver = first.executionObserver
               if (aborted) {
@@ -162,7 +164,7 @@ class DeltaTransactionObserverSuite extends SparkFunSuite with SharedSparkSessio
               }
 
               assert(TransactionExecutionObserver.getObserver ne firstObserver)
-              val second = deltaLog.startTransaction()
+              val second = deltaLog.startTransaction(catalogTableOpt = None)
               assert(second.isInstanceOf[GlutenOptimisticTransaction])
               finishCommit(second.executionObserver)
               assert(next.allPhasesHavePassed)
