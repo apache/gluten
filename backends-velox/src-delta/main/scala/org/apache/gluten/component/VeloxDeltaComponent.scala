@@ -48,8 +48,8 @@ class VeloxDeltaComponent extends Component {
     val legacy = injector.gluten.legacy
     // Deletion-vector scans need no Gluten-side logical preprocessing: Delta's own
     // PreprocessTableWithDVsStrategy injects the skip-row column and filter during physical
-    // planning, DeltaPostTransformRules.nativeDeletionVectorRule strips them when the scan
-    // offloads, and DeltaScanTransformer materializes the per-file DV payloads for Velox.
+    // planning. Native masking scans strip them; generated-metadata scans keep them for the
+    // consumer to filter. DeltaScanTransformer supplies the per-file DV payloads for Velox.
     legacy.injectTransform {
       c =>
         val offload = Seq(

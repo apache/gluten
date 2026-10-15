@@ -213,7 +213,7 @@ class DeltaDeletionVectorHandoffSuite
     }
   }
 
-  test("Delta generated row-index scan should fall back when metadata row index is disabled") {
+  test("Delta generated row-index scan should offload when metadata row index is disabled") {
     withTempDir {
       tempDir =>
         val path = tempDir.getCanonicalPath
@@ -229,7 +229,7 @@ class DeltaDeletionVectorHandoffSuite
           val rowIndexDf =
             dataframeWithSyntheticColumns(path, DeltaParquetFileFormat.ROW_INDEX_STRUCT_FIELD)
 
-          assert(!containsNativeDeltaScan(rowIndexDf.queryExecution.executedPlan))
+          assert(containsNativeDeltaScan(rowIndexDf.queryExecution.executedPlan))
           checkAnswer(
             rowIndexDf.select("value", DeltaParquetFileFormat.ROW_INDEX_COLUMN_NAME),
             Seq(Row(0, 0L), Row(1, 1L), Row(2, 2L)))
@@ -237,7 +237,7 @@ class DeltaDeletionVectorHandoffSuite
     }
   }
 
-  test("Delta generated deleted-row scan should fall back for a DV-free file") {
+  test("Delta generated deleted-row scan should offload for a DV-free file") {
     withTempDir {
       tempDir =>
         val path = tempDir.getCanonicalPath
@@ -247,13 +247,10 @@ class DeltaDeletionVectorHandoffSuite
           val deletedRowDf =
             dataframeWithSyntheticColumns(path, DeltaParquetFileFormat.IS_ROW_DELETED_STRUCT_FIELD)
 
-          assert(!containsNativeDeltaScan(deletedRowDf.queryExecution.executedPlan))
-          assert(
-            deletedRowDf
-              .select(DeltaParquetFileFormat.IS_ROW_DELETED_COLUMN_NAME)
-              .collect()
-              .map(_.getByte(0))
-              .toSet === Set(0.toByte))
+          assert(containsNativeDeltaScan(deletedRowDf.queryExecution.executedPlan))
+          checkAnswer(
+            deletedRowDf.select("value", DeltaParquetFileFormat.IS_ROW_DELETED_COLUMN_NAME),
+            Seq(Row(0, 0.toByte), Row(1, 0.toByte), Row(2, 0.toByte)))
         }
     }
   }
@@ -277,6 +274,8 @@ class DeltaDeletionVectorHandoffSuite
           checkAnswer(rowIndexDf, Seq(Row(0, 0L), Row(1, 1L), Row(2, 2L)))
           val plan = rowIndexDf.queryExecution.executedPlan
           assert(containsNativeDeltaScan(plan), plan.treeString)
+          val scans = collectWithSubqueries(plan) { case scan: DeltaScanTransformer => scan }
+          assert(scans.forall(!_.generatesDeletionVectorMetadata), plan.treeString)
         }
     }
   }

@@ -76,7 +76,7 @@ case class DeltaScanTransformer(
       .getConfString(DeltaScanTransformer.USE_METADATA_ROW_INDEX_KEY, "true")
       .toBoolean &&
     (output.map(_.name) ++ requiredSchema.fieldNames)
-      .exists(DeltaScanTransformer.generatedMetadataTypes.contains)
+      .exists(DeltaScanTransformer.generatedDeltaMetadataTypes.contains)
   }
 
   // Keep filters above the scan until the generated values have been materialized. Physical
@@ -371,11 +371,13 @@ object DeltaScanTransformer {
 
   private[gluten] val USE_METADATA_ROW_INDEX_KEY =
     "spark.databricks.delta.deletionVectors.useMetadataRowIndex"
-  private[gluten] val generatedMetadataTypes: Map[String, DataType] = Map(
+  private[gluten] val generatedDeltaMetadataTypes: Map[String, DataType] = Map(
     DeltaParquetFileFormat.ROW_INDEX_COLUMN_NAME -> LongType,
-    DeltaParquetFileFormat.IS_ROW_DELETED_COLUMN_NAME -> ByteType,
-    "_tmp_metadata_row_index" -> LongType
+    DeltaParquetFileFormat.IS_ROW_DELETED_COLUMN_NAME -> ByteType
   )
+  // Spark can request this independently of Delta's internal fields, even with optimizations on.
+  private[gluten] val generatedMetadataTypes: Map[String, DataType] =
+    generatedDeltaMetadataTypes + ("_tmp_metadata_row_index" -> LongType)
 
   def apply(scanExec: FileSourceScanExec): DeltaScanTransformer = {
     new DeltaScanTransformer(

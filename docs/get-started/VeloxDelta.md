@@ -71,6 +71,10 @@ CDF scans touching DVs, and the DML configuration escape hatch also retain their
 existing fallback. DV-free row-index-only scans are supported.
 The fields are recognized by their exact Delta names, without requiring Spark
 generated-metadata markers; non-Delta columns are not reclassified as Delta metadata.
+This narrows the generated-field fallback introduced in #13042 only for supported
+native scans. Spark's `_metadata.row_index` (internally `_tmp_metadata_row_index`)
+keeps its existing Parquet generation path when neither Delta internal field is
+requested, including when `useMetadataRowIndex=false` and reader optimizations are on.
 
 DV descriptors still use the existing executor-side, checksum-validating payload
 handoff, memoization and metrics. Generating metadata does not introduce driver-side

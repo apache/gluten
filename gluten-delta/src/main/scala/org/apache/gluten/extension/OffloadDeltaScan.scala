@@ -39,9 +39,7 @@ case class OffloadDeltaScan(enableNativeDmlRowIndexScan: Boolean) extends Offloa
   private val generatedRowIndexColumnNames =
     Set(DeltaParquetFileFormat.ROW_INDEX_COLUMN_NAME, parquetTemporaryRowIndexColumnName)
   private val generatedDeletionVectorMetadataColumnNames =
-    Set(
-      DeltaParquetFileFormat.ROW_INDEX_COLUMN_NAME,
-      DeltaParquetFileFormat.IS_ROW_DELETED_COLUMN_NAME)
+    DeltaScanTransformer.generatedDeltaMetadataTypes.keySet
   // ParquetFileFormat.ROW_INDEX, the generated field Delta adds to the file metadata struct in
   // PreprocessTableWithDVs when deletionVectors.useMetadataRowIndex is on. Only meaningful nested
   // under _metadata -- a user column may legitimately be called row_index.

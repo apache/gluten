@@ -16,7 +16,7 @@
  */
 package org.apache.spark.sql.delta
 
-import org.apache.gluten.config.{GlutenConfig, VeloxDeltaConfig}
+import org.apache.gluten.config.{GlutenConfig, VeloxConfig, VeloxDeltaConfig}
 import org.apache.gluten.execution.DeltaScanTransformer
 import org.apache.gluten.extension.OffloadDeltaScan
 
@@ -137,8 +137,12 @@ trait DeltaGeneratedMetadataTests {
         withSQLConf(metadataRowIndexKey -> "false") {
           val field = StructField("_tmp_metadata_row_index", LongType)
           val df = generatedMetadataDataFrame(path, Seq(field))
-          generatedScans(df)
           checkAnswer(df, (0 until 23).map(value => Row(value, value.toLong)))
+          val scans = collectWithSubqueries(df.queryExecution.executedPlan) {
+            case scan: DeltaScanTransformer => scan
+          }
+          assert(scans.nonEmpty)
+          assert(scans.forall(!_.generatesDeletionVectorMetadata))
           val ordinary = spark.read.format("delta").load(path)
           assert(
             collectWithSubqueries(ordinary.queryExecution.executedPlan) {
@@ -268,6 +272,31 @@ trait DeltaGeneratedMetadataTests {
     }
   }
 
+  test("native generated metadata preserves map-key pruning") {
+    withTempDir {
+      dir =>
+        val path = dir.getCanonicalPath
+        (0 until 4).map(value => (value, Map("keep" -> value.toLong, "drop" -> 99L)))
+          .toDF("value", "payload")
+          .coalesce(1)
+          .sortWithinPartitions("value")
+          .write
+          .format("delta")
+          .save(path)
+        withSQLConf(
+          metadataRowIndexKey -> "false",
+          VeloxConfig.SCAN_MAP_KEY_PRUNING_ENABLED.key -> "true") {
+          val df = generatedMetadataDataFrame(path, generatedFields)
+            .selectExpr("value", "payload['keep']", rowIndexField.name, deletedField.name)
+          checkAnswer(
+            df,
+            (0 until 4).map(value => Row(value, value.toLong, value.toLong, 0.toByte)))
+          val scans = generatedScans(df)
+          assert(scans.forall(_.requiredMapSubfields.contains("payload")))
+        }
+    }
+  }
+
   test("generated metadata survives projections joining an ordinary native Delta scan") {
     withTempDir {
       dir =>
@@ -362,8 +391,17 @@ trait DeltaGeneratedMetadataTests {
             output = scan.output.filterNot(_.name == deletedField.name),
             requiredSchema =
               StructType(scan.requiredSchema.filterNot(_.name == deletedField.name)))
-          assert(OffloadDeltaScan(enableNativeDmlRowIndexScan =
-            true).offload(withoutFlags) eq withoutFlags)
+          val rule = OffloadDeltaScan(enableNativeDmlRowIndexScan = true)
+          val requiredOnly =
+            withoutFlags.copy(output = withoutFlags.output.filterNot(_.name == rowIndexField.name))
+          val outputOnly = withoutFlags.copy(
+            requiredSchema =
+              StructType(withoutFlags.requiredSchema.filterNot(_.name == rowIndexField.name)))
+          Seq(withoutFlags, requiredOnly, outputOnly).foreach {
+            unsupported => assert(rule.offload(unsupported) eq unsupported)
+          }
+          val ordinary = outputOnly.copy(output = requiredOnly.output)
+          assert(rule.offload(ordinary).isInstanceOf[DeltaScanTransformer])
         }
     }
   }
