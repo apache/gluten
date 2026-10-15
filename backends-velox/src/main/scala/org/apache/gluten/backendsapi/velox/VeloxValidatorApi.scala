@@ -42,7 +42,10 @@ import scala.collection.mutable.ArrayBuffer
 class VeloxValidatorApi extends ValidatorApi with Logging {
   import VeloxValidatorApi._
 
-  /** For velox backend, key validation is on native side. */
+  /**
+   * Enforce decimal ROUND scale compatibility on the JVM independently of optional native plan
+   * validation.
+   */
   override def doExprValidate(substraitExprName: String, expr: Expression): Boolean = expr match {
     case round: Round if round.child.dataType.isInstanceOf[DecimalType] =>
       val supported = round.scale match {
