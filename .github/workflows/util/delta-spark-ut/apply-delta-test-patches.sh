@@ -101,30 +101,6 @@ for patch in \
 done
 echo "::endgroup::"
 
-echo "::group::Checking Delta CDF pushed-filter assertions"
-CDF_TEST_DIR="$DELTA_DIR/spark/src/test/scala/org/apache/spark/sql/delta"
-for suite in DeltaCDCSuite DeltaCDCSQLSuite DeltaCDCColumnMappingSuite; do
-  if [ ! -f "$CDF_TEST_DIR/$suite.scala" ]; then
-    echo "Expected file not found in Delta clone: $CDF_TEST_DIR/$suite.scala" >&2
-    echo "The Delta directory layout for ref '${DELTA_REF}' may have changed." >&2
-    exit 1
-  fi
-  EXPECTED='        .contains("PushedFilters: [IsNotNull(id), LessThan(id,5)]"))'
-  if [ "$suite" = DeltaCDCColumnMappingSuite ]; then
-    EXPECTED='        .contains("PushedFilters: [IsNotNull(`id with space`), LessThan(`id with space`,5)]"))'
-  fi
-  MATCHED=$(grep -Fxc "$EXPECTED" "$CDF_TEST_DIR/$suite.scala" || true)
-  ASSERTIONS=$(grep -Fc '.contains("PushedFilters:' "$CDF_TEST_DIR/$suite.scala" || true)
-  if [ "$MATCHED" != "1" ] || [ "$ASSERTIONS" != "1" ]; then
-    echo "ERROR: expected exactly one Gluten pushed-filter assertion in $suite.scala;" \
-      "found ${MATCHED} matching out of ${ASSERTIONS} assertions." >&2
-    echo "The CDF assertions may have changed in Delta ref '${DELTA_REF}'." >&2
-    exit 1
-  fi
-done
-echo "Adapted 3 Delta CDF pushed-filter assertions for 13 test cases."
-echo "::endgroup::"
-
 echo "::group::Checking DeltaParquetFileFormat fixture row groups"
 DPFFS="$DELTA_DIR/spark/src/test/scala/org/apache/spark/sql/delta/DeltaParquetFileFormatSuite.scala"
 if [ ! -f "$DPFFS" ]; then

@@ -50,7 +50,7 @@ starts failing** (a regression).
 
 Local workarounds live in `patches/`, one file per purpose. The patcher applies
 an explicit ordered list with `git apply` after the upstream cherry-picks,
-then verifies the expected assertion, row-count-scope, and fail-fast counts.
+then verifies the expected row-count-scope and fail-fast counts.
 Patch paths are resolved relative to the script, independent of the caller's
 working directory. Missing patches, incompatible source context, or unexpected
 counts fail setup explicitly. Run through `setup-delta.sh` to reset the Delta
@@ -77,8 +77,8 @@ PushedFilters: [IsNotNull(`id with space`), LessThan(`id with space`,5)]
 The column-mapping cases also need the backticks around the special-character
 identifier; removing only `*` would not make those assertions match. Predicate
 contents, selected-column assertions, and result checks remain unchanged.
-The patch is applied after the upstream cherry-picks and fails setup if the
-expected source context or assertion counts change.
+The patch is applied after the upstream cherry-picks; `git apply` fails setup
+if the required files or source context are missing.
 
 This is a test-only accommodation, not a fix for Gluten's scan display. Remove
 it when the display gap is fixed or Delta's assertions no longer require the
