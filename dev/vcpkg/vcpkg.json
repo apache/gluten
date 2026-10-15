@@ -108,7 +108,10 @@
     "velox-kafka": {
       "description": "Velox Kafka Support",
       "dependencies": [
-        "librdkafka"
+        {
+          "name": "librdkafka",
+          "features": ["ssl", "zlib", "zstd"]
+        }
       ]
     },
     "duckdb": {
