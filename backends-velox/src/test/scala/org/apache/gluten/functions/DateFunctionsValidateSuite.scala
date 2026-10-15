@@ -169,7 +169,7 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
   }
 
   test("make_date") {
-    runQueryAndCompare(
+    runQueryAndCheck(
       "select make_date(2025, 2, 7), make_date(2024, 11, null), make_date(2024, 11, 50)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
@@ -623,6 +623,46 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
           "select convert_timezone('America/Los_Angeles', 'Asia/Shanghai', ts) from view") {
           checkGlutenPlan[ProjectExecTransformer]
         }
+        // make_timestamp_ntz runs natively; output stays timestamp_ntz.
+        runQueryAndCompare(
+          "select make_timestamp_ntz(2021, 7, 11, 6, 30, 45.678) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        // date_trunc(timestamp_ntz) runs natively; output is timestamp (no NTZ propagation).
+        runQueryAndCompare("select date_trunc('year', ts) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        // date_add/date_sub(timestamp_ntz) run natively; output is date (no NTZ propagation).
+        runQueryAndCompare("select date_add(ts, 1) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        runQueryAndCompare("select date_sub(ts, 1) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        // datediff(timestamp_ntz) runs natively; output is int (no NTZ propagation).
+        runQueryAndCompare("select datediff(ts, ts) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        // date_format(timestamp_ntz) runs natively; output is string (no NTZ propagation).
+        runQueryAndCompare("select date_format(ts, 'yyyy') from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        // to_utc_timestamp(timestamp_ntz) runs natively; output is timestamp (no NTZ propagation).
+        runQueryAndCompare("select to_utc_timestamp(ts, 'America/Los_Angeles') from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        // from_utc_timestamp(timestamp_ntz) runs natively; output is timestamp (no NTZ).
+        runQueryAndCompare("select from_utc_timestamp(ts, 'America/Los_Angeles') from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        // year/month/day(timestamp_ntz) run natively; output is int (no NTZ propagation).
+        runQueryAndCompare("select year(ts), month(ts), day(ts) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        // extract(timestamp_ntz) runs natively; output is int (no NTZ propagation).
+        runQueryAndCompare("select extract(year from ts) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
 
         // cast(timestamp_ntz as timestamp)
         runQueryAndCompare("select cast(ts as timestamp) from view") {
@@ -714,6 +754,15 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
             checkGlutenPlan[ProjectExecTransformer]
           }
         }
+    }
+  }
+
+  testWithMinSparkVersion("try_make_timestamp_ntz", "4.0") {
+    // try_make_timestamp_ntz runs natively; invalid input returns NULL, not an error.
+    runQueryAndCompare(
+      "select try_make_timestamp_ntz(2021, 7, 11, 6, 30, 45.678)," +
+        " try_make_timestamp_ntz(2021, 13, 11, 6, 30, 45.678)") {
+      checkGlutenPlan[ProjectExecTransformer]
     }
   }
 }

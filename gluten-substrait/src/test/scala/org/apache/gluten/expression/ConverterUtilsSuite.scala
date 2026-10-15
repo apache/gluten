@@ -16,7 +16,8 @@
  */
 package org.apache.gluten.expression
 
-import org.apache.spark.sql.types.{DataType, TimestampType}
+import org.apache.spark.sql.catalyst.expressions.AttributeReference
+import org.apache.spark.sql.types.{DataType, IntegerType, TimestampType}
 
 import io.substrait.proto.Type
 import org.scalatest.funsuite.AnyFunSuiteLike
@@ -63,5 +64,15 @@ class ConverterUtilsSuite extends AnyFunSuiteLike {
         assert(dataType === timestampNTZType)
         assert(parsedNullable === nullable)
     }
+  }
+
+  test("column names for an attribute with a null name") {
+    // An attribute can have a null name, e.g. from a StructField built with a null name.
+    val nullNamed = AttributeReference(null, IntegerType)()
+    assert(ConverterUtils.genColumnNameWithoutExprId(nullNamed) === "")
+    assert(ConverterUtils.genColumnNameWithExprId(nullNamed) === s"#${nullNamed.exprId.id}")
+
+    val named = AttributeReference("B", IntegerType)()
+    assert(ConverterUtils.genColumnNameWithExprId(named) === s"b#${named.exprId.id}")
   }
 }
