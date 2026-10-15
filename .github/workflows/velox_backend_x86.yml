@@ -17,6 +17,8 @@ name: Velox Backend (x86)
 
 on:
   pull_request:
+    # [DNM] Spark 4.2 Delta UT test PR only: skip this workflow here.
+    branches: ['dnm-skip']
     paths:
       - '.github/workflows/velox_backend_x86.yml'
       - 'pom.xml'

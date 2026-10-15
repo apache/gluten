@@ -75,7 +75,7 @@ on:
       spark_version:
         description: 'Spark version: drives the Gluten bundle profile (-Pspark-<v>) and Delta -DsparkVersion together. Scala 2.13 + JDK 17 are assumed.'
         required: true
-        default: '4.1'
+        default: '4.2'
       test_parallelism:
         description: 'Forked test JVMs per shard (TEST_PARALLELISM_COUNT)'
         required: true
@@ -117,10 +117,10 @@ env:
   # Delta tests come from the Delta release the bundle is compiled against
   # (delta4.version in pom.xml), which builds every Spark 4.x line. Scala 2.13.17
   # + JDK 17 are what that release builds with.
-  GLUTEN_SPARK_PROFILE: spark-${{ inputs.spark_version || '4.1' }}
+  GLUTEN_SPARK_PROFILE: spark-${{ inputs.spark_version || '4.2' }}
   GLUTEN_SCALA_PROFILE: 'scala-2.13'
   GLUTEN_JAVA_PROFILE: 'java-17'
-  GLUTEN_BUNDLE_SPARK_VERSION: ${{ inputs.spark_version || '4.1' }}
+  GLUTEN_BUNDLE_SPARK_VERSION: ${{ inputs.spark_version || '4.2' }}
   GLUTEN_BUNDLE_SCALA_VERSION: '2.13'
   DELTA_SCALA_VERSION: '2.13.17'
   # Number of shards in the delta-spark-test matrix. Must equal the length of
@@ -379,7 +379,7 @@ jobs:
         # -- our signal that the committed baseline needs refreshing).
         env:
           INPUT_DELTA_REF: ${{ inputs.delta_ref }}
-          SPARK_VERSION: ${{ inputs.spark_version || '4.1' }}
+          SPARK_VERSION: ${{ inputs.spark_version || '4.2' }}
           TEST_PARALLELISM: ${{ inputs.test_parallelism || '4' }}
           UPDATE_BASELINE: ${{ github.event_name == 'workflow_dispatch' && (inputs.update_baseline && 'true' || 'false') || 'false' }}
           # Defaults to true for pull_request and schedule: `inputs` only exists on
