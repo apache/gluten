@@ -49,7 +49,10 @@ import scala.collection.mutable.ArrayBuffer
 class VeloxValidatorApi extends ValidatorApi with Logging {
   import VeloxValidatorApi._
 
-  /** For velox backend, key validation is on native side. */
+  /**
+   * Enforce integral ROUND eligibility on the JVM to preserve Spark's captured ANSI semantics,
+   * independently of optional native plan validation.
+   */
   override def doExprValidate(substraitExprName: String, expr: Expression): Boolean = expr match {
     // Both format_string and printf resolve to Spark's FormatString expression.
     case formatString: FormatString =>
