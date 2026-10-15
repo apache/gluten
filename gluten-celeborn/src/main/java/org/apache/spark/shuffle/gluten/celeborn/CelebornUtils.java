@@ -387,11 +387,9 @@ public class CelebornUtils {
     }
   }
 
-  public static void stageRerun(
-      boolean stageRerunEnabled,
-      LifecycleManager lifecycleManager,
-      CelebornConf celebornConf,
-      Object failedShuffleCleaner) {
+  public static Object stageRerun(
+      boolean stageRerunEnabled, LifecycleManager lifecycleManager, CelebornConf celebornConf) {
+    Object failedShuffleCleaner = null;
     if (stageRerunEnabled) {
       MapOutputTrackerMaster mapOutputTracker =
           (MapOutputTrackerMaster) SparkEnv.get().mapOutputTracker();
@@ -403,9 +401,10 @@ public class CelebornUtils {
 
       // for Celeborn 0.6.0
       registerCelebornSkewShuffleCheckCallback(lifecycleManager, celebornConf);
-      fetchCleanFailedShuffle(lifecycleManager, celebornConf, failedShuffleCleaner);
+      failedShuffleCleaner = fetchCleanFailedShuffle(lifecycleManager, celebornConf);
       reducerFileGroupBroadcast(lifecycleManager, celebornConf);
     }
+    return failedShuffleCleaner;
   }
 
   public static void registerShuffleTrackerCallback(
@@ -566,14 +565,18 @@ public class CelebornUtils {
     }
   }
 
-  public static void fetchCleanFailedShuffle(
-      LifecycleManager lifecycleManager, CelebornConf celebornConf, Object failedShuffleCleaner) {
+  public static Object fetchCleanFailedShuffle(
+      LifecycleManager lifecycleManager, CelebornConf celebornConf) {
+    Object failedShuffleCleaner = null;
     try {
       // for Celeborn 0.6.0
       Method clientFetchCleanFailedShuffleMethod =
           celebornConf.getClass().getDeclaredMethod("clientFetchCleanFailedShuffle");
       if ((Boolean) clientFetchCleanFailedShuffleMethod.invoke(celebornConf)) {
         failedShuffleCleaner = createInstance(FAILED_SHUFFLE_CLEANER_NAME, lifecycleManager);
+        if (failedShuffleCleaner == null) {
+          return null;
+        }
         Method registerValidateCelebornShuffleIdForCleanCallbackMethod =
             lifecycleManager
                 .getClass()
@@ -617,6 +620,7 @@ public class CelebornUtils {
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
+    return failedShuffleCleaner;
   }
 
   public static void reducerFileGroupBroadcast(
