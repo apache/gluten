@@ -192,17 +192,20 @@ VeloxColumnarToRow
          +- Scan hive spark_catalog.default.tbl [col1#11], HiveTableRelation [`spark_catalog`.`default`.`tbl`, org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe, Data Cols: [col1#11], Partition Cols: []]
 ```
 
-## Natively Only UDF Registration
+## Natively Only UDF/UDAF Registration
 
-This is an alternative to the registration described above, for a UDF that is implemented only in Velox and has no Java counterpart.
+This is an alternative to the registration described above, for a UDF or UDAF that is implemented only in Velox and has no Java counterpart.
 
 This is off by default. Set `spark.gluten.sql.columnar.backend.velox.nativeUDF.bypassRegistration=true` to turn it on.
 
-Once enabled, a UDF whose registered name contains no dot is added to the session's function registry under that name, provided the name is not already a Spark built-in and no other loaded UDF differs from it only in case. It needs no matching Hive UDF class, no jar on the classpath, and no `CREATE TEMPORARY FUNCTION` — register it under a name with no dot, such as `my_udf`, and call it directly:
+Once enabled, a UDF or UDAF whose registered name contains no dot is added to the session's function registry under that name, provided the name is not already a Spark built-in, no other loaded function differs from it only in case, and the name is not loaded as both a UDF and a UDAF. It needs no matching Hive class, no jar on the classpath, and no `CREATE TEMPORARY FUNCTION` — register it under a name with no dot, such as `my_udf`, and call it directly:
 
 ```
 spark-sql (default)> select my_udf(col1) from tbl;
+spark-sql (default)> select k, my_udaf(v) from tbl group by k;
 ```
+
+A name loaded as both a UDF and a UDAF is skipped. Velox keeps its scalar and aggregate registries separately, so a library may declare one of each, but a Spark function name resolves to a single builder and a call site gives nothing to choose with. Both remain reachable through a Hive class name.
 
 **There is no fallback with this method.** A name registered this way has no Java implementation behind it, so a query that Gluten cannot offload fails instead of falling back to the JVM. Use the registration described above whenever the fallback path is required.
 
