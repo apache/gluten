@@ -496,7 +496,45 @@ else()
   target_link_libraries(velox PUBLIC external::simdjson)
 endif()
 
+# Restore the platform's default suffixes before looking for optional dynamic
+# dependencies such as librdkafka.
 set(CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES_BCK})
+
+# Find and link librdkafka for Kafka streaming support
+if(ENABLE_KAFKA)
+  target_compile_definitions(velox PUBLIC ENABLE_KAFKA)
+  find_package(RdKafka CONFIG QUIET)
+  if(RdKafka_FOUND AND TARGET RdKafka::rdkafka++)
+    message(STATUS "Found RdKafka: ${RdKafka_DIR}")
+    target_link_libraries(velox PUBLIC RdKafka::rdkafka++)
+  else()
+    # Link the C++ client and C mock API.
+    find_package(PkgConfig QUIET)
+    if(PKG_CONFIG_FOUND)
+      pkg_check_modules(RDKAFKA QUIET IMPORTED_TARGET rdkafka++ rdkafka)
+      if(RDKAFKA_FOUND)
+        message(STATUS "Found librdkafka via pkg-config: ${RDKAFKA_LIBRARIES}")
+        target_link_libraries(velox PUBLIC PkgConfig::RDKAFKA)
+      else()
+        message(
+          FATAL_ERROR
+            "Kafka is enabled, but librdkafka (C/C++) was not found.\n"
+            "Install it: ./dev/builddeps-veloxbe.sh install_librdkafka\n"
+            "For an existing install, set RdKafka_DIR, CMAKE_PREFIX_PATH or PKG_CONFIG_PATH.\n"
+            "Disable Kafka with --enable_kafka=OFF (script) or -DENABLE_KAFKA=OFF (CMake)."
+        )
+      endif()
+    else()
+      message(
+        FATAL_ERROR
+          "librdkafka was not found through CMake, and pkg-config is unavailable.\n"
+          "Install it: ./dev/builddeps-veloxbe.sh install_librdkafka\n"
+          "For an existing install, set RdKafka_DIR or CMAKE_PREFIX_PATH.\n"
+          "Disable Kafka with --enable_kafka=OFF (script) or -DENABLE_KAFKA=OFF (CMake)."
+      )
+    endif()
+  endif()
+endif()
 
 # Adopted from Velox's CMakeLists.txt.
 # https://github.com/facebookincubator/velox/pull/11410

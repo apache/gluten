@@ -212,6 +212,23 @@ function cmake_install {
   ${SUDO} cmake --install "${BINARY_DIR}"
 }
 
+function install_librdkafka() (
+  local version="v2.13.0"
+  source "${GLUTEN_DIR}/dev/build-helper-functions.sh"
+  # Reuse the Kafka build directory on repeat installs.
+  prompt() { return 1; }
+  local dependency_dir="${DEPENDENCY_DIR:-${GLUTEN_DIR}/ep/_ep}"
+  mkdir -p "${dependency_dir}"
+  cd "${dependency_dir}"
+  wget_and_untar "https://github.com/confluentinc/librdkafka/archive/refs/tags/${version}.tar.gz" librdkafka
+  cd librdkafka
+  cmake_install -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}" -DCMAKE_INSTALL_LIBDIR=lib \
+    -DRDKAFKA_BUILD_STATIC=ON -DRDKAFKA_BUILD_TESTS=OFF -DRDKAFKA_BUILD_EXAMPLES=OFF \
+    -DENABLE_LZ4_EXT=OFF -DWITH_SSL=ON -DWITH_ZLIB=ON -DWITH_ZSTD=ON \
+    -DWITH_SASL=OFF -DWITH_CURL=OFF \
+    -DWITH_SASL_SCRAM=ON -DWITH_SASL_OAUTHBEARER=ON
+)
+
 function setup_macos {
   sed -i '' '/run_and_time install_arrow/d' scripts/setup-macos.sh
   if [ $ARCH == 'x86_64' ]; then

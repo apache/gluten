@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.extension.joinagg
 
-import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.config.{GlutenConfig, PartialMergeMode}
 
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, AttributeSet, EqualTo, Expression, NamedExpression, PredicateHelper}
@@ -113,9 +113,6 @@ case class PushAggregateThroughJoin(spark: SparkSession)
 
   private def maxDepth: Int = GlutenConfig.get.pushAggregateThroughJoinMaxDepth
 
-  private def partialMergeEnabled: Boolean =
-    GlutenConfig.get.pushAggregateThroughJoinPartialMergeEnabled
-
   private def splitAggregate(agg: Aggregate): Option[(Aggregate, Aggregate)] = {
     // Split is intentionally child-agnostic. It only rewrites:
     //
@@ -177,6 +174,7 @@ case class PushAggregateThroughJoin(spark: SparkSession)
   private def pushPartialWrapperAggregate(lowerPartialAgg: Aggregate): LogicalPlan = {
     // Push one join edge per iteration. This keeps the rewrite local and lets `maxDepth` bound
     // how far a pushed aggregate is allowed to travel through a multi-join subtree.
+    val partialMergeMode = GlutenConfig.get.pushAggregateThroughJoinPartialMergeMode
     var current: LogicalPlan = lowerPartialAgg
     var changed = true
     var pushCount = 0
@@ -184,7 +182,10 @@ case class PushAggregateThroughJoin(spark: SparkSession)
       changed = false
       current = current.transformUp {
         case partialAgg: Aggregate if isPurePartialWrapperAggregate(partialAgg) =>
-          val pushed = if (partialMergeEnabled) {
+          // The first successful push leaves a merge at the original partial aggregate position.
+          val retainPartialMerge = partialMergeMode == PartialMergeMode.ALL ||
+            (partialMergeMode == PartialMergeMode.TOP && pushCount == 0)
+          val pushed = if (retainPartialMerge) {
             val (partialMergeAgg, freshLowerPartialAgg) = splitPartialAggregateForMerge(partialAgg)
             pushOnce(freshLowerPartialAgg).map {
               pushedPlan => partialMergeAgg.copy(child = pushedPlan)

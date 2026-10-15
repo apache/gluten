@@ -38,8 +38,8 @@ const std::string kMaxSpillFileSize = "spark.gluten.sql.columnar.backend.velox.m
 const std::string kSpillNumMaxMergeFiles = "spark.gluten.sql.columnar.backend.velox.spillNumMaxMergeFiles";
 const std::string kSpillStartPartitionBit = "spark.gluten.sql.columnar.backend.velox.spillStartPartitionBit";
 const std::string kSpillPartitionBits = "spark.gluten.sql.columnar.backend.velox.spillPartitionBits";
-const std::string kMaxSpillRunRows = "spark.gluten.sql.columnar.backend.velox.MaxSpillRunRows";
-const std::string kMaxSpillBytes = "spark.gluten.sql.columnar.backend.velox.MaxSpillBytes";
+const std::string kMaxSpillRunRows = "spark.gluten.sql.columnar.backend.velox.maxSpillRunRows";
+const std::string kMaxSpillBytes = "spark.gluten.sql.columnar.backend.velox.maxSpillBytes";
 const std::string kSpillReadBufferSize = "spark.unsafe.sorter.spill.reader.buffer.size";
 const uint64_t kMaxSpillFileSizeDefault = 1L * 1024 * 1024 * 1024;
 
