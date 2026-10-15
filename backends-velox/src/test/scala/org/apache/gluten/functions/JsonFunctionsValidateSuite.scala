@@ -334,8 +334,9 @@ class JsonFunctionsValidateSuite extends FunctionsValidateSuite {
 
         spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("tbl")
 
+        // Field names differing only by case are distinct: keys are matched case-sensitively.
         runQueryAndCompare("select txt, from_json(txt, 'id INT, Id INT') from tbl") {
-          checkSparkPlan[ProjectExec]
+          checkSparkPlan[ProjectExecTransformer]
         }
 
         runQueryAndCompare("select txt, from_json(txt, 'id INT, id INT') from tbl") {

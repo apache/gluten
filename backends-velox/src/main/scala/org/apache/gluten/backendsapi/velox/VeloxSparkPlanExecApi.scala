@@ -68,7 +68,6 @@ import org.apache.commons.lang3.ClassUtils
 
 import java.net.URI
 import java.util.{ArrayList => JArrayList, List => JList}
-import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
 import scala.collection.JavaConverters._
@@ -1252,24 +1251,12 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         ExpressionNames.FROM_JSON,
         FromJsonRestrictions.NOT_SUPPORT_WITH_OPTIONS)
     }
-    if (SQLConf.get.caseSensitiveAnalysis) {
-      GlutenExceptionUtil.throwsNotFullySupported(
-        ExpressionNames.FROM_JSON,
-        FromJsonRestrictions.NOT_SUPPORT_CASE_SENSITIVE)
-    }
 
+    // Velox matches JSON keys against field names case-sensitively, like Spark. Only schemas with
+    // exactly equal field names remain ambiguous.
     val hasDuplicateKey = expr.schema match {
-      case s: StructType =>
-        s.names.distinct.size != s.names.size ||
-        !s.filter(
-          f =>
-            !s.names
-              .filter(
-                n => n != f.name && n.toLowerCase(Locale.ROOT) == f.name.toLowerCase(Locale.ROOT))
-              .isEmpty)
-          .isEmpty
-      case other =>
-        false
+      case s: StructType => s.names.distinct.size != s.names.size
+      case _ => false
     }
     if (hasDuplicateKey) {
       GlutenExceptionUtil.throwsNotFullySupported(
@@ -1287,7 +1274,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         ExpressionNames.FROM_JSON,
         FromJsonRestrictions.NOT_SUPPORT_COLUMN_CORRUPT_RECORD)
     }
-    GenericExpressionTransformer(substraitExprName, children, expr)
+    FromJsonTransformer(substraitExprName, children, expr)
   }
 
   /** Generate an expression transformer to transform StructsToJson to Substrait. */
