@@ -96,6 +96,10 @@ function process_setup_tencentos32 {
 # independent of this. Header-search isolation from /usr/local is handled by
 # SDKROOT exported in builddeps-veloxbe.sh / build-velox.sh.
 function process_setup_macos {
+  sed -i '' 's/ lz4 openssl simdjson/ lz4 openssl@3 simdjson/' scripts/setup-macos.sh
+  sed -i '' '/run_and_time install_velox_deps_from_brew/a\
+  export OPENSSL_ROOT_DIR="$(brew --prefix openssl@3)"
+' scripts/setup-macos.sh
   if ! grep -Fq 'FOLLY_USE_JEMALLOC=OFF' scripts/setup-common.sh; then
     sed -i '' 's/local FOLLY_FLAGS=(/local FOLLY_FLAGS=(-DFOLLY_USE_JEMALLOC=OFF /' scripts/setup-common.sh
   fi
