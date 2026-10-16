@@ -21,7 +21,8 @@ package org.apache.gluten.expression
  * compatible with Spark 3.x and 4.x at the same time.
  *
  * Provides stub implementations for methods that exist in Spark 4.x but not in Spark 3.x, including
- * getVariant, getGeography, getGeometry and getBinaryView.
+ * getVariant, getGeography, getGeometry, getBinaryView, getTimestampNTZNanos and
+ * getTimestampLTZNanos.
  *
  * The return type is `Nothing` on purpose: it conforms to whichever concrete type the running Spark
  * version declares (and these types do not all exist in every version), so a single definition
@@ -40,5 +41,12 @@ trait SpecializedGettersSparkCompatible {
 
   // Added by SpecializedGetters in Spark 4.2.
   def getBinaryView(ordinal: Int): Nothing =
+    throw new UnsupportedOperationException()
+
+  // Added by SpecializedGetters in Spark 4.3.
+  def getTimestampNTZNanos(ordinal: Int): Nothing =
+    throw new UnsupportedOperationException()
+
+  def getTimestampLTZNanos(ordinal: Int): Nothing =
     throw new UnsupportedOperationException()
 }

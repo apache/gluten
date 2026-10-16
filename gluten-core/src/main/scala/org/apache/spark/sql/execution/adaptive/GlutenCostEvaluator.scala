@@ -20,7 +20,7 @@ import org.apache.gluten.config.GlutenCoreConfig
 
 import org.apache.spark.sql.catalyst.SQLConfHelper
 import org.apache.spark.sql.execution.SparkPlan
-import org.apache.spark.util.Utils
+import org.apache.spark.util.{SparkVersionUtil, Utils}
 
 /**
  * This [[CostEvaluator]] is to force use the new physical plan when cost is equal.
@@ -33,8 +33,20 @@ case class GlutenCostEvaluator() extends CostEvaluator with SQLConfHelper {
     val forceOptimizeSkewedJoin =
       conf.getConfString("spark.sql.adaptive.forceOptimizeSkewedJoin").toBoolean
     val clazz = Utils.classForName("org.apache.spark.sql.execution.adaptive.SimpleCostEvaluator")
-    val ctor = clazz.getConstructor(classOf[Boolean])
-    ctor.newInstance(forceOptimizeSkewedJoin.asInstanceOf[Object]).asInstanceOf[CostEvaluator]
+    if (SparkVersionUtil.gteSpark43) {
+      // Spark 4.3 added the `countLocalSort` parameter.
+      val countLocalSort =
+        conf.getConfString("spark.sql.adaptive.costEvaluator.countLocalSort.enabled").toBoolean
+      val ctor = clazz.getConstructor(classOf[Boolean], classOf[Boolean])
+      ctor
+        .newInstance(
+          forceOptimizeSkewedJoin.asInstanceOf[Object],
+          countLocalSort.asInstanceOf[Object])
+        .asInstanceOf[CostEvaluator]
+    } else {
+      val ctor = clazz.getConstructor(classOf[Boolean])
+      ctor.newInstance(forceOptimizeSkewedJoin.asInstanceOf[Object]).asInstanceOf[CostEvaluator]
+    }
   }
 
   override def evaluateCost(plan: SparkPlan): Cost = {

@@ -38,6 +38,10 @@ abstract class BasePythonRunnerShim(
     None,
     pythonMetrics) {
 
+  // The worker handle passed to newReaderIterator: Spark 4.3 replaced the pid with a
+  // PythonWorkerHandle.
+  type WorkerHandle = Option[Int]
+
   protected def createNewWriter(
       env: SparkEnv,
       worker: PythonWorker,
