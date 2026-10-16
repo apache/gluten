@@ -41,14 +41,14 @@ class VeloxFormatStringSuite extends VeloxWholeStageTransformerSuite {
     dataFrame.collect()
     assert(
       FallbackUtil.hasFallback(dataFrame.queryExecution.executedPlan),
-      s"Expected format_string fallback: ${dataFrame.queryExecution.executedPlan}")
+      s"Expected format_string/printf fallback: ${dataFrame.queryExecution.executedPlan}")
   }
 
   private def assertFallbackWithoutExecution(sql: String): Unit = {
     val executedPlan = spark.sql(sql).queryExecution.executedPlan
     assert(
       FallbackUtil.hasFallback(executedPlan),
-      s"Expected format_string fallback: $executedPlan")
+      s"Expected format_string/printf fallback: $executedPlan")
   }
 
   private def assertNative(dataFrame: DataFrame): Unit = {
@@ -114,23 +114,27 @@ class VeloxFormatStringSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
-  test("format_string falls back outside the verified compatibility subset") {
-    withFormatValues {
-      Seq(
-        "SELECT format_string(CASE WHEN id = 0 THEN '%d' ELSE '%x' END, id) " +
-          "FROM format_values",
-        "SELECT format_string('%b', id = 0) FROM format_values",
-        "SELECT format_string('%c', CAST(id + 65 AS INT)) FROM format_values",
-        "SELECT format_string('%g', CAST(id AS DOUBLE) + 0.25D) FROM format_values",
-        "SELECT format_string('%.2f', CAST(id AS DOUBLE) + 0.25D) FROM format_values",
-        "SELECT format_string('%.3e', CAST(id AS DOUBLE) + 0.25D) FROM format_values",
-        "SELECT format_string('%.3E', CAST(id AS DOUBLE) + 0.25D) FROM format_values",
-        "SELECT format_string('%1$s', CAST(id AS STRING)) FROM format_values",
-        "SELECT format_string('%10s', CAST(id AS STRING)) FROM format_values",
-        "SELECT format_string('%s', CAST(id AS DOUBLE)) FROM format_values",
-        "SELECT format_string('%f', CAST(id AS DOUBLE) + 0.25D) FROM format_values"
-      ).foreach(assertFallback)
-    }
+  Seq("format_string", "printf").foreach {
+    functionName =>
+      test(s"$functionName falls back outside the verified compatibility subset") {
+        withFormatValues {
+          Seq(
+            "CASE WHEN id = 0 THEN '%d' ELSE '%x' END, id",
+            "'%b', id = 0",
+            "'%c', CAST(id + 65 AS INT)",
+            "'%g', CAST(id AS DOUBLE) + 0.25D",
+            "'%.2f', CAST(id AS DOUBLE) + 0.25D",
+            "'%.3e', CAST(id AS DOUBLE) + 0.25D",
+            "'%.3E', CAST(id AS DOUBLE) + 0.25D",
+            "'%1$s', CAST(id AS STRING)",
+            "'%10s', CAST(id AS STRING)",
+            "'%s', CAST(id AS DOUBLE)",
+            "'%f', CAST(id AS DOUBLE) + 0.25D"
+          ).foreach {
+            arguments => assertFallback(s"SELECT $functionName($arguments) FROM format_values")
+          }
+        }
+      }
   }
 
   test("format_string handles null arguments and uppercase integral conversions") {
@@ -159,20 +163,27 @@ class VeloxFormatStringSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
-  test("format_string rejects malformed and unsafe literals before native execution") {
-    withFormatValues {
-      Seq(
-        "SELECT format_string('%--5d', CAST(id AS INT)) FROM format_values",
-        "SELECT format_string('%-d', CAST(id AS INT)) FROM format_values",
-        "SELECT format_string('%0d', CAST(id AS INT)) FROM format_values",
-        "SELECT format_string('%-05d', CAST(id AS INT)) FROM format_values",
-        "SELECT format_string('%+ d', CAST(id AS INT)) FROM format_values",
-        "SELECT format_string('%.d', CAST(id AS INT)) FROM format_values",
-        "SELECT format_string('%1048577d', CAST(id AS INT)) FROM format_values",
-        "SELECT format_string('%', CAST(id AS INT)) FROM format_values",
-        "SELECT format_string('%d %d', CAST(id AS INT)) FROM format_values"
-      ).foreach(assertFallbackWithoutExecution)
-    }
+  Seq("format_string", "printf").foreach {
+    functionName =>
+      test(s"$functionName rejects malformed and unsafe literals before native execution") {
+        withFormatValues {
+          Seq(
+            "%--5d",
+            "%-d",
+            "%0d",
+            "%-05d",
+            "%+ d",
+            "%.d",
+            "%1048577d",
+            "%",
+            "%d %d"
+          ).foreach {
+            format =>
+              assertFallbackWithoutExecution(
+                s"SELECT $functionName('$format', CAST(id AS INT)) FROM format_values")
+          }
+        }
+      }
   }
 
   test("format_string replaces malformed UTF-8 in string arguments") {
