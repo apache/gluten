@@ -31,7 +31,8 @@ function(add_velox_test TEST_EXEC)
   target_compile_definitions(
     ${TEST_EXEC}
     PRIVATE GLUTEN_VELOX_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
-  target_link_libraries(${TEST_EXEC} velox ${GLUTEN_ROARING_LINK_LIBRARY}
+  target_link_libraries(${TEST_EXEC} gluten_velox_impl gluten_core_impl
+                        ${GLUTEN_VELOX_TEST_LIBRARIES} ${GLUTEN_ROARING_LINK_LIBRARY}
                         GTest::gtest GTest::gtest_main)
   if(ENABLE_GPU)
     target_link_libraries(${TEST_EXEC} velox_curl)
@@ -82,7 +83,8 @@ if(ENABLE_GPU)
              facebook::velox::velox_cudf_vector
              facebook::velox::velox_cudf_hive_connector)
     target_link_libraries(
-      ${TEST_EXEC} PRIVATE velox ${GLUTEN_ROARING_LINK_LIBRARY} cudf::cudf
+      ${TEST_EXEC} PRIVATE gluten_velox_impl gluten_core_impl
+                           ${GLUTEN_VELOX_TEST_LIBRARIES} ${GLUTEN_ROARING_LINK_LIBRARY} cudf::cudf
                            velox_curl GTest::gtest GTest::gtest_main)
     gtest_discover_tests(
       ${TEST_EXEC} DISCOVERY_MODE PRE_TEST

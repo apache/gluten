@@ -18,11 +18,13 @@ add_library(velox_benchmark_common STATIC ${VELOX_BENCHMARK_COMMON_SRCS})
 target_include_directories(
   velox_benchmark_common PUBLIC ${CMAKE_SOURCE_DIR}/velox
                                 ${CMAKE_SOURCE_DIR}/core)
-target_link_libraries(velox_benchmark_common PUBLIC velox benchmark::benchmark
+target_link_libraries(velox_benchmark_common PUBLIC gluten_velox_impl benchmark::benchmark
                                                     glog::glog)
 function(add_velox_benchmark BM_EXEC BM_FILE)
   add_executable(${BM_EXEC} ${BM_FILE})
-  target_link_libraries(${BM_EXEC} PRIVATE velox_benchmark_common)
+  target_link_libraries(${BM_EXEC} PRIVATE velox_benchmark_common
+                        gluten_velox_impl gluten_core_impl
+                        ${GLUTEN_VELOX_TEST_LIBRARIES})
   if(ENABLE_GPU)
     target_link_libraries(${BM_EXEC} PRIVATE velox_curl)
   endif()

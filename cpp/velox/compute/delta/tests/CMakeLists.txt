@@ -16,7 +16,7 @@
 add_executable(velox_roaring_bitmap_array_test RoaringBitmapArrayTest.cpp)
 
 target_link_libraries(
-  velox_roaring_bitmap_array_test velox ${GLUTEN_ROARING_LINK_LIBRARY}
+  velox_roaring_bitmap_array_test gluten_velox_impl gluten_core_impl ${GLUTEN_ROARING_LINK_LIBRARY}
   GTest::gtest GTest::gtest_main)
 
 add_test(
@@ -28,7 +28,7 @@ add_executable(
   velox_delta_read_test DeltaConnectorTest.cpp DeltaBitmapAggregatorTest.cpp
                         DeltaDeletionVectorReaderTest.cpp DeltaSplitTest.cpp)
 
-target_link_libraries(velox_delta_read_test velox roaring
+target_link_libraries(velox_delta_read_test gluten_velox_impl gluten_core_impl roaring
                       facebook::velox::exec_test_lib GTest::gtest)
 
 add_test(
