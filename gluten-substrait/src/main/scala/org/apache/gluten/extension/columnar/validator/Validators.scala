@@ -81,6 +81,11 @@ object Validators {
       builder.add(new FallbackByBackendSettings(settings))
     }
 
+    /** Fails validation if a plan node relies on a Spark feature Gluten doesn't support yet. */
+    def fallbackByUnsupportedSparkFeatures(): Validator.Builder = {
+      builder.add(FallbackByUnsupportedSparkFeatures)
+    }
+
     /**
      * Fails validation if native-execution of a plan node is disabled by Gluten/Spark
      * configuration.
@@ -161,6 +166,16 @@ object Validators {
       case p: OverwritePartitionsDynamicExec if !settings.supportOverwritePartitionsDynamic() =>
         fail(p)
       case p: WriteToDataSourceV2Exec if !settings.supportWriteToDataSourceV2() => fail(p)
+      case _ => pass()
+    }
+  }
+
+  private object FallbackByUnsupportedSparkFeatures extends Validator {
+    override def validate(plan: SparkPlan): Validator.OutCome = plan match {
+      // The scan reports `SinglePartition` and Spark may have elided a shuffle above it, while the
+      // native scan doesn't coalesce its splits into a single task.
+      case p: FileSourceScanExec if SparkShimLoader.getSparkShims.isSingleTaskExecutionScan(p) =>
+        fail(s"${p.nodeName} uses single-task execution, which is not supported")
       case _ => pass()
     }
   }
@@ -385,6 +400,7 @@ object Validators {
       .fallbackIfScanOnlyWithFilterPushed(conf.enableScanOnly)
       .fallbackComplexExpressions()
       .fallbackByBackendSettings()
+      .fallbackByUnsupportedSparkFeatures()
       .fallbackByUserOptions()
       .fallbackByTimestampNTZ()
       .fallbackByTestInjects()
