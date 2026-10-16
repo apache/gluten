@@ -26,7 +26,7 @@ import org.apache.spark.sql.types._
 
 import scala.collection.JavaConverters._
 
-class GlutenDecimalRoundSuite extends GlutenSQLTestsTrait {
+abstract class GlutenDecimalRoundSuiteBase extends GlutenSQLTestsTrait {
   private def withInput(dataType: DecimalType, values: Seq[String])(f: => Unit): Unit = {
     val schema = new StructType().add("value", dataType)
     val rows = values.map(value => Row(new java.math.BigDecimal(value))) :+ Row(null)
