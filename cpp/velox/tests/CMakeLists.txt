@@ -165,6 +165,12 @@ add_velox_test(scoped_timer_test SOURCES ScopedTimerTest.cc)
 add_velox_test(row_based_checksum_test SOURCES RowBasedChecksumTest.cc)
 if(BUILD_EXAMPLES)
   add_velox_test(my_udf_test SOURCES MyUdfTest.cc)
+  # UDF loading exercises the production shared library, so use the same
+  # runtime.
+  set_property(
+    TARGET my_udf_test
+    PROPERTY LINK_LIBRARIES velox ${GLUTEN_VELOX_TEST_LIBRARIES} GTest::gtest
+             GTest::gtest_main)
 endif()
 
 if(ENABLE_ENHANCED_FEATURES)

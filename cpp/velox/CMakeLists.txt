@@ -248,7 +248,7 @@ endif()
 add_library(gluten_velox_impl OBJECT ${VELOX_SRCS})
 set_target_properties(gluten_velox_impl PROPERTIES POSITION_INDEPENDENT_CODE ON)
 add_library(velox SHARED jni/VeloxJniWrapper.cc)
-target_link_libraries(velox PRIVATE gluten_velox_impl gluten)
+target_link_libraries(velox PUBLIC gluten_velox_impl gluten)
 
 if(ENABLE_GLUTEN_VCPKG)
   find_package(xxHash CONFIG REQUIRED)
