@@ -88,8 +88,10 @@ class VeloxToSubstraitExprConvertor {
       const RowTypePtr& inputType);
 
   /// Convert Velox variant to Substrait Literal Expression.
-  const ::substrait::Expression_Literal&
-  toSubstraitLiteral(google::protobuf::Arena& arena, const velox::variant& variantValue, const velox::TypePtr& type);
+  const ::substrait::Expression_Literal& toSubstraitLiteral(
+      google::protobuf::Arena& arena,
+      const velox::variant& variantValue,
+      const velox::TypePtr& logicalType);
 
   /// Convert values in Velox array vector to Substrait Literal List.
   const ::substrait::Expression_Literal_List&
