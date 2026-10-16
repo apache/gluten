@@ -75,7 +75,7 @@ if(NOT DEFINED VELOX_BUILD_PATH)
   endif()
 endif()
 
-find_package(Roaring REQUIRED)
+find_package(Roaring MODULE REQUIRED)
 set(GLUTEN_ROARING_LINK_LIBRARY roaring)
 
 set(VELOX_PROTO_SRC_DIR
