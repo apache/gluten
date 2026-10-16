@@ -18,13 +18,24 @@ package org.apache.spark.shuffle.gluten.celeborn;
 
 import org.apache.celeborn.client.LifecycleManager;
 import org.apache.celeborn.common.CelebornConf;
+import org.junit.Assume;
 import org.junit.Test;
 
+import java.lang.reflect.Field;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
+
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyZeroInteractions;
+import static org.mockito.Mockito.when;
 
 /** Tests for the Celeborn reflection compatibility layer in {@link CelebornUtils}. */
 public class CelebornUtilsTest {
@@ -122,25 +133,95 @@ public class CelebornUtilsTest {
   }
 
   @Test
-  public void testFetchCleanFailedShuffleReturnsCleanerInstance() {
-    CelebornConf conf = new CelebornConf();
+  public void testFetchCleanFailedShuffleReturnsCleanerAndStopShutsDownItsExecutor()
+      throws Exception {
+    assumeFailedShuffleCleanerSupported();
+
+    CelebornConf conf = hermeticConf();
     conf.set("celeborn.client.spark.fetch.cleanFailedShuffle", "true");
-    LifecycleManager lifecycleManager = null;
+    // A mocked LifecycleManager keeps the test hermetic: no RpcEnv, no ApplicationHeartbeater and
+    // therefore no RPC against an ambient Celeborn master.
+    LifecycleManager lifecycleManager = mock(LifecycleManager.class);
+    when(lifecycleManager.conf()).thenReturn(conf);
+
+    Object cleaner = CelebornUtils.fetchCleanFailedShuffle(lifecycleManager, conf);
+    ExecutorService cleanerExecutor = null;
     try {
-      lifecycleManager = new LifecycleManager("gluten-celeborn-test", conf);
-      Object cleaner = CelebornUtils.fetchCleanFailedShuffle(lifecycleManager, conf);
       assertNotNull("FailedShuffleCleaner instance should be returned to the caller", cleaner);
       assertEquals(CelebornUtils.FAILED_SHUFFLE_CLEANER_NAME, cleaner.getClass().getName());
-      CelebornUtils.stopFailedShuffleCleaner(cleaner);
+      // The returned instance is the very one wired into the LifecycleManager callbacks.
+      verify(lifecycleManager).registerValidateCelebornShuffleIdForCleanCallback(any());
+      verify(lifecycleManager).registerUnregisterShuffleCallback(any());
+
+      cleanerExecutor = cleanerExecutor(cleaner);
+      assertNotNull("FailedShuffleCleaner should own a scheduled executor", cleanerExecutor);
+      assertFalse(
+          "FailedShuffleCleaner executor should be running before stop",
+          cleanerExecutor.isShutdown());
     } finally {
-      if (lifecycleManager != null) {
-        lifecycleManager.stop();
+      if (cleaner != null) {
+        CelebornUtils.stopFailedShuffleCleaner(cleaner);
       }
     }
+
+    assertTrue(
+        "stopFailedShuffleCleaner should shut down the cleaner executor",
+        cleanerExecutor.isShutdown());
+    assertTrue(
+        "cleaner executor should terminate once the cleaner is stopped",
+        cleanerExecutor.awaitTermination(10, TimeUnit.SECONDS));
+  }
+
+  @Test
+  public void testFetchCleanFailedShuffleDisabledCreatesNoCleaner() {
+    assumeFailedShuffleCleanerSupported();
+
+    CelebornConf conf = hermeticConf();
+    conf.set("celeborn.client.spark.fetch.cleanFailedShuffle", "false");
+    LifecycleManager lifecycleManager = mock(LifecycleManager.class);
+
+    assertNull(CelebornUtils.fetchCleanFailedShuffle(lifecycleManager, conf));
+    verifyZeroInteractions(lifecycleManager);
   }
 
   @Test
   public void testStageRerunDisabledReturnsNull() {
-    assertNull(CelebornUtils.stageRerun(false, null, new CelebornConf()));
+    assertNull(CelebornUtils.stageRerun(false, null, hermeticConf()));
+  }
+
+  /**
+   * Builds a {@link CelebornConf} that ignores ambient {@code celeborn.*} settings coming from
+   * system properties, so the assertions below cannot be influenced by the local environment.
+   */
+  private static CelebornConf hermeticConf() {
+    return new CelebornConf(false);
+  }
+
+  /**
+   * Keeps the cleaner assertions strict on Celeborn clients that ship {@code FailedShuffleCleaner},
+   * and skips them on older clients where {@link CelebornUtils#fetchCleanFailedShuffle} is a no-op
+   * by design.
+   */
+  private static void assumeFailedShuffleCleanerSupported() {
+    try {
+      CelebornConf.class.getDeclaredMethod("clientFetchCleanFailedShuffle");
+      Class.forName(CelebornUtils.FAILED_SHUFFLE_CLEANER_NAME);
+    } catch (NoSuchMethodException | ClassNotFoundException e) {
+      Assume.assumeNoException("Celeborn client in use does not support FailedShuffleCleaner", e);
+    }
+  }
+
+  /**
+   * Returns the executor owned by the cleaner, which is the resource that leaked before the fix.
+   * The field is looked up by type instead of by name to stay tolerant to Celeborn renames.
+   */
+  private static ExecutorService cleanerExecutor(Object cleaner) throws Exception {
+    for (Field field : cleaner.getClass().getDeclaredFields()) {
+      if (ExecutorService.class.isAssignableFrom(field.getType())) {
+        field.setAccessible(true);
+        return (ExecutorService) field.get(cleaner);
+      }
+    }
+    throw new AssertionError("No ExecutorService field found on " + cleaner.getClass().getName());
   }
 }
