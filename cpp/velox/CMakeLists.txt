@@ -306,7 +306,8 @@ target_include_directories(
          ${PROTO_OUTPUT_DIR}
          ${PROTOBUF_INCLUDE})
 if(GLUTEN_PREFIX_INCLUDE_DIRS)
-  target_include_directories(gluten_velox_impl BEFORE PUBLIC ${GLUTEN_PREFIX_INCLUDE_DIRS})
+  target_include_directories(gluten_velox_impl BEFORE
+                             PUBLIC ${GLUTEN_PREFIX_INCLUDE_DIRS})
 endif()
 
 set_target_properties(velox PROPERTIES LIBRARY_OUTPUT_DIRECTORY
@@ -380,7 +381,8 @@ if(BUILD_TESTS)
   set(GLUTEN_VELOX_TEST_LIBRARIES facebook::velox::exec_test_lib)
 endif()
 
-target_link_libraries(gluten_velox_impl ${GLUTEN_VELOX_LINK_SCOPE} facebook::velox)
+target_link_libraries(gluten_velox_impl ${GLUTEN_VELOX_LINK_SCOPE}
+                      facebook::velox)
 
 target_link_libraries(gluten_velox_impl PUBLIC ${GLUTEN_ROARING_LINK_LIBRARY})
 
@@ -482,7 +484,8 @@ else()
     NO_DEFAULT_PATH)
 
   if(THRIFTCPP2_LIB AND THRIFTPROTOCOL_LIB)
-    target_link_libraries(gluten_velox_impl PRIVATE ${THRIFTCPP2_LIB} ${THRIFTPROTOCOL_LIB})
+    target_link_libraries(gluten_velox_impl PRIVATE ${THRIFTCPP2_LIB}
+                                                    ${THRIFTPROTOCOL_LIB})
   else()
     message(
       FATAL_ERROR
@@ -590,7 +593,8 @@ if(ENABLE_ABFS)
   add_definitions(-DENABLE_ABFS)
   find_azure()
   target_link_libraries(gluten_velox_impl PUBLIC Azure::azure-storage-blobs)
-  target_link_libraries(gluten_velox_impl PUBLIC Azure::azure-storage-files-datalake)
+  target_link_libraries(gluten_velox_impl
+                        PUBLIC Azure::azure-storage-files-datalake)
   target_link_libraries(gluten_velox_impl PUBLIC Azure::azure-identity)
 endif()
 

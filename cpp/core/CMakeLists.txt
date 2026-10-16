@@ -211,7 +211,7 @@ if(ENABLE_QAT)
   include(BuildQATZstd)
   target_sources(gluten_core_impl PRIVATE utils/qat/QatCodec.cc)
   target_include_directories(gluten_core_impl PUBLIC ${QATZIP_INCLUDE_DIR}
-                                           ${QATZSTD_INCLUDE_DIR})
+                                                     ${QATZSTD_INCLUDE_DIR})
   target_link_libraries(gluten_core_impl PUBLIC qatzip::qatzip qatzstd::qatzstd)
 endif()
 
@@ -244,7 +244,8 @@ target_include_directories(
   PUBLIC ${CMAKE_SYSTEM_INCLUDE_PATH} ${JNI_INCLUDE_DIRS}
          ${CMAKE_CURRENT_SOURCE_DIR} ${PROTO_OUTPUT_DIR} ${PROTOBUF_INCLUDE})
 if(GLUTEN_PREFIX_INCLUDE_DIRS)
-  target_include_directories(gluten_core_impl BEFORE PUBLIC ${GLUTEN_PREFIX_INCLUDE_DIRS})
+  target_include_directories(gluten_core_impl BEFORE
+                             PUBLIC ${GLUTEN_PREFIX_INCLUDE_DIRS})
 endif()
 set_target_properties(gluten PROPERTIES LIBRARY_OUTPUT_DIRECTORY
                                         ${root_directory}/releases)
@@ -255,7 +256,8 @@ endif()
 
 target_link_libraries(gluten_core_impl PUBLIC Arrow::arrow)
 if(NOT ENABLE_GLUTEN_VCPKG)
-  target_link_libraries(gluten_core_impl PUBLIC Arrow::arrow_bundled_dependencies)
+  target_link_libraries(gluten_core_impl
+                        PUBLIC Arrow::arrow_bundled_dependencies)
 endif()
 target_link_libraries(gluten_core_impl PRIVATE glog::glog)
 
