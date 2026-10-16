@@ -34,7 +34,7 @@ import java.sql.Date
 
 class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
   private val joinAggregateRule = PushAggregateThroughJoin(spark)
-  private val debugMode: Boolean = true
+  private val debugMode: Boolean = false
 
   private case class PushdownCase(inputSql: String)
 
@@ -213,6 +213,20 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       spark.experimental.extraOptimizations = previousOptimizations
       spark.experimental.extraStrategies = previousStrategies
     }
+  }
+
+  test("push grouping-only aggregate to both join sides") {
+    val pushdownCase = PushdownCase(
+      inputSql = """
+                   |SELECT DISTINCT ss_item_sk AS item_sk, i_item_desc AS itemdesc
+                   |FROM store_sales
+                   |JOIN item ON ss_item_sk = i_item_sk
+                   |""".stripMargin)
+    runCaseWithMaxDepth(
+      pushdownCase,
+      maxDepth = 1,
+      expectedPushCount = 2,
+      expectedAggCounts = ExpectedAggCounts(none = 3, top = 4, all = 4))
   }
 
   test("pre-aggregate store_sales for both joins with having filter") {
