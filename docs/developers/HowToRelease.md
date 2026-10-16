@@ -91,8 +91,8 @@ Pull and download the build environment docker image. The docker image is period
 built and uploaded to DockerHub by scheduled GitHub Actions jobs.
 
 ```bash
-docker pull apache/gluten:vcpkg-centos-7-gcc13
-docker run -it apache/gluten:vcpkg-centos-7-gcc13 bash
+docker pull apache/gluten:vcpkg-almalinux-8-gcc13
+docker run -it apache/gluten:vcpkg-almalinux-8-gcc13 bash
 ```
 
 ### Clone the repository

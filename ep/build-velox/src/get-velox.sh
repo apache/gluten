@@ -163,7 +163,6 @@ function setup_linux {
     case "$LINUX_VERSION_ID" in
       9) process_setup_centos9 ;;
       8) ;;
-      7) ;;
       *)
         echo "Unsupported centos version: $LINUX_VERSION_ID"
         exit 1
@@ -182,7 +181,6 @@ function setup_linux {
     esac
   elif [[ "$LINUX_DISTRIBUTION" == "alinux" ]]; then
     case "${LINUX_VERSION_ID:0:1}" in
-      2) ;;
       3) process_setup_alinux3 ;;
       *)
         echo "Unsupported alinux version: $LINUX_VERSION_ID"
@@ -191,7 +189,6 @@ function setup_linux {
     esac
   elif [[ "$LINUX_DISTRIBUTION" == "tencentos" ]]; then
     case "$LINUX_VERSION_ID" in
-      2.4) ;;
       3.2) process_setup_tencentos32 ;;
       *)
         echo "Unsupported tencentos version: $LINUX_VERSION_ID"
