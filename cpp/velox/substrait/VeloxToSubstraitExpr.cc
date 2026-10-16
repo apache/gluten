@@ -131,10 +131,12 @@ toSubstraitTimestampLiteral(google::protobuf::Arena& arena, const Timestamp& val
   return *literal;
 }
 
-const ::substrait::Expression_Literal&
-toSubstraitNotNullLiteral(google::protobuf::Arena& arena, const velox::variant& variantValue, const TypePtr& type) {
+const ::substrait::Expression_Literal& toSubstraitNotNullLiteral(
+    google::protobuf::Arena& arena,
+    const velox::variant& variantValue,
+    const TypePtr& logicalType) {
   if (variantValue.kind() == TypeKind::TIMESTAMP) {
-    return toSubstraitTimestampLiteral(arena, variantValue.value<TypeKind::TIMESTAMP>(), type);
+    return toSubstraitTimestampLiteral(arena, variantValue.value<TypeKind::TIMESTAMP>(), logicalType);
   }
   ::substrait::Expression_Literal* literalExpr =
       google::protobuf::Arena::CreateMessage<::substrait::Expression_Literal>(&arena);
@@ -533,14 +535,14 @@ const ::substrait::Expression_Literal& VeloxToSubstraitExprConvertor::toSubstrai
 const ::substrait::Expression_Literal& VeloxToSubstraitExprConvertor::toSubstraitLiteral(
     google::protobuf::Arena& arena,
     const velox::variant& variantValue,
-    const TypePtr& type) {
+    const TypePtr& logicalType) {
   ::substrait::Expression_Literal* literalExpr =
       google::protobuf::Arena::CreateMessage<::substrait::Expression_Literal>(&arena);
 
   if (variantValue.isNull()) {
-    literalExpr->MergeFrom(toSubstraitNullLiteral(arena, type));
+    literalExpr->MergeFrom(toSubstraitNullLiteral(arena, logicalType));
   } else {
-    literalExpr->MergeFrom(toSubstraitNotNullLiteral(arena, variantValue, type));
+    literalExpr->MergeFrom(toSubstraitNotNullLiteral(arena, variantValue, logicalType));
   }
   return *literalExpr;
 }
