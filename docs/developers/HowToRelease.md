@@ -74,7 +74,7 @@ being added to `NOTICE-binary`.
 
 ```bash
 # Requires the `regex` Python package: pip install regex
-python3 dev/check.py header main
+python3 .github/workflows/util/check.py header main
 ```
 
 Reviewers also run [Apache RAT](https://creadur.apache.org/rat/) against the source archive. Note

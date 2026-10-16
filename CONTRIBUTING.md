@@ -63,7 +63,7 @@ An identical license header is used for all Gluten source code. If lacked or wro
 
 You can execute a script to fix license header issue, as the following shows.
 
-`dev/check.py header main --fix`
+`.github/workflows/util/check.py header main --fix`
 
 ### Gluten CI
 
