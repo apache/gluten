@@ -36,9 +36,7 @@ class VeloxFormatStringSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
-  private def assertFallback(sql: String): Unit = {
-    val dataFrame = spark.sql(sql)
-    dataFrame.collect()
+  private def assertFallback(dataFrame: DataFrame): Unit = {
     assert(
       FallbackUtil.hasFallback(dataFrame.queryExecution.executedPlan),
       s"Expected format_string/printf fallback: ${dataFrame.queryExecution.executedPlan}")
@@ -55,10 +53,10 @@ class VeloxFormatStringSuite extends VeloxWholeStageTransformerSuite {
     val executedPlan = dataFrame.queryExecution.executedPlan
     assert(
       !FallbackUtil.hasFallback(executedPlan),
-      s"Expected native format_string execution: $executedPlan")
+      s"Expected native format_string/printf execution: $executedPlan")
     assert(
       executedPlan.find(_.isInstanceOf[ProjectExecTransformer]).isDefined,
-      s"Expected a native project for format_string: $executedPlan")
+      s"Expected a native project for format_string/printf: $executedPlan")
   }
 
   test("format_string and printf share native integer formatting") {
@@ -131,7 +129,10 @@ class VeloxFormatStringSuite extends VeloxWholeStageTransformerSuite {
             "'%s', CAST(id AS DOUBLE)",
             "'%f', CAST(id AS DOUBLE) + 0.25D"
           ).foreach {
-            arguments => assertFallback(s"SELECT $functionName($arguments) FROM format_values")
+            arguments =>
+              runQueryAndCompare(
+                s"SELECT $functionName($arguments) FROM format_values",
+                noFallBack = false)(assertFallback)
           }
         }
       }
@@ -151,16 +152,29 @@ class VeloxFormatStringSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
-  test("format_string accepts the maximum native width") {
-    withFormatValues {
-      val dataFrame =
-        runQueryAndCompare("""
-                             |SELECT length(format_string('%1048576d', CAST(id AS INT)))
-                             |FROM format_values
-                             |WHERE id = 0
-                             |""".stripMargin)(assertNative)
-      checkAnswer(dataFrame, Row(1048576))
-    }
+  Seq("format_string", "printf").foreach {
+    functionName =>
+      test(s"$functionName plans the maximum native width without execution") {
+        withFormatValues {
+          assertNative(spark.sql(s"""
+                                    |SELECT $functionName('%1048576d', CAST(id AS INT))
+                                    |FROM format_values
+                                    |WHERE id = 0
+                                    |""".stripMargin))
+        }
+      }
+
+      test(s"$functionName executes wide native padding") {
+        withFormatValues {
+          val dataFrame =
+            runQueryAndCompare(s"""
+                                  |SELECT $functionName('%4096d', CAST(id AS INT))
+                                  |FROM format_values
+                                  |WHERE id = 0
+                                  |""".stripMargin)(assertNative)
+          checkAnswer(dataFrame, Row(" " * 4095 + "0"))
+        }
+      }
   }
 
   Seq("format_string", "printf").foreach {

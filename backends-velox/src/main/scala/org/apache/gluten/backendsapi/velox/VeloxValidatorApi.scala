@@ -45,6 +45,7 @@ class VeloxValidatorApi extends ValidatorApi {
   /** For velox backend, key validation is on native side. */
   override def doExprValidate(substraitExprName: String, expr: Expression): Boolean = {
     expr match {
+      // Both format_string and printf resolve to Spark's FormatString expression.
       case formatString: FormatString =>
         supportsFormatString(formatString)
       case _ => true
@@ -135,7 +136,7 @@ object VeloxValidatorApi {
   }
 
   private def parseNativeFormatString(format: String): Option[Seq[Char]] = {
-    val conversions = ArrayBuffer.empty[Char]
+    val conversions = scala.collection.mutable.ArrayBuffer.empty[Char]
     var index = 0
     while (index < format.length) {
       if (format.charAt(index) != '%') {
