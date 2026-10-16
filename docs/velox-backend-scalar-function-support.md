@@ -297,7 +297,7 @@ The status applies to `spark.sql.ansi.enabled=false`. When ANSI mode is enabled,
 | randn             | Randn                  | S        |                |
 | random            | Rand                   | S        |                |
 | rint              | Rint                   | S        |                |
-| round             | Round                  | PS       | For decimal inputs, foldable INTEGER scales in [-400, 400] and NULL are supported. Other decimal scales fall back to Spark. Integral and floating-point negative scales retain their existing fallback. |
+| round             | Round                  | PS       | For decimal inputs, foldable INTEGER scales in the inclusive native-supported interval [-400, 400] and NULL are supported. Other decimal scales fall back to Spark instead of reaching the native unsupported-scale error. Integral and floating-point negative scales retain their existing fallback. |
 | sec               | Sec                    | S        |                |
 | sign              | Signum                 | S        |                |
 | signum            | Signum                 | S        |                |
