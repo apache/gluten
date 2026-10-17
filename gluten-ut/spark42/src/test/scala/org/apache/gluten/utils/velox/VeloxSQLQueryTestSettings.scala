@@ -240,6 +240,10 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     // newly added test files from spark 4.1
     "alias-resolution-edge-cases.sql",
     "collations-aliases.sql",
+    "collations-basic.sql",
+    "collations-padding-trim.sql",
+    "collations-string-functions.sql",
+    "cte-recursion.sql",
     "extract-value-resolution-edge-cases.sql",
     "generators.sql",
     "having-and-order-by-recursive-type-name-resolution.sql",
