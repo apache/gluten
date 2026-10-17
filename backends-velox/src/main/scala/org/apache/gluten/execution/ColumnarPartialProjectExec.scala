@@ -34,6 +34,7 @@ import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.execution.{ExplainUtils, OrderPreservingUnaryExecNode, PartitioningPreservingUnaryExecNode, ProjectExec, SparkPlan, UnaryExecNode}
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.hive.{HiveUDFTransformer, VeloxHiveUDFTransformer}
+import org.apache.spark.sql.types.DecimalType
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
 
 import scala.collection.JavaConverters._
@@ -330,6 +331,9 @@ object ColumnarPartialProjectExec {
     case _: CaseWhen => true
     case _: NaNvl => true
     case _: Coalesce => true
+    // Decimal PMOD can skip its dividend for a null divisor (or a zero divisor in legacy
+    // mode). Extracting a UDF from that dividend would evaluate it unconditionally.
+    case p: Pmod if p.dataType.isInstanceOf[DecimalType] => true
     case _ => false
   }
 

@@ -113,6 +113,20 @@ Use the following command to generate and update the support status:
 python3 tools/scripts/gen-function-support-docs.py --spark_home=/path/to/spark_source_code
 ```
 
+
+### Decimal PMOD
+
+Native decimal `pmod` requires a Velox build that provides the decimal signatures of `checked_pmod` and
+`checked_pmod_deny_precision_loss`. Older native builds fall back to Spark during plan validation. Decimal
+`pmod` also falls back when `spark.gluten.sql.enable.native.validation=false`, since its native capability
+cannot then be checked. The existing ANSI fallback setting still applies.
+
+Operands are currently limited to decimal columns and literals. Computed operands fall back to preserve
+Spark's evaluation order: a null divisor, or a zero divisor in legacy mode, can skip evaluation of the
+dividend. The native operation preserves the expression's captured ANSI mode even when the session setting
+changes after planning. Zero divisors and decimal result overflow produce null in legacy mode and an error
+in ANSI mode. Decimal remainder (`%`) support is unchanged.
+
 The support status is generated with `spark.sql.ansi.enabled=false`. When ANSI mode is enabled, Gluten falls back
 to vanilla Spark for the whole query (see `spark.gluten.sql.ansiFallback.enabled`). Spark 4.x enables ANSI mode by
 default, so the script runs the test suites with `SPARK_ANSI_SQL_MODE=false` and turns off the ANSI mode that
@@ -121,6 +135,7 @@ from CI on Spark 4.x because of known result gaps, since they exercise functions
 
 See [Updating the Function Support Docs](developers/UpdateFunctionSupportDocs.md) for moving the script to a new
 Spark version and auditing the generated status.
+
 
 Please check the links below for the detailed support status of each category:
 

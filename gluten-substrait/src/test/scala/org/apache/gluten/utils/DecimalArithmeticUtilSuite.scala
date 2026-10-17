@@ -29,9 +29,8 @@ class DecimalArithmeticUtilSuite extends AnyFunSuite {
   private val left = Literal.create(BigDecimal("1.00"), decimalType)
   private val right = Literal.create(BigDecimal("2.00"), decimalType)
 
-  // isDecimalArithmetic admits Remainder and Pmod so that getResultType gets a chance to reject
-  // them. On the transformCheckOverflow path that rejection is what keeps decimal % and pmod off
-  // the native path.
+  // The shared result-type utility must keep rejecting these operators. Supporting one through a
+  // backend override must not bypass validation or change behavior for other backends.
   test("remainder and pmod are admitted but have no result type") {
     Seq(Remainder(left, right), Pmod(left, right)).foreach {
       expr =>
