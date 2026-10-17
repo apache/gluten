@@ -996,60 +996,15 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("Tags set from session are prefixed with session UUID")
   enableSuite[GlutenTPCDSCollationQueryTestSuite]
   enableSuite[GlutenTPCDSModifiedPlanStabilitySuite]
-    .exclude(
-      "check simplified (tpcds-modifiedQueries/ss_max)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenTPCDSModifiedPlanStabilityWithStatsSuite]
-    .exclude(
-      "check simplified sf100 (tpcds-modifiedQueries/ss_max)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenTPCDSQueryANSISuite]
   enableSuite[GlutenTPCDSQuerySuite]
   enableSuite[GlutenTPCDSQueryTestSuite]
   enableSuite[GlutenTPCDSQueryWithStatsSuite]
   enableSuite[GlutenTPCDSV1_4_PlanStabilitySuite]
-    .exclude(
-      "check simplified (tpcds-v1.4/q16)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "check simplified (tpcds-v1.4/q28)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "check simplified (tpcds-v1.4/q94)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "check simplified (tpcds-v1.4/q95)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenTPCDSV1_4_PlanStabilityWithStatsSuite]
-    .exclude(
-      "check simplified sf100 (tpcds-v1.4/q16)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "check simplified sf100 (tpcds-v1.4/q28)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "check simplified sf100 (tpcds-v1.4/q5)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "check simplified sf100 (tpcds-v1.4/q54)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "check simplified sf100 (tpcds-v1.4/q94)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "check simplified sf100 (tpcds-v1.4/q95)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenTPCDSV2_7_PlanStabilitySuite]
-    .exclude(
-      "check simplified (tpcds-v2.7.0/q77a)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenTPCDSV2_7_PlanStabilityWithStatsSuite]
-    .exclude(
-      "check simplified sf100 (tpcds-v2.7.0/q5a)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "check simplified sf100 (tpcds-v2.7.0/q77a)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenTPCHPlanStabilitySuite]
   enableSuite[GlutenTPCHQuerySuite]
   enableSuite[GlutenUDFSuite]
