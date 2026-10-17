@@ -277,6 +277,9 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     // "array.sql",
     // Overwrite exception message.
     "bitwise.sql",
+    "count.sql",
+    "charvarchar.sql",
+    "cte.sql",
     // Enable NullPropagation rule for
     // "legacy behavior: allow calling function count without parameters".
     // Enable ConstantFolding rule for "typeof(...)".
