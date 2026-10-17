@@ -77,6 +77,8 @@
     <delta.package.name>delta-spark</delta.package.name>
     <delta.version>3.3.2</delta.version>
     <delta.binary.version>33</delta.binary.version>
+    <!-- First lance-spark release with the Arrow C stream export (lance-spark#778). -->
+    <lance.version>0.8.0</lance.version>
     <aws-java-sdk-dynamodb.version>1.12.797</aws-java-sdk-dynamodb.version>
     <celeborn.version>0.6.3</celeborn.version>
     <uniffle.version>0.10.0</uniffle.version>
@@ -1953,6 +1955,90 @@
                     </resource>
                     <resource>
                       <directory>${project.basedir}/src-iceberg${iceberg.binary.version}/test/resources</directory>
+                    </resource>
+                  </resources>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>lance</id>
+      <activation>
+        <activeByDefault>false</activeByDefault>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>build-helper-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>add-lance-sources</id>
+                <goals>
+                  <goal>add-source</goal>
+                </goals>
+                <phase>generate-sources</phase>
+                <configuration>
+                  <sources>
+                    <source>${project.basedir}/src-lance/main/scala</source>
+                  </sources>
+                </configuration>
+              </execution>
+              <execution>
+                <id>add-lance-resources</id>
+                <goals>
+                  <goal>add-resource</goal>
+                </goals>
+                <phase>generate-resources</phase>
+                <configuration>
+                  <resources>
+                    <resource>
+                      <directory>${project.basedir}/src-lance/main/resources</directory>
+                    </resource>
+                  </resources>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>lance-test</id>
+      <activation>
+        <activeByDefault>false</activeByDefault>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>build-helper-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>add-lance-test-sources</id>
+                <goals>
+                  <goal>add-test-source</goal>
+                </goals>
+                <phase>generate-test-sources</phase>
+                <configuration>
+                  <sources>
+                    <source>${project.basedir}/src-lance/test/scala</source>
+                  </sources>
+                </configuration>
+              </execution>
+              <execution>
+                <id>add-lance-test-resources</id>
+                <goals>
+                  <goal>add-test-resource</goal>
+                </goals>
+                <phase>generate-test-resources</phase>
+                <configuration>
+                  <resources>
+                    <resource>
+                      <directory>${project.basedir}/src-lance/test/resources</directory>
                     </resource>
                   </resources>
                 </configuration>
