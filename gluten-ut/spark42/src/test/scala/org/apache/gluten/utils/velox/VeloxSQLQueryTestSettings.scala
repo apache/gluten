@@ -154,6 +154,7 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "postgreSQL/comments.sql",
     "postgreSQL/date.sql",
     "postgreSQL/float4.sql",
+    "postgreSQL/float8.sql",
     "postgreSQL/groupingsets.sql",
     "postgreSQL/insert.sql",
     "postgreSQL/int2.sql",
