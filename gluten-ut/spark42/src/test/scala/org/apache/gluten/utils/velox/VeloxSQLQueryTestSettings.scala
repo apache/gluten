@@ -152,6 +152,7 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "postgreSQL/boolean.sql",
     "postgreSQL/case.sql",
     "postgreSQL/comments.sql",
+    "postgreSQL/create_view.sql",
     "postgreSQL/date.sql",
     "postgreSQL/float4.sql",
     "postgreSQL/groupingsets.sql",
