@@ -940,24 +940,14 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-39557 INSERT INTO statements with tables with array defaults")
     .exclude("SPARK-39557 INSERT INTO statements with tables with struct defaults")
     .exclude("SPARK-39557 INSERT INTO statements with tables with map defaults")
-    .exclude(
-      "SPARK-55716: V1 INSERT NOT NULL enforcement respects storeAssignmentPolicy"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-55716: V1 INSERT rejects null array element for NOT NULL element type"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-55716: V1 INSERT rejects null into NOT NULL column for file sources"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-55716: V1 INSERT rejects null map value for NOT NULL value type"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-55716: V1 INSERT rejects null struct field for NOT NULL field"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-55716: V1 INSERT rejects null with V2 file source path"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
+    // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException.
+    // Rewritten in GlutenInsertSuite.
+    .exclude("SPARK-55716: V1 INSERT rejects null into NOT NULL column for file sources")
+    .exclude("SPARK-55716: V1 INSERT NOT NULL enforcement respects storeAssignmentPolicy")
+    .exclude("SPARK-55716: V1 INSERT rejects null with V2 file source path")
+    .exclude("SPARK-55716: V1 INSERT rejects null array element for NOT NULL element type")
+    .exclude("SPARK-55716: V1 INSERT rejects null struct field for NOT NULL field")
+    .exclude("SPARK-55716: V1 INSERT rejects null map value for NOT NULL value type")
   enableSuite[GlutenPartitionedWriteSuite]
   enableSuite[GlutenPathOptionSuite]
   enableSuite[GlutenPrunedScanSuite]
