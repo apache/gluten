@@ -254,6 +254,7 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "session-variable-precedence.sql",
     // TODO: fix on Spark-4.1 "st-functions.sql",
     "subquery/resolution-edge-cases.sql",
+    "thetasketch.sql",
     "time.sql",
     "type-coercion-edge-cases.sql",
     "union-per-child-output-deduplication.sql",
