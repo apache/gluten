@@ -142,6 +142,19 @@ public final class VeloxColumnarBatches {
     }
   }
 
+  public static int firstNullColumnIndex(ColumnarBatch batch, int[] columnOrdinals) {
+    if (columnOrdinals.length == 0 || batch.numRows() == 0) {
+      return -1;
+    }
+    ColumnarBatches.checkOffloaded(batch);
+    Runtime runtime =
+        Runtimes.contextInstance(
+            BackendsApiManager.getBackendName(), "VeloxColumnarBatches#firstNullColumnIndex");
+    long nativeHandle = ColumnarBatches.getNativeHandle(BackendsApiManager.getBackendName(), batch);
+    return VeloxColumnarBatchJniWrapper.create(runtime)
+        .firstNullColumnIndex(nativeHandle, columnOrdinals);
+  }
+
   /**
    * repeat batch1 using the array `rowId2RowNums` passed in and then compose with batch2.
    * rowId2RowNums records the number of each row after repeated.
