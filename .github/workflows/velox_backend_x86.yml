@@ -927,6 +927,48 @@ jobs:
           name: spark-test-spark35-group${{ matrix.group }}-golden-files
           path: /tmp/tpch-approved-plan/**
 
+  pyspark-arrow-test-spark35:
+    # PySpark's Arrow conversions run Spark's own Arrow code, which breaks if the Arrow classes
+    # in the Gluten bundle no longer link with it (e.g. the NoSuchMethodError fixed by #13096).
+    needs: [detect-changes, build-native-lib-centos-8]
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims35 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
+    runs-on: ubuntu-22.04
+    container: apache/gluten:centos-8-jdk8
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: velox-native-lib-centos-8-${{github.sha}}
+          path: ./cpp/build/releases/
+      - name: Prepare
+        run: |
+          dnf module -y install python39 && \
+          alternatives --set python3 /usr/bin/python3.9 && \
+          pip3 install setuptools==77.0.3 && \
+          pip3 install pyspark==3.5.5 pandas==2.2.3 pyarrow==20.0.0
+      - name: Build Gluten bundle
+        run: |
+          cd $GITHUB_WORKSPACE/
+          $MVN_CMD clean package -Pspark-3.5 -Pjava-8 -Pbackends-velox -DskipTests
+      - name: Run PySpark Arrow conversions with the Gluten bundle
+        run: |
+          cd $GITHUB_WORKSPACE/
+          # The pip pyspark package is a full Spark 3.5.5 distribution.
+          export SPARK_HOME=$(python3 -c 'import os, pyspark; print(os.path.dirname(pyspark.__file__))')
+          BUNDLE=$(ls package/target/gluten-velox-bundle-spark3.5_2.12-*.jar)
+          $SPARK_HOME/bin/spark-submit --master 'local[2]' \
+            --conf spark.driver.extraClassPath=$BUNDLE \
+            --conf spark.executor.extraClassPath=$BUNDLE \
+            --conf spark.plugins=org.apache.gluten.GlutenPlugin \
+            --conf spark.memory.offHeap.enabled=true \
+            --conf spark.memory.offHeap.size=2g \
+            --conf spark.shuffle.manager=org.apache.spark.shuffle.sort.ColumnarShuffleManager \
+            .github/workflows/util/pyspark_arrow_test.py
+
   spark-test-spark35-scala213:
     needs: [detect-changes, build-native-lib-centos-8]
     if: >-
