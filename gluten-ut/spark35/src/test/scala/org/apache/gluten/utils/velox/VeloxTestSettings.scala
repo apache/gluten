@@ -48,6 +48,7 @@ import org.apache.spark.sql.sources._
 class VeloxTestSettings extends BackendTestSettings {
   import SuiteSettings._
   enableSuite[GlutenStringFunctionsSuite]
+  enableSuite[GlutenDecimalRoundSuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuiteCGOff]
   enableSuite[GlutenDataSourceV2DataFrameSessionCatalogSuite]
