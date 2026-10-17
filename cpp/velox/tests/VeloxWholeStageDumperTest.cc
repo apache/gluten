@@ -21,9 +21,11 @@
 #include "memory/VeloxMemoryManager.h"
 #include "velox/vector/tests/utils/VectorTestBase.h"
 
+#include <fmt/format.h>
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <vector>
 
 using namespace facebook::velox;
 
@@ -131,6 +133,30 @@ TEST_F(VeloxWholeStageDumperTest, dumpedBatchesOutliveReaderIterator) {
   batches.clear();
   ASSERT_LT(leafPool->usedBytes(), bytesHeldByBatches);
   ASSERT_EQ(leafPool->usedBytes(), baselineBytes);
+}
+
+// An input iterator that yields nothing used to leave the parquet writer uninitialized, since the
+// writer takes its schema from the first batch, and closing it dereferenced a null writer. The
+// build side of a broadcast hash join is exactly such an iterator: its hash table is handed to the
+// native operator through a process local cache rather than streamed.
+// See https://github.com/apache/gluten/issues/12504.
+TEST_F(VeloxWholeStageDumperTest, dumpEmptyInputIterator) {
+  const SparkTaskInfo taskInfo{/*stageId=*/1, /*partitionId=*/2, /*taskId=*/3, /*vId=*/4};
+  VeloxWholeStageDumper dumper(taskInfo, saveDir_.string(), 4096, vmm_.get());
+  auto input = std::make_shared<RowVectorBatchIterator>(std::vector<RowVectorPtr>{});
+
+  std::shared_ptr<ColumnarBatchIterator> dumped;
+  ASSERT_NO_THROW(dumped = dumper.dumpInputIterator(0, input));
+
+  // The task keeps running against what the original iterator produced: nothing.
+  ASSERT_NE(dumped, nullptr);
+  ASSERT_EQ(dumped->next(), nullptr);
+
+  // No parquet file can be written without a schema, so the gap is recorded explicitly. --data
+  // binds files to iterator indexes by position, so an unrecorded gap would silently shift every
+  // later iterator onto the wrong input.
+  ASSERT_FALSE(std::filesystem::exists(saveDir_ / "data_1_2_4_0.parquet"));
+  ASSERT_TRUE(std::filesystem::exists(saveDir_ / "data_1_2_4_0.parquet.empty"));
 }
 
 } // namespace gluten
