@@ -388,9 +388,9 @@ void VeloxRuntime::parseSplitInfo(const uint8_t* data, int32_t size, int32_t spl
       LOG(WARNING) << "Error converting substrait::ReadRel.LocalFiles to JSON: " << e.what();
     }
   }
-  ::substrait::ReadRel_LocalFiles localFile;
-  GLUTEN_CHECK(parseProtobuf(data, size, &localFile) == true, "Parse substrait plan failed");
-  localFiles_.push_back(localFile);
+  // The matching ReadRel determines whether these bytes encode LocalFiles or StreamKafka.
+  // Decode them during plan conversion, after the scan type is known.
+  rawSplitInfos_.emplace_back(reinterpret_cast<const char*>(data), size);
 }
 
 void VeloxRuntime::getInfoAndIds(
@@ -428,7 +428,7 @@ std::string VeloxRuntime::planString(bool details, const std::unordered_map<std:
   auto veloxMemoryPool = gluten::defaultLeafVeloxMemoryPool();
   VeloxPlanConverter veloxPlanConverter(
       veloxMemoryPool.get(), veloxCfg_.get(), {}, connectorIds_, std::nullopt, std::nullopt, true);
-  auto veloxPlan = veloxPlanConverter.toVeloxPlan(substraitPlan_, localFiles_);
+  auto veloxPlan = veloxPlanConverter.toVeloxPlan(substraitPlan_, {}, rawSplitInfos_);
   return veloxPlan->toString(details, true);
 }
 
@@ -450,7 +450,7 @@ std::shared_ptr<ResultIterator> VeloxRuntime::createResultIterator(
       connectorIds_,
       *localWriteFilesTempPath(),
       *localWriteFileName());
-  veloxPlan_ = veloxPlanConverter.toVeloxPlan(substraitPlan_, std::move(localFiles_));
+  veloxPlan_ = veloxPlanConverter.toVeloxPlan(substraitPlan_, {}, std::move(rawSplitInfos_));
   LOG_IF(INFO, debugModeEnabled_ && taskInfo_.has_value())
       << "############### Velox plan for task " << taskInfo_.value() << " ###############" << std::endl
       << veloxPlan_->toString(true, true);

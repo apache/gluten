@@ -153,6 +153,9 @@ class VeloxRuntime final : public Runtime {
   std::unique_ptr<folly::Executor> spillExecutor_;
   std::unique_ptr<folly::Executor> ioExecutor_;
   VeloxConnectorIds connectorIds_;
+  // Serialized split infos in scan traversal order. The plan converter decodes each split
+  // according to the corresponding ReadRel, since file and Kafka splits use different messages.
+  std::vector<std::string> rawSplitInfos_;
 
   std::unordered_map<int32_t, std::shared_ptr<VeloxColumnarBatch>> emptySchemaBatchLoopUp_;
 };
