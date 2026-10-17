@@ -52,6 +52,7 @@ arrow::Result<BlockType> readBlockType(arrow::io::InputStream* inputStream) {
 } // namespace
 
 VeloxGpuAsyncHashShuffleReaderDeserializer::VeloxGpuAsyncHashShuffleReaderDeserializer(
+    int32_t priority,
     const std::shared_ptr<StreamReader>& streamReader,
     const std::shared_ptr<arrow::Schema>& schema,
     const std::shared_ptr<arrow::util::Codec>& codec,
@@ -61,7 +62,8 @@ VeloxGpuAsyncHashShuffleReaderDeserializer::VeloxGpuAsyncHashShuffleReaderDeseri
     VeloxMemoryManager* memoryManager,
     int64_t& deserializeTime,
     int64_t& decompressTime)
-    : streamReader_(streamReader),
+    : priority_(priority),
+      streamReader_(streamReader),
       schema_(schema),
       codec_(codec),
       rowType_(rowType),

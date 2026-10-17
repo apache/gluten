@@ -145,19 +145,22 @@ case class ColumnarShuffleExchangeExec(
       columnarShuffleDependency,
       readMetrics,
       partitionSpecs,
-      CPUStageMode)
+      CPUStageMode,
+      None)
   }
 
   // Called by ColumnarAQEShuffleReaderExec to create a ShuffleRDD with custom partition specs,
   // and reducer stage execution mode.
   def getShuffleRDD(
       partitionSpecs: Array[ShufflePartitionSpec],
-      reducerStageMode: StageExecutionMode): RDD[ColumnarBatch] = {
+      reducerStageMode: StageExecutionMode,
+      readerOrder: Int): RDD[ColumnarBatch] = {
     new ShuffledColumnarBatchRDD(
       columnarShuffleDependency,
       readMetrics,
       partitionSpecs,
-      reducerStageMode)
+      reducerStageMode,
+      Some(readerOrder))
   }
 
   // super.stringArgs ++ Iterator(output.map(o => s"${o}#${o.dataType.simpleString}"))

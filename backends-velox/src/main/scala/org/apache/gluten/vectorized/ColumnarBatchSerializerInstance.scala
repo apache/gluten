@@ -33,7 +33,8 @@ abstract class ColumnarBatchSerializerInstance extends SerializerInstance {
   def deserializeStreams(
       streams: Iterator[(BlockId, InputStream)],
       onComplete: () => Unit,
-      executionMode: StageExecutionMode = CPUStageMode): DeserializationStream
+      executionMode: StageExecutionMode = CPUStageMode,
+      readerOrder: Option[Int] = None): DeserializationStream
 
   override def serialize[T: ClassTag](t: T): ByteBuffer = {
     throw new UnsupportedOperationException

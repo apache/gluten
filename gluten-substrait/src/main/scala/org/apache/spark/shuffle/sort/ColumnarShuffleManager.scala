@@ -174,7 +174,8 @@ class ColumnarShuffleManager(conf: SparkConf)
       endPartition,
       context,
       metrics,
-      CPUStageMode)
+      CPUStageMode,
+      None)
   }
 
   def getReader[K, C](
@@ -185,7 +186,8 @@ class ColumnarShuffleManager(conf: SparkConf)
       endPartition: Int,
       context: TaskContext,
       metrics: ShuffleReadMetricsReporter,
-      executionMode: StageExecutionMode): ShuffleReader[K, C] = {
+      executionMode: StageExecutionMode,
+      readerOrder: Option[Int]): ShuffleReader[K, C] = {
     GlutenShuffleUtils.genColumnarShuffleReader(
       handle,
       startMapIndex,
@@ -194,7 +196,8 @@ class ColumnarShuffleManager(conf: SparkConf)
       endPartition,
       context,
       metrics,
-      executionMode)
+      executionMode,
+      readerOrder)
   }
 
   /** Remove a shuffle's metadata from the ShuffleManager. */
