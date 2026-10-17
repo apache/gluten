@@ -381,7 +381,7 @@ jobs:
           path: ./cpp/build/releases/
       - name: Update mirror list
         run: |
-          if [ "${{ matrix.os }}" = "centos:7" ] || [ "${{ matrix.os }}" = "centos:8" ]; then
+          if [ "${{ matrix.os }}" = "centos:8" ]; then
             sed -i -e "s|mirrorlist=|#mirrorlist=|g" /etc/yum.repos.d/CentOS-* || true
             sed -i -e "s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-* || true
           fi

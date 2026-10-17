@@ -1,0 +1,172 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Iceberg tests for one revision
+
+on:
+  workflow_call:
+    inputs:
+      revision:
+        required: true
+        type: string
+      label:
+        required: true
+        type: string
+      native_image:
+        required: true
+        type: string
+      test_image:
+        required: true
+        type: string
+
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+  MVN_CMD: 'build/mvn -ntp'
+  CCACHE_DIR: '${{ github.workspace }}/.ccache'
+  SPARK_ANSI_SQL_MODE: false
+  ICEBERG_SHARD_COUNT: '5'
+  ICEBERG_PROFILES: -Pbackends-velox,iceberg,iceberg-upstream-test,hadoop-3.4,java-17,spark-3.5,scala-2.12
+
+jobs:
+  native:
+    uses: ./.github/workflows/velox_native_build.yml
+    with:
+      revision: ${{ inputs.revision }}
+      artifact: iceberg-native-${{ inputs.label }}
+      image: ${{ inputs.native_image }}
+
+  build:
+    needs: native
+    runs-on: ubuntu-22.04
+    container: ${{ inputs.test_image }}
+    env:
+      JAVA_HOME: /usr/lib/jvm/java-17-openjdk
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.revision }}
+      - name: Check out the current comparison harness
+        if: inputs.label == 'base'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: iceberg-harness
+      - name: Apply the current harness to the base production revision
+        if: inputs.label == 'base'
+        run: >-
+          python3 iceberg-harness/.github/workflows/util/iceberg-upstream/baseline.py overlay
+          --directory . --harness iceberg-harness
+      - name: Trust the container checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Download native libraries
+        uses: actions/download-artifact@v8
+        with:
+          name: iceberg-native-${{ inputs.label }}
+          path: cpp/build/releases/
+      - name: Build Gluten once for all shards
+        shell: bash
+        run: |
+          $MVN_CMD clean install -pl backends-velox -am $ICEBERG_PROFILES -Pfast-build -DskipTests \
+            -Dstyle.color=never | tee "$RUNNER_TEMP/iceberg-build.log"
+          $MVN_CMD help:evaluate -N -q -Dexpression=settings.localRepository -Doutput="$RUNNER_TEMP/iceberg-repository"
+          python3 "$GITHUB_WORKSPACE/.github/workflows/util/iceberg-upstream/build-artifacts.py" pack \
+            "$PWD" "$(cat "$RUNNER_TEMP/iceberg-repository")" "$RUNNER_TEMP/iceberg-build.zip" \
+            --install-log "$RUNNER_TEMP/iceberg-build.log"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: iceberg-build-${{ inputs.label }}
+          path: ${{ runner.temp }}/iceberg-build.zip
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  iceberg-upstream-test:
+    name: iceberg-upstream-test (3.5, ${{ inputs.label }}, ${{ matrix.shard }})
+    needs: build
+    if: always() && !cancelled() && needs.build.result == 'success'
+    runs-on: ubuntu-22.04
+    container: ${{ inputs.test_image }}
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        shard: [0, 1, 2, 3, 4]
+    env:
+      JAVA_HOME: /usr/lib/jvm/java-17-openjdk
+      ICEBERG_SHARD: ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.revision }}
+      - name: Check out the current comparison harness
+        if: inputs.label == 'base'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: iceberg-harness
+      - name: Apply the current harness to the base production revision
+        if: inputs.label == 'base'
+        run: >-
+          python3 iceberg-harness/.github/workflows/util/iceberg-upstream/baseline.py overlay
+          --directory . --harness iceberg-harness
+      - name: Prepare test reports
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          mkdir -p iceberg-reports
+          python3 -c 'import json, os; print(json.dumps({"index": int(os.environ["ICEBERG_SHARD"]), "count": int(os.environ["ICEBERG_SHARD_COUNT"])}))' > iceberg-reports/shard.json
+      - name: Download the shared build
+        uses: actions/download-artifact@v8
+        with:
+          name: iceberg-build-${{ inputs.label }}
+          path: ${{ runner.temp }}
+      - name: Restore compiled classes and Gluten dependencies
+        run: |
+          $MVN_CMD help:evaluate -N -q -Dexpression=settings.localRepository -Doutput="$RUNNER_TEMP/iceberg-repository"
+          python3 "$GITHUB_WORKSPACE/.github/workflows/util/iceberg-upstream/build-artifacts.py" restore \
+            "$PWD" "$(cat "$RUNNER_TEMP/iceberg-repository")" "$RUNNER_TEMP/iceberg-build.zip"
+      - name: Check Iceberg scope and execution classification
+        if: matrix.shard == 0
+        run: $MVN_CMD surefire:test@iceberg-upstream -pl backends-velox $ICEBERG_PROFILES '-Dtest=org.apache.gluten.integration.*Test'
+      - name: Run upstream Iceberg query and write tests
+        # With an odd shard count, each whole class belongs to one shard.
+        # Keep one Spark fork per runner.
+        run: >-
+          $MVN_CMD surefire:test@iceberg-upstream -pl backends-velox $ICEBERG_PROFILES
+          -Diceberg.upstream.shard="$ICEBERG_SHARD" -Diceberg.upstream.shards="$ICEBERG_SHARD_COUNT"
+          -Dmaven.test.failure.ignore=true -Diceberg.upstream.reports="$GITHUB_WORKSPACE/iceberg-reports"
+      - name: Summarize native and fallback results
+        if: always()
+        run: python3 .github/workflows/util/iceberg-upstream/summarize.py iceberg-reports
+      - name: Verify failures against vanilla Spark
+        run: |
+          scripts="$GITHUB_WORKSPACE/.github/workflows/util/iceberg-upstream"
+          reports="$GITHUB_WORKSPACE/iceberg-reports"
+          python3 "$scripts/control.py" "$reports" --select "$reports/vanilla-selection.txt"
+          selection=$(cat "$reports/vanilla-selection.txt")
+          if [ -n "$selection" ]; then
+            $MVN_CMD surefire:test@iceberg-upstream -pl backends-velox $ICEBERG_PROFILES \
+              -Diceberg.upstream.shard="$ICEBERG_SHARD" -Diceberg.upstream.shards="$ICEBERG_SHARD_COUNT" \
+              "-Dtest=$selection" -Dspark.plugins= -Dmaven.test.failure.ignore=true \
+              -Diceberg.upstream.reports="$reports/vanilla"
+          fi
+          python3 "$scripts/control.py" "$reports" --vanilla "$reports/vanilla"
+      - name: Upload shard results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: iceberg-upstream-spark3.5-${{ inputs.label }}-shard${{ matrix.shard }}
+          path: iceberg-reports/
+          if-no-files-found: error
+          retention-days: 1

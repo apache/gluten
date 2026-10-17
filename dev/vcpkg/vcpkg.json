@@ -105,6 +105,15 @@
         "azure-identity-cpp"
       ]
     },
+    "velox-kafka": {
+      "description": "Velox Kafka Support",
+      "dependencies": [
+        {
+          "name": "librdkafka",
+          "features": ["ssl", "zlib", "zstd"]
+        }
+      ]
+    },
     "duckdb": {
       "description": "DUCKDB",
       "dependencies": [

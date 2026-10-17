@@ -1405,6 +1405,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       Sig[MapFilter](ExpressionNames.MAP_FILTER),
       Sig[AssertNotNull](ExpressionNames.ASSERT_NOT_NULL),
       Sig[IncrementMetricCall](ExpressionNames.INCREMENT_METRIC),
+      Sig[MonotonicallyIncreasingID](ExpressionNames.MONOTONICALLY_INCREASING_ID),
       // For test purpose.
       Sig[VeloxDummyExpression](VeloxDummyExpression.VELOX_DUMMY_EXPRESSION)
     )

@@ -18,8 +18,8 @@ set -exu
 
 CURRENT_DIR=$(cd "$(dirname "$BASH_SOURCE")"; pwd)
 VELOX_REPO=https://github.com/IBM/velox.git
-VELOX_BRANCH=dft-2026_10_10
-VELOX_ENHANCED_BRANCH=ibm-2026_10_10
+VELOX_BRANCH=dft-2026_10_15
+VELOX_ENHANCED_BRANCH=ibm-2026_10_15
 VELOX_HOME=""
 RUN_SETUP_SCRIPT=ON
 ENABLE_ENHANCED_FEATURES=OFF
@@ -163,7 +163,6 @@ function setup_linux {
     case "$LINUX_VERSION_ID" in
       9) process_setup_centos9 ;;
       8) ;;
-      7) ;;
       *)
         echo "Unsupported centos version: $LINUX_VERSION_ID"
         exit 1
@@ -182,7 +181,6 @@ function setup_linux {
     esac
   elif [[ "$LINUX_DISTRIBUTION" == "alinux" ]]; then
     case "${LINUX_VERSION_ID:0:1}" in
-      2) ;;
       3) process_setup_alinux3 ;;
       *)
         echo "Unsupported alinux version: $LINUX_VERSION_ID"
@@ -191,7 +189,6 @@ function setup_linux {
     esac
   elif [[ "$LINUX_DISTRIBUTION" == "tencentos" ]]; then
     case "$LINUX_VERSION_ID" in
-      2.4) ;;
       3.2) process_setup_tencentos32 ;;
       *)
         echo "Unsupported tencentos version: $LINUX_VERSION_ID"
