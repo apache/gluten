@@ -97,7 +97,12 @@ void MmapFileStream::willNeed(int64_t length) {
 
   // Round up to multiple of prefetchSize
   auto fetchLen = ((length + prefetchSize_ - 1) / prefetchSize_) * prefetchSize_;
-  fetchLen = std::min(size_ - pos_, fetchLen);
+  // The fetch starts from posFetch_ instead of pos_, so clamp the length
+  // against posFetch_. This keeps posFetch_ either page-aligned or exactly
+  // at size_, so subsequent madvise() calls always receive a page-aligned
+  // address (the kernel rejects unaligned addresses with EINVAL), and the
+  // advised range never overruns the mapping.
+  fetchLen = std::min(size_ - posFetch_, fetchLen);
   int ret = madvise(data_ + posFetch_, fetchLen, MADV_WILLNEED);
   if (ret != 0) {
     LOG(WARNING) << "madvise willneed failed: " << ::arrow::internal::ErrnoMessage(errno);
