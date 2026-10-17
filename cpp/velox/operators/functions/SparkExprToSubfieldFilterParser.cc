@@ -16,6 +16,14 @@
  */
 #include "operators/functions/SparkExprToSubfieldFilterParser.h"
 
+#include <algorithm>
+#include <memory>
+#include <mutex>
+#include <string_view>
+#include <unordered_map>
+#include <vector>
+
+#include "config/VeloxConfig.h"
 #include "utils/Exception.h"
 #include "velox/common/base/BloomFilter.h"
 #include "velox/expression/Expr.h"
@@ -27,6 +35,60 @@ namespace gluten {
 using namespace facebook::velox;
 
 namespace {
+
+// Shares immutable Bloom filter bytes across tasks in this executor process.
+// Weak references let the buffer expire after the last filter releases it.
+class BloomFilterBufferCache {
+ public:
+  static BloomFilterBufferCache& instance() {
+    static BloomFilterBufferCache cache;
+    return cache;
+  }
+
+  std::shared_ptr<const std::string> intern(StringView value) {
+    const std::string_view bytes(value.data(), value.size());
+    const auto hash = std::hash<std::string_view>{}(bytes);
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto mapIt = entries_.find(hash);
+    if (mapIt != entries_.end()) {
+      for (const auto& entry : mapIt->second) {
+        if (auto buffer = entry.lock()) {
+          // Hash collisions must not cause different filters to share bytes.
+          if (buffer->size() == bytes.size() && std::equal(buffer->begin(), buffer->end(), bytes.begin())) {
+            return buffer;
+          }
+        }
+      }
+    }
+    auto buffer = std::make_shared<const std::string>(bytes);
+    entries_[hash].emplace_back(buffer);
+    if (++entriesSinceSweep_ >= kSweepInterval) {
+      sweep();
+      entriesSinceSweep_ = 0;
+    }
+    return buffer;
+  }
+
+ private:
+  void sweep() {
+    for (auto mapIt = entries_.begin(); mapIt != entries_.end();) {
+      auto& entries = mapIt->second;
+      entries.erase(
+          std::remove_if(entries.begin(), entries.end(), [](const auto& entry) { return entry.expired(); }),
+          entries.end());
+      if (entries.empty()) {
+        mapIt = entries_.erase(mapIt);
+      } else {
+        ++mapIt;
+      }
+    }
+  }
+
+  static constexpr size_t kSweepInterval = 128;
+  std::mutex mutex_;
+  std::unordered_map<size_t, std::vector<std::weak_ptr<const std::string>>> entries_;
+  size_t entriesSinceSweep_{0};
+};
 
 // Evaluates an expression as a constant. Returns nullptr if the expression is
 // not constant or evaluation fails. Errors are intentionally swallowed because
@@ -55,10 +117,10 @@ VectorPtr toConstant(const core::TypedExprPtr& expr, core::ExpressionEvaluator* 
 template <bool kIsInt32>
 class SparkMightContain final : public common::BigintValuesUsingBloomFilter {
  public:
-  SparkMightContain(VectorPtr constantVector, bool nullAllowed, int64_t seed)
-      : common::BigintValuesUsingBloomFilter(0, nullAllowed), constantVector_(std::move(constantVector)), seed_(seed) {
-    auto sv = constantVector_->as<SimpleVector<StringView>>()->valueAt(0);
-    view_ = std::make_unique<BloomFilterView>(sv.data());
+  SparkMightContain(std::shared_ptr<const std::string> buffer, bool nullAllowed, int64_t seed)
+      : common::BigintValuesUsingBloomFilter(0, nullAllowed), buffer_(std::move(buffer)), seed_(seed) {
+    // BloomFilterView is non-owning; buffer_ keeps its bytes alive.
+    view_ = std::make_unique<BloomFilterView>(buffer_->data());
   }
 
   bool testInt64(int64_t value) const override {
@@ -76,7 +138,7 @@ class SparkMightContain final : public common::BigintValuesUsingBloomFilter {
   }
 
   std::unique_ptr<Filter> clone(std::optional<bool> nullAllowed) const override {
-    return std::make_unique<SparkMightContain<kIsInt32>>(constantVector_, nullAllowed.value_or(nullAllowed_), seed_);
+    return std::make_unique<SparkMightContain<kIsInt32>>(buffer_, nullAllowed.value_or(nullAllowed_), seed_);
   }
 
   bool testingEquals(const Filter& other) const override {
@@ -88,7 +150,7 @@ class SparkMightContain final : public common::BigintValuesUsingBloomFilter {
   }
 
  private:
-  VectorPtr constantVector_;
+  std::shared_ptr<const std::string> buffer_;
   std::unique_ptr<BloomFilterView> view_;
   int64_t seed_;
 };
@@ -166,7 +228,9 @@ SparkExprToSubfieldFilterParser::leafCallToSubfieldFilter(
       }
       return std::make_pair(std::move(subfield), facebook::velox::exec::isNotNull());
     }
-  } else if (scanBloomFilterPushdownEnabled_ && call.name() == "might_contain" && !negated) {
+  } else if (
+      backendConf_->get<bool>(kScanBloomFilterPushdownEnabled, kScanBloomFilterPushdownEnabledDefault) &&
+      call.name() == "might_contain" && !negated) {
     // Matches: might_contain(bloomFilter, xxhash64_with_seed(seed, field)).
     GLUTEN_CHECK(
         call.inputs().size() == 2,
@@ -192,11 +256,18 @@ SparkExprToSubfieldFilterParser::leafCallToSubfieldFilter(
       }
       auto bloomFilterValue = toConstant(call.inputs()[0], evaluator);
       if (bloomFilterValue && !bloomFilterValue->isNullAt(0)) {
+        const auto bloomFilterBytes = bloomFilterValue->as<SimpleVector<StringView>>()->valueAt(0);
+        std::shared_ptr<const std::string> bloomFilterBuffer;
+        if (backendConf_->get<bool>(kScanBloomFilterBufferCacheEnabled, kScanBloomFilterBufferCacheEnabledDefault)) {
+          bloomFilterBuffer = BloomFilterBufferCache::instance().intern(bloomFilterBytes);
+        } else {
+          bloomFilterBuffer = std::make_shared<const std::string>(bloomFilterBytes.data(), bloomFilterBytes.size());
+        }
         std::unique_ptr<common::Filter> filter;
         if (inputTypeKind == TypeKind::INTEGER) {
-          filter = std::make_unique<SparkMightContain<true>>(bloomFilterValue, false /*nullAllowed*/, seed);
+          filter = std::make_unique<SparkMightContain<true>>(bloomFilterBuffer, false /*nullAllowed*/, seed);
         } else {
-          filter = std::make_unique<SparkMightContain<false>>(bloomFilterValue, false /*nullAllowed*/, seed);
+          filter = std::make_unique<SparkMightContain<false>>(bloomFilterBuffer, false /*nullAllowed*/, seed);
         }
         return combine(subfield, filter);
       }
