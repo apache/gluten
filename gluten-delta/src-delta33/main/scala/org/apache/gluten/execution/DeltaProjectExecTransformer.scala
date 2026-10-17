@@ -17,14 +17,17 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.expression.{ConverterUtils, ExpressionConverter, ExpressionTransformer}
+import org.apache.gluten.extension.DeltaPostTransformRules.containsIncrementMetricExpr
+import org.apache.gluten.extension.IncrementMetricOffload
 import org.apache.gluten.metrics.MetricsUpdater
 import org.apache.gluten.substrait.`type`.TypeBuilder
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.extensions.ExtensionBuilder
 import org.apache.gluten.substrait.rel.{RelBuilder, RelNode}
 
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Expression, NamedExpression}
 import org.apache.spark.sql.delta.metric.IncrementMetric
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.metric.SQLMetric
@@ -35,12 +38,16 @@ import scala.collection.mutable
 case class DeltaProjectExecTransformer(projectList: Seq[NamedExpression], child: SparkPlan)
   extends ProjectExecTransformerBase(projectList, child) {
 
-  private var extraMetrics = mutable.Seq.empty[(String, SQLMetric)]
+  // The metrics carried by the IncrementMetric stack at the root of each alias. Each of them is
+  // evaluated once per output row, which is what the metrics updater credits it with. Derived from
+  // the project list once, so validation and execution cannot register a metric twice.
+  private lazy val incrementMetrics: Seq[(String, SQLMetric)] =
+    DeltaProjectExecTransformer.stripIncrementMetrics(projectList)._2
 
   override def metricsUpdater(): MetricsUpdater =
     BackendsApiManager.getMetricsApiInstance.genProjectTransformerMetricsUpdater(
       metrics,
-      extraMetrics.toSeq)
+      incrementMetrics)
 
   override def getRelNode(
       context: SubstraitContext,
@@ -49,7 +56,7 @@ case class DeltaProjectExecTransformer(projectList: Seq[NamedExpression], child:
       operatorId: Long,
       input: RelNode,
       validation: Boolean): RelNode = {
-    val newProjectList = genNewProjectList(projectList)
+    val newProjectList = DeltaProjectExecTransformer.stripIncrementMetrics(projectList)._1
     val columnarProjExprs: Seq[ExpressionTransformer] = ExpressionConverter
       .replaceWithExpressionTransformer(newProjectList, attributeSeq = originalInputAttributes)
     val projExprNodeList = columnarProjExprs.map(_.doTransform(context)).asJava
@@ -76,17 +83,40 @@ case class DeltaProjectExecTransformer(projectList: Seq[NamedExpression], child:
 
   override protected def withNewChildInternal(newChild: SparkPlan): DeltaProjectExecTransformer =
     copy(child = newChild)
+}
 
-  def genNewProjectList(projectList: Seq[NamedExpression]): Seq[NamedExpression] = {
-    projectList.map {
+object DeltaProjectExecTransformer {
+
+  /**
+   * Removes the stack of [[IncrementMetric]] at the root of every alias and returns the stripped
+   * project list together with the metrics that were removed, in project-list order.
+   *
+   * An [[IncrementMetric]] anywhere else is evaluated only for some rows on Spark, so it cannot be
+   * represented by the output row count; [[org.apache.gluten.extension.OffloadDeltaProject]] keeps
+   * such projects on Spark, and this method refuses them so validation falls back if one slips
+   * through.
+   */
+  private[gluten] def stripIncrementMetrics(
+      projectList: Seq[NamedExpression]): (Seq[NamedExpression], Seq[(String, SQLMetric)]) = {
+    val metrics = mutable.ArrayBuffer.empty[(String, SQLMetric)]
+    val stripped = projectList.map {
       case alias: Alias =>
-        val newChild = alias.child.transformUp {
-          case im @ IncrementMetric(child, metric) =>
-            extraMetrics :+= (im.prettyName, metric)
-            child
+        var expr: Expression = alias.child
+        while (expr.isInstanceOf[IncrementMetric]) {
+          val increment = expr.asInstanceOf[IncrementMetric]
+          metrics += ((increment.prettyName, increment.metric))
+          expr = increment.child
         }
-        Alias(child = newChild, name = alias.name)(alias.exprId)
-      case other => other
+        if (containsIncrementMetricExpr(expr)) {
+          throw new GlutenNotSupportException(IncrementMetricOffload.conditionalProjectReason)
+        }
+        if (expr eq alias.child) alias else alias.withNewChildren(Seq(expr)).asInstanceOf[Alias]
+      case other =>
+        if (containsIncrementMetricExpr(other)) {
+          throw new GlutenNotSupportException(IncrementMetricOffload.conditionalProjectReason)
+        }
+        other
     }
+    (stripped, metrics.toSeq)
   }
 }
