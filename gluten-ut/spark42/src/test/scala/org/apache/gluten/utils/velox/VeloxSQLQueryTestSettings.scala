@@ -312,6 +312,7 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "percentiles.sql",
     // Enable ConstantFolding rule for some queries, otherwise Spark will throw an exception.
     "postgreSQL/window_part1.sql",
+    "postgreSQL/window_part3.sql",
     // Enable ConstantFolding rule for some queries, otherwise Spark will throw an exception.
     // Enable ConstantFolding rule for some queries, otherwise Spark will throw an exception.
     "postgreSQL/window_part4.sql",
