@@ -121,7 +121,9 @@ class GlutenReplaceHashWithSortAggSuite
                |)
                |GROUP BY key
            """.stripMargin
-          checkAggs(query, 2, 0, 2, 0)
+          // SPARK-55551: BHJ now expands its stream-side RangePartitioning onto the build
+          // key, so no shuffle is needed and Gluten merges partial+final into one aggregate.
+          checkAggs(query, 1, 0, 1, 0)
       }
     }
   }

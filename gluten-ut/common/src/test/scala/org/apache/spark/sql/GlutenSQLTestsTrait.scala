@@ -241,6 +241,10 @@ object GlutenQueryTestUtil extends Assertions {
     case (a: Row, b: Row) =>
       compare(a.toSeq, b.toSeq)
     // 0.0 == -0.0, turn float/double to bits before comparison, to distinguish 0.0 and -0.0.
+    // Different NaN bit patterns (e.g. Velox/glibc returns 0xfff8... while the JVM's
+    // Double.NaN is 0x7ff8...) are all NaN; see SPARK-55975.
+    case (a: Double, b: Double) if a.isNaN && b.isNaN => true
+    case (a: Float, b: Float) if a.isNaN && b.isNaN => true
     case (a: Double, b: Double) =>
       if ((isNaNOrInf(a) || isNaNOrInf(b)) || (a == -0.0) || (b == -0.0)) {
         java.lang.Double.doubleToRawLongBits(a) == java.lang.Double.doubleToRawLongBits(b)
