@@ -33,9 +33,14 @@ object VeloxIntermediateData {
   // Accumulator is mapped to both xAvg and avg in Spark's RegrSlope aggBufferAttributes. In this
   // scenario, when passing the output of Spark's partial aggregation to Velox, we only need to
   // take one of them.
-  // Corr, RegrR2
+  // Corr
   private val veloxCorrIntermediateDataOrder: Seq[Seq[String]] =
     Seq("ck", "n", "xMk", "yMk", "xAvg", "yAvg").map(Seq(_))
+  // RegrR2. Velox's accumulator is (c2, count, m2X, meanX, meanY, m2Y) with X = the second
+  // argument, while Spark's RegrR2(y, x) extends PearsonCorrelation(y, x), so Spark's x* buffer
+  // fields describe y and its y* fields describe x.
+  private val veloxRegrR2IntermediateDataOrder: Seq[Seq[String]] =
+    Seq("ck", "n", "yMk", "yAvg", "xAvg", "xMk").map(Seq(_))
   // CovPopulation, CovSample
   private val veloxCovarIntermediateDataOrder: Seq[Seq[String]] =
     Seq("ck", "n", "xAvg", "yAvg").map(Seq(_))
@@ -87,6 +92,9 @@ object VeloxIntermediateData {
    */
   def veloxIntermediateDataOrder(aggFunc: AggregateFunction): Seq[Seq[String]] = {
     aggFunc match {
+      // RegrR2 extends PearsonCorrelation, it must be placed before PearsonCorrelation.
+      case _: RegrR2 =>
+        veloxRegrR2IntermediateDataOrder
       case _: PearsonCorrelation =>
         veloxCorrIntermediateDataOrder
       case _: CovPopulation | _: CovSample =>

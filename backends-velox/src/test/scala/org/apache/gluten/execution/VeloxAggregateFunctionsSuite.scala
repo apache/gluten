@@ -20,7 +20,8 @@ import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.extension.columnar.validator.FallbackInjects
 
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.catalyst.expressions.aggregate.{Final, Partial}
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.catalyst.expressions.aggregate.{Final, Partial, RegrR2}
 import org.apache.spark.sql.execution.aggregate.BaseAggregateExec
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeLike
 import org.apache.spark.sql.internal.SQLConf
@@ -415,6 +416,69 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
                 plan.isInstanceOf[HashAggregateExecTransformer]
               }) == 4)
         }
+    }
+  }
+
+  private def withRegrR2Table(f: => Unit): Unit = {
+    // k = 3 has a constant x and k = 4 a constant y.
+    withTable("regr_r2_src") {
+      Seq(
+        (1, 1.0, 2.0, 1),
+        (1, 2.0, 4.5, 2),
+        (1, 3.5, 3.5, 1),
+        (1, 4.0, 8.0, 3),
+        (2, 1.5, 1.0, 2),
+        (2, 2.5, 3.0, 2),
+        (2, 3.0, 6.5, 4),
+        (2, 5.0, 5.0, 1),
+        (3, 2.0, 1.0, 1),
+        (3, 2.0, 3.0, 2),
+        (3, 2.0, 7.0, 3),
+        (4, 1.0, 5.0, 1),
+        (4, 3.0, 5.0, 2),
+        (4, 6.0, 5.0, 3)
+      ).toDF("k", "x", "y", "z").write.format("parquet").saveAsTable("regr_r2_src")
+      f
+    }
+  }
+
+  private def checkRegrR2RunsInBothEngines(df: DataFrame): Unit = {
+    val regrR2Aggs = getExecutedPlan(df).collect {
+      case agg: BaseAggregateExec
+          if agg.aggregateExpressions.exists(_.aggregateFunction.isInstanceOf[RegrR2]) =>
+        agg
+    }
+    assert(
+      regrR2Aggs.exists(_.isInstanceOf[HashAggregateExecTransformer]),
+      "Expected a Velox aggregation that computes regr_r2")
+    assert(
+      regrR2Aggs.exists(!_.isInstanceOf[HashAggregateExecTransformer]),
+      "Expected a vanilla Spark aggregation that computes regr_r2")
+  }
+
+  test("regr_r2 with a Velox partial and a vanilla Spark final aggregation") {
+    withRegrR2Table {
+      // Spark plans a single DISTINCT as four aggregations that all carry regr_r2.
+      // histogram_numeric is not offloaded, so the last two run in vanilla Spark and merge the
+      // buffer Velox produced.
+      runQueryAndCompare(
+        "select k, regr_r2(y, x), histogram_numeric(distinct z, 3) from regr_r2_src group by k") {
+        checkRegrR2RunsInBothEngines
+      }
+    }
+  }
+
+  test("regr_r2 with a vanilla Spark partial and a Velox final aggregation") {
+    withRegrR2Table {
+      // For a constant x or y, Velox's final regr_r2 result matches Spark only after SPARK-55969,
+      // so only k = 1 and k = 2 are compared here.
+      FallbackInjects.fallbackOn {
+        case agg: BaseAggregateExec => agg.aggregateExpressions.exists(_.mode == Partial)
+      } {
+        runQueryAndCompare("select k, regr_r2(y, x) from regr_r2_src where k <= 2 group by k") {
+          checkRegrR2RunsInBothEngines
+        }
+      }
     }
   }
 
