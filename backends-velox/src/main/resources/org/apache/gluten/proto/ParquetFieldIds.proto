@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: Apache-2.0
+syntax = "proto3";
+
+package gluten;
+
+option java_package = "org.apache.gluten.proto";
+option java_multiple_files = true;
+
+// An explicit Parquet field-id annotation for one node of a write schema.
+//
+// The tree is shaped as the LOGICAL (Spark/Velox) type tree, not the Parquet
+// physical tree:
+//   struct    -> one child per field
+//   array     -> exactly one child, the synthetic element node
+//   map       -> exactly two children, the synthetic key node then the value node
+//   primitive -> no children
+// This is what velox::parquet::Writer expects; see
+// velox/dwio/parquet/writer/Writer.cpp validateSchemaRecursive.
+//
+// `name` lets the native side JOIN the tree against the Velox RowType instead of
+// zipping it by index, so a producer that derives the tree separately from the
+// schema (the Iceberg write path does) cannot silently mis-assign ids by
+// reordering. It is empty on synthetic array-element / map-key / map-value nodes,
+// which have no name in the Spark type tree.
+//
+// `id` uses proto3 field presence: an ABSENT id means "this node legitimately has
+// no field id" (for example a Delta row-tracking column), which is a different
+// statement from any sentinel value. Do not reuse IcebergNestedField for this --
+// its `int32 id = 1` has no presence and therefore cannot express absence.
+message ParquetFieldIdNode {
+  enum Kind {
+    PRIMITIVE = 0;
+    STRUCT = 1;
+    ARRAY = 2;
+    MAP = 3;
+  }
+
+  string name = 1;
+  Kind kind = 2;
+  optional int32 id = 3;
+  repeated ParquetFieldIdNode children = 4;
+}
+
+// The field-id annotation for a whole write schema: one node per top-level column,
+// in write-schema order.
+message ParquetFieldIdSchema {
+  repeated ParquetFieldIdNode fields = 1;
+}
