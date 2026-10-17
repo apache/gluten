@@ -20,7 +20,9 @@ import io.substrait.proto.ReadRel;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.StructLike;
+import org.apache.iceberg.types.Types;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -64,7 +66,8 @@ public class IcebergLocalFilesNodeBoundsTest {
             Collections.emptyMap());
 
     ReadRel.LocalFiles.FileOrFiles.Builder fileBuilder =
-        ReadRel.LocalFiles.FileOrFiles.newBuilder();
+        ReadRel.LocalFiles.FileOrFiles.newBuilder()
+            .setParquet(ReadRel.LocalFiles.FileOrFiles.ParquetReadOptions.getDefaultInstance());
 
     node.processFileBuilder(fileBuilder, 0);
 
@@ -84,6 +87,60 @@ public class IcebergLocalFilesNodeBoundsTest {
     Assert.assertEquals(
         Base64.getEncoder().encodeToString(upperBytes),
         actualDelete.getUpperBounds().getKeyValues(0).getValue());
+  }
+
+  @Test
+  public void serializesEqualityDeleteMetadata() {
+    FakeDeleteFile delete =
+        new FakeDeleteFile(
+            FileContent.EQUALITY_DELETES,
+            FileFormat.ORC,
+            "/tmp/delete.orc",
+            2L,
+            123L,
+            Collections.singletonList(17),
+            null,
+            null,
+            9L);
+    IcebergLocalFilesNode node =
+        new IcebergLocalFilesNode(
+            0,
+            Collections.singletonList("/tmp/data.parquet"),
+            Collections.singletonList(0L),
+            Collections.singletonList(100L),
+            Collections.singletonList(Collections.emptyMap()),
+            LocalFilesNode.ReadFileFormat.ParquetReadFormat,
+            Collections.emptyList(),
+            Collections.singletonList(Collections.singletonList(delete)),
+            Collections.singletonList(Collections.emptyMap()),
+            Collections.emptyMap(),
+            Collections.emptyMap());
+    Schema schema =
+        new Schema(
+            Types.NestedField.optional(17, "key", Types.IntegerType.get()),
+            Types.NestedField.optional(
+                30,
+                "payload",
+                Types.StructType.of(
+                    Types.NestedField.optional(42, "value", Types.StringType.get()))));
+    node.setEqualityDeleteMetadata(
+        schema,
+        Collections.singletonList(5L),
+        Collections.singletonList(Collections.singletonMap(17, null)));
+    ReadRel.LocalFiles.FileOrFiles.Builder file =
+        ReadRel.LocalFiles.FileOrFiles.newBuilder()
+            .setParquet(ReadRel.LocalFiles.FileOrFiles.ParquetReadOptions.getDefaultInstance());
+    node.processFileBuilder(file, 0);
+    ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions actual = file.getIceberg();
+    Assert.assertEquals(17, actual.getSchemaFieldIds(0).getId());
+    Assert.assertEquals(30, actual.getSchemaFieldIds(1).getId());
+    Assert.assertEquals(42, actual.getSchemaFieldIds(1).getChildren(0).getId());
+    Assert.assertEquals(5L, actual.getDataSequenceNumber());
+    Assert.assertEquals(17, actual.getIdentityPartitionKeys(0).getSourceId());
+    Assert.assertTrue(actual.getIdentityPartitionKeys(0).getIsNull());
+    Assert.assertEquals(9L, actual.getDeleteFiles(0).getDataSequenceNumber());
+    Assert.assertEquals(
+        Collections.singletonList(17), actual.getDeleteFiles(0).getEqualityFieldIdsList());
   }
 
   private static final class FakeDeleteFile implements DeleteFile {
