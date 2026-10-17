@@ -105,6 +105,7 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "random.sql",
     "show-tblproperties.sql",
     "show-views.sql",
+    "show_columns.sql",
     "sql-compatibility-functions.sql",
     "struct.sql",
     "subexp-elimination.sql",
