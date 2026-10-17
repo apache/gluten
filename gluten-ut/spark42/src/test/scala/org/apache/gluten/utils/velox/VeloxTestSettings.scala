@@ -77,32 +77,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("partitioning reporting")
     .exclude("ordering and partitioning reporting")
   enableSuite[GlutenDeleteFromTableSuite]
-    .exclude("delete from empty tables") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "delete from table with table constraints"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude("delete with EXISTS subquery") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "delete with NOT EXISTS subquery"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude("delete with NOT IN predicates") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude("delete with NOT IN subqueries") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "delete with NULL condition on non-null column"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "delete with NULL equality on VOID column"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude("delete with aliases") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "delete with conditions on nested columns"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "delete with literal false condition"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "delete with unsupported predicates cannot be converted into delete with filters"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenFileDataSourceV2FallBackSuite]
     // Rewritten
     .exclude("Fallback Parquet V2 to V1")
