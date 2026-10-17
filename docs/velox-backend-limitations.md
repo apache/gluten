@@ -21,7 +21,18 @@ Gluten currently doesn't support ANSI mode. If ANSI is enabled, Spark plan's exe
 We now have a issue tracker on ANSI support progress. Please check [issue-10134](https://github.com/apache/gluten/issues/10134).
 
 #### Case Sensitive mode
-Gluten only supports spark default case-insensitive mode. If case-sensitive mode is enabled, user may get incorrect result.
+Gluten respects Spark's case-sensitive configuration (`spark.sql.caseSensitive`). Column name
+normalization in the core engine preserves the original casing when `caseSensitiveAnalysis=true`
+and normalizes case only when it is `false` (the Spark default).
+
+**Known limitations in case-sensitive mode:**
+
+- **Iceberg partitioned table aggregation**: Aggregation queries (`GROUP BY`) on Iceberg tables that
+  use CamelCase or mixed-case column names on a partitioned table may return incorrect results when
+  Gluten native execution is active if the group-by column is not the first physical column in the
+  file. Workaround: set `spark.gluten.enabled=false` for affected queries or use lowercase column names.
+- **Unverified formats and sources**: ORC scans, non-Iceberg DSv2 `BatchScanExec` paths, nested-struct
+  column names, and general write paths under `caseSensitive=true` are not yet fully verified.
 
 #### Regexp functions
 In Velox, regexp functions (`rlike`, `regexp_extract`, etc.) are implemented based on RE2, while in Spark they are based on `java.util.regex`.

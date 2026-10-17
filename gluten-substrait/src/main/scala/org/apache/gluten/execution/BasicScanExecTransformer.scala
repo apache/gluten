@@ -19,6 +19,7 @@ package org.apache.gluten.execution
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.expression.{ConverterUtils, ExpressionConverter}
+import org.apache.gluten.extension.columnar.PushDownInputFileExpression
 import org.apache.gluten.substrait.`type`.ColumnTypeNode
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.extensions.ExtensionBuilder
@@ -135,15 +136,28 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
 
     val metadataFromSpark = getMetadataColumns().map(_.name)
 
-    val inputFileRelatedMetadataKeys = Seq(
-      InputFileName().prettyName,
-      InputFileBlockStart().prettyName,
-      InputFileBlockLength().prettyName)
+    // In addition to the "proper" Spark metadata columns (FileSourceConstantMetadataAttribute),
+    // PreOffload may have injected AttributeReferences to carry input-file function values.
+    // These attributes are identified by isInjectedInputFileAttr (presence of
+    // GLUTEN_INPUT_FILE_COL_ATTR_KEY in metadata) rather than by name, because under
+    // caseSensitive=false the schema name may have been mangled (e.g.
+    // "__gluten_input_file_col__input_file_name__") to avoid colliding with a user column that
+    // lowercases to the same name.  The canonical prettyName is recovered via
+    // injectedInputFileCanonName and used as the key in the Velox split infoColumns map, while
+    // the schema name (attr.name) is the key under which Velox looks up the value.
+    //
+    // When no mangling occurred (caseSensitive=true or no collision) schema name == canonical
+    // prettyName and both lookups use the same string.
+    //
+    // IMPORTANT: do NOT use normalizeColName here.  A user column like "Input_File_Name" must
+    // never match -- we identify injected attrs exclusively via their metadata key.
+    val injectedInputFileCols: Seq[(String, String)] = output.collect {
+      case a if PushDownInputFileExpression.isInjectedInputFileAttr(a) =>
+        // (schemaName, canonicalPrettyName)
+        a.name -> PushDownInputFileExpression.injectedInputFileCanonName(a)
+    }
 
-    val neededInputFileRelatedMetadataKeys =
-      inputFileRelatedMetadataKeys.filter(k => output.exists(_.name == k))
-
-    val metadataColumnNames = (metadataFromSpark ++ neededInputFileRelatedMetadataKeys).distinct
+    val metadataColumnNames = (metadataFromSpark ++ injectedInputFileCols.map(_._1)).distinct
 
     BackendsApiManager.getIteratorApiInstance
       .genSplitInfo(
@@ -153,7 +167,8 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
         getDataSchema,
         readFileFormat,
         metadataColumnNames,
-        getProperties)
+        getProperties,
+        injectedInputFileCols.toMap)
   }
 
   override protected def doValidateInternal(): ValidationResult = {
@@ -182,7 +197,15 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
       new ColumnTypeNode(NamedStruct.ColumnType.PARTITION_COL)
     } else if (BackendsApiManager.getSparkPlanExecApiInstance.isRowIndexMetadataColumn(attr.name)) {
       new ColumnTypeNode(NamedStruct.ColumnType.ROWINDEX_COL)
-    } else if (attr.isMetadataCol) {
+    } else if (attr.isMetadataCol || PushDownInputFileExpression.isInjectedInputFileAttr(attr)) {
+      // isMetadataCol covers Spark's own _metadata.* columns.
+      // isInjectedInputFileAttr covers attrs injected by PushDownInputFileExpression.PreOffload
+      // (e.g. the synthetic "input_file_name" attribute that carries the file path).  These
+      // must be classified as METADATA_COL so Velox routes them through kSynthesized /
+      // infoColumns rather than kRegular.  Without this, under caseSensitive=false a user
+      // column named "Input_File_Name" lowercases to "input_file_name" and collides with the
+      // injected attr in the Velox schema, triggering:
+      //   "Cannot map from same table column to different outputs in table scan"
       new ColumnTypeNode(NamedStruct.ColumnType.METADATA_COL)
     } else {
       new ColumnTypeNode(NamedStruct.ColumnType.NORMAL_COL)
