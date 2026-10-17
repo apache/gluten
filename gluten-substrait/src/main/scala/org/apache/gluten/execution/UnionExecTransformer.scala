@@ -46,6 +46,12 @@ case class UnionExecTransformer(children: Seq[SparkPlan]) extends TransformSuppo
 
   override def columnarInputRDDs: Seq[RDD[ColumnarBatch]] = children.flatMap(getColumnarInputRDDs)
 
+  override def supportsNoInputExecution: Boolean =
+    children.nonEmpty && children.forall {
+      case transformer: TransformSupport => transformer.supportsNoInputExecution
+      case _ => false
+    }
+
   override def metricsUpdater(): MetricsUpdater =
     BackendsApiManager.getMetricsApiInstance.genUnionTransformerMetricsUpdater(metrics)
 
