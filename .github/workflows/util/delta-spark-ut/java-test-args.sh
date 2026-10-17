@@ -35,6 +35,16 @@
 # the sbt LAUNCHER JVM) so the flags reach BOTH the launcher and the forked test JVM
 # -- the forked child inherits the parent env.
 #
+# SparkConf also reads spark.* system properties as defaults. Keep all Gluten
+# test defaults here instead of replacing DeltaSQLCommandTest, so suites using
+# plain SharedSparkSession, TestHive or their own SparkSession builders inherit
+# the same settings. Those contexts must initialize Gluten too: Spark retains
+# its cache serializer across contexts in the same JVM, but the native
+# serializer needs the executor plugin to initialize TaskResources in each task.
+#
+# Keep Delta's extensions and catalog suite-specific: some tests deliberately
+# omit them to check Delta's configuration errors.
+#
 # NOTE: no -Xmx here on purpose. JAVA_TOOL_OPTIONS is processed BEFORE the JVM
 # command line, so Delta's own -Xmx (build.sbt) would win; run-delta-tests.sh bumps
 # the forked-test-JVM heap via `set spark / Test / javaOptions ++= ...` instead.
@@ -57,4 +67,16 @@ export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:+${JAVA_TOOL_OPTIONS} }\
 --add-opens=java.base/sun.util.calendar=ALL-UNNAMED \
 -Djdk.reflect.useDirectMethodHandle=false \
 -Dio.netty.tryReflectionSetAccessible=true \
--Dfile.encoding=UTF-8"
+-Dfile.encoding=UTF-8 \
+-Dspark.plugins=org.apache.gluten.GlutenPlugin \
+-Dspark.shuffle.manager=org.apache.spark.shuffle.sort.ColumnarShuffleManager \
+-Dspark.memory.offHeap.enabled=true \
+-Dspark.memory.offHeap.size=2g \
+-Dspark.default.parallelism=1 \
+-Dspark.sql.shuffle.partitions=5 \
+-Dspark.unsafe.exceptionOnMemoryLeak=true \
+-Dspark.sql.ansi.enabled=false \
+-Dspark.gluten.sql.ansiFallback.enabled=false \
+-Dspark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite=true \
+-Dspark.databricks.delta.snapshotPartitions=2 \
+-Dspark.gluten.sql.fallbackUnexpectedMetadataParquet=true"
