@@ -65,6 +65,18 @@ object CHConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(false)
 
+  val PAIMON_NATIVE_PK_READ_ENABLED =
+    buildConf(prefixOf("paimon.native.pk.read.enabled"))
+      .doc("Enable native Paimon primary-key table reads when native Paimon reads are enabled")
+      .booleanConf
+      .createWithDefault(false)
+
+  val PAIMON_NATIVE_READ_ENABLED =
+    buildConf(prefixOf("paimon.native.read.enabled"))
+      .doc("Enable native Paimon reads for supported tables")
+      .booleanConf
+      .createWithDefault(false)
+
   val COLUMNAR_CH_SHUFFLE_SPILL_THRESHOLD =
     buildConf("spark.gluten.sql.columnar.backend.ch.spillThreshold")
       .internal()
@@ -131,6 +143,10 @@ class CHConfig(conf: SQLConf) extends GlutenConfig(conf) {
 
   def enableOnePipelineMergeTreeWrite: Boolean =
     getConf(CHConfig.ENABLE_ONEPIPELINE_MERGETREE_WRITE)
+
+  def paimonNativePkReadEnabled: Boolean = getConf(PAIMON_NATIVE_PK_READ_ENABLED)
+
+  def paimonNativeReadEnabled: Boolean = getConf(PAIMON_NATIVE_READ_ENABLED)
 
   def chColumnarShuffleSpillThreshold: Long = {
     val threshold = getConf(COLUMNAR_CH_SHUFFLE_SPILL_THRESHOLD)

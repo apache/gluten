@@ -262,6 +262,9 @@ message ReadRel {
         bool use_hive_split = 7;
         bool raw_convertible = 8;
         repeated string primary_keys = 9;
+        // Native Paimon reader input. The split is DataSplit.serialize() output.
+        string table_path = 10;
+        bytes serialized_split = 11;
       }
 
       // File reading options
