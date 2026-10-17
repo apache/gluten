@@ -1259,7 +1259,7 @@ jobs:
       - name: Build Spark 4.2 Velox (Java 17, Scala 2.13)
         run: |
           cd $GITHUB_WORKSPACE/
-          $MVN_CMD clean install -Pspark-4.2 -Pjava-17 -Pscala-2.13 -Pbackends-velox -DskipTests
+          $MVN_CMD clean install -Pspark-4.2 -Pjava-17 -Pscala-2.13 -Pbackends-velox -Pdelta -DskipTests
 
   spark-test-spark40:
     needs: [detect-changes, build-native-lib-centos-8]
@@ -1485,7 +1485,7 @@ jobs:
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
           if [ "${{ matrix.suite }}" = "extended" ]; then
-            $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
+            $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/" \
             -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest
           else
@@ -1554,20 +1554,20 @@ jobs:
           TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest"
           # Install all modules to the local repo first so gluten-ut resolves its
           # sibling Gluten modules (gluten-substrait etc.) before testing.
-          $MVN_CMD clean install -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -DskipTests
+          $MVN_CMD clean install -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta -DskipTests
           if [ "${{ matrix.group }}" = "1" ]; then
             # Group 1: streaming + gluten utils + top-level spark tests (~55 classes)
-            $MVN_CMD clean test -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
+            $MVN_CMD clean test -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
             -DargLine="-Dspark.test.home=/opt/shims/spark42/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
             -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
           elif [ "${{ matrix.group }}" = "2" ]; then
             # Group 2: execution + catalyst + errors + extension tests (~140 classes)
-            $MVN_CMD clean test -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
+            $MVN_CMD clean test -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
             -DargLine="-Dspark.test.home=/opt/shims/spark42/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
             -DwildcardSuites="org.apache.spark.sql.execution,org.apache.spark.sql.catalyst,org.apache.spark.sql.errors,org.apache.spark.sql.extension"
           else
             # Group 3: top-level sql, connector, sources, hive and remaining tests (~205 classes)
-            $MVN_CMD clean test -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
+            $MVN_CMD clean test -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
             -DargLine="-Dspark.test.home=/opt/shims/spark42/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
             -DwildcardSuites="org.apache.spark.sql.GlutenSQL,org.apache.spark.sql.Gluten,org.apache.spark.sql.connector,org.apache.spark.sql.sources,org.apache.spark.sql.hive,org.apache.spark.sql.gluten,org.apache.spark.sql.shim"
           fi
@@ -1618,9 +1618,9 @@ jobs:
           java -version
           # Install all modules to the local repo first so gluten-ut resolves its
           # sibling Gluten modules (gluten-substrait etc.) before testing.
-          $MVN_CMD clean install -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -DskipTests
+          $MVN_CMD clean install -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Pspark-ut -DskipTests
           if [ "${{ matrix.suite }}" = "extended" ]; then
-            $MVN_CMD clean test -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
+            $MVN_CMD clean test -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark42/spark_home/" \
             -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest
           else
