@@ -219,6 +219,11 @@ if(ENABLE_S3)
   find_package(ZLIB)
 endif()
 
+if(ENABLE_KAFKA)
+  list(APPEND VELOX_SRCS operators/reader/KafkaDataSource.cc
+       operators/reader/KafkaConnector.cc)
+endif()
+
 if(ENABLE_GPU)
   list(
     APPEND
@@ -509,10 +514,14 @@ set(CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES_BCK})
 # Find and link librdkafka for Kafka streaming support
 if(ENABLE_KAFKA)
   target_compile_definitions(velox PUBLIC ENABLE_KAFKA)
+  # KafkaConnectorTest uses the C mock API directly. Shared-library linkers
+  # require librdkafka on the link line, even when librdkafka++ depends on it.
   find_package(RdKafka CONFIG QUIET)
-  if(RdKafka_FOUND AND TARGET RdKafka::rdkafka++)
+  if(RdKafka_FOUND
+     AND TARGET RdKafka::rdkafka++
+     AND TARGET RdKafka::rdkafka)
     message(STATUS "Found RdKafka: ${RdKafka_DIR}")
-    target_link_libraries(velox PUBLIC RdKafka::rdkafka++)
+    target_link_libraries(velox PUBLIC RdKafka::rdkafka++ RdKafka::rdkafka)
   else()
     # Link the C++ client and C mock API.
     find_package(PkgConfig QUIET)

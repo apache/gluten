@@ -80,10 +80,9 @@ jobs:
           ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --enable_kafka=ON \
             --build_arrow=OFF --build_tests=ON --build_benchmarks=OFF --build_examples=OFF \
             --enable_s3=OFF --enable_gcs=OFF --enable_hdfs=OFF --enable_abfs=OFF
-      # TODO: Re-enable after https://github.com/apache/gluten/pull/13183 is merged.
-      # - name: Run native Kafka connector tests
-      #   run: ./cpp/build/velox/tests/velox_kafka_connector_test
-      # TODO: Re-enable when the Kafka plan-conversion tests are added.
+      - name: Run native Kafka connector tests
+        run: ./cpp/build/velox/tests/velox_kafka_connector_test
+      # TODO: Re-enable when the Kafka plan-conversion tests are added in #13236.
       # - name: Run Kafka and file plan conversion tests
       #   run: |
       #     ./cpp/build/velox/tests/velox_plan_conversion_test \
@@ -147,7 +146,7 @@ jobs:
       #     ./build/mvn -B -ntp test -pl gluten-ut/spark35 -Pbackends-velox -Pspark-3.5 \
       #       -Pscala-2.12 -Pjava-17 -Pspark-ut -Pfast-build \
       #       -Dsuites=org.apache.gluten.execution.VeloxKafkaScanValidationSuite
-      # TODO: Re-enable when VeloxGlutenKafkaScanSuite is added.
+      # TODO: Re-enable when VeloxGlutenKafkaScanSuite is added in #13237.
       # - name: Check native micro-batch reads and headers fallback
       #   run: |
       #     ./build/mvn -B -ntp test -pl backends-velox -Pbackends-velox -Pspark-3.5 \
