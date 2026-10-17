@@ -248,5 +248,9 @@ message NamedStruct {
     PARTITION_COL = 1;
     METADATA_COL = 2;
     ROWINDEX_COL = 3;
+    // Delta row-index-filter result (i8): materialize flags, do not mask rows.
+    DELTA_ROW_DELETED_COL = 4;
+    // Route generated Delta positions through the Delta connector, even without a DV.
+    DELTA_ROW_INDEX_COL = 5;
   }
 }
