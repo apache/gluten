@@ -23,6 +23,7 @@ import org.apache.gluten.execution._
 import org.apache.gluten.expression._
 import org.apache.gluten.expression.ExpressionNames.MONOTONICALLY_INCREASING_ID
 import org.apache.gluten.extension.ExpressionExtensionTrait
+import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
 import org.apache.gluten.shuffle.NeedCustomColumnarBatchSerializer
 import org.apache.gluten.sql.shims.SparkShimLoader
@@ -278,6 +279,13 @@ class CHSparkPlanExecApi extends SparkPlanExecApi with Logging {
 
   override def genColumnarShuffleExchange(shuffle: ShuffleExchangeExec): SparkPlan = {
     val child = shuffle.child
+    if (SparkShimLoader.getSparkShims.isKeyGroupedPartitioning(shuffle.outputPartitioning)) {
+      FallbackTags.add(
+        shuffle,
+        ValidationResult.failed(
+          "Key grouped partitioning is not supported by ClickHouse native shuffle"))
+      return shuffle.withNewChildren(child :: Nil)
+    }
     if (CHValidatorApi.supportShuffleWithProject(shuffle.outputPartitioning, child)) {
       val (projectColumnNumber, newPartitioning, newChild) =
         addProjectionForShuffleExchange(shuffle)
