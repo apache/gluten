@@ -257,6 +257,7 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "time.sql",
     "type-coercion-edge-cases.sql",
     "union-per-child-output-deduplication.sql",
+    "union-resolution-edge-cases.sql",
     // TODO: fix on Spark-4.1 "variant-field-extractions.sql",
     "view-conf.sql",
     "window-with-aggregates.sql"
