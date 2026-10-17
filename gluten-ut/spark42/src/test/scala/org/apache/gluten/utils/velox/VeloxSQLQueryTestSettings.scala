@@ -68,6 +68,7 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "group-analytics.sql",
     "group-by-filter.sql",
     "group-by-ordinal.sql",
+    "grouping_set.sql",
     "having.sql",
     "higher-order-functions.sql",
     "ignored.sql",
