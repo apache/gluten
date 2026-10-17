@@ -43,9 +43,9 @@ class ColumnarBatch {
 
   virtual int64_t numBytes() = 0;
 
-  virtual std::shared_ptr<ArrowArray> exportArrowArray() = 0;
+  virtual std::shared_ptr<ArrowArray> exportArrowArray(bool exportToLargeVarTypes = false) = 0;
 
-  virtual std::shared_ptr<ArrowSchema> exportArrowSchema() = 0;
+  virtual std::shared_ptr<ArrowSchema> exportArrowSchema(bool exportToLargeVarTypes = false) = 0;
 
   virtual int64_t getExportNanos() const;
 
@@ -74,9 +74,9 @@ class ArrowColumnarBatch final : public ColumnarBatch {
 
   arrow::RecordBatch* getRecordBatch() const;
 
-  std::shared_ptr<ArrowSchema> exportArrowSchema() override;
+  std::shared_ptr<ArrowSchema> exportArrowSchema(bool exportToLargeVarTypes = false) override;
 
-  std::shared_ptr<ArrowArray> exportArrowArray() override;
+  std::shared_ptr<ArrowArray> exportArrowArray(bool exportToLargeVarTypes = false) override;
 
   std::vector<char> toUnsafeRow(int32_t rowId) const override;
 
@@ -94,9 +94,9 @@ class ArrowCStructColumnarBatch final : public ColumnarBatch {
 
   int64_t numBytes() override;
 
-  std::shared_ptr<ArrowSchema> exportArrowSchema() override;
+  std::shared_ptr<ArrowSchema> exportArrowSchema(bool exportToLargeVarTypes = false) override;
 
-  std::shared_ptr<ArrowArray> exportArrowArray() override;
+  std::shared_ptr<ArrowArray> exportArrowArray(bool exportToLargeVarTypes = false) override;
 
   std::vector<char> toUnsafeRow(int32_t rowId) const override;
 

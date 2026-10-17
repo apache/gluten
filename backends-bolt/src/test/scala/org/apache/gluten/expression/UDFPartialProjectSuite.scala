@@ -158,8 +158,13 @@ class UDFPartialProjectSuite extends WholeStageTransformerSuite {
   }
 
   test("test concat with string") {
-    runQueryAndCompare("SELECT concat_concat(l_comment), hash(l_partkey) from lineitem") {
-      checkGlutenPlan[ColumnarPartialProjectExec]
+    Seq("false", "true").foreach {
+      useLargeVarTypes =>
+        withSQLConf("spark.sql.execution.arrow.useLargeVarTypes" -> useLargeVarTypes) {
+          runQueryAndCompare("SELECT concat_concat(l_comment), hash(l_partkey) from lineitem") {
+            checkGlutenPlan[ColumnarPartialProjectExec]
+          }
+        }
     }
   }
 

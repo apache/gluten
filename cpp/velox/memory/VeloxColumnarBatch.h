@@ -50,8 +50,8 @@ class VeloxColumnarBatch final : public ColumnarBatch {
 
   int64_t numBytes() override;
 
-  std::shared_ptr<ArrowSchema> exportArrowSchema() override;
-  std::shared_ptr<ArrowArray> exportArrowArray() override;
+  std::shared_ptr<ArrowSchema> exportArrowSchema(bool exportToLargeVarTypes = false) override;
+  std::shared_ptr<ArrowArray> exportArrowArray(bool exportToLargeVarTypes = false) override;
   std::vector<char> toUnsafeRow(int32_t rowId) const override;
   std::shared_ptr<VeloxColumnarBatch> select(
       facebook::velox::memory::MemoryPool* pool,

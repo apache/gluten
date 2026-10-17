@@ -39,7 +39,7 @@ import org.apache.spark.sql.columnar.SimpleMetricsCachedBatchSerializer
 import org.apache.spark.sql.execution.columnar.DefaultCachedBatchSerializer
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.utils.SparkArrowUtil
+import org.apache.spark.sql.utils.SparkSchemaUtil
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.storage.StorageLevel
 import org.apache.spark.unsafe.types.UTF8String
@@ -953,7 +953,6 @@ class ColumnarCachedBatchSerializer extends SimpleMetricsCachedBatchSerializer
       }
       val shouldSelectAttributes = cacheAttributes != selectedAttributes
       val localSchema = toStructType(cacheAttributes)
-      val timezoneId = SQLConf.get.sessionLocalTimeZone
       input.mapPartitions {
         it =>
           val runtime = Runtimes.contextInstance(
@@ -961,7 +960,7 @@ class ColumnarCachedBatchSerializer extends SimpleMetricsCachedBatchSerializer
             "ColumnarCachedBatchSerializer#read")
           val jniWrapper = ColumnarBatchSerializerJniWrapper
             .create(runtime)
-          val schema = SparkArrowUtil.toArrowSchema(localSchema, timezoneId)
+          val schema = SparkSchemaUtil.toArrowSchema(localSchema)
           val arrowAlloc = ArrowBufferAllocators.contextInstance()
           val cSchema = ArrowSchema.allocateNew(arrowAlloc)
           ArrowAbiUtil.exportSchema(arrowAlloc, schema, cSchema)
