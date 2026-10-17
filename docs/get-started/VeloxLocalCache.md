@@ -10,7 +10,7 @@ local disk when reading from remote storage, and future read requests for previo
 local cache files. To enable local caching, the following configurations are required:
 
 ```
-spark.gluten.sql.columnar.backend.velox.cacheEnabled      // Enable Velox cache. Default: false.
+spark.gluten.sql.columnar.backend.velox.cacheEnabled      // Enable Velox cache. Default: true.
 spark.gluten.sql.columnar.backend.velox.memCacheSize      // In-memory cache size. Default: 128MB.
 spark.gluten.sql.columnar.backend.velox.ssdCachePath      // Folder to store cache files, preferably on SSD. Default: "/tmp".
 spark.gluten.sql.columnar.backend.velox.ssdCacheSize      // SSD cache size. Memory-only caching is used when set to 0. Default: 128MB.

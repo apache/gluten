@@ -136,6 +136,7 @@ const std::string kHiveConnectorId = "test-hive";
 const std::string kIcebergConnectorId = "test-iceberg";
 
 const std::string kVeloxCacheEnabled = "spark.gluten.sql.columnar.backend.velox.cacheEnabled";
+const bool kVeloxCacheEnabledDefault = true;
 
 const std::string kExprMaxCompiledRegexes = "spark.gluten.sql.columnar.backend.velox.maxCompiledRegexes";
 

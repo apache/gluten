@@ -24,6 +24,7 @@ import org.junit.Test;
 import scala.collection.immutable.Map;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 
 public class VeloxListenerApiTest {
 
@@ -37,5 +38,33 @@ public class VeloxListenerApiTest {
     assertEquals(
         "52428800",
         parsed.get("spark.gluten.sql.columnar.backend.velox.filePreloadThreshold").get());
+  }
+
+  private static final String CACHE_ENABLED =
+      "spark.gluten.sql.columnar.backend.velox.cacheEnabled";
+  private static final String LOAD_QUANTUM = "spark.gluten.sql.columnar.backend.velox.loadQuantum";
+
+  @Test
+  public void testLoadQuantumCappedWhenCacheEnabledByDefault() {
+    Map<String, String> parsed = VeloxListenerApi.parseConf(new SparkConf(), false);
+    assertEquals("8388608", parsed.get(LOAD_QUANTUM).get());
+  }
+
+  @Test
+  public void testExplicitLoadQuantumKeptWhenCacheEnabled() {
+    SparkConf conf = new SparkConf();
+    conf.set(LOAD_QUANTUM, "4MB");
+
+    Map<String, String> parsed = VeloxListenerApi.parseConf(conf, false);
+    assertEquals("4194304", parsed.get(LOAD_QUANTUM).get());
+  }
+
+  @Test
+  public void testLoadQuantumNotSetWhenCacheDisabled() {
+    SparkConf conf = new SparkConf();
+    conf.set(CACHE_ENABLED, "false");
+
+    Map<String, String> parsed = VeloxListenerApi.parseConf(conf, false);
+    assertFalse(parsed.contains(LOAD_QUANTUM));
   }
 }
