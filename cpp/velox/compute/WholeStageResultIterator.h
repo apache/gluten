@@ -136,6 +136,8 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
   std::unique_ptr<facebook::velox::exec::TaskCursor> cursor_;
   facebook::velox::exec::Task* task_ = nullptr;
   std::shared_ptr<const facebook::velox::core::PlanNode> veloxPlan_;
+  /// Whether the plan calls a Delta counter and so needs per-expression statistics exported.
+  const bool trackExpressionStats_;
 
   /// Spill.
   std::string spillStrategy_;

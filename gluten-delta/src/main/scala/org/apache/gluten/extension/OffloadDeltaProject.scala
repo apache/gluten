@@ -18,14 +18,27 @@ package org.apache.gluten.extension
 
 import org.apache.gluten.execution.DeltaProjectExecTransformer
 import org.apache.gluten.extension.DeltaPostTransformRules.containsIncrementMetricExpr
+import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
 
 import org.apache.spark.sql.execution.{ProjectExec, SparkPlan}
 
 case class OffloadDeltaProject() extends OffloadSingleNode {
   override def offload(plan: SparkPlan): SparkPlan = plan match {
-    case ProjectExec(projectList, child) if projectList.exists(containsIncrementMetricExpr) =>
-      DeltaProjectExecTransformer(projectList, child)
+    case project @ ProjectExec(projectList, child)
+        if projectList.exists(containsIncrementMetricExpr) =>
+      val nativeCounting = IncrementMetricOffload.nativeCounting
+      if (IncrementMetricOffload.canOffloadProject(projectList, nativeCounting)) {
+        DeltaProjectExecTransformer(projectList, child)
+      } else {
+        val reason = if (nativeCounting) {
+          IncrementMetricOffload.nativeConjunctionProjectReason
+        } else {
+          IncrementMetricOffload.conditionalProjectReason
+        }
+        FallbackTags.add(project, reason)
+        project
+      }
     case p => p
   }
 }
