@@ -19,13 +19,15 @@ package org.apache.spark.sql.execution.datasources.v2
 import org.apache.gluten.config.VeloxDeltaConfig
 import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
 
+import org.apache.spark.sql.delta.GlutenDeltaMergeWriteGate
 import org.apache.spark.sql.delta.catalog.DeltaCatalog
-import org.apache.spark.sql.delta.commands.{DeleteCommand, DeltaCommand, OptimizeTableCommand, UpdateCommand}
+import org.apache.spark.sql.delta.commands.{DeleteCommand, DeltaCommand, MergeIntoCommand, OptimizeTableCommand, UpdateCommand}
 import org.apache.spark.sql.delta.skipping.clustering.ClusteredTableUtils
 import org.apache.spark.sql.delta.sources.DeltaDataSource
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.command.ExecutedCommandExec
 import org.apache.spark.sql.execution.datasources.SaveIntoDataSourceCommand
+import org.apache.spark.sql.internal.SQLConf
 
 case class OffloadDeltaCommand() extends OffloadSingleNode with DeltaCommand {
   override def offload(plan: SparkPlan): SparkPlan = {
@@ -37,6 +39,8 @@ case class OffloadDeltaCommand() extends OffloadSingleNode with DeltaCommand {
         ExecutedCommandExec(GlutenDeltaLeafRunnableCommand(uc))
       case ExecutedCommandExec(dc: DeleteCommand) =>
         ExecutedCommandExec(GlutenDeltaLeafRunnableCommand(dc))
+      case ExecutedCommandExec(merge: MergeIntoCommand) if shouldOffloadMerge(merge) =>
+        ExecutedCommandExec(GlutenDeltaMergeIntoCommand(merge))
       case ExecutedCommandExec(optimize: OptimizeTableCommand) if shouldOffloadOptimize(optimize) =>
         ExecutedCommandExec(GlutenDeltaRunnableCommand(optimize))
       case ExecutedCommandExec(s @ SaveIntoDataSourceCommand(_, _: DeltaDataSource, _, _)) =>
@@ -47,6 +51,20 @@ case class OffloadDeltaCommand() extends OffloadSingleNode with DeltaCommand {
         GlutenDeltaLeafV2CommandExec(rtas)
       case other => other
     }
+  }
+
+  private def shouldOffloadMerge(merge: MergeIntoCommand): Boolean = {
+    if (!VeloxDeltaConfig.get.enableNativeMergeWrite) {
+      return false
+    }
+    val fileIndex = merge.targetFileIndex
+    val reason = GlutenDeltaMergeWriteGate.fallbackReason(
+      fileIndex.metadata,
+      fileIndex.protocol,
+      merge.migratedSchema.getOrElse(fileIndex.metadata.schema),
+      SQLConf.get)
+    reason.foreach(r => logInfo(s"MERGE into ${fileIndex.path} keeps Delta's writer: $r."))
+    reason.isEmpty
   }
 
   // Currently only plain OPTIMIZE bin-packing is supported for command offload. OPTIMIZE

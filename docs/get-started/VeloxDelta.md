@@ -28,6 +28,18 @@ Native Delta write is controlled by:
   - Default: `false`
   - Type: experimental
 
+With native write enabled, MERGE writes its data files natively too. This is controlled by:
+
+- `spark.gluten.sql.columnar.backend.velox.delta.enableNativeMergeWrite`
+  - Default: `true`
+  - Type: experimental
+  - MERGE keeps Delta's writer when the target table uses column mapping, IcebergCompat
+    (UniForm), the `materializePartitionColumns` feature, a FLOAT or DOUBLE partition column,
+    a TIMESTAMP_NTZ column, or nested field names with upper-case letters while
+    `spark.sql.caseSensitive` is off. It also keeps Delta's writer when stats collection is
+    disabled or `spark.sql.maxConcurrentOutputFileWriters` is set, and when
+    `spark.sql.files.maxRecordsPerFile` is set on an unpartitioned table.
+
 Native change data feed scan offload is controlled by:
 
 - `spark.gluten.sql.columnar.backend.velox.delta.enableChangeDataFeedScan`
