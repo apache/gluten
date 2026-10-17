@@ -169,6 +169,8 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "postgreSQL/text.sql",
     "postgreSQL/timestamp.sql",
     "postgreSQL/union.sql",
+    "postgreSQL/window_part2.sql",
+    "postgreSQL/with.sql",
     "datetime-special.sql",
     "timestamp-ltz.sql",
     "timestamp-ntz.sql",
