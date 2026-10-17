@@ -25,6 +25,8 @@
 #include "velox/exec/Aggregate.h"
 #include "velox/expression/Expr.h"
 #include "velox/expression/SignatureBinder.h"
+#include "velox/expression/SimpleFunctionRegistry.h"
+#include "velox/expression/SpecialFormRegistry.h"
 #include "velox/type/TypeCoercer.h"
 
 namespace gluten {
@@ -152,6 +154,32 @@ bool SubstraitToVeloxPlanValidator::validateRound(
   }
 }
 
+bool SubstraitToVeloxPlanValidator::validateBRound(const std::vector<core::TypedExprPtr>& params) {
+  if (params.size() != 2) {
+    LOG_VALIDATION_MSG("BRound expects exactly two arguments.");
+    return false;
+  }
+
+  if (params[0]->type()->isDecimal()) {
+    if (exec::specialFormRegistry().getSpecialForm("decimal_bround") == nullptr) {
+      LOG_VALIDATION_MSG("Decimal BRound special form is not registered.");
+      return false;
+    }
+    return true;
+  }
+
+  std::vector<TypePtr> argumentTypes;
+  argumentTypes.reserve(params.size());
+  for (const auto& param : params) {
+    argumentTypes.emplace_back(param->type());
+  }
+  if (!exec::simpleFunctions().resolveFunction("bround", argumentTypes).has_value()) {
+    LOG_VALIDATION_MSG("BRound is not registered for the argument types.");
+    return false;
+  }
+  return true;
+}
+
 bool SubstraitToVeloxPlanValidator::validateExtractExpr(const std::vector<core::TypedExprPtr>& params) {
   if (params.size() != 2) {
     LOG_VALIDATION_MSG("Value expected in variant in ExtractExpr.");
@@ -214,6 +242,9 @@ bool SubstraitToVeloxPlanValidator::validateScalarFunction(
 
   if (name == "round") {
     return validateRound(scalarFunction, inputType);
+  }
+  if (name == "bround") {
+    return validateBRound(params);
   }
   if (name == "extract") {
     return validateExtractExpr(params);

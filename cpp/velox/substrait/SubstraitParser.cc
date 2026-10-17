@@ -284,8 +284,8 @@ std::string SubstraitParser::mapToVeloxFunction(const std::string& substraitFunc
         substraitFunction == "gte" || substraitFunction == "equal") {
       return "decimal_" + it->second;
     }
-    if (substraitFunction == "round") {
-      return "decimal_round";
+    if (substraitFunction == "round" || substraitFunction == "bround") {
+      return "decimal_" + substraitFunction;
     }
   }
   if (it != substraitVeloxFunctionMap_.end()) {

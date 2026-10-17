@@ -25,23 +25,34 @@ import org.apache.spark.sql.types.{DataType, DecimalType}
 case class DecimalRoundTransformer(
     substraitExprName: String,
     child: ExpressionTransformer,
-    original: Round)
+    original: RoundBase)
   extends BinaryExpressionTransformer {
 
-  val toScale: Int = original.scale.eval(EmptyRow).asInstanceOf[Int]
+  if (!original.right.foldable) {
+    throw new GlutenNotSupportException("Decimal round scale must be foldable.")
+  }
+
+  private val scaleValue = original.right.eval(EmptyRow)
+  private val toScale = Option(scaleValue) match {
+    case Some(scale: Int) => scale
+    case Some(_) =>
+      throw new GlutenNotSupportException("Decimal round scale must be an integer.")
+    case None => 0
+  }
 
   // Use the same result type for different Spark versions in velox.
   // The same result type with spark in ch.
-  override val dataType: DataType = original.child.dataType match {
+  override val dataType: DataType = original.left.dataType match {
     case decimalType: DecimalType =>
       BackendsApiManager.getSparkPlanExecApiInstance.genDecimalRoundExpressionOutput(
         decimalType,
         toScale)
     case _ =>
       throw new GlutenNotSupportException(
-        s"Decimal type is expected but received ${original.child.dataType.typeName}.")
+        s"Decimal type is expected but received ${original.left.dataType.typeName}.")
   }
 
   override def left: ExpressionTransformer = child
-  override def right: ExpressionTransformer = LiteralTransformer(toScale)
+  override def right: ExpressionTransformer =
+    LiteralTransformer(Literal.create(scaleValue, original.right.dataType))
 }
