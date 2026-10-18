@@ -54,7 +54,7 @@ Developer can import the code style setting to IDE and format Java/Scala code wi
 ##### C/C++ code style
 There are some code style conventions need to comply. See [CppCodingStyle.md](https://github.com/apache/gluten/blob/main/docs/developers/CppCodingStyle.md).
 
-For Velox backend, developer can just execute `dev/formatcppcode.sh` to format C/C++ code. It requires `clang-format-15`
+For Velox backend, developer can just execute `dev/format-cpp-code.sh` to format C/C++ code. It requires `clang-format-15`
 installed in your development env.
 
 ### License Header
@@ -63,7 +63,7 @@ An identical license header is used for all Gluten source code. If lacked or wro
 
 You can execute a script to fix license header issue, as the following shows.
 
-`dev/check.py header main --fix`
+`.github/workflows/util/check.py header main --fix`
 
 ### Gluten CI
 

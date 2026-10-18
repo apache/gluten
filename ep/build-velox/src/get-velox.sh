@@ -18,8 +18,8 @@ set -exu
 
 CURRENT_DIR=$(cd "$(dirname "$BASH_SOURCE")"; pwd)
 VELOX_REPO=https://github.com/IBM/velox.git
-VELOX_BRANCH=dft-2026_10_14
-VELOX_ENHANCED_BRANCH=ibm-2026_10_14
+VELOX_BRANCH=dft-2026_10_17
+VELOX_ENHANCED_BRANCH=ibm-2026_10_17
 VELOX_HOME=""
 RUN_SETUP_SCRIPT=ON
 ENABLE_ENHANCED_FEATURES=OFF
@@ -96,6 +96,10 @@ function process_setup_tencentos32 {
 # independent of this. Header-search isolation from /usr/local is handled by
 # SDKROOT exported in builddeps-veloxbe.sh / build-velox.sh.
 function process_setup_macos {
+  sed -i '' 's/ lz4 openssl simdjson/ lz4 openssl@3 simdjson/' scripts/setup-macos.sh
+  sed -i '' '/run_and_time install_velox_deps_from_brew/a\
+  export OPENSSL_ROOT_DIR="$(brew --prefix openssl@3)"
+' scripts/setup-macos.sh
   if ! grep -Fq 'FOLLY_USE_JEMALLOC=OFF' scripts/setup-common.sh; then
     sed -i '' 's/local FOLLY_FLAGS=(/local FOLLY_FLAGS=(-DFOLLY_USE_JEMALLOC=OFF /' scripts/setup-common.sh
   fi
@@ -163,7 +167,6 @@ function setup_linux {
     case "$LINUX_VERSION_ID" in
       9) process_setup_centos9 ;;
       8) ;;
-      7) ;;
       *)
         echo "Unsupported centos version: $LINUX_VERSION_ID"
         exit 1
@@ -182,7 +185,6 @@ function setup_linux {
     esac
   elif [[ "$LINUX_DISTRIBUTION" == "alinux" ]]; then
     case "${LINUX_VERSION_ID:0:1}" in
-      2) ;;
       3) process_setup_alinux3 ;;
       *)
         echo "Unsupported alinux version: $LINUX_VERSION_ID"
@@ -191,7 +193,6 @@ function setup_linux {
     esac
   elif [[ "$LINUX_DISTRIBUTION" == "tencentos" ]]; then
     case "$LINUX_VERSION_ID" in
-      2.4) ;;
       3.2) process_setup_tencentos32 ;;
       *)
         echo "Unsupported tencentos version: $LINUX_VERSION_ID"

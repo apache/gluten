@@ -169,6 +169,13 @@ const std::string kVeloxAsyncTimeoutOnTaskStopping =
     "spark.gluten.sql.columnar.backend.velox.asyncTimeoutOnTaskStopping";
 const int32_t kVeloxAsyncTimeoutOnTaskStoppingDefault = 30000; // 30s
 
+// By default, executors use the number of task slots per executor, with a
+// minimum of one thread. When driver-side broadcast hash-table build is enabled
+// and Spark is not running in local mode, Scala-side logic in VeloxListenerApi
+// overrides the driver default to use spark.driver.cores instead.
+const std::string kBroadcastHashTableBuildThreads =
+    "spark.gluten.sql.columnar.backend.velox.broadcastHashTableBuildThreads";
+
 // udf
 const std::string kVeloxUdfLibraryPaths = "spark.gluten.sql.columnar.backend.velox.internal.udfLibraryPaths";
 

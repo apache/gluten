@@ -35,9 +35,13 @@ case class OffloadDeltaScan(enableNativeDmlRowIndexScan: Boolean) extends Offloa
 
   // Spark 3.5+ exposes this as ParquetFileFormat.ROW_INDEX_TEMPORARY_COLUMN_NAME.
   private val parquetTemporaryRowIndexColumnName = "_tmp_metadata_row_index"
-  // Row-index columns Delta generates as top-level scan outputs.
+  // Row-index columns used by Delta DML with either row-index generation path.
   private val generatedRowIndexColumnNames =
     Set(DeltaParquetFileFormat.ROW_INDEX_COLUMN_NAME, parquetTemporaryRowIndexColumnName)
+  private val generatedDeletionVectorMetadataColumnNames =
+    Set(
+      DeltaParquetFileFormat.ROW_INDEX_COLUMN_NAME,
+      DeltaParquetFileFormat.IS_ROW_DELETED_COLUMN_NAME)
   // ParquetFileFormat.ROW_INDEX, the generated field Delta adds to the file metadata struct in
   // PreprocessTableWithDVs when deletionVectors.useMetadataRowIndex is on. Only meaningful nested
   // under _metadata -- a user column may legitimately be called row_index.
@@ -56,8 +60,9 @@ case class OffloadDeltaScan(enableNativeDmlRowIndexScan: Boolean) extends Offloa
       FallbackTags.add(scan, "fallback Spark 3.4 Delta DV scan")
       scan
     case scan: FileSourceScanExec
-        if shouldFallbackDeletionVectorScanWithoutMetadataRowIndex(scan) =>
-      FallbackTags.add(scan, "fallback Delta DV scan without metadata row index")
+        if DeltaScanUtils.isDeltaScan(scan) &&
+          shouldFallbackGeneratedDeletionVectorMetadataScan(scan) =>
+      FallbackTags.add(scan, "fallback Delta scan requiring generated DV metadata")
       scan
     case scan: FileSourceScanExec if DeltaScanUtils.isDeltaScan(scan) =>
       DeltaScanTransformer(scan)
@@ -91,12 +96,25 @@ case class OffloadDeltaScan(enableNativeDmlRowIndexScan: Boolean) extends Offloa
     }))
   }
 
+  private def scanReadsGeneratedDeletionVectorMetadataColumn(
+      scan: FileSourceScanExec): Boolean = {
+    scanReadsColumn(
+      scan,
+      (name, _) => generatedDeletionVectorMetadataColumnNames.contains(name))
+  }
+
   private def scanReadsRowIndexColumn(scan: FileSourceScanExec): Boolean = {
+    scanReadsColumn(scan, isRowIndexColumn)
+  }
+
+  private def scanReadsColumn(
+      scan: FileSourceScanExec,
+      predicate: (String, DataType) => Boolean): Boolean = {
     val outputFields = scan.output.iterator.map(attribute => (attribute.name, attribute.dataType))
     val requiredFields =
       scan.requiredSchema.fields.iterator.map(field => (field.name, field.dataType))
     (outputFields ++ requiredFields).exists {
-      case (name, dataType) => isRowIndexColumn(name, dataType)
+      case (name, dataType) => predicate(name, dataType)
     }
   }
 
@@ -116,20 +134,19 @@ case class OffloadDeltaScan(enableNativeDmlRowIndexScan: Boolean) extends Offloa
     containsDeletionVector(scan)
   }
 
-  private def shouldFallbackDeletionVectorScanWithoutMetadataRowIndex(
+  private def shouldFallbackGeneratedDeletionVectorMetadataScan(
       scan: FileSourceScanExec): Boolean = {
     if (!SparkVersionUtil.gteSpark35) {
       return false
     }
 
-    // Delta DML tests force this path and rely on Spark's injected
-    // row-index filter column for correctness. Keep it on Spark until the native path can
-    // prove the same contract for DML-generated DVs.
+    // Without metadata row indexes, Delta's JVM reader generates the internal DV columns.
+    // Native scans bypass that synthesis; Spark's own metadata row index remains supported.
     val useMetadataRowIndex =
       scan.relation.sparkSession.sessionState.conf
         .getConfString(DeletionVectorsUseMetadataRowIndexKey, "true")
         .toBoolean
-    !useMetadataRowIndex && containsDeletionVector(scan)
+    !useMetadataRowIndex && scanReadsGeneratedDeletionVectorMetadataColumn(scan)
   }
 
   private def containsDeletionVector(scan: FileSourceScanExec): Boolean = {

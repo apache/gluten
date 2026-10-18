@@ -18,6 +18,7 @@ import copy
 import csv
 import sys
 import json
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -87,49 +88,61 @@ class ComparisonTest(unittest.TestCase):
             self.assertTrue(diagnostic["comparison_performed"])
             self.assertEqual(1, len(diagnostic["regressions"]))
 
-    def test_native_fallback_failure_transition_rules(self):
-        allowed = {
-            ("FAILED", "FAILED"),
-            ("FAILED", "PASSED_FALLBACK"),
-            ("FAILED", "PASSED_NATIVE"),
-            ("PASSED_FALLBACK", "PASSED_FALLBACK"),
-            ("PASSED_FALLBACK", "PASSED_NATIVE"),
-            ("PASSED_NATIVE", "PASSED_NATIVE"),
-        }
-        for old in ("FAILED", "PASSED_FALLBACK", "PASSED_NATIVE"):
-            for new in ("FAILED", "PASSED_FALLBACK", "PASSED_NATIVE"):
+    def test_only_native_status_loss_and_new_failures_gate(self):
+        statuses = sorted(comparison.PASSING | {"FAILED", "SKIPPED"})
+        for old in statuses:
+            for new in statuses:
                 with self.subTest(before=old, after=new):
                     result = comparison.compare(report(old), report(new))
-                    self.assertEqual(
-                        (old, new) not in allowed, bool(result["regressions"])
+                    fails = (old == "PASSED_NATIVE" and new != old) or (
+                        new == "FAILED" and old != new
                     )
+                    self.assertEqual(fails, bool(result["regressions"]))
 
-    def test_disabling_or_removing_tests_does_not_hide_regressions(self):
-        for old in (
-            "FAILED",
-            "PASSED_FALLBACK",
-            "PASSED_NATIVE",
-            "NO_ICEBERG_EXECUTION",
-        ):
+    def test_missing_non_native_tests_are_highlighted(self):
+        for old in sorted(comparison.PASSING | {"FAILED", "SKIPPED"}):
             with self.subTest(before=old):
-                self.assertTrue(
-                    comparison.compare(report(old), report("SKIPPED"))["regressions"]
-                )
                 result = comparison.compare(
-                    report(old), report("PASSED_NATIVE", "different")
+                    report(old), report("PASSED_FALLBACK", "different")
                 )
-                self.assertEqual("MISSING", result["regressions"][0]["after"])
+                self.assertEqual(old == "PASSED_NATIVE", bool(result["regressions"]))
+                changes = [
+                    row for row in result["changes"] if row["after"] == "MISSING"
+                ]
+                self.assertEqual(1, len(changes))
+                if old != "PASSED_NATIVE":
+                    self.assertIn(changes[0], result["highlights"])
 
-    def test_losing_execution_evidence_is_not_an_improvement(self):
-        for old in ("PASSED_FALLBACK", "PASSED_NATIVE"):
-            for new in ("NO_ICEBERG_EXECUTION", "PASSED_UNVERIFIED"):
-                result = comparison.compare(report(old), report(new))
-                self.assertTrue(result["regressions"])
+    def test_passing_coverage_changes_are_informational_without_special_exceptions(
+        self,
+    ):
+        statuses = ("PASSED_FALLBACK", "PASSED_UNVERIFIED", "NO_ICEBERG_EXECUTION")
+        for expected_exception in (False, True):
+            for old in statuses:
+                for new in statuses:
+                    with self.subTest(
+                        expected=expected_exception, before=old, after=new
+                    ):
+                        base, current = report(old), report(new)
+                        for source in (base, current):
+                            source["tests"][0].update(
+                                body_started=True, expected_exception=expected_exception
+                            )
+                        result = comparison.compare(base, current)
+                        self.assertFalse(result["regressions"])
+                        self.assertFalse(result["improvements"])
+                        self.assertEqual(old != new, bool(result["highlights"]))
+                        if old != new:
+                            self.assertEqual(
+                                base["tests"][0], result["highlights"][0]["base"]
+                            )
+                            self.assertEqual(
+                                current["tests"][0], result["highlights"][0]["current"]
+                            )
 
-    def test_mixed_execution_must_preserve_proven_native_coverage(self):
+    def test_mixed_execution_coverage_loss_is_highlighted(self):
         base = report("PASSED_NATIVE")
-        row = base["tests"][0]
-        row.update(status="PASSED_FALLBACK", fallback=["AppendDataExec"])
+        base["tests"][0].update(status="PASSED_FALLBACK", fallback=["AppendDataExec"])
         for loss in (
             "fallback",
             "unverified",
@@ -141,8 +154,7 @@ class ComparisonTest(unittest.TestCase):
             current = copy.deepcopy(base)
             after = current["tests"][0]
             if loss in ("fallback", "unverified"):
-                after["native"] = []
-                after["native_metrics"] = []
+                after.update(native=[], native_metrics=[])
                 after.setdefault(loss, []).append("IcebergScanTransformer")
             elif loss == "metrics":
                 after["native_metrics"][0]["metrics"]["rawInputRows"] = 0
@@ -154,27 +166,26 @@ class ComparisonTest(unittest.TestCase):
                 after["expected_exception"] = True
             with self.subTest(loss=loss):
                 result = comparison.compare(base, current)
-                self.assertEqual(1, len(result["regressions"]))
-                self.assertEqual([], result["improvements"])
-                change = result["changes"][0]
-                self.assertEqual("NATIVE_COVERAGE_REGRESSION", change["reason"])
-                self.assertEqual(["IcebergScanTransformer"], change["lost_native"])
+                self.assertFalse(result["regressions"])
+                self.assertFalse(result["improvements"])
+                self.assertEqual(1, len(result["highlights"]))
+                self.assertEqual(
+                    "NATIVE_COVERAGE_CHANGE", result["highlights"][0]["reason"]
+                )
+                self.assertEqual(
+                    ["IcebergScanTransformer"], result["highlights"][0]["lost_native"]
+                )
 
-    def test_native_node_types_cannot_disappear_even_when_status_improves(self):
+    def test_native_to_native_node_changes_are_highlighted(self):
         base = report("PASSED_NATIVE")
-        row = base["tests"][0]
-        row["native"].append("IcebergWriteExec")
-        row["native_metrics"].append(
+        base["tests"][0]["native"].append("IcebergWriteExec")
+        base["tests"][0]["native_metrics"].append(
             {"node": "IcebergWriteExec", "metrics": {"numWrittenBytes": 10}}
         )
-        for status in ("PASSED_NATIVE", "PASSED_FALLBACK", "PASSED_UNVERIFIED"):
-            row["status"] = status
-            with self.subTest(status=status):
-                result = comparison.compare(base, report("PASSED_NATIVE"))
-                self.assertEqual(
-                    ["IcebergWriteExec"], result["regressions"][0]["lost_native"]
-                )
-                self.assertFalse(result["improvements"])
+        result = comparison.compare(base, report("PASSED_NATIVE"))
+        self.assertFalse(result["regressions"])
+        self.assertFalse(result["improvements"])
+        self.assertEqual(["IcebergWriteExec"], result["highlights"][0]["lost_native"])
 
     def test_counter_variation_and_unproven_nodes_do_not_gate_mixed_execution(self):
         base = report("PASSED_NATIVE")
@@ -186,19 +197,119 @@ class ComparisonTest(unittest.TestCase):
         row["native"].append("UnprovenPlanNode")
         self.assertFalse(comparison.compare(base, current)["regressions"])
 
-    def test_new_tests_and_previously_skipped_tests_cannot_add_failures(self):
+    def test_whitelist_excludes_all_invocations_from_every_gate_outcome(self):
+        whitelist = {("org.apache.iceberg.TestScan", "read")}
+        statuses = sorted(comparison.PASSING | {"FAILED", "SKIPPED", "COVERAGE_ERROR"})
+        for old in statuses:
+            for new in statuses:
+                with self.subTest(before=old, after=new):
+                    base, current = report(old), report(new)
+                    current["tests"][0].update(
+                        parameters={"formatVersion": "3"},
+                        failure_origin="CONTROL_MISSING",
+                    )
+                    result = comparison.compare(base, current, flaky_tests=whitelist)
+                    self.assertFalse(result["regressions"])
+                    self.assertFalse(result["improvements"])
+                    self.assertFalse(result["highlights"])
+                    self.assertEqual(1, result["ignored_tests"])
+                    self.assertTrue(result["changes"][0]["ignored"])
+        for name in ("read", "read()", "read()[12]", "read(int)[3]"):
+            base, current = report("PASSED_NATIVE", name), report("FAILED", name)
+            current["tests"][0].pop("failure_origin")
+            result = comparison.compare(base, current, flaky_tests=whitelist)
+            self.assertFalse(result["regressions"])
+            self.assertEqual(1, len(result["ignored_changes"]))
+        removed = comparison.compare(
+            report("PASSED_NATIVE"),
+            report("PASSED_FALLBACK", "other"),
+            flaky_tests=whitelist,
+        )
+        self.assertFalse(removed["regressions"])
+        self.assertEqual("MISSING", removed["ignored_changes"][0]["after"])
+        for fields in (
+            {"class": "org.apache.iceberg.OtherTest"},
+            {"name": "readOther()[1]"},
+        ):
+            base, current = report("PASSED_NATIVE"), report("FAILED")
+            base["tests"][0].update(fields)
+            current["tests"][0].update(fields)
+            self.assertTrue(
+                comparison.compare(base, current, flaky_tests=whitelist)["regressions"]
+            )
+
+    def test_whitelist_does_not_hide_invalid_report_structure(self):
+        whitelist = {("org.apache.iceberg.TestScan", "read")}
+        for invalid in (
+            {"version": 1, "tests": report("FAILED")["tests"]},
+            {"version": 2, "tests": []},
+            {"version": 2, "tests": report("FAILED")["tests"] * 2},
+        ):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                comparison.compare(invalid, report("FAILED"), flaky_tests=whitelist)
+
+    def test_csv_whitelist_and_informational_changes_are_visible_in_gate_summary(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            base, current = report("PASSED_NATIVE"), report("FAILED")
+            current["tests"][0].pop("failure_origin")
+            base["tests"].extend(report("PASSED_FALLBACK", "anotherMethod")["tests"])
+            current["tests"].extend(
+                report("PASSED_UNVERIFIED", "anotherMethod")["tests"]
+            )
+            (root / "base.json").write_text(json.dumps(base))
+            (root / "head.json").write_text(json.dumps(current))
+            config = root / "flaky.csv"
+            config.write_text(
+                "# Known flaky test\nclass,method\norg.apache.iceberg.TestScan,read\n"
+            )
+            command = [
+                sys.executable,
+                str(SCRIPT),
+                str(root / "base.json"),
+                str(root / "head.json"),
+                "--output",
+                str(root / "diff.json"),
+                "--flaky-tests",
+                str(config),
+            ]
+            summary = root / "summary.md"
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                env=dict(os.environ, GITHUB_STEP_SUMMARY=str(summary)),
+            )
+            self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+            diagnostic = json.loads((root / "diff.json").read_text())
+            self.assertFalse(diagnostic["regressions"])
+            self.assertFalse(diagnostic["improvements"])
+            self.assertEqual(1, len(diagnostic["ignored_changes"]))
+            self.assertEqual(1, len(diagnostic["highlights"]))
+            self.assertIn("Other changes (informational)", summary.read_text())
+            self.assertIn("PASSED_FALLBACK → PASSED_UNVERIFIED", summary.read_text())
+            self.assertIn("Whitelisted changes (ignored)", summary.read_text())
+            self.assertIn("PASSED_NATIVE → FAILED", summary.read_text())
+            with (root / "diff.csv").open(newline="") as output:
+                rows = {row["test"]: row for row in csv.DictReader(output)}
+            self.assertEqual("True", rows["read()[1]"]["ignored"])
+            self.assertEqual("False", rows["anotherMethod"]["ignored"])
+            for contents in ("class,method,reason\n", None):
+                with self.subTest(contents=contents):
+                    if contents is None:
+                        config.unlink()
+                    else:
+                        config.write_text(contents)
+                    result = subprocess.run(command, capture_output=True, text=True)
+                    self.assertEqual(1, result.returncode, result.stderr)
+                    diagnostic = json.loads((root / "diff.json").read_text())
+                    self.assertTrue(diagnostic["validation_errors"])
+
+    def test_new_tests_cannot_add_failures(self):
         current = report("PASSED_NATIVE")
         current["tests"].extend(report("FAILED", "new")["tests"])
         result = comparison.compare(report("PASSED_NATIVE"), current)
         self.assertEqual("NEW", result["regressions"][0]["before"])
-        self.assertTrue(
-            comparison.compare(report("SKIPPED"), report("FAILED"))["regressions"]
-        )
-        self.assertFalse(
-            comparison.compare(report("SKIPPED"), report("PASSED_NATIVE"))[
-                "regressions"
-            ]
-        )
 
     def test_empty_duplicate_and_broken_reports_fail_closed(self):
         duplicate = report("PASSED_NATIVE")
@@ -214,7 +325,7 @@ class ComparisonTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 comparison.compare(report("PASSED_NATIVE"), invalid)
 
-    def test_parameters_must_match_except_fixture_ports(self):
+    def test_parameter_changes_are_highlighted_except_fixture_ports(self):
         old, new = report("PASSED_NATIVE"), report("PASSED_NATIVE")
         old["tests"][0]["parameters"] = {
             "config": "uri=http://localhost:1234/",
@@ -228,10 +339,10 @@ class ComparisonTest(unittest.TestCase):
         new["tests"][0]["parameters"]["vectorized"] = "false"
         self.assertEqual(
             "PARAMETER_MISMATCH",
-            comparison.compare(old, new)["regressions"][0]["reason"],
+            comparison.compare(old, new)["highlights"][0]["reason"],
         )
 
-    def test_random_uuid_literal_is_data_but_other_arguments_must_match(self):
+    def test_random_uuid_literals_are_ignored_but_other_arguments_are_highlighted(self):
         old, new = report("PASSED_FALLBACK"), report("PASSED_FALLBACK")
         old["tests"][0][
             "display_name"
@@ -243,7 +354,8 @@ class ComparisonTest(unittest.TestCase):
         new["tests"][0][
             "display_name"
         ] = "[10] string, f41c0f33-5800-453f-b4d5-0d77ca0d1915"
-        self.assertTrue(comparison.compare(old, new)["regressions"])
+        self.assertFalse(comparison.compare(old, new)["regressions"])
+        self.assertTrue(comparison.compare(old, new)["highlights"])
 
     def test_gate_rejects_unproven_native_and_unattributed_failures(self):
         invalid_native, invalid_failure = report("PASSED_NATIVE"), report("FAILED")

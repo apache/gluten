@@ -17,7 +17,7 @@
 package org.apache.spark.sql.connector
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.execution.SortMergeJoinExecTransformer
+import org.apache.gluten.execution.{SortExecTransformer, SortMergeJoinExecTransformer}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{DataFrame, GlutenSQLTestsBaseTrait, Row}
@@ -26,8 +26,8 @@ import org.apache.spark.sql.connector.catalog.{Column, Identifier, InMemoryTable
 import org.apache.spark.sql.connector.distributions.Distributions
 import org.apache.spark.sql.connector.expressions.Expressions.{bucket, days, identity, years}
 import org.apache.spark.sql.connector.expressions.Transform
-import org.apache.spark.sql.execution.{ColumnarShuffleExchangeExec, SparkPlan}
-import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
+import org.apache.spark.sql.execution.{ColumnarShuffleExchangeExec, RDDScanExec, RDDScanTransformer, SortExec, SparkPlan}
+import org.apache.spark.sql.execution.datasources.v2.GroupPartitionsExec
 import org.apache.spark.sql.execution.exchange.{ShuffleExchangeExec, ShuffleExchangeLike}
 import org.apache.spark.sql.execution.joins.SortMergeJoinExec
 import org.apache.spark.sql.functions.{col, max}
@@ -100,16 +100,27 @@ class GlutenKeyGroupedPartitioningSuite
         })
   }
 
-  override protected def collectAllShuffles(plan: SparkPlan): Seq[ColumnarShuffleExchangeExec] = {
+  override protected def collectGroupPartitions(plan: SparkPlan): Seq[GroupPartitionsExec] = {
+    // here we skip collecting group partitions operators that are not associated with SMJ
+    collect(plan) {
+      case s: SortMergeJoinExec => s
+      case s: SortMergeJoinExecTransformer => s
+    }.flatMap(smj => collect(smj) { case g: GroupPartitionsExec => g })
+  }.toSet.toSeq
+
+  override protected def collectAllShuffles(plan: SparkPlan): Seq[ShuffleExchangeLike] = {
+    collect(plan) {
+      case s: ShuffleExchangeExec => s
+      case s: ColumnarShuffleExchangeExec => s
+    }
+  }
+
+  private def collectAllColumnarShuffles(plan: SparkPlan): Seq[ColumnarShuffleExchangeExec] = {
     collect(plan) { case s: ColumnarShuffleExchangeExec => s }
   }
 
   private def collectVanillaShuffles(plan: SparkPlan): Seq[ShuffleExchangeExec] = {
     collect(plan) { case s: ShuffleExchangeExec => s }
-  }
-
-  private def collectScans(plan: SparkPlan): Seq[BatchScanExec] = {
-    collect(plan) { case s: BatchScanExec => s }
   }
 
   private def selectWithMergeJoinHint(t1: String, t2: String): String = {
@@ -359,8 +370,11 @@ class GlutenKeyGroupedPartitioningSuite
               val shuffles = collectColumnarShuffleExchangeExec(df.queryExecution.executedPlan)
               assert(shuffles.isEmpty, "should not contain any shuffle")
               if (pushDownValues) {
-                val scans = collectScans(df.queryExecution.executedPlan)
-                assert(scans.forall(_.inputRDD.partitions.length == expected))
+                val groupPartitions = collectGroupPartitions(df.queryExecution.executedPlan)
+                  .map(_.outputPartitioning.numPartitions)
+                assert(
+                  groupPartitions.nonEmpty && groupPartitions.forall(_ == expected),
+                  s"Expected $expected but got $groupPartitions")
               }
               checkAnswer(
                 df,
@@ -415,8 +429,11 @@ class GlutenKeyGroupedPartitioningSuite
               val shuffles = collectColumnarShuffleExchangeExec(df.queryExecution.executedPlan)
               assert(shuffles.isEmpty, "should not contain any shuffle")
               if (pushDownValues) {
-                val scans = collectScans(df.queryExecution.executedPlan)
-                assert(scans.forall(_.inputRDD.partitions.length == expected))
+                val groupPartitions = collectGroupPartitions(df.queryExecution.executedPlan)
+                  .map(_.outputPartitioning.numPartitions)
+                assert(
+                  groupPartitions.nonEmpty && groupPartitions.forall(_ == expected),
+                  s"Expected $expected but got $groupPartitions")
               }
               checkAnswer(
                 df,
@@ -481,8 +498,11 @@ class GlutenKeyGroupedPartitioningSuite
               val shuffles = collectColumnarShuffleExchangeExec(df.queryExecution.executedPlan)
               if (pushDownValues) {
                 assert(shuffles.isEmpty, "should not contain any shuffle")
-                val scans = collectScans(df.queryExecution.executedPlan)
-                assert(scans.forall(_.inputRDD.partitions.length == expected))
+                val groupPartitions = collectGroupPartitions(df.queryExecution.executedPlan)
+                  .map(_.outputPartitioning.numPartitions)
+                assert(
+                  groupPartitions.nonEmpty && groupPartitions.forall(_ == expected),
+                  s"Expected $expected but got $groupPartitions")
               } else {
                 assert(
                   shuffles.nonEmpty,
@@ -550,8 +570,11 @@ class GlutenKeyGroupedPartitioningSuite
               val shuffles = collectColumnarShuffleExchangeExec(df.queryExecution.executedPlan)
               if (pushDownValues) {
                 assert(shuffles.isEmpty, "should not contain any shuffle")
-                val scans = collectScans(df.queryExecution.executedPlan)
-                assert(scans.forall(_.inputRDD.partitions.length == expected))
+                val groupPartitions = collectGroupPartitions(df.queryExecution.executedPlan)
+                  .map(_.outputPartitioning.numPartitions)
+                assert(
+                  groupPartitions.nonEmpty && groupPartitions.forall(_ == expected),
+                  s"Expected $expected but got $groupPartitions")
               } else {
                 assert(
                   shuffles.nonEmpty,
@@ -608,8 +631,11 @@ class GlutenKeyGroupedPartitioningSuite
               val shuffles = collectColumnarShuffleExchangeExec(df.queryExecution.executedPlan)
               if (pushDownValues) {
                 assert(shuffles.isEmpty, "should not contain any shuffle")
-                val scans = collectScans(df.queryExecution.executedPlan)
-                assert(scans.forall(_.inputRDD.partitions.length == expected))
+                val groupPartitions = collectGroupPartitions(df.queryExecution.executedPlan)
+                  .map(_.outputPartitioning.numPartitions)
+                assert(
+                  groupPartitions.nonEmpty && groupPartitions.forall(_ == expected),
+                  s"Expected $expected but got $groupPartitions")
               } else {
                 assert(
                   shuffles.nonEmpty,
@@ -663,10 +689,11 @@ class GlutenKeyGroupedPartitioningSuite
               val shuffles = collectColumnarShuffleExchangeExec(df.queryExecution.executedPlan)
               if (pushDownValues) {
                 assert(shuffles.isEmpty, "should not contain any shuffle")
-                val scans = collectScans(df.queryExecution.executedPlan)
+                val groupPartitions = collectGroupPartitions(df.queryExecution.executedPlan)
+                  .map(_.outputPartitioning.numPartitions)
                 assert(
-                  scans.forall(_.inputRDD.partitions.length == expected),
-                  s"Expected $expected but got ${scans.head.inputRDD.partitions.length}")
+                  groupPartitions.nonEmpty && groupPartitions.forall(_ == expected),
+                  s"Expected $expected but got $groupPartitions")
               } else {
                 assert(
                   shuffles.nonEmpty,
@@ -727,11 +754,11 @@ class GlutenKeyGroupedPartitioningSuite
               val shuffles = collectColumnarShuffleExchangeExec(df.queryExecution.executedPlan)
               if (pushDownValues) {
                 assert(shuffles.isEmpty, "should not contain any shuffle")
-                val scans = collectScans(df.queryExecution.executedPlan)
-                assert(scans.map(_.inputRDD.partitions.length).toSet.size == 1)
+                val groupPartitions = collectGroupPartitions(df.queryExecution.executedPlan)
+                  .map(_.outputPartitioning.numPartitions)
                 assert(
-                  scans.forall(_.inputRDD.partitions.length == expected),
-                  s"Expected $expected but got ${scans.head.inputRDD.partitions.length}")
+                  groupPartitions.nonEmpty && groupPartitions.forall(_ == expected),
+                  s"Expected $expected but got $groupPartitions")
               } else {
                 assert(
                   shuffles.nonEmpty,
@@ -790,11 +817,11 @@ class GlutenKeyGroupedPartitioningSuite
               val shuffles = collectColumnarShuffleExchangeExec(df.queryExecution.executedPlan)
               if (pushDownValues) {
                 assert(shuffles.isEmpty, "should not contain any shuffle")
-                val scans = collectScans(df.queryExecution.executedPlan)
-                assert(scans.map(_.inputRDD.partitions.length).toSet.size == 1)
+                val groupPartitions = collectGroupPartitions(df.queryExecution.executedPlan)
+                  .map(_.outputPartitioning.numPartitions)
                 assert(
-                  scans.forall(_.inputRDD.partitions.length == expected),
-                  s"Expected $expected but got ${scans.head.inputRDD.partitions.length}")
+                  groupPartitions.nonEmpty && groupPartitions.forall(_ == expected),
+                  s"Expected $expected but got $groupPartitions")
               } else {
                 assert(
                   shuffles.nonEmpty,
@@ -1113,7 +1140,7 @@ class GlutenKeyGroupedPartitioningSuite
         keyGroupedShuffles.nonEmpty,
         "KeyGroupedPartitioning shuffle should fall back to a vanilla ShuffleExchangeExec")
 
-      val columnarKeyGroupedShuffles = collectAllShuffles(plan)
+      val columnarKeyGroupedShuffles = collectAllColumnarShuffles(plan)
         .filter(_.outputPartitioning.isInstanceOf[KeyedPartitioning])
       assert(
         columnarKeyGroupedShuffles.isEmpty,
@@ -1320,23 +1347,23 @@ class GlutenKeyGroupedPartitioningSuite
                         assert(shuffles.nonEmpty, "SPJ should not be triggered")
                       }
 
-                      val scannedPartitions = collectScans(df.queryExecution.executedPlan)
-                        .map(_.inputRDD.partitions.length)
+                      val groupPartitions = collectGroupPartitions(df.queryExecution.executedPlan)
+                        .map(_.outputPartitioning.numPartitions)
                       (allowJoinKeysSubsetOfPartitionKeys, partiallyClustered, filter) match {
                         // SPJ, partially-clustered, with filter
-                        case (true, true, true) => assert(scannedPartitions == Seq(6, 6))
+                        case (true, true, true) => assert(groupPartitions == Seq(6, 6))
 
                         // SPJ, partially-clustered, no filter
-                        case (true, true, false) => assert(scannedPartitions == Seq(8, 8))
+                        case (true, true, false) => assert(groupPartitions == Seq(8, 8))
 
                         // SPJ and not partially-clustered, with filter
-                        case (true, false, true) => assert(scannedPartitions == Seq(2, 2))
+                        case (true, false, true) => assert(groupPartitions == Seq(2, 2))
 
                         // SPJ and not partially-clustered, no filter
-                        case (true, false, false) => assert(scannedPartitions == Seq(4, 4))
+                        case (true, false, false) => assert(groupPartitions == Seq(4, 4))
 
                         // No SPJ
-                        case _ => assert(scannedPartitions == Seq(5, 4))
+                        case _ => assert(groupPartitions.isEmpty)
                       }
 
                       checkAnswer(
@@ -1419,13 +1446,13 @@ class GlutenKeyGroupedPartitioningSuite
                     assert(shuffles.nonEmpty, "SPJ should not be triggered")
                   }
 
-                  val scans = collectScans(df.queryExecution.executedPlan)
-                    .map(_.inputRDD.partitions.length)
+                  val partitions = collectGroupPartitions(df.queryExecution.executedPlan)
+                    .map(_.outputPartitioning.numPartitions)
                   (pushDownValues, allowJoinKeysSubsetOfPartitionKeys, partiallyClustered) match {
                     // SPJ and partially-clustered
-                    case (true, true, true) => assert(scans == Seq(3, 3))
+                    case (_, true, _) => assert(partitions == Seq(3, 3))
                     // non-SPJ or SPJ/partially-clustered
-                    case _ => assert(scans == Seq(3, 3))
+                    case _ => assert(partitions.isEmpty)
                   }
                 }
             }
@@ -1479,15 +1506,15 @@ class GlutenKeyGroupedPartitioningSuite
                     assert(shuffles.nonEmpty, "SPJ should not be triggered")
                   }
 
-                  val scans = collectScans(df.queryExecution.executedPlan)
-                    .map(_.inputRDD.partitions.length)
+                  val partitions = collectGroupPartitions(df.queryExecution.executedPlan)
+                    .map(_.outputPartitioning.numPartitions)
                   (allowJoinKeysSubsetOfPartitionKeys, partiallyClustered) match {
                     // SPJ and partially-clustered
-                    case (true, true) => assert(scans == Seq(5, 5))
+                    case (true, true) => assert(partitions == Seq(5, 5))
                     // SPJ and not partially-clustered
-                    case (true, false) => assert(scans == Seq(3, 3))
+                    case (true, false) => assert(partitions == Seq(3, 3))
                     // No SPJ
-                    case _ => assert(scans == Seq(4, 4))
+                    case _ => assert(partitions.isEmpty)
                   }
 
                   checkAnswer(
@@ -1599,16 +1626,16 @@ class GlutenKeyGroupedPartitioningSuite
                               |""".stripMargin)
 
               val shuffles = collectColumnarShuffleExchangeExec(df.queryExecution.executedPlan)
-              val scans =
-                collectScans(df.queryExecution.executedPlan).map(_.inputRDD.partitions.length)
+              val partitions = collectGroupPartitions(df.queryExecution.executedPlan)
+                .map(_.outputPartitioning.numPartitions)
 
               (allowPushDown, partiallyClustered) match {
                 case (true, false) =>
                   assert(shuffles.isEmpty, "SPJ should be triggered")
-                  assert(scans == Seq(2, 2))
+                  assert(partitions == Seq(2, 2))
                 case (_, _) =>
                   assert(shuffles.nonEmpty, "SPJ should not be triggered")
-                  assert(scans == Seq(3, 2))
+                  assert(partitions.isEmpty)
               }
 
               checkAnswer(
@@ -1900,10 +1927,13 @@ class GlutenKeyGroupedPartitioningSuite
         assert(
           shuffles.isEmpty,
           "should not contain shuffle when not grouping by partition values")
+        val groupPartitions = collectAllGroupPartitions(df.queryExecution.executedPlan)
+        assert(groupPartitions.size === 1)
+        assert(groupPartitions.head.outputPartitioning.numPartitions == 3)
     }
   }
 
-  testGluten("SPARK-53322: checkpointed scans aren't used for SPJ") {
+  testGluten("SPARK-53322: checkpointed scans are used for SPJ") {
     withTempDir {
       dir =>
         spark.sparkContext.setCheckpointDir(dir.getPath)
@@ -1943,14 +1973,22 @@ class GlutenKeyGroupedPartitioningSuite
               .orderBy("id", "purchase_price", "sale_price")
             checkAnswer(df, Seq(Row(1, "aa", 41.0, 40.0), Row(3, "cc", 15.5, 25.5)))
 
-            // One shuffle for sort and two shuffles for join are expected.
-            assert(collectAllShuffles(df.queryExecution.executedPlan).length === 3)
+            val plan = df.queryExecution.executedPlan
+            if (pushdownValues) {
+              // 1 shuffle for SORT and 2 group partitions for JOIN are expected.
+              assert(collectAllShuffles(plan).length === 1)
+              assert(collectAllGroupPartitions(plan).length === 2)
+            } else {
+              // 1 shuffle for SORT and 2 shuffles for JOIN are expected.
+              assert(collectAllShuffles(plan).length === 3)
+              assert(collectAllGroupPartitions(plan).isEmpty)
+            }
           }
         }
     }
   }
 
-  testGluten("SPARK-53322: checkpointed scans can't shuffle other children on SPJ") {
+  testGluten("SPARK-53322: checkpointed scans can shuffle other children on SPJ") {
     withTempDir {
       dir =>
         spark.sparkContext.setCheckpointDir(dir.getPath)
@@ -1985,51 +2023,76 @@ class GlutenKeyGroupedPartitioningSuite
                 .orderBy("id", "purchase_price", "sale_price")
               checkAnswer(df, Seq(Row(1, "aa", 41.0, 40.0), Row(3, "cc", 15.5, 25.5)))
 
-              // One shuffle for sort and two shuffles for join are expected.
-              assert(collectAllShuffles(df.queryExecution.executedPlan).length === 3)
+              val plan = df.queryExecution.executedPlan
+              // 1 shuffle for SORT and 1 shuffle for JOIN are expected.
+              assert(collectAllShuffles(plan).length === 2)
+              // The JOIN shuffle has KeyedPartitioning and falls back to vanilla Spark
+              // (GLUTEN-10992). The SORT shuffle is native.
+              assert(collectVanillaShuffles(plan).length === 1)
+              assert(collectAllColumnarShuffles(plan).length === 1)
+              // 0 group partitions are expected because both sides of the join are clustered
+              assert(collectAllGroupPartitions(plan).isEmpty)
             }
         }
     }
   }
 
-  testGluten("SPARK-53322: checkpointed scans can be shuffled by children on SPJ") {
+  testGluten("SPARK-55848: checkpointed partially-clustered join with dedup") {
     withTempDir {
       dir =>
         spark.sparkContext.setCheckpointDir(dir.getPath)
-        val itemsPartitions = Array(identity("id"))
-        createTable(items, itemsColumns, itemsPartitions)
+        val items_partitions = Array(identity("id"))
+        createTable(items, itemsColumns, items_partitions)
         sql(
           s"INSERT INTO testcat.ns.$items VALUES " +
-            "(1, 'aa', 41.0, cast('2020-01-01' as timestamp)), " +
-            "(2, 'bb', 10.0, cast('2020-01-02' as timestamp)), " +
-            "(3, 'cc', 15.5, cast('2020-01-03' as timestamp))")
+            "(1, 'aa', 40.0, cast('2020-01-01' as timestamp)), " +
+            "(1, 'aa', 41.0, cast('2020-01-15' as timestamp)), " +
+            "(2, 'bb', 10.0, cast('2020-01-01' as timestamp)), " +
+            "(3, 'cc', 15.5, cast('2020-02-01' as timestamp))")
 
-        createTable(purchases, purchasesColumns, Array(identity("item_id")))
+        val purchases_partitions = Array(identity("item_id"))
+        createTable(purchases, purchasesColumns, purchases_partitions)
         sql(
           s"INSERT INTO testcat.ns.$purchases VALUES " +
-            "(1, 40.0, cast('2020-01-01' as timestamp)), " +
-            "(3, 25.5, cast('2020-01-03' as timestamp)), " +
-            "(4, 20.0, cast('2020-01-04' as timestamp))")
+            "(1, 42.0, cast('2020-01-01' as timestamp)), " +
+            "(1, 50.0, cast('2020-01-02' as timestamp)), " +
+            "(2, 11.0, cast('2020-01-01' as timestamp)), " +
+            "(3, 19.5, cast('2020-02-01' as timestamp))")
 
         withSQLConf(
+          SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false",
           SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
-          SQLConf.V2_BUCKETING_SHUFFLE_ENABLED.key -> "true",
-          SQLConf.V2_BUCKETING_PUSH_PART_VALUES_ENABLED.key -> "true"
+          SQLConf.V2_BUCKETING_PARTIALLY_CLUSTERED_DISTRIBUTION_ENABLED.key -> true.toString
         ) {
-          val scanDF1 = spark.read.table(s"testcat.ns.$items").checkpoint().as("i")
-          val scanDF2 = spark.read.table(s"testcat.ns.$purchases").as("p")
+          // Checkpoint the JOIN result (not the scan) so the checkpoint node carries the
+          // partially-clustered KeyGroupedPartitioning. The dedup on top must still insert
+          // the required grouping operator because partially-clustered partitioning does not
+          // satisfy ClusteredDistribution.
+          val joinedDf = sql(s"""${selectWithMergeJoinHint("i", "p")} i.id, i.name, i.price
+                                |FROM testcat.ns.$items i
+                                |JOIN testcat.ns.$purchases p ON i.id = p.item_id""".stripMargin)
+          val checkpointedDf = joinedDf.checkpoint()
+          val df = checkpointedDf.select("id").distinct()
+          checkAnswer(df, Seq(Row(1), Row(2), Row(3)))
 
-          val df = scanDF1
-            .join(scanDF2, col("id") === col("item_id"))
-            .selectExpr("id", "name", "i.price AS purchase_price", "p.price AS sale_price")
-            .orderBy("id", "purchase_price", "sale_price")
-          checkAnswer(df, Seq(Row(1, "aa", 41.0, 40.0), Row(3, "cc", 15.5, 25.5)))
+          // Gluten offloads the checkpoint's RDDScanExec to an RDDScanTransformer, which keeps
+          // the output partitioning of the RDDScanExec.
+          val checkpointScans = collect(df.queryExecution.executedPlan) {
+            case r: RDDScanExec => r
+            case r: RDDScanTransformer => r
+          }
+          assert(
+            checkpointScans.exists(_.outputPartitioning match {
+              case kp: KeyedPartitioning => !kp.isGrouped
+              case _ => false
+            }),
+            "checkpoint scan should have ungrouped KeyedPartitioning"
+          )
 
-          // One shuffle for sort and one vanilla shuffle for one side of join are expected.
-          val plan = df.queryExecution.executedPlan
-          assert(collectAllShuffles(plan).length === 1)
-          // KeyGroupedPartitioning shuffle falls back to vanilla ShuffleExchangeExec
-          assert(collectVanillaShuffles(plan).length === 1)
+          val allGroupPartitions = collectAllGroupPartitions(df.queryExecution.executedPlan)
+          assert(
+            allGroupPartitions.size === 1,
+            "expected 1 GroupPartitionsExec above the checkpointed join for dedup")
         }
     }
   }
@@ -2083,6 +2146,108 @@ class GlutenKeyGroupedPartitioningSuite
       assert(shuffles.size == 1, "only shuffle one side not report partitioning")
 
       checkAnswer(df, Seq(Row(1, "aa", 40.0, 42.0)))
+    }
+  }
+
+  private def assertNoSortBeforeSortMergeJoin(plan: SparkPlan): Unit = {
+    val smjs = collect(plan) { case j: SortMergeJoinExecTransformer => j }
+    assert(smjs.nonEmpty, "expected SortMergeJoinExecTransformer in plan")
+    smjs.foreach {
+      smj =>
+        val sorts = smj.children.flatMap {
+          child =>
+            collect(child) {
+              case s: SortExec => s
+              case s: SortExecTransformer => s
+            }
+        }
+        assert(sorts.isEmpty, s"should not add a sort before SMJ, but found: $sorts")
+    }
+  }
+
+  testGluten(
+    "SPARK-56241: GroupPartitionsExec non-coalescing passes through child ordering, " +
+      "no pre-join SortExec needed before SortMergeJoin") {
+    // Non-identical key sets force GroupPartitionsExec to be inserted on both sides align them,
+    // but each group has exactly one partition — no coalescing.
+    val items_partitions = Array(identity("id"))
+    createTable(items, itemsColumns, items_partitions)
+    sql(
+      s"INSERT INTO testcat.ns.$items VALUES " +
+        "(1, 'aa', 10.0, cast('2021-01-01' as timestamp)), " +
+        "(2, 'bb', 20.0, cast('2021-01-01' as timestamp)), " +
+        "(3, 'cc', 30.0, cast('2021-01-01' as timestamp))")
+
+    val purchases_partitions = Array(identity("item_id"))
+    createTable(purchases, purchasesColumns, purchases_partitions)
+    sql(
+      s"INSERT INTO testcat.ns.$purchases VALUES " +
+        "(1, 100.0, cast('2021-01-01' as timestamp)), " +
+        "(2, 200.0, cast('2021-01-01' as timestamp))")
+
+    // GroupPartitionsExec passes through the child's key-derived outputOrdering.
+    // EnsureRequirements checks outputOrdering directly so no sort should be inserted before
+    // the SMJ.
+    withSQLConf(SQLConf.V2_BUCKETING_PARTITION_KEY_ORDERING_ENABLED.key -> "true") {
+      val df = sql(s"""
+                      |${selectWithMergeJoinHint("i", "p")}
+                      |i.id, i.name
+                      |FROM testcat.ns.$items i JOIN testcat.ns.$purchases p ON p.item_id = i.id
+                      |""".stripMargin)
+
+      checkAnswer(df, Seq(Row(1, "aa"), Row(2, "bb")))
+
+      val plan = df.queryExecution.executedPlan
+      val groupPartitions = collectGroupPartitions(plan)
+      assert(groupPartitions.nonEmpty, "expected GroupPartitionsExec in plan")
+      assert(
+        groupPartitions.forall(_.groupedPartitions.forall(_._2.size <= 1)),
+        "expected non-coalescing GroupPartitionsExec")
+      assertNoSortBeforeSortMergeJoin(plan)
+    }
+  }
+
+  testGluten(
+    "SPARK-56241: GroupPartitionsExec coalescing derives ordering from key expressions, " +
+      "no pre-join SortExec needed before SortMergeJoin") {
+    // Duplicate key 1 on both sides causes coalescing.
+    val items_partitions = Array(identity("id"))
+    createTable(items, itemsColumns, items_partitions)
+    sql(
+      s"INSERT INTO testcat.ns.$items VALUES " +
+        "(1, 'aa', 10.0, cast('2021-01-01' as timestamp)), " +
+        "(1, 'ab', 11.0, cast('2021-06-01' as timestamp)), " +
+        "(2, 'bb', 20.0, cast('2021-01-01' as timestamp))")
+
+    val purchases_partitions = Array(identity("item_id"))
+    createTable(purchases, purchasesColumns, purchases_partitions)
+    sql(
+      s"INSERT INTO testcat.ns.$purchases VALUES " +
+        "(1, 100.0, cast('2021-01-01' as timestamp)), " +
+        "(1, 110.0, cast('2021-06-01' as timestamp)), " +
+        "(2, 200.0, cast('2021-01-01' as timestamp))")
+
+    // GroupPartitionsExec derives outputOrdering from the key expressions after coalescing.
+    // EnsureRequirements checks outputOrdering directly so no sort should be inserted before
+    // the SMJ.
+    withSQLConf(
+      SQLConf.V2_BUCKETING_PARTITION_KEY_ORDERING_ENABLED.key -> "true",
+      SQLConf.V2_BUCKETING_PRESERVE_KEY_ORDERING_ON_COALESCE_ENABLED.key -> "true") {
+      val df = sql(s"""
+                      |${selectWithMergeJoinHint("i", "p")}
+                      |i.id, i.name
+                      |FROM testcat.ns.$items i JOIN testcat.ns.$purchases p ON p.item_id = i.id
+                      |""".stripMargin)
+
+      checkAnswer(df, Seq(Row(1, "aa"), Row(1, "aa"), Row(1, "ab"), Row(1, "ab"), Row(2, "bb")))
+
+      val plan = df.queryExecution.executedPlan
+      val groupPartitions = collectGroupPartitions(plan)
+      assert(groupPartitions.nonEmpty, "expected GroupPartitionsExec in plan")
+      assert(
+        groupPartitions.exists(_.groupedPartitions.exists(_._2.size > 1)),
+        "expected coalescing GroupPartitionsExec")
+      assertNoSortBeforeSortMergeJoin(plan)
     }
   }
 }

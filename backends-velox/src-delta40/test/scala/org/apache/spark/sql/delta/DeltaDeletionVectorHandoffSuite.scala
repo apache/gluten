@@ -19,13 +19,17 @@ package org.apache.spark.sql.delta
 import org.apache.gluten.config.VeloxDeltaConfig
 import org.apache.gluten.execution.DeltaScanTransformer
 
-import org.apache.spark.sql.QueryTest
+import org.apache.spark.sql.{DataFrame, QueryTest, Row}
+import org.apache.spark.sql.delta.DataFrameUtils
+import org.apache.spark.sql.delta.files.TahoeLogFileIndex
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.test.{DeltaSQLCommandTest, DeltaSQLTestUtils}
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
+import org.apache.spark.sql.execution.datasources.{HadoopFsRelation, LogicalRelation}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSparkSession
+import org.apache.spark.sql.types.StructField
 import org.apache.spark.tags.ExtendedSQLTest
 
 import org.apache.hadoop.fs.Path
@@ -67,6 +71,30 @@ class DeltaDeletionVectorHandoffSuite
       .save(path)
     spark.sql(
       s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
+  }
+
+  private def dataframeWithSyntheticColumns(
+      path: String,
+      syntheticFields: StructField*): DataFrame = {
+    val deltaLog = DeltaLog.forTable(spark, new Path(path))
+    val snapshot = deltaLog.update()
+    val metadata = snapshot.metadata
+    val fileIndex = TahoeLogFileIndex(spark, deltaLog, None)
+    val readingSchema = syntheticFields.foldLeft(metadata.schema)(_.add(_))
+    val relation = HadoopFsRelation(
+      fileIndex,
+      fileIndex.partitionSchema,
+      readingSchema,
+      bucketSpec = None,
+      DeltaParquetFileFormat(
+        snapshot.protocol,
+        metadata,
+        nullableRowTrackingConstantFields = false,
+        nullableRowTrackingGeneratedFields = false,
+        optimizationsEnabled = false),
+      options = Map.empty
+    )(spark)
+    DataFrameUtils.ofRows(spark, LogicalRelation(relation))
   }
 
   test("Spark 4 Delta DV scan should fall back when metadata row index is disabled") {
@@ -137,6 +165,87 @@ class DeltaDeletionVectorHandoffSuite
         assert(containsNativeDeltaScan(executedPlan), planText)
         assert(rows.length === 1, planText)
         assert(rows.head.getLong(1) === 2L, planText)
+    }
+  }
+
+  test("Delta generated row-index scan should fall back when metadata row index is disabled") {
+    withTempDir {
+      tempDir =>
+        val path = tempDir.getCanonicalPath
+        Seq(0, 1, 2)
+          .toDF("value")
+          .coalesce(1)
+          .sortWithinPartitions("value")
+          .write
+          .format("delta")
+          .save(path)
+
+        withSQLConf(DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key -> "false") {
+          val rowIndexDf =
+            dataframeWithSyntheticColumns(path, DeltaParquetFileFormat.ROW_INDEX_STRUCT_FIELD)
+
+          assert(!containsNativeDeltaScan(rowIndexDf.queryExecution.executedPlan))
+          checkAnswer(
+            rowIndexDf.select("value", DeltaParquetFileFormat.ROW_INDEX_COLUMN_NAME),
+            Seq(Row(0, 0L), Row(1, 1L), Row(2, 2L)))
+        }
+    }
+  }
+
+  test("Delta generated deleted-row scan should fall back for a DV-free file") {
+    withTempDir {
+      tempDir =>
+        val path = tempDir.getCanonicalPath
+        Seq(0, 1, 2).toDF("value").coalesce(1).write.format("delta").save(path)
+
+        withSQLConf(DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key -> "false") {
+          val deletedRowDf =
+            dataframeWithSyntheticColumns(path, DeltaParquetFileFormat.IS_ROW_DELETED_STRUCT_FIELD)
+
+          assert(!containsNativeDeltaScan(deletedRowDf.queryExecution.executedPlan))
+          assert(
+            deletedRowDf
+              .select(DeltaParquetFileFormat.IS_ROW_DELETED_COLUMN_NAME)
+              .collect()
+              .map(_.getByte(0))
+              .toSet === Set(0.toByte))
+        }
+    }
+  }
+
+  test("Delta metadata row-index scan should offload when useMetadataRowIndex is false") {
+    withTempDir {
+      tempDir =>
+        val path = tempDir.getCanonicalPath
+        Seq(0, 1, 2)
+          .toDF("id")
+          .coalesce(1)
+          .sortWithinPartitions("id")
+          .write
+          .format("delta")
+          .option("delta.enableDeletionVectors", "true")
+          .save(path)
+
+        withSQLConf(DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key -> "false") {
+          val rowIndexDf = spark.sql(s"SELECT id, _metadata.row_index FROM delta.`$path`")
+
+          checkAnswer(rowIndexDf, Seq(Row(0, 0L), Row(1, 1L), Row(2, 2L)))
+          val plan = rowIndexDf.queryExecution.executedPlan
+          assert(containsNativeDeltaScan(plan), plan.treeString)
+        }
+    }
+  }
+
+  test("Delta ordinary scan should offload when metadata row index is disabled") {
+    withTempDir {
+      tempDir =>
+        val path = tempDir.getCanonicalPath
+        Seq(0, 1, 2).toDF("value").coalesce(1).write.format("delta").save(path)
+
+        withSQLConf(DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key -> "false") {
+          val plan = spark.read.format("delta").load(path).queryExecution.executedPlan
+          assert(containsNativeDeltaScan(plan))
+        }
     }
   }
 

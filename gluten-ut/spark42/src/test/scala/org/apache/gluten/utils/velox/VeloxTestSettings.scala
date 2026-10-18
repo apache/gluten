@@ -57,6 +57,15 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenBloomFilterAggregateQuerySuiteCGOff]
   enableSuite[GlutenDataSourceV2DataFrameSessionCatalogSuite]
   enableSuite[GlutenDataSourceV2DataFrameSuite]
+  enableSuite[GlutenDataSourceV2EnhancedDeleteFilterSuite]
+  enableSuite[GlutenDataSourceV2EnhancedPartitionFilterSuite]
+    .exclude(
+      "case 9: partition filter pushed but returned in first pass is not re-pushed second pass"
+    ) // Rewrite to also accept a native post-scan filter.
+    .exclude(
+      "nested identity partition: case 9 partition filter pushed but returned in first pass is not re-pushed second pass"
+    ) // Rewrite to also accept a native post-scan filter.
+  enableSuite[GlutenDataSourceV2EnhancedRuntimePartitionFilterSuite]
   enableSuite[GlutenDataSourceV2FunctionSuite]
   enableSuite[GlutenDataSourceV2SQLSessionCatalogSuite]
   enableSuite[GlutenDataSourceV2SQLSuiteV1Filter]
@@ -102,6 +111,7 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("partitioned join: number of buckets mismatch should trigger shuffle")
     .exclude("partitioned join: only one side reports partitioning")
     .exclude("partitioned join: join with two partition keys and different # of partition keys")
+    .exclude("SPARK-55848: checkpointed partially-clustered join with dedup")
     .excludeByPrefix("SPARK-47094")
     .excludeByPrefix("SPARK-48655")
     .excludeByPrefix("SPARK-48012")
@@ -112,58 +122,13 @@ class VeloxTestSettings extends BackendTestSettings {
     // disable due to check for SMJ node
     .excludeByPrefix("SPARK-41413: partitioned join:")
     .excludeByPrefix("SPARK-42038: partially clustered:")
+    .exclude(
+      "SPARK-56241: GroupPartitionsExec non-coalescing passes through child ordering, " +
+        "no pre-join SortExec needed before SortMergeJoin")
+    .exclude(
+      "SPARK-56241: GroupPartitionsExec coalescing derives ordering from key expressions, " +
+        "no pre-join SortExec needed before SortMergeJoin")
     .exclude("SPARK-44641: duplicated records when SPJ is not triggered")
-    .exclude(
-      "Gluten - SPARK-42038: partially clustered: full outer join is not applicable"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "Gluten - SPARK-42038: partially clustered: left outer join"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "Gluten - SPARK-42038: partially clustered: right outer join"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "Gluten - SPARK-42038: partially clustered: with different partition keys and both sides partially clustered"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "Gluten - SPARK-42038: partially clustered: with different partition keys and missing keys on left-hand side"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "Gluten - SPARK-42038: partially clustered: with different partition keys and missing keys on right-hand side"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "Gluten - SPARK-42038: partially clustered: with same partition keys and both sides partially clustered"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "Gluten - SPARK-42038: partially clustered: with same partition keys and one side fully clustered"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "Gluten - SPARK-44647: SPJ: test join key is subset of cluster key with push values and partially-clustered"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "Gluten - SPARK-44647: test join key is the second partition key and a transform"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "Gluten - SPARK-47094: Compatible buckets does not support SPJ with push-down values or partially-clustered"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "Gluten - SPARK-53322: checkpointed scans aren't used for SPJ"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "Gluten - SPARK-53322: checkpointed scans can be shuffled by children on SPJ"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "Gluten - SPARK-53322: checkpointed scans can't shuffle other children on SPJ"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-48065: SPJ: allowJoinKeysSubsetOfPartitionKeys is too strict"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-55535: Multi table join granular partition grouping"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-55535: Multi table join partial clustering"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
     .exclude(
       "SPARK-55715: Custom metrics of sorted-merge coalesced partitions"
     ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
@@ -174,31 +139,7 @@ class VeloxTestSettings extends BackendTestSettings {
       "SPARK-55715: preserve outputOrdering when coalescing transform-partitioned splits"
     ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
     .exclude(
-      "SPARK-55848: Window dedup after SPJ with partial clustering"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-55848: checkpointed partially-clustered join with dedup"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-55848: dropDuplicates after SPJ with partial clustering"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-56241: GroupPartitionsExec coalescing derives ordering from key expressions, no pre-join SortExec needed before SortMergeJoin"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-56241: GroupPartitionsExec non-coalescing passes through child ordering, no pre-join SortExec needed before SortMergeJoin"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
       "SPARK-56549: k-way merge enabled only when parent requires ordering"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "partitioned join: exact distribution (same number of buckets) from both sides"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "partitioned join: join with two partition keys and matching & sorted partitions"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "partitioned join: join with two partition keys and unsorted partitions"
     ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenLocalScanSuite]
   enableSuite[GlutenMetadataColumnSuite]

@@ -10,7 +10,7 @@ parent: Getting-Started
 | Type  | Version                             |
 |-------|-------------------------------------|
 | Spark | 3.4.4, 3.5.5, 4.0.2, 4.1.1   |
-| OS    | Ubuntu20.04/22.04, Centos7/8        |
+| OS    | Ubuntu20.04/22.04, Centos8          |
 | jdk   | openjdk8/jdk17                      |
 | scala | 2.12                                |
 
@@ -18,7 +18,7 @@ Note: Spark 4.0 and 4.1 require JDK 17+ and Scala 2.13 (build with `-Pspark-4.0`
 
 # Prerequisite
 
-Currently, the statically built Gluten+Velox backend supports all Linux OSes but is only tested on **Ubuntu 20.04/22.04/CentOS 7/8**. The dynamically built backend supports **Ubuntu 20.04/22.04/CentOS 7/8** and their variants.
+Currently, the statically built Gluten+Velox backend supports all Linux OSes but is only tested on **Ubuntu 20.04/22.04/CentOS 8**. The dynamically built backend supports **Ubuntu 20.04/22.04/CentOS 8** and their variants.
 
 Currently, the officially supported Spark versions are 3.4.4, 3.5.5, 4.0.2 and 4.1.1.
 

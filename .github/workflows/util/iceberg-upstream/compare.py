@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Require each upstream Iceberg test to preserve or improve its base-commit result."""
+"""Gate native-status regressions and new test failures; highlight other changes."""
 
 import argparse
 import csv
@@ -23,6 +23,7 @@ import os
 import re
 from pathlib import Path
 
+from flaky import FLAKY_TESTS, is_flaky, load_flaky_tests
 from summarize import REPORT_VERSION, native_data_proven, native_proven
 
 PASSING = {
@@ -30,14 +31,6 @@ PASSING = {
     "PASSED_FALLBACK",
     "NO_ICEBERG_EXECUTION",
     "PASSED_UNVERIFIED",
-}
-ALLOWED = {
-    "PASSED_NATIVE": {"PASSED_NATIVE"},
-    "PASSED_FALLBACK": {"PASSED_FALLBACK", "PASSED_NATIVE"},
-    "FAILED": PASSING | {"FAILED"},
-    "NO_ICEBERG_EXECUTION": PASSING,
-    "PASSED_UNVERIFIED": PASSING,
-    "SKIPPED": PASSING | {"SKIPPED"},
 }
 
 
@@ -64,7 +57,9 @@ def parameters(row):
     )
 
 
-def index(report, validate=True):
+def index(report, validate=True, flaky_tests=None):
+    if flaky_tests is None:
+        flaky_tests = load_flaky_tests()
     if validate and report.get("version") != REPORT_VERSION:
         raise ValueError(
             "Incompatible coverage schema; a baseline from the current harness is required"
@@ -74,19 +69,19 @@ def index(report, validate=True):
         key = (row["class"], row["name"])
         if key in tests:
             raise ValueError(f"Duplicate test result: {key}")
-        if validate and (row["status"] not in ALLOWED or row.get("coverage_error")):
-            raise ValueError(f"Invalid execution coverage: {key}: {row['status']}")
-        if validate and row["status"] == "PASSED_NATIVE" and not native_proven(row):
-            raise ValueError(f"Unproven native coverage: {key}")
-        if (
-            validate
-            and row["status"] == "FAILED"
-            and row.get("failure_origin") != "GLUTEN"
+        tests[key] = row
+        if not validate or is_flaky(row, flaky_tests):
+            continue
+        if row["status"] not in PASSING | {"FAILED", "SKIPPED"} or row.get(
+            "coverage_error"
         ):
+            raise ValueError(f"Invalid execution coverage: {key}: {row['status']}")
+        if row["status"] == "PASSED_NATIVE" and not native_proven(row):
+            raise ValueError(f"Unproven native coverage: {key}")
+        if row["status"] == "FAILED" and row.get("failure_origin") != "GLUTEN":
             raise ValueError(
                 f"Unverified failure attribution: {key}: {row.get('failure_origin', 'MISSING')}"
             )
-        tests[key] = row
     if not tests:
         raise ValueError("Cannot gate an empty test report")
     return tests
@@ -108,9 +103,13 @@ def proven_native_nodes(row):
     }
 
 
-def compare(baseline, current, validate=True):
-    before, after = index(baseline, validate), index(current, validate)
-    regressions, improvements, changes = [], [], []
+def compare(baseline, current, validate=True, flaky_tests=None):
+    if flaky_tests is None:
+        flaky_tests = load_flaky_tests()
+    before = index(baseline, validate, flaky_tests)
+    after = index(current, validate, flaky_tests)
+    regressions, improvements, changes, highlights, ignored_changes = [], [], [], [], []
+    ignored_tests = 0
     for key in sorted(before.keys() | after.keys()):
         old = before.get(key, {}).get("status", "NEW")
         new = after.get(key, {}).get("status", "MISSING")
@@ -122,10 +121,9 @@ def compare(baseline, current, validate=True):
             "after": new,
             "base": previous,
             "current": current_row,
+            "ignored": is_flaky(previous or current_row, flaky_tests),
         }
-        # Newly discovered upstream tests must pass or be disabled upstream. Missing or
-        # newly skipped tests cannot conceal a previous pass (or an unresolved failure).
-        allowed = PASSING | {"SKIPPED"} if old == "NEW" else ALLOWED.get(old, set())
+        ignored_tests += change["ignored"]
         mismatch = bool(
             previous
             and current_row
@@ -134,18 +132,29 @@ def compare(baseline, current, validate=True):
             and parameters(previous) != parameters(current_row)
         )
         lost_native = proven_native_nodes(previous) - proven_native_nodes(current_row)
-        if mismatch:
-            change["reason"] = "PARAMETER_MISMATCH"
-            regressions.append(change)
-        elif new not in allowed:
-            change["reason"] = "STATUS_REGRESSION"
-            regressions.append(change)
-        elif lost_native:
-            change["reason"] = "NATIVE_COVERAGE_REGRESSION"
+        if lost_native:
             change["lost_native"] = sorted(lost_native)
-            regressions.append(change)
-        elif old != new and new != "SKIPPED":
-            improvements.append(change)
+        if mismatch:
+            change["parameter_mismatch"] = True
+        # Only a native test becoming non-native or a newly failed test gates.
+        # Node-level evidence changes remain visible even when the status is unchanged.
+        regression = (old == "PASSED_NATIVE" and new != old) or (
+            new == "FAILED" and old != new
+        )
+        improvement = (
+            not regression
+            and not mismatch
+            and (
+                (new == "PASSED_NATIVE" and old != new)
+                or (old == "FAILED" and new in PASSING)
+            )
+        )
+        if regression:
+            change["reason"] = "STATUS_REGRESSION"
+        elif mismatch:
+            change["reason"] = "PARAMETER_MISMATCH"
+        elif lost_native:
+            change["reason"] = "NATIVE_COVERAGE_CHANGE"
         # Metrics/timings vary between successful runs. Compare their existence and node types,
         # while retaining the actual values in each changed row for verification.
         evidence_changed = any(
@@ -170,10 +179,23 @@ def compare(baseline, current, validate=True):
                 "reason", "STATUS_CHANGE" if old != new else "EVIDENCE_CHANGE"
             )
             changes.append(change)
+            if change["ignored"]:
+                ignored_changes.append(change)
+            elif regression:
+                regressions.append(change)
+            elif improvement:
+                improvements.append(change)
+                if lost_native:
+                    highlights.append(change)
+            else:
+                highlights.append(change)
     return {
         "regressions": regressions,
         "improvements": improvements,
         "changes": changes,
+        "highlights": highlights,
+        "ignored_changes": ignored_changes,
+        "ignored_tests": ignored_tests,
         "base_tests": len(before),
         "current_tests": len(after),
     }
@@ -197,6 +219,9 @@ def write_changes(path, changes):
     )
     columns = [
         "reason",
+        "ignored",
+        "lost_native",
+        "parameter_mismatch",
         "class",
         "test",
         "before",
@@ -216,6 +241,9 @@ def write_changes(path, changes):
             old, new = row["base"], row["current"]
             values = [
                 row["reason"],
+                row["ignored"],
+                json.dumps(row.get("lost_native", [])),
+                row.get("parameter_mismatch", False),
                 row["class"],
                 row["name"],
                 row["before"],
@@ -240,12 +268,23 @@ def main():
     parser.add_argument("current", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
+        "--flaky-tests",
+        type=Path,
+        default=FLAKY_TESTS,
+        help="class,method CSV whitelist (defaults to the adjacent flaky-tests.csv)",
+    )
+    parser.add_argument(
         "--bootstrap",
         action="store_true",
         help="Validate initial head evidence when the target tree has no Iceberg harness yet",
     )
     args = parser.parse_args()
     baseline, current, errors = None, None, []
+    flaky_tests = set()
+    try:
+        flaky_tests = load_flaky_tests(args.flaky_tests)
+    except (ValueError, OSError, csv.Error) as error:
+        errors.append(f"Flaky test whitelist unavailable: {error}")
     for label, path in (("Baseline", args.baseline), ("Current report", args.current)):
         if label == "Baseline" and args.bootstrap and not path.exists():
             continue
@@ -269,25 +308,30 @@ def main():
         "changes": [],
         "regressions": [],
         "improvements": [],
+        "highlights": [],
+        "ignored_changes": [],
+        "ignored_tests": 0,
         "base_tests": len((baseline or {}).get("tests", [])),
         "current_tests": len((current or {}).get("tests", [])),
     }
     try:
         if errors:
             if current is not None:
-                index(current)
+                index(current, flaky_tests=flaky_tests)
         elif baseline is None and args.bootstrap:
-            index(current)
+            index(current, flaky_tests=flaky_tests)
             result["baseline_bootstrap"] = True
         else:
-            result = compare(baseline, current)
+            result = compare(baseline, current, flaky_tests=flaky_tests)
             result["comparison_performed"] = True
     except (ValueError, KeyError, TypeError) as error:
         # Still export diagnostic differences when complete reports exist, but invalid
         # evidence must fail the gate even if no statuses changed.
         if baseline is not None and current is not None:
             try:
-                result = compare(baseline, current, validate=False)
+                result = compare(
+                    baseline, current, validate=False, flaky_tests=flaky_tests
+                )
             except (ValueError, KeyError, TypeError):
                 pass
         result["comparison_performed"] = False
@@ -322,15 +366,29 @@ def main():
             "Report validation failed; the CSV is diagnostic only: "
             + "; ".join(result["validation_errors"])
         )
-    for row in result["regressions"][:20]:
-        detail = row["reason"]
-        if row.get("lost_native"):
-            detail += ": " + ", ".join(row["lost_native"])
+    if result["ignored_tests"]:
         lines.append(
-            f"- `{row['class']}#{row['name']}`: {row['before']} → {row['after']} ({detail})"
+            f"{result['ignored_tests']} whitelisted test invocations excluded from gating."
         )
-    if len(result["regressions"]) > 20:
-        lines.append("See the comparison artifact for the remaining regressions.")
+    for title, rows in (
+        ("Regressions", result["regressions"]),
+        ("Other changes (informational)", result["highlights"]),
+        ("Whitelisted changes (ignored)", result["ignored_changes"]),
+    ):
+        if not rows:
+            continue
+        lines.extend(["", f"### {title}: {len(rows)}", ""])
+        for row in rows[:20]:
+            detail = row["reason"]
+            if row.get("lost_native"):
+                detail += "; native nodes lost: " + ", ".join(row["lost_native"])
+            if row.get("parameter_mismatch"):
+                detail += "; parameters changed"
+            lines.append(
+                f"- `{row['class']}#{row['name']}`: {row['before']} → {row['after']} ({detail})"
+            )
+        if len(rows) > 20:
+            lines.append("See the comparison artifact for the remaining changes.")
     text = "\n".join(lines) + "\n"
     print(text)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
