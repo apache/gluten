@@ -18,7 +18,7 @@ package org.apache.spark.sql.execution.datasources.v2
 
 import org.apache.spark.sql.{Row, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.Attribute
-import org.apache.spark.sql.delta.{GlutenDeltaMergeWriteGate, NoOpTransactionExecutionObserver, TransactionExecutionObserver}
+import org.apache.spark.sql.delta.GlutenDeltaMergeWriteGate
 import org.apache.spark.sql.delta.commands.MergeIntoCommand
 import org.apache.spark.sql.execution.command.LeafRunnableCommand
 import org.apache.spark.sql.execution.metric.SQLMetric
@@ -36,19 +36,10 @@ case class GlutenDeltaMergeIntoCommand(delegate: MergeIntoCommand) extends LeafR
   }
 
   override def run(sparkSession: SparkSession): Seq[Row] = {
-    TransactionExecutionObserver.getObserver match {
-      case NoOpTransactionExecutionObserver | DeltaV2WriteOperators.UseColumnarDeltaTransactionLog =>
-        GlutenDeltaMergeWriteGate.withMergeScope {
-          TransactionExecutionObserver.withObserver(
-            DeltaV2WriteOperators.UseColumnarDeltaTransactionLog) {
-            delegate.run(sparkSession)
-          }
-        }
-      case _ =>
-        // Installing Gluten's observer would replace the one already watching this thread's
-        // transactions, so keep Delta's transaction and writer.
-        logInfo("MERGE keeps Delta's writer: another transaction observer is installed.")
+    GlutenDeltaMergeWriteGate.withMergeScope {
+      DeltaV2WriteOperators.withColumnarTransaction {
         delegate.run(sparkSession)
+      }
     }
   }
 

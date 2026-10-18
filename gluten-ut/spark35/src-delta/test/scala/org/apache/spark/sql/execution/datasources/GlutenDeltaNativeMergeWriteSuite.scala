@@ -338,10 +338,14 @@ class GlutenDeltaNativeMergeWriteSuite extends GlutenQueryTest with SharedSparkS
     }
   }
 
-  test("MERGE keeps Delta's writer under another transaction observer") {
+  test("MERGE writes native files and keeps another transaction observer") {
     assume(BackendTestUtils.isVeloxBackendLoaded())
+    var startedTransactions = 0
     val observer = new TransactionExecutionObserver {
-      override def startingTransaction(f: => OptimisticTransaction): OptimisticTransaction = f
+      override def startingTransaction(f: => OptimisticTransaction): OptimisticTransaction = {
+        startedTransactions += 1
+        f
+      }
       override def preparingCommit[T](f: => T): T = f
       override def beginDoCommit(): Unit = ()
       override def beginBackfill(): Unit = ()
@@ -355,7 +359,9 @@ class GlutenDeltaNativeMergeWriteSuite extends GlutenQueryTest with SharedSparkS
         idValueTable,
         path => TransactionExecutionObserver.withObserver(observer)(updateDeleteInsert(path)),
         nativePlan = true,
-        nativeFiles = false)
+        nativeFiles = true)
     }
+    // Both the target's MERGE and the twin's go through the observer.
+    assert(startedTransactions >= 2)
   }
 }
