@@ -47,20 +47,25 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
       folly::Executor* executor,
       folly::Executor* spillExecutor,
       VeloxConnectorIds connectorIds,
-      const std::string spillDir,
+      const std::string& spillDir,
       const std::shared_ptr<facebook::velox::config::ConfigBase>& veloxCfg,
       const SparkTaskInfo& taskInfo);
 
   virtual ~WholeStageResultIterator() {
-    if (task_ != nullptr) {
-      if (task_->isRunning()) {
-        // calling .wait() may take no effect in single thread execution mode
-        task_->requestCancel().wait();
+    // A destructor must not throw: log a failure to cancel or wait for the task instead.
+    try {
+      if (task_ != nullptr) {
+        if (task_->isRunning()) {
+          // calling .wait() may take no effect in single thread execution mode
+          task_->requestCancel().wait();
+        }
+        auto deletionFuture = task_->taskDeletionFuture();
+        cursor_.reset();
+        task_ = nullptr;
+        deletionFuture.wait();
       }
-      auto deletionFuture = task_->taskDeletionFuture();
-      cursor_.reset();
-      task_ = nullptr;
-      deletionFuture.wait();
+    } catch (const std::exception& e) {
+      LOG(WARNING) << "Failed to release the Velox task: " << e.what();
     }
 #ifdef GLUTEN_ENABLE_GPU
     if (enableCudf_) {
