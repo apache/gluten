@@ -18,25 +18,11 @@ if(ENABLE_BOLT)
   return()
 endif()
 
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.28)
 message(STATUS "Building using CMake version: ${CMAKE_VERSION}")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-# The set(CACHE) command does not remove any normal variable of the same name
-# from the current scope https://cmake.org/cmake/help/latest/policy/CMP0126.html
-if(POLICY CMP0126)
-  cmake_policy(SET CMP0126 NEW)
-endif()
-
-if(POLICY CMP0069)
-  cmake_policy(SET CMP0069 NEW)
-endif()
-
-if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
-  cmake_policy(SET CMP0135 NEW)
-endif()
 
 if(NOT DEFINED CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE
@@ -54,9 +40,9 @@ project(gluten)
 include(CheckIPOSupported)
 
 option(BUILD_VELOX_BACKEND "Build Velox backend" ON)
-option(BUILD_TESTS "Build Tests" OFF)
+option(BUILD_TESTS "Build Tests" ON)
 option(BUILD_EXAMPLES "Build Examples" OFF)
-option(BUILD_BENCHMARKS "Build Benchmarks" OFF)
+option(BUILD_BENCHMARKS "Build Benchmarks" ON)
 option(BUILD_TEST_UTILS "Build utils for tests/benchmarks" OFF)
 option(ENABLE_JEMALLOC_STATS "Prints Jemalloc stats for debugging" OFF)
 option(BUILD_GLOG "Build Glog from Source" OFF)
@@ -93,16 +79,6 @@ foreach(PREFIX_PATH IN LISTS CMAKE_PREFIX_PATH)
 endforeach()
 list(REMOVE_DUPLICATES GLUTEN_PREFIX_INCLUDE_DIRS)
 
-if(${CMAKE_BUILD_TYPE} STREQUAL "Debug")
-  set(ARROW_HOME
-      ${VELOX_HOME}/_build/debug/CMake/resolve_dependency_modules/arrow/arrow_ep/
-  )
-else()
-  set(ARROW_HOME
-      ${VELOX_HOME}/_build/release/CMake/resolve_dependency_modules/arrow/arrow_ep
-  )
-endif()
-
 include(ResolveDependency)
 
 #
@@ -127,7 +103,6 @@ set(KNOWN_WARNINGS
        -Wno-error=unused-variable \
        -Wno-error=uninitialized \
        -Wno-error=maybe-uninitialized \
-       -Wno-unknown-warning-option \
        -Wno-strict-aliasing \
        -Wno-ignored-qualifiers \
        -Wno-deprecated-declarations \
@@ -143,14 +118,16 @@ if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
 elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
   # Experimental
   set(KNOWN_WARNINGS
-      "-Wno-implicit-int-float-conversion \
+      "-Wno-unknown-warning-option \
+      -Wno-implicit-int-float-conversion \
       -Wno-nullability-completeness \
       -Wno-mismatched-tags \
       ${KNOWN_WARNINGS}")
 elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "AppleClang")
   # Experimental
   set(KNOWN_WARNINGS
-      "-Wno-implicit-int-float-conversion \
+      "-Wno-unknown-warning-option \
+      -Wno-implicit-int-float-conversion \
       -Wno-nullability-completeness \
       -Wno-mismatched-tags \
       -Wno-error=unused-private-field \
@@ -214,6 +191,7 @@ endif()
 # Dependencies
 #
 
+set(CMAKE_FIND_PACKAGE_TARGETS_GLOBAL ON)
 include(ConfigArrow)
 
 set(THREADS_PREFER_PTHREAD_FLAG ON)
@@ -230,6 +208,9 @@ if(BUILD_TESTS)
     include(BuildGTest)
   endif()
   include(GoogleTest)
+endif()
+
+if(BUILD_TESTS OR VELOX_BUILD_TESTING)
   enable_testing()
 endif()
 
@@ -249,7 +230,7 @@ function(ADD_TEST_CASE TEST_NAME)
   endif()
 
   add_executable(${TEST_NAME} ${SOURCES})
-  target_link_libraries(${TEST_NAME} gluten_core_impl glog::glog GTest::gtest
+  target_link_libraries(${TEST_NAME} gluten_core_objects glog::glog GTest::gtest
                         GTest::gtest_main Threads::Threads)
   target_include_directories(${TEST_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/core)
 
@@ -288,9 +269,17 @@ if(ENABLE_ENHANCED_FEATURES)
   add_definitions(-DGLUTEN_ENABLE_ENHANCED_FEATURES)
 endif()
 
+set(MAX_LINK_JOBS 6 CACHE STRING "Maximum concurrent native link jobs")
+if(MAX_LINK_JOBS)
+  set(CMAKE_JOB_POOL_LINK link_job_pool)
+endif()
+
 # Subdirectories
 add_subdirectory(core)
 
 if(BUILD_VELOX_BACKEND)
+  set(VELOX_BUILD_PATH "${CMAKE_BINARY_DIR}/velox-native")
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+  add_subdirectory(CMake/Velox)
   add_subdirectory(velox)
 endif()

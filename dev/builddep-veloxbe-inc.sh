@@ -47,7 +47,7 @@ arch() {
   esac
 }
 
-step() { echo -e "\n[Step $1/4] $2..."; }
+step() { echo -e "\n[Step $1/3] $2..."; }
 
 extract_opt() {
   grep "^$1:" "$GLUTEN_BUILD_DIR/CMakeCache.txt" 2>/dev/null | \
@@ -56,6 +56,7 @@ extract_opt() {
 
 # Defaults
 VELOX_HOME="$GLUTEN_DIR/ep/build-velox/build/velox_ep"
+GLUTEN_BUILD_DIR="$GLUTEN_DIR/cpp/build"
 UPDATE_VCPKG=OFF
 NUM_THREADS=${NUM_THREADS:-$(num_threads)}
 
@@ -75,9 +76,9 @@ for arg in "$@"; do
     esac
 done
 
-# Auto-detect BUILD_TYPE
+# Auto-detect BUILD_TYPE from the unified build.
 if [ -z "${BUILD_TYPE:-}" ]; then
-    [ -d "$VELOX_HOME/_build/debug" ] && BUILD_TYPE=Debug || BUILD_TYPE=Release
+    BUILD_TYPE=$(extract_opt CMAKE_BUILD_TYPE Release)
 fi
 
 # Auto-detect SCALA_VERSION
@@ -89,13 +90,8 @@ if [ -z "${SCALA_VERSION:-}" ]; then
     fi
 fi
 
-# Paths
-VELOX_BUILD_DIR_NAME=$([[ "$BUILD_TYPE" =~ ^[Dd]ebug$ ]] && echo 'debug' || echo 'release')
-VELOX_BUILD_DIR="$VELOX_HOME/_build/$VELOX_BUILD_DIR_NAME"
-GLUTEN_BUILD_DIR="$GLUTEN_DIR/cpp/build"
-
 # Validate directories
-for dir in "$VELOX_HOME" "$VELOX_BUILD_DIR" "$GLUTEN_BUILD_DIR"; do
+for dir in "$VELOX_HOME" "$GLUTEN_BUILD_DIR"; do
     if [ ! -d "$dir" ]; then
         echo "ERROR: Missing $dir"
         echo "Run: ./dev/package-vcpkg.sh --build_type=$BUILD_TYPE"
@@ -104,7 +100,7 @@ for dir in "$VELOX_HOME" "$VELOX_BUILD_DIR" "$GLUTEN_BUILD_DIR"; do
 done
 
 # Validate CMake cache
-for cache in "$VELOX_BUILD_DIR/CMakeCache.txt" "$GLUTEN_BUILD_DIR/CMakeCache.txt"; do
+for cache in "$GLUTEN_BUILD_DIR/CMakeCache.txt"; do
     if [ ! -f "$cache" ]; then
         echo "ERROR: Missing $cache. Run full build first"
         exit 1
@@ -127,24 +123,19 @@ BUILD_OPTIONS="$BUILD_OPTIONS --enable_abfs=$(extract_opt ENABLE_ABFS OFF)"
 if [ "$UPDATE_VCPKG" = "ON" ]; then
     step 1 "Updating vcpkg dependencies"
     source "$GLUTEN_DIR/dev/vcpkg/env.sh" $BUILD_OPTIONS
-    echo "[Step 1/4] vcpkg dependencies updated."
+    echo "[Step 1/3] vcpkg dependencies updated."
 else
     step 1 "Skipping vcpkg check (use --update_vcpkg to update)"
     source "$GLUTEN_DIR/dev/vcpkg/env.sh" --skip-install
 fi
 
-# Step 2: Build Velox
-step 2 "Building Velox (incremental)"
-cmake --build "$VELOX_BUILD_DIR" --target velox -j $NUM_THREADS
-echo "[Step 2/4] Velox build complete."
+# Step 2: Build Gluten C++
+step 2 "Building Gluten C++ (incremental)"
+cmake --build "$GLUTEN_BUILD_DIR" --target gluten_velox_backend -j $NUM_THREADS
+echo "[Step 2/3] Gluten C++ build complete."
 
-# Step 3: Build Gluten C++
-step 3 "Building Gluten C++ (incremental)"
-cmake --build "$GLUTEN_BUILD_DIR" --target gluten velox -j $NUM_THREADS
-echo "[Step 3/4] Gluten C++ build complete."
-
-# Step 4: Copy libraries
-step 4 "Copying shared libraries to backends-velox target"
+# Step 3: Copy libraries
+step 3 "Copying shared libraries to backends-velox target"
 CPP_RELEASES="$GLUTEN_DIR/cpp/build/releases"
 if [ ! -d "$CPP_RELEASES" ]; then
     echo "ERROR: CPP releases directory not found. Build may have failed."

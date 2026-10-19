@@ -1214,7 +1214,7 @@ jobs:
           export CMAKE_BUILD_PARALLEL_LEVEL=4
           export NUM_THREADS=4
           export CCACHE_DIR=/work/.ccache
-          export LD_LIBRARY_PATH=/work/ep/build-velox/build/velox_ep/_build/release/_deps/curl-build/lib:$LD_LIBRARY_PATH
+          export LD_LIBRARY_PATH=/work/cpp/build/_deps/curl-build/lib:$LD_LIBRARY_PATH
           mkdir -p /work/.ccache
 
           cd /work

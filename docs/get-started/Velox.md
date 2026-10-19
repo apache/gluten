@@ -88,8 +88,10 @@ Currently, Gluten uses an [IBM Velox fork](https://github.com/IBM/velox), which 
 # to 17.0.0 or newer versions.
 ./dev/builddeps-veloxbe.sh build_arrow
 
+# Optional standalone Velox build; not a prerequisite for building Gluten.
 ./dev/builddeps-veloxbe.sh build_velox
 
+# Build Gluten and Velox together in the unified CMake graph.
 ./dev/builddeps-veloxbe.sh build_gluten_cpp
 
 ## compile Gluten java module and create package jar

@@ -29,8 +29,8 @@ resolve_dependency_url(GTEST)
 
 message(STATUS "Building gtest from source")
 FetchContent_Declare(
-  gtest
+  googletest
   URL ${GLUTEN_GTEST_SOURCE_URL}
   URL_HASH "${GLUTEN_GTEST_BUILD_SHA256_CHECKSUM}")
 
-FetchContent_MakeAvailable(gtest)
+FetchContent_MakeAvailable(googletest)

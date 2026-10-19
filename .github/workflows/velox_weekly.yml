@@ -14,7 +14,6 @@
 # limitations under the License.
 
 name: Velox Backend Weekly Job
-# Validate native build changes across the weekly platform matrix.
 
 on:
   pull_request:

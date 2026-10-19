@@ -268,6 +268,7 @@ function build_arrow {
   BUILD_TYPE="$GLUTEN_BUILD_TYPE"
 }
 
+# Deprecated: the unified build no longer uses this function. TODO: Remove it.
 function build_velox {
   echo "Start to build Velox"
   cd $GLUTEN_DIR/ep/build-velox/src
@@ -292,6 +293,9 @@ function build_gluten_cpp {
     "-DBUILD_TESTS=$BUILD_TESTS"
     "-DBUILD_EXAMPLES=$BUILD_EXAMPLES"
     "-DBUILD_BENCHMARKS=$BUILD_BENCHMARKS"
+    "-DVELOX_BUILD_TESTING=$BUILD_VELOX_TESTS"
+    "-DVELOX_ENABLE_BENCHMARKS=$BUILD_VELOX_BENCHMARKS"
+    "-DCMAKE_GTEST_DISCOVER_TESTS_DISCOVERY_MODE=PRE_TEST"
     "-DENABLE_JEMALLOC_STATS=$ENABLE_JEMALLOC_STATS"
     "-DENABLE_QAT=$ENABLE_QAT"
     "-DENABLE_GCS=$ENABLE_GCS"
@@ -320,6 +324,14 @@ function build_gluten_cpp {
     GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_CXX_FLAGS=-Wno-inconsistent-missing-override -Wno-macro-redefined")
   fi
 
+  if [ "$ENABLE_GPU" = "ON" ]; then
+    GLUTEN_CMAKE_OPTIONS+=(
+      "-DCMAKE_CUDA_ARCHITECTURES=75"
+      "-DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc"
+      "-DCMAKE_CUDA_FLAGS=-Xcompiler=-fno-access-control"
+    )
+  fi
+
   cmake -G Ninja "${GLUTEN_CMAKE_OPTIONS[@]}" ..
   ninja -j $NUM_THREADS
 }
@@ -328,7 +340,6 @@ function build_velox_backend {
   if [ $BUILD_ARROW == "ON" ]; then
     build_arrow
   fi
-  build_velox
   build_gluten_cpp
 }
 
@@ -376,7 +387,9 @@ ARCH=`uname -m`
 commands_to_run=(${OTHER_ARGUMENTS[@]:-})
 (
   if [[ ${#commands_to_run[@]} -eq 0 ]]; then
-    get_velox
+    if [ ! -e "$VELOX_HOME" ]; then
+      get_velox
+    fi
     if [ -z "${GLUTEN_VCPKG_ENABLED:-}" ] && [ $RUN_SETUP_SCRIPT == "ON" ]; then
       setup_dependencies
     elif [ "$ENABLE_KAFKA" = "ON" ] && ! vcpkg_is_active; then

@@ -88,12 +88,12 @@ After changing C++ code:
 
 ```bash
 ./dev/builddeps-veloxbe.sh --run_setup_script=OFF --build_arrow=OFF \
-                           --build_tests=ON build_velox build_gluten_cpp
+                           --build_tests=ON build_gluten_cpp
 ```
 
-Drop `build_velox` when only Gluten's own C++ under `cpp/` changed. Keep
-`--build_tests` matched with the original build: `build_gluten_cpp` wipes
-`cpp/build`, so omitting it also removes the C++ test binaries.
+`build_gluten_cpp` builds Gluten and Velox in one graph and recreates `cpp/build`,
+relying on ccache for compilation reuse. Keep passing the original test/benchmark
+flags: the script uses `OFF` for omitted flags.
 
 ### Run tests
 
