@@ -30,7 +30,11 @@ ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 
 RUN set -ex; \
-    yum update -y && yum install -y epel-release sudo dnf && yum install -y ccache; \
+    yum update -y && yum install -y epel-release sudo dnf; \
+    # Skip EPEL when its mirrors are down instead of failing every later dnf/yum command.
+    # Packages that only exist in EPEL (e.g. ccache) still fail loudly if EPEL is unreachable.
+    sed -i -e '/^skip_if_unavailable=/d' -e '/^\[.*\]$/a skip_if_unavailable=True' /etc/yum.repos.d/epel*.repo; \
+    yum install -y ccache; \
     dnf install -y --setopt=install_weak_deps=False gcc-toolset-12 gcc-toolset-13; \
     # clang-tidy, installed here so its version is pinned to the image, not to each CI run.
     dnf install -y --setopt=install_weak_deps=False clang-tools-extra; \
