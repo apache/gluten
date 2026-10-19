@@ -25,7 +25,8 @@ import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
 import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Cast, ConvertTimezone, Expression, GetStructField, Hour, IsNotNull, IsNull, MakeTimestamp, Minute, Second, TimestampAdd}
+import org.apache.spark.sql.catalyst.analysis.PartitionSpec
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Cast, ConvertTimezone, Expression, GetStructField, Hour, IsNotNull, IsNull, MakeTimestamp, Minute, Second, TimestampAdd, WindowFrame, WindowSpecDefinition}
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
 import org.apache.spark.sql.execution.datasources.WriteFilesExec
@@ -273,7 +274,11 @@ object Validators {
       if (!hasNTZ) {
         if (
           !backendSupportsTimestampNtz &&
-          plan.expressions.exists(_.exists(expr => containsNTZ(expr.dataType)))
+          plan.expressions.exists(_.exists {
+            // These metadata nodes have no dataType; exists still visits their children.
+            case _: WindowSpecDefinition | _: WindowFrame | _: PartitionSpec => false
+            case expr => containsNTZ(expr.dataType)
+          })
         ) {
           return fail(s"${plan.nodeName} has TimestampNTZType in expressions")
         }
