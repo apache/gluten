@@ -7,6 +7,59 @@ parent: Getting-Started
 
 # Delta Lake Support in Velox Backend
 
+Gluten's Velox backend can accelerate eligible scans and query operators over Delta Lake tables. Read
+acceleration does not require native writes. Native Delta writes are experimental and disabled by
+default. This guide covers the supported Spark and Delta Lake versions, setup, feature support and
+known limitations.
+
+## How a Delta query runs
+
+Take a Delta table partitioned by `sale_date`:
+
+````
+SELECT SUM(amount)
+FROM sales
+WHERE sale_date = DATE '2026-10-01'
+  AND amount > 100;
+````
+
+```mermaid
+flowchart LR
+    subgraph Planning["Spark driver"]
+        Snapshot["1. Delta snapshot<br/>Schema + active files"]
+        Select["2. Delta file pruning<br/>Partitions + file statistics"]
+        Plan["3. Spark plan<br/>Gluten offload checks"]
+        Snapshot --> Select --> Plan
+    end
+
+    subgraph Execution["Spark executors"]
+        Scan["4. Velox scan<br/>Reads the selected files"]
+        Compute["5. Velox operators<br/>Filter + SUM"]
+        Spark["Spark operators<br/>Operators Gluten does not offload"]
+        Scan --> Compute
+        Compute <-->|"Row and columnar conversions"| Spark
+    end
+
+    subgraph Storage["Delta table"]
+        Log[("_delta_log<br/>Metadata + file statistics")]
+        Data[("Parquet files")]
+    end
+
+    Result["6. Query result"]
+
+    Log --> Snapshot
+    Plan -->|"Offloaded operators"| Scan
+    Plan -->|"Other operators"| Spark
+    Data --> Scan
+    Data --> Spark
+    Compute --> Result
+    Spark --> Result
+```
+
+Delta Lake loads the snapshot and prunes partitions and files while Spark plans the query. Gluten then
+offloads the operators Velox supports, and the rest run on Spark, so one query can mix Velox and Spark
+operators. Delta Lake keeps the table metadata, the transaction log and commits.
+
 ## Supported Spark version
 
 | Spark | Delta Lake | Delta Lake jar | Read | Native write | Tested by |
@@ -187,7 +240,7 @@ Offload/Fallback
 | Unpartitioned | Offload | Offload |
 | Partitioned | Offload | Offload |
 | Column mapping, name mode | Offload | Offload |
-| Column mapping, id mode | Offload, matched by physical name. ResultMismatch when matching by field ID would select a different column or no column (from code) | Offload, matched by physical name. ResultMismatch when matching by field ID would select no column (seen on 4.1) or a different column (from code) |
+| Column mapping, id mode | Offload, matched by physical name. Known ResultMismatch cases: see [Read problems](#read-problems). | Offload, matched by physical name. Known ResultMismatch cases: see [Read problems](#read-problems). |
 | Files with deletion vectors | Fallback | Offload |
 | Change data feed, no deletion vectors in range | Offload. PartialOffload when the table allows deletion vectors and the range has `_change_data` files, because those scans then fall back (from code). | Offload |
 | Change data feed, deletion vectors in range | Fallback, PartialOffload when a file scan inside Delta's change data feed scan reads no files with deletion vectors and no `_change_data` files (from code) | Fallback, PartialOffload when a file scan inside Delta's change data feed scan reads no files with deletion vectors (from code) |
@@ -543,7 +596,8 @@ A blank cell means unknown.
 | userMetadata | (unset) | Stored in `commitInfo.userMetadata`. Commit only. | 🚫 |
 | dataChange | true | Sets `dataChange` on the file actions. Commit only. | 🚫 |
 | parquet.* Hadoop settings | | Native writes ignore `parquet.*` keys in the Hadoop configuration, such as `spark.hadoop.parquet.block.size`, which Delta's writer applies. Delta Lake drops `parquet.*` writer options before the write, so as writer options they have no effect with or without Gluten. Both are from code. Use `spark.gluten.sql.columnar.parquet.write.blockSize` for row groups. | ❌ |
-| fs.* Hadoop file system options | | A custom file system scheme fails on native writes (seen on 4.1). Per-write options for supported stores, such as `fs.s3a.access.key`, do not reach the native writer (from code). | ❌ |
+| File system schemes the native library cannot write | | Native writes fail at task time instead of falling back. A custom Hadoop file system scheme fails (seen on 4.1). See [Write problems](#write-problems). | ❌ |
+| fs.* per-write options for supported stores | | Per-write options such as `fs.s3a.access.key` do not reach the native writer (from code). | ❌ |
 
 ### Delta Table Properties
 
