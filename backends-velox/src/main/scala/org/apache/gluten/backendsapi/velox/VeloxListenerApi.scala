@@ -82,7 +82,12 @@ class VeloxListenerApi extends ListenerApi with Logging {
           s"${COLUMNAR_VELOX_CACHE_ENABLED.key} is set to get better locality.")
     }
 
-    if (conf.get(COLUMNAR_VELOX_CACHE_ENABLED) && conf.get(LOAD_QUANTUM) > 8 * 1024 * 1024) {
+    // If load quantum is not set explicitly, parseConf caps it to the max size supported by
+    // the Velox cache. Only reject an explicit value that exceeds the limit.
+    if (
+      conf.get(COLUMNAR_VELOX_CACHE_ENABLED) && conf.contains(LOAD_QUANTUM.key) &&
+      conf.get(LOAD_QUANTUM) > MAX_LOAD_QUANTUM_WITH_CACHE
+    ) {
       throw new IllegalArgumentException(
         s"Velox currently only support up to 8MB load quantum size " +
           s"on SSD cache enabled by ${COLUMNAR_VELOX_CACHE_ENABLED.key}, " +
@@ -317,6 +322,18 @@ object VeloxListenerApi {
       parsed += (COLUMNAR_VELOX_CACHE_ENABLED.key -> "false")
     }
 
+    // Velox SSD cache supports up to 8MB per entry, so the default load quantum (256MB) must be
+    // lowered when cache is enabled and the user didn't set it explicitly.
+    val cacheEnabled = parsed
+      .get(COLUMNAR_VELOX_CACHE_ENABLED.key)
+      .map(_.toBoolean)
+      .getOrElse(conf.get(COLUMNAR_VELOX_CACHE_ENABLED))
+    if (cacheEnabled && !conf.contains(LOAD_QUANTUM.key)) {
+      parsed += (LOAD_QUANTUM.key -> MAX_LOAD_QUANTUM_WITH_CACHE.toString)
+    }
+
     parsed
   }
+
+  private val MAX_LOAD_QUANTUM_WITH_CACHE: Long = 8L * 1024 * 1024
 }

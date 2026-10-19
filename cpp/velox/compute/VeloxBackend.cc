@@ -379,7 +379,7 @@ std::unique_ptr<facebook::velox::cache::SsdCache> VeloxBackend::initSsdCache(uin
 }
 
 void VeloxBackend::initCache() {
-  if (backendConf_->get<bool>(kVeloxCacheEnabled, false)) {
+  if (backendConf_->get<bool>(kVeloxCacheEnabled, kVeloxCacheEnabledDefault)) {
     uint64_t memCacheSize = backendConf_->get<uint64_t>(kVeloxMemCacheSize, kVeloxMemCacheSizeDefault);
     uint64_t ssdCacheSize = backendConf_->get<uint64_t>(kVeloxSsdCacheSize, kVeloxSsdCacheSizeDefault);
 

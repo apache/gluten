@@ -29,6 +29,7 @@ class VeloxParquetReadSuite extends VeloxWholeStageTransformerSuite {
 
   override protected def sparkConf: SparkConf = {
     super.sparkConf
+      .set(VeloxConfig.COLUMNAR_VELOX_CACHE_ENABLED.key, "false")
       .set(VeloxConfig.LOAD_QUANTUM.key, "256m")
   }
 
