@@ -625,9 +625,10 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-35640: int as long should throw schema incompatible error")
     // TODO: fix in Spark-4.0
     .exclude("explode nested lists crossing a rowgroup boundary")
-    // TODO: fix on Spark-4.1
-    .excludeByPrefix("SPARK-53535") // see https://issues.apache.org/jira/browse/SPARK-53535
-    .excludeByPrefix("vectorized reader: missing all struct fields")
+    // These run the scan node alone with VerifyNoAdditionalScanOutputExec, which does not work
+    // for Gluten's scan node. Rewritten in GlutenParquetIOSuite.
+    .exclude(
+      "SPARK-53535: vectorized reader: missing all struct fields, struct with complex fields")
     .exclude("SPARK-54220: vectorized reader: missing all struct fields, struct with NullType only")
     .exclude("SPARK-54220: NullType") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenParquetV1PartitionDiscoverySuite]
