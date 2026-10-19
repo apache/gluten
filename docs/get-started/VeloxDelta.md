@@ -25,7 +25,7 @@ WHERE sale_date = DATE '2026-10-01'
 
 ```mermaid
 flowchart LR
-    subgraph Planning["Spark driver"]
+    subgraph Planning["Query planning"]
         Snapshot["1. Delta snapshot<br/>Schema + active files"]
         Select["2. Delta file pruning<br/>Partitions + file statistics"]
         Plan["3. Spark plan<br/>Gluten offload checks"]
@@ -72,7 +72,7 @@ operators. Delta Lake keeps the table metadata, the transaction log and commits.
 
 Each Spark profile from 3.4 to 4.1 builds against the one Delta Lake release in the table. On Spark 4.0 and 4.1, the Read and Native write columns assume ANSI mode off (see [ANSI mode on Spark 4.x](#ansi-mode-on-spark-4x)). The copied Delta Lake suites run with native write on and `spark.gluten.sql.fallbackUnexpectedMetadataParquet=true`, which is off by default.
 
-Spark 4.1 has the most tests, because the nightly job runs on it. That job builds Delta Lake 4.2.0 from source against Spark 4.1.0, which is newer than the Delta Lake 4.1.0 in the table, and runs its Spark test suites. It puts a Gluten bundle compiled against Spark 4.1.1 and Delta Lake 4.1.0 on the test classpath. It replaces Delta Lake's `DeltaSQLCommandTest` with Gluten's copy, which loads Gluten with native write on and the non-default `spark.gluten.sql.fallbackUnexpectedMetadataParquet=true`. It then runs `.github/workflows/util/delta-spark-ut/apply-delta-test-patches.sh`. That script cherry-picks two Delta Lake test changes that are not in 4.2.0, delta-io/delta#7104 and #7105, so Delta Lake's scan checks accept Gluten's scan node. It also sets a row-group row limit in two test fixtures. The same job also runs on pull requests that change Gluten's Delta code. "Seen on 4.1" on this page refers to that job.
+Spark 4.1 has the most tests, because the nightly job runs on it. That job builds Delta Lake 4.2.0 from source against Spark 4.1.0. Delta Lake 4.2.0 is newer than the Delta Lake 4.1.0 in the table, and Spark 4.1.0 is older than the Spark 4.1.1 in the table. The job puts a Gluten bundle compiled against Spark 4.1.1 and Delta Lake 4.1.0 on the test classpath. It replaces Delta Lake's `DeltaSQLCommandTest` with Gluten's copy, which loads Gluten with native write on and the non-default `spark.gluten.sql.fallbackUnexpectedMetadataParquet=true`. It runs `.github/workflows/util/delta-spark-ut/apply-delta-test-patches.sh`. That script cherry-picks two Delta Lake test changes that are not in 4.2.0, delta-io/delta#7104 and #7105, so Delta Lake's scan checks accept Gluten's scan node. It also sets a row-group row limit in two test fixtures. Then the job runs the tests of Delta Lake's `spark` sbt module. The same job also runs on pull requests that change Gluten's Delta code. "Seen on 4.1" on this page refers to that job.
 
 The job's known failures are listed in `.github/workflows/util/delta-spark-ut/known-failures.txt`. Four entries are two 2-billion-row deletion vector tests, run in two suites, that the job force-fails. Some entries check a query plan that changes once Gluten offloads it. Read the README in that directory before treating an entry as a Gluten bug.
 
@@ -157,7 +157,7 @@ Offload
 
 ```sql
 SET spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite=true;
-CREATE TABLE t2 USING delta AS SELECT * FROM t;
+CREATE TABLE t2 USING delta AS SELECT id, CAST(id AS STRING) AS name FROM range(0, 3, 1, 1);
 ```
 
 With `spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite=true` on Spark 3.5 to 4.1, Velox writes the data files of `CREATE TABLE ... AS SELECT` and `REPLACE TABLE ... AS SELECT` when the target catalog is a DeltaCatalog. Seen on 4.1. On 3.5 and 4.0 this is from code. On Spark 4.x, also apply [ANSI mode on Spark 4.x](#ansi-mode-on-spark-4x).
@@ -203,7 +203,7 @@ The node also shows when Velox writes no data files. This happens for a DELETE t
 
 ### Write commands
 
-The Status column assumes Spark 3.5 to 4.1 with native write on. Otherwise every row is at best PartialOffload. In PartialOffload rows, Delta writes the files and the query that feeds the write can run in Velox.
+The Status column assumes Spark 3.5 to 4.1 with native write on and ANSI mode off. Otherwise every row is at best PartialOffload. In PartialOffload rows, Delta writes the files and the query that feeds the write can run in Velox.
 
 Gluten's CI checks that a partitioned `save(path)` on 3.5 to 4.1 and OPTIMIZE on 3.5 run as Gluten native write commands. It also checks on 3.5 and 4.0 that a DELETE that rewrites a file runs in Gluten's transaction and that its scan runs in Velox. On 3.5 and 4.0, the copied Delta Lake suites also run UPDATE, DELETE, `save(path)` and `CREATE TABLE ... AS SELECT` with native write on. They check results only. On 4.1, the nightly job shows every Offload row except DELETE going through Velox's writer. The other Offload cases are from code.
 
@@ -213,7 +213,7 @@ Gluten's CI checks that a partitioned `save(path)` on 3.5 to 4.1 and OPTIMIZE on
 | `CREATE TABLE ... AS SELECT` | `writeTo(t).create()`, `saveAsTable(t)` when `t` does not exist and the mode is not overwrite | Offload | Needs a DeltaCatalog target. |
 | `REPLACE TABLE ... AS SELECT`, `CREATE OR REPLACE TABLE ... AS SELECT` | `writeTo(t).replace()`, `writeTo(t).createOrReplace()`, `saveAsTable(t)` in overwrite mode | Offload | Needs a DeltaCatalog target. |
 | `UPDATE` | `DeltaTable.update()` | Offload | On a table with deletion vectors, Velox writes only the updated rows. |
-| `DELETE` | `DeltaTable.delete()` | Offload, PartialOffload when it writes deletion vectors (from code on 4.1), Fallback when it is metadata-only (from code) | Velox writes the rewritten files. A deletion-vector DELETE and a metadata-only DELETE write no data files. |
+| `DELETE` | `DeltaTable.delete()` | Offload (from code on 4.1), PartialOffload when it writes deletion vectors (from code on 4.1), Fallback when it is metadata-only (from code) | Velox writes the rewritten files. A deletion-vector DELETE and a metadata-only DELETE write no data files. |
 | `OPTIMIZE`, `OPTIMIZE ... WHERE` | `DeltaTable.optimize().executeCompaction()`, with or without `where(...)` | Offload | Bin-packing, by path or by name. |
 | `OPTIMIZE ... ZORDER BY`, `OPTIMIZE ... FULL`, `OPTIMIZE` on a liquid-clustered table | | PartialOffload | From code. |
 | `REORG TABLE ... APPLY (PURGE)`, `REORG TABLE ... APPLY (UPGRADE UNIFORM ...)` | | PartialOffload | From code. |
@@ -229,7 +229,7 @@ With native write on, `DESCRIBE HISTORY` operation metrics of `save(path)`, UPDA
 | Feature | Status | Notes |
 |---|---|---|
 | Optimized write | Offload | In the commands marked Offload, the rebalancing shuffle runs in Velox. If it fails validation, Delta's shuffle is used. Both are from code. `OPTIMIZE` never uses it. |
-| Auto compaction | Offload after native writes, PartialOffload after other writes | Compacts natively written tables (seen on 4.1). The auto compaction tests that fail in the nightly job fail because its `spark.default.parallelism=1` makes their first write produce one file (from code). After a native write, the compaction runs in a Gluten transaction (from code). After INSERT, MERGE or streaming writes, Delta's writer compacts (from code). |
+| Auto compaction | Offload after native writes, PartialOffload after other writes | Compacts natively written tables (seen on 4.1). The auto compaction tests that fail in the nightly job fail because its `spark.default.parallelism=1` makes their first write produce one file (from code). After a native write, the compaction runs in a Gluten transaction (from code). After INSERT, MERGE or streaming writes, Delta's writer compacts (from code). Delta Lake 2.4.0 has no auto compaction. |
 
 ## Reading
 ### Read data
@@ -251,7 +251,7 @@ FROM t
 GROUP BY name;
 ```
 
-Reads need no Gluten option. With `spark.sql.adaptive.enabled=false`, `EXPLAIN` shows the native scan as `FileDeltaScanTransformer` and `EXPLAIN FORMATTED` shows `DeltaScanTransformer`. With AQE on, the default, `EXPLAIN` and `EXPLAIN FORMATTED` of a query with a shuffle, such as this one, print the plan from before Gluten offloads it. The Spark UI plan graph of a finished query shows `DeltaScanTransformer`. Delta prunes partitions and skips files by statistics while it plans the query, before the scan runs.
+Reads need no Gluten option. With `spark.sql.adaptive.enabled=false`, `EXPLAIN` shows the native scan as `FileDeltaScanTransformer` and `EXPLAIN FORMATTED` shows `DeltaScanTransformer`. With AQE on, the default, `EXPLAIN` and `EXPLAIN FORMATTED` of a query with a shuffle, such as this one, print the plan from before Gluten offloads it. The Spark UI plan graph of a finished query shows `DeltaScanTransformer`. The last three sentences are from code. Delta prunes partitions and skips files by statistics while it plans the query, before the scan runs.
 
 | Read | Status | Notes |
 |---|---|---|
@@ -323,7 +323,7 @@ FROM t
 WHERE _metadata.row_index = 2;
 ```
 
-The native scan fills the `_metadata` file fields and `input_file_name()` (from code), and `_metadata.row_index`. On Spark 3.5 to 4.1, Delta Lake exposes `_metadata.row_index` only on tables that allow deletion vectors or have row tracking, so the example needs `t` from [Deletion vectors](#deletion-vectors) (from code). A query that selects only `_metadata.file_name` can fail when the table has a BIGINT data column named `file_name` (seen on 4.1, see [Read problems](#read-problems)). Gluten tests check `_metadata.row_index` in the native scan on Spark 3.5 and 4.0, and Delta Lake tests that read it pass (seen on 4.1). Spark 3.4 is not tested. On row-tracking tables, `_metadata.row_id` and `_metadata.row_commit_version` are read natively (from code). In the nightly job, they return correct values except in the cases in [Read problems](#read-problems) (seen on 4.1).
+The native scan fills the `_metadata` file fields and `input_file_name()` (from code), and `_metadata.row_index`. On Spark 3.5 to 4.1, Delta Lake exposes `_metadata.row_index` only on tables that allow deletion vectors or have row tracking, so the example needs `t` from [Deletion vectors](#deletion-vectors) (from code). A query that selects only `_metadata.file_name` can fail when the table has a BIGINT data column named `file_name` (seen on 4.1, see [Read problems](#read-problems)). Gluten tests check `_metadata.row_index` in the native scan on Spark 3.5 and 4.0, and Delta Lake tests that read it pass (seen on 4.1). Spark 3.4 is not tested. On row-tracking tables, the native scan reads `_metadata.row_id` (seen on 4.1, from code on 3.5 and 4.0) and `_metadata.row_commit_version` (from code). In the nightly job, they return correct values except in the cases in [Read problems](#read-problems) (seen on 4.1).
 
 Fallback
 
@@ -343,14 +343,14 @@ The Read column covers Spark 3.5 to 4.1. It covers Spark 3.4 only where the row 
 | Deletion vectors | Offload, Fallback on Spark 3.4 | PartialOffload | Gluten's tests check deletion vector DELETE and MERGE results with native write on, on Spark 3.5 and 4.0. Which writer writes each file is from code. See [Deletion vectors](#deletion-vectors). |
 | Change data feed | Offload, also on Spark 3.4. Ranges with deletion vectors fall back. On Spark 3.4, scans of `_change_data` files also fall back when the table allows deletion vectors (from code). | Offload | UPDATE and DELETE write the `_change_data` files with Velox (from code). Change data feed reads of their changes are correct (seen on 4.1). See [Change data feed](#change-data-feed). |
 | Column mapping, name mode | Offload, also on Spark 3.4 | ResultMismatch | Files have no Parquet field IDs. Seen on 4.1. See [Write problems](#write-problems). |
-| Column mapping, id mode | Offload, also on Spark 3.4. ResultMismatch when field IDs differ from physical names (seen on 4.1). | ResultMismatch, Exception when Spark's reader reads the files (seen on 4.1) | Gluten matches columns by physical name. See [Known problems](#known-problems). |
+| Column mapping, id mode | Offload, also on Spark 3.4. ResultMismatch when matching by field ID would select no column (seen on 4.1) or a different column (from code). | ResultMismatch, Exception when Spark's reader reads the files (seen on 4.1) | Gluten matches columns by physical name. See [Known problems](#known-problems). |
 | Identity columns | Offload | Offload | Seen on 4.1. High-water marks are correct. The projection that generates identity values runs on Spark (from code). |
 | Generated columns | Offload | Offload | Seen on 4.1. No Gluten test covers generated columns. Velox computes the generated values when it supports the expression (from code). Partition filters derived from them reach the native scan. `DATE_FORMAT` results for years above 9999 differ (see [Write problems](#write-problems)). |
 | CHECK constraints, NOT NULL | Offload | Offload | Delta checks the rows on the JVM before Velox writes them. Gluten's tests cover NOT NULL on Spark 3.5 and 4.0. Seen on 4.1. |
 | Row tracking | Offload, Exception for `_metadata.base_row_id` filters, ResultMismatch for `_metadata.row_id` when older files lack base row IDs | Offload | Seen on 4.1. See [Read problems](#read-problems). |
 | Liquid clustering | Offload | PartialOffload | Reads use the same native scan as other tables. Native commands write to clustered tables. `OPTIMIZE`, which clusters the data, uses Delta's writer. All three are from code. |
 | UniForm (IcebergCompatV1, V2) | | ResultMismatch, Exception when partitioned | The write status is from code. No test reads a UniForm table. |
-| Type widening | Offload, Exception for DATE to TIMESTAMP_NTZ | Offload, Exception for FLOAT or DOUBLE partition columns, for TIMESTAMP_NTZ partition values with sub-millisecond digits and for some writes of TIMESTAMP_NTZ data columns | Seen on 4.1. Spark 3.5 and 4.0 are not covered. |
+| Type widening | Offload, Exception for DATE to TIMESTAMP_NTZ data columns | Offload, Exception for FLOAT or DOUBLE partition columns, for TIMESTAMP_NTZ partition values with sub-millisecond digits and for some writes of TIMESTAMP_NTZ data columns | Seen on 4.1. Spark 3.5 and 4.0 are not covered. Delta Lake 3.3.2 on Spark 3.5 allows only TINYINT to SMALLINT to INT. |
 | TIMESTAMP_NTZ | PartialOffload, also on Spark 3.4 | Offload, Exception for some writes (seen on 4.1) | See [DataType](#datatype). |
 | Variant, including shredding | Fallback | Fallback | Spark 4.x. From code. See [DataType](#datatype). |
 | Collations | Fallback | | Spark 4.x. From code. See [DataType](#datatype). |
@@ -423,7 +423,7 @@ The `mergeSchema` and `overwriteSchema` rows need native write on Spark 3.5 to 4
 | Schema evolution in SQL `INSERT` | PartialOffload | From code. |
 | Schema evolution in `MERGE` | PartialOffload, Exception for some STRUCT map key changes | The merged table contents match Delta Lake. Some STRUCT map key changes fail in Velox (see [MERGE, UPDATE and DELETE problems](#merge-update-and-delete-problems)). The two TIMESTAMP_NTZ widening tests fail before the MERGE runs, in a setup write of TIMESTAMP_NTZ values. Seen on 4.1. |
 | `RENAME COLUMN` with column mapping | Offload | Reads after top-level and nested renames return correct results. After a top-level rename, partition pruning and file skipping still work. |
-| `DROP COLUMN` with column mapping | Offload | From code. Delta Lake's `DeltaDropColumnSuite` passes (seen on 4.1). |
+| `DROP COLUMN` with column mapping | Offload | The drop is a metadata-only commit. Reads after the drop run in Velox. Both are from code. Delta Lake's `DeltaDropColumnSuite` passes (seen on 4.1). |
 | Type widening | Offload, Exception for DATE to TIMESTAMP_NTZ and for native writes to FLOAT or DOUBLE partition columns | Seen on 4.1. See [Table features](#table-features). |
 | `spark.sql.parquet.mergeSchema=true` | Fallback | Every Parquet scan falls back, Delta scans included. From code. |
 
@@ -442,7 +442,7 @@ The `mergeSchema` and `overwriteSchema` rows need native write on Spark 3.5 to 4
 | On a row-tracking table whose older files lack base row IDs, selecting `_metadata.row_id` returns rows. Delta raises an error. Delta Lake's test creates this state with a manual metadata commit. `ALTER TABLE ... SET TBLPROPERTIES` backfills base row IDs when it enables row tracking. | ResultMismatch | Seen on 4.1 | |
 | Reading or deleting from a 2-billion-row table with deletion vectors can grow native memory until the JVM is killed. Delta Lake's two 2-billion-row tests reproduce it. The nightly job force-fails both tests. | Exception | Reported on 4.1 | [#12387](https://github.com/apache/gluten/issues/12387) |
 | With `spark.databricks.delta.deletionVectors.useMetadataRowIndex=true`, the default, selecting `__delta_internal_is_row_deleted` from a relation built by hand over `DeltaParquetFileFormat` drops the deleted rows and returns 1 for the rows it keeps. The column is not in the table schema, so SQL and DataFrame queries over the table cannot select it. | ResultMismatch | Seen on 4.1 |  |
-| Scans of a table with many small files can be slower than vanilla Spark on EBS storage. In the report, two of five TPC-DS SF1000 queries take 2.2 and 3.4 times as long as on vanilla Spark, with 182,300 files in one table. A maintainer did not see the slowdown on a host with local NVMe storage. | | Reported on 3.4 | [#10778](https://github.com/apache/gluten/issues/10778) |
+| Scans of a table with many small files can be slower than vanilla Spark on EBS storage. The reported run sets `spark.gluten.sql.columnar.scanOnly=true`, which offloads only scans and filters directly above them. In that run, two of five TPC-DS SF1000 queries take 2.2 and 3.4 times as long as on vanilla Spark, with 182,300 files in one table. A maintainer did not see the slowdown on a host with local NVMe storage. | | Reported on 3.4 | [#10778](https://github.com/apache/gluten/issues/10778) |
 
 ### Write problems
 
@@ -473,7 +473,7 @@ MERGE does not use native write, so the MERGE rows also apply with native write 
 
 | Problem | Status | Versions | Issue |
 |---|---|---|---|
-| UPDATE or DELETE through a temp view that swaps column names, such as `SELECT value AS key, key AS value FROM t`, changes different rows than Delta Lake. Delta Lake's tests use two rows that both match the condition through the view's column names. Delta Lake changes one, the row that matches through the table's column names. With Gluten, the DELETE removes both rows and the UPDATE changes both rows. One updated row has its two new values in swapped columns. Not checked with native write off. | ResultMismatch | 3.5 to 4.1, seen on 4.1 | |
+| UPDATE or DELETE through a temp view that swaps column names, such as `SELECT value AS key, key AS value FROM t`, changes different rows than Delta Lake. Delta Lake's tests use two rows that both match the condition through the view's column names. Delta Lake changes one, the row that matches through the table's column names. With Gluten, the DELETE removes both rows and the UPDATE changes both rows. One updated row has its two new values in swapped columns. On tables with deletion vectors, the DELETE also removes both rows (seen on 4.1). That DELETE writes no data files, so the mismatch also happens with native write off (from code). The UPDATE and the DELETE without deletion vectors are not checked with native write off. | ResultMismatch | 3.5 to 4.1, seen on 4.1 | |
 | Row counts of a MERGE with a `WHEN MATCHED` or `WHEN NOT MATCHED BY SOURCE` clause can be too high, both in the result of the MERGE statement (`num_affected_rows` and the other counts) and in the `DESCRIBE HISTORY` operation metrics. A MERGE with one `WHEN NOT MATCHED` clause and no other clause reports the same counts as Delta Lake (seen on 4.1). With several `WHEN NOT MATCHED` clauses and no other clause, the inserted and affected row counts can be too high (from code). A MERGE that changes nothing records change data rows on a change data feed table. | ResultMismatch | 3.5 to 4.1, seen on 4.1 | [#9003](https://github.com/apache/gluten/issues/9003) |
 | With ANSI mode on, `spark.gluten.sql.ansiFallback.enabled=false` and `spark.databricks.delta.updateAndMergeCastingFollowsAnsiEnabledFlag=true`, a MERGE that casts `ARRAY<BIGINT>` to `ARRAY<INT>` or `MAP<STRING,BIGINT>` to `MAP<STRING,INT>` with overflowing values completes without an error. This was seen in a `WHEN MATCHED THEN UPDATE` clause and in a `WHEN NOT MATCHED THEN INSERT` clause inside `foreachBatch`. The Delta Lake flag is internal and false by default. | ResultMismatch | Seen on 4.1 | |
 | MERGE schema evolution can fail with `map key cannot be indeterminate` when a STRUCT map key in the source has a field the target lacks, or lacks a field the target has. | Exception | Seen on 4.1 | |
@@ -487,7 +487,7 @@ These operations fail as in Delta Lake, with a different exception type or error
 | CHECK, NOT NULL or generated-column violation on a partitioned native write. The CHECK and NOT NULL cases are from code. | `DeltaInvariantViolationException` | `SparkException` (`TASK_WRITE_FAILED`) wrapping `GlutenException` |
 | `replaceWhere` violation on a partitioned native write | `DeltaAnalysisException` (`DELTA_REPLACE_WHERE_MISMATCH`) | `SparkException` (`TASK_WRITE_FAILED`) wrapping `GlutenException` |
 | Store-assignment cast overflow in a MERGE `WHEN MATCHED THEN UPDATE` clause | `DeltaArithmeticException` (`DELTA_CAST_OVERFLOW_IN_TABLE_WRITE`) | `SparkException` wrapping `GlutenException` |
-| ANSI cast overflow evaluated in Velox | `SparkArithmeticException` | `SparkException` wrapping `GlutenException` (`VeloxUserError`) |
+| ANSI cast overflow evaluated in Velox. A MERGE that casts overflowing ARRAY or MAP values can complete without an error (see [MERGE, UPDATE and DELETE problems](#merge-update-and-delete-problems)). | `SparkArithmeticException` | `SparkException` wrapping `GlutenException` (`VeloxUserError`) |
 | Missing data file | `SparkException` (`FAILED_READ_FILE.FILE_NOT_EXIST`) on Spark 4.x | `SparkException` wrapping `GlutenException` (`FILE_NOT_FOUND`) |
 
 For errors raised on the JVM, the message of the exception raised in the task stays in the `GlutenException` message. For a `replaceWhere` violation, that is the CHECK constraint message. The `DELTA_REPLACE_WHERE_MISMATCH` line that Delta Lake puts before it, `Written data does not conform to partial table overwrite condition or constraint`, is missing. The lost exception types are tracked in [#11912](https://github.com/apache/gluten/issues/11912). On unpartitioned `save(path)` writes, CHECK and NOT NULL violations keep Delta Lake's exception types. Gluten's tests check NOT NULL on Spark 3.5 and 4.0, and Delta Lake's NOT NULL tests pass (seen on 4.1). The CHECK case is from code.
@@ -498,17 +498,17 @@ For errors raised on the JVM, the message of the exception raised in the task st
 | Gluten option | Default | Description |
 | --- | --- | --- |
 | spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite | false | Experimental. Velox writes the data files of the commands marked Offload in [Write commands](#write-commands). Spark 3.5 to 4.1. No effect on Spark 3.4. |
-| spark.gluten.sql.columnar.backend.velox.delta.enableNativeDmlRowIndexScan | true | Experimental. When false, the DML target scan that reads row indexes for deletion vectors stays on Spark. Other scans still offload. |
+| spark.gluten.sql.columnar.backend.velox.delta.enableNativeDmlRowIndexScan | true | Experimental. When false, the DML target scan that reads row indexes for deletion vectors stays on Spark. Other scans still offload. Tested with DELETE on Spark 3.5 and 4.0. UPDATE, MERGE and Spark 4.1 are from code. Tested on Spark 3.5 and 4.0, from code on 4.1. On Spark 3.4, that scan falls back either way (from code). |
 | spark.gluten.sql.columnar.backend.velox.delta.enableChangeDataFeedScan | true | Experimental. When false, batch change data feed reads use Delta Lake's change data feed scan. |
 | spark.gluten.sql.columnar.filescan | true | When false, every V1 file source scan (`FileSourceScanExec`) falls back, Delta scans included. No Gluten option turns off Delta scans alone. From code. |
 | spark.gluten.sql.ansiFallback.enabled | true | With ANSI mode on, every query falls back. From code. See [ANSI mode on Spark 4.x](#ansi-mode-on-spark-4x). |
-| spark.gluten.sql.columnar.parquet.write.blockSize | 128MB | Row-group size for native Delta writes. |
-| spark.gluten.sql.native.parquet.write.blockRows | 100000000 | Row-group row limit for native Delta writes. |
+| spark.gluten.sql.columnar.parquet.write.blockSize | 128MB | Row-group size for native Delta writes. Velox checks it after each input batch, so a row group can be larger. From code. |
+| spark.gluten.sql.native.parquet.write.blockRows | 100000000 | Row-group row limit for native Delta writes. Seen on 4.1. |
 | spark.gluten.sql.native.writer.enabled | (unset) | Controls native writes of non-Delta Parquet files. Unset means on. No effect on Delta writes (from code). |
 | spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation | false | When true, every operator whose input or output includes TIMESTAMP_NTZ falls back. On Spark 4.x, native Delta writes of TIMESTAMP_NTZ schemas then use Delta's writer. From code. |
 | spark.gluten.sql.columnar.backend.velox.scanMapKeyPruningEnabled | false | When true, Velox skips map keys a query does not look up, if the lookups sit in filters and projections directly above the scan. Applies to Delta scans without column mapping. On Spark 3.5 to 4.1 it also applies to files with deletion vectors. Off for column-mapped tables. |
 | spark.gluten.sql.columnar.backend.velox.parquetUseColumnNames | true | Velox matches Parquet columns by name. Id-mode column mapping tables are read by physical name. When false, Velox matches Parquet columns by position, including for tables without column mapping and id-mode tables. Name-mode tables are still read by physical name. From code. |
-| spark.gluten.sql.fallbackUnexpectedMetadataParquet | false | When true, Delta scans fall back if a sampled file is encrypted, carries legacy datetime rebase metadata, uses LZO or BROTLI, or has variant annotations. LZ4_RAW also counts on Spark 4.0 and 4.1. The variant check runs on Spark 4.1 only. The sample is the first `spark.gluten.sql.fallbackUnexpectedMetadataParquet.limit` files (default 10) under the table root. `_delta_log` files count, so the sample may contain no data files. The check is skipped when `spark.gluten.sql.scan.fileSchemeValidation.enabled=false`. From code. |
+| spark.gluten.sql.fallbackUnexpectedMetadataParquet | false | When true, Delta scans fall back if a sampled file is encrypted, carries legacy datetime rebase metadata, uses LZO or BROTLI, or has variant annotations. LZ4_RAW also counts on Spark 4.0 and 4.1. The variant check runs on Spark 4.1 only. The sample is the first `spark.gluten.sql.fallbackUnexpectedMetadataParquet.limit` files (default 10) under the table root. `_delta_log` files count. HDFS and S3 list files in name order, and `_delta_log` sorts before `part-` files and lowercase partition directories. On those stores, a table laid out that way gets no data file in the sample once `_delta_log` holds as many files as the limit. The check is skipped when `spark.gluten.sql.scan.fileSchemeValidation.enabled=false`. From code. |
 | spark.gluten.sql.scan.fileSchemeValidation.enabled | true | Scans on a file scheme Velox cannot read fall back. From code. |
 
 The three `spark.gluten.sql.columnar.backend.velox.delta.*` options are read per query, so `SET` changes them for the session.
@@ -542,14 +542,14 @@ A blank cell means unknown.
 | spark.sql.parquet.compression.codec | snappy | Codec for native writes when the `compression` option is unset. | ⚠️ |
 | spark.sql.files.maxRecordsPerFile | 0 | Exact on partitioned native writes. See [Write problems](#write-problems). | ⚠️ |
 | spark.sql.maxConcurrentOutputFileWriters | 0 | Above 0, partitioned native writes with unsorted input fail. From code. | ❌ |
-| spark.sql.files.ignoreMissingFiles | false | Passed to Velox. Native scans skip missing files when true. | ✅ |
+| spark.sql.files.ignoreMissingFiles | false | Passed to Velox. Native scans skip missing files when true. Tested on Spark 3.5 and 4.0, seen on 4.1, from code on 3.4. | ✅ |
 | spark.sql.parquet.mergeSchema | false | When true, Delta scans fall back. From code. | ❌ |
 | spark.sql.parquet.outputTimestampType | INT96 | Ignored by native writes. From code. See [Natively written files](#natively-written-files). | ❌ |
 | spark.sql.parquet.writeLegacyFormat | false | Native writes apply it to DECIMAL only. From code. See [Natively written files](#natively-written-files). | ⚠️ |
 | spark.sql.caseSensitive | false | When false, native writes lowercase nested struct field names. From code. | ⚠️ |
 | spark.sql.sources.partitionOverwriteMode | STATIC | With native write on, Velox writes the files of a dynamic overwrite through `save(path)` (from code). The results are correct (seen on 4.1). | ✅ |
 | spark.databricks.delta.deletionVectors.useMetadataRowIndex | true | When false, scans that read Delta's generated deletion vector columns fall back. See [Deletion vectors](#deletion-vectors). | ⚠️ |
-| spark.databricks.delta.stats.collect | true | Native writes compute file statistics in Velox. See [Write problems](#write-problems). | ⚠️ |
+| spark.databricks.delta.stats.collect | true | Native writes compute file statistics in Velox (checked on Spark 3.5). See [Write problems](#write-problems). | ⚠️ |
 | spark.databricks.delta.stats.skipping | true | Delta skips files by statistics before the scan runs. The scan offloads either way. When false, Delta Lake rejects reads of a table with deletion vectors (seen on 4.1, see [Deletion vectors](#deletion-vectors)). | 🚫 |
 | spark.databricks.delta.optimizeWrite.enabled | (unset) | Native writes run the optimized write shuffle in Velox (from code). File counts match Delta Lake (seen on 4.1). | ✅ |
 | spark.databricks.delta.optimizeWrite.binSize | 512 (MiB) | Used by the native optimized write shuffle. From code. | ✅ |
@@ -557,8 +557,8 @@ A blank cell means unknown.
 | spark.databricks.delta.schema.autoMerge.enabled | false | Delta applies schema changes before the write. For MERGE schema evolution, see [MERGE, UPDATE and DELETE problems](#merge-update-and-delete-problems). | ⚠️ |
 | spark.databricks.delta.dynamicPartitionOverwrite.enabled | true | Delta decides which partitions to replace. | ✅ |
 | spark.databricks.delta.merge.repartitionBeforeWrite.enabled | true | MERGE uses Delta's writer, so this only shapes Delta's write. | 🚫 |
-| spark.databricks.delta.optimize.maxFileSize | 1073741824 (1 GiB) | Delta plans the bins. With native write on, Velox writes the files of plain `OPTIMIZE`. | ✅ |
-| spark.databricks.delta.optimize.minFileSize | 1073741824 (1 GiB) | Delta plans the bins. With native write on, Velox writes the files of plain `OPTIMIZE`. | ✅ |
+| spark.databricks.delta.optimize.maxFileSize | 1073741824 (1 GiB) | Delta plans the bins. For the writer of plain `OPTIMIZE`, see [Write commands](#write-commands). | ✅ |
+| spark.databricks.delta.optimize.minFileSize | 1073741824 (1 GiB) | Delta plans the bins. For the writer of plain `OPTIMIZE`, see [Write commands](#write-commands). | ✅ |
 | spark.databricks.delta.write.txnAppId, spark.databricks.delta.write.txnVersion | (unset) | Idempotent writes. Commit only. | 🚫 |
 | spark.databricks.delta.commitInfo.userMetadata | (unset) | Commit only. | 🚫 |
 | spark.databricks.delta.properties.defaults.* | (unset) | Default for the matching `delta.*` table property on new tables. Gluten support follows that property (see [Delta Table Properties](#delta-table-properties)). | ⚠️ |
@@ -610,7 +610,7 @@ A blank cell means unknown.
 | delta.enableDeletionVectors | false | Velox applies deletion vectors in the scan on Spark 3.5 to 4.1. On Spark 3.4, a read falls back when a file it selects has a deletion vector. For other Spark 3.4 scans, see [Deletion vectors](#deletion-vectors). | ✅ Spark 3.5 to 4.1 |
 | delta.enableChangeDataFeed | false | Change data feed reads offload, except ranges with deletion vectors. With native write on, Velox writes the `_change_data` files of UPDATE and DELETE (from code). For MERGE, see [MERGE, UPDATE and DELETE problems](#merge-update-and-delete-problems). | ⚠️ |
 | delta.columnMapping.mode | none | Reads offload. For id mode and for native writes, see [Known problems](#known-problems). | ⚠️ |
-| delta.enableRowTracking | false | Reads and native writes offload. Seen on 4.1. For `_metadata.base_row_id` filters, see [Read problems](#read-problems). | ⚠️ |
+| delta.enableRowTracking | false | Reads and native writes offload. Seen on 4.1. For `_metadata.base_row_id` filters and for `_metadata.row_id` when older files lack base row IDs, see [Read problems](#read-problems). | ⚠️ |
 | delta.enableTypeWidening | false | Most widenings read natively. Seen on 4.1. For DATE to TIMESTAMP_NTZ and for FLOAT or DOUBLE partition columns, see [Known problems](#known-problems). | ⚠️ |
 | delta.universalFormat.enabledFormats | (empty) | See [Write problems](#write-problems). From code. | ⚠️ |
 | delta.enableIcebergCompatV2 | (unset) | Same as `delta.universalFormat.enabledFormats`. | ⚠️ |
