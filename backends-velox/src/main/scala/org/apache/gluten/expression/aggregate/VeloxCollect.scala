@@ -22,8 +22,7 @@ import org.apache.spark.sql.catalyst.trees.UnaryLike
 import org.apache.spark.sql.types.{ArrayType, DataType}
 
 abstract class VeloxCollect(child: Expression, val ignoreNulls: Boolean)
-  extends DeclarativeAggregate
-  with UnaryLike[Expression] {
+  extends DeclarativeAggregate {
 
   protected lazy val buffer: AttributeReference = AttributeReference("buffer", dataType)()
 
@@ -57,17 +56,23 @@ abstract class VeloxCollect(child: Expression, val ignoreNulls: Boolean)
 case class VeloxCollectSet(child: Expression, override val ignoreNulls: Boolean = true)
   extends VeloxCollect(child, ignoreNulls) {
 
+  // Velox collect_set takes RESPECT NULLS as a constant second argument,
+  // collect_set(x, false). The default, IGNORE NULLS, uses the one-argument form.
+  override def children: Seq[Expression] =
+    if (ignoreNulls) Seq(child) else Seq(child, Literal(false))
+
   override lazy val evaluateExpression: Expression =
     ArrayDistinct(buffer)
 
   override def prettyName: String = "velox_collect_set"
 
-  override protected def withNewChildInternal(newChild: Expression): Expression =
-    copy(child = newChild)
+  override protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
+    copy(child = newChildren.head)
 }
 
 case class VeloxCollectList(child: Expression, override val ignoreNulls: Boolean = true)
-  extends VeloxCollect(child, ignoreNulls) {
+  extends VeloxCollect(child, ignoreNulls)
+  with UnaryLike[Expression] {
 
   override val evaluateExpression: Expression = buffer
 
