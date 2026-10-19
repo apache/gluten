@@ -138,7 +138,7 @@ std::optional<facebook::velox::RowVectorPtr> ValueStreamDataSource::next(
     facebook::velox::ContinueFuture& future) {
   for (;;) {
     // Try to get current iterator if we don't have one.
-    while (!currentIterator_) {
+    if (!currentIterator_) {
       if (pendingIterators_.empty()) {
         // No more iterators to process. Return an engaged null RowVectorPtr to
         // tell TableScan the current split is finished, not connector-blocked.
