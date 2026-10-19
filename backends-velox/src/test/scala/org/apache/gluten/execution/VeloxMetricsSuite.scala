@@ -323,6 +323,21 @@ class VeloxMetricsSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     }
   }
 
+  test("Metrics for input iterator of shuffle include cpu time") {
+    createTPCHNotNullTables()
+    val df = spark.sql("select l_returnflag, count(*) from lineitem group by l_returnflag")
+    df.collect()
+    val inputIterator = find(df.queryExecution.executedPlan) {
+      case InputIteratorTransformer(ColumnarInputAdapter(child)) =>
+        !child.isInstanceOf[BroadcastQueryStageExec] && !child.isInstanceOf[BroadcastExchangeLike]
+      case _ => false
+    }
+    assert(inputIterator.isDefined)
+    val metrics = inputIterator.get.metrics
+    assert(metrics("cpuNanos").value > 0)
+    assert(metrics("wallNanos").value > 0)
+  }
+
   test("Velox cache metrics") {
     val df = spark.sql(s"SELECT * FROM metrics_t1")
     val scans = collect(df.queryExecution.executedPlan) {

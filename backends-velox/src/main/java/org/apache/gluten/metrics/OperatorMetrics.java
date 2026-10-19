@@ -27,6 +27,7 @@ public class OperatorMetrics implements IOperatorMetrics {
   public long outputBytes;
   public long cpuCount;
   public long wallNanos;
+  public long cpuNanos;
   public long scanTime;
   public long peakMemoryBytes;
   public long numMemoryAllocations;
