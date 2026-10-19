@@ -442,7 +442,8 @@ jobs:
             **/gluten-ut/**/core.*
 
   spark-test-backends-velox-ansi-spark35:
-    needs: build-native-lib
+    # Lists check-comment directly so that needs.check-comment.outputs.pr_sha is set.
+    needs: [check-comment, build-native-lib]
     runs-on: ubuntu-22.04
     env:
       SPARK_TESTING: true
@@ -509,7 +510,8 @@ jobs:
             **/target/*.log
 
   spark-test-spark-ut-ansi-spark35:
-    needs: build-native-lib
+    # Lists check-comment directly so that needs.check-comment.outputs.pr_sha is set.
+    needs: [check-comment, build-native-lib]
     runs-on: ubuntu-22.04
     env:
       SPARK_TESTING: true
