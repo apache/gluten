@@ -23,38 +23,7 @@ WHERE sale_date = DATE '2026-10-01'
   AND amount > 100;
 ```
 
-```mermaid
-flowchart LR
-    subgraph Planning["Query planning"]
-        Snapshot["1. Delta snapshot<br/>Schema + active files"]
-        Select["2. Delta file pruning<br/>Partitions + file statistics"]
-        Plan["3. Spark plan<br/>Gluten offload checks"]
-        Snapshot --> Select --> Plan
-    end
-
-    subgraph Execution["Spark executors"]
-        Scan["4. Velox scan<br/>Reads the selected files"]
-        Compute["5. Velox operators<br/>Filter + SUM"]
-        Spark["Spark operators<br/>Operators Gluten does not offload"]
-        Scan --> Compute
-        Compute <-->|"Row and columnar conversions"| Spark
-    end
-
-    subgraph Storage["Delta table"]
-        Log[("_delta_log<br/>Metadata + file statistics")]
-        Data[("Parquet files")]
-    end
-
-    Result["6. Query result"]
-
-    Log --> Snapshot
-    Plan -->|"Offloaded operators"| Scan
-    Plan -->|"Other operators"| Spark
-    Data --> Scan
-    Data --> Spark
-    Compute --> Result
-    Spark --> Result
-```
+![How Gluten plans and runs a Delta query: Delta snapshot and file pruning, then Gluten offload checks, then Velox and Spark operators on the executors](../image/delta-query-flow.svg)
 
 Delta Lake loads the snapshot and prunes partitions and files while Spark plans the query. Gluten then
 offloads the operators Velox supports, and the rest run on Spark, so one query can mix Velox and Spark
