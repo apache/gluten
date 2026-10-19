@@ -1201,9 +1201,6 @@ class VeloxTestSettings extends BackendTestSettings {
     // expression referenced multiple times yields row-wise equal values (rand/randn).
     // Same class of difference as SPARK-9083. Not really an issue.
     .exclude("SPARK-45216: Non-deterministic functions with seed")
-    .exclude(
-      "SPARK-57725: resolve columns when the input plan has a null-named attribute"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenDataFrameTimeWindowingSuite]
   enableSuite[GlutenDataFrameTungstenSuite]
   enableSuite[GlutenDataFrameWindowFunctionsSuite]
