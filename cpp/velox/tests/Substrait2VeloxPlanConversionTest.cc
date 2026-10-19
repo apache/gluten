@@ -139,9 +139,9 @@ class Substrait2VeloxPlanConversionTest : public exec::test::HiveConnectorTestBa
       const std::vector<std::string>& functions = {}) {
     ::substrait::Plan plan;
     plan.add_relations()->mutable_rel()->mutable_read()->CopyFrom(read);
-    for (int i = 0; i < functions.size(); ++i) {
+    for (size_t i = 0; i < functions.size(); ++i) {
       auto* function = plan.add_extensions()->mutable_extension_function();
-      function->set_function_anchor(i);
+      function->set_function_anchor(static_cast<uint32_t>(i));
       function->set_name(functions[i]);
     }
     planConverter_ = std::make_shared<VeloxPlanConverter>(
