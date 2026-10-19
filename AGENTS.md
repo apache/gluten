@@ -97,7 +97,7 @@ You MUST run the following checks and fix any issues before committing.
 
 ```bash
 # Requires the `regex` Python package: pip install regex
-./dev/check.py header main --fix
+./.github/workflows/util/check.py header main --fix
 ```
 
 Do not commit code that fails CI checks.

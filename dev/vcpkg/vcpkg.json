@@ -20,6 +20,7 @@
         "curl",
         "lzo",
         "re2",
+        "roaring",
         "gflags",
         "glog",
 		"s2geometry",
@@ -131,6 +132,7 @@
     }
   },
   "overrides": [
+    { "name": "roaring", "version": "4.3.11" },
     { "name": "fmt", "version": "11.2.0" },
     { "name": "liblzma", "version": "5.6.2" },
     { "name": "xsimd", "version": "10.0.0" },

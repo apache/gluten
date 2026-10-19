@@ -80,7 +80,7 @@ There are two ways to acquire Gluten jar for the above configuration.
 
 Please download the tar package [here](https://gluten.apache.org/downloads/), then extract the Gluten JAR from it.
 Additionally, Gluten provides nightly builds based on the main branch for early testing. The nightly build JARs are available at [Apache Gluten Nightlies](https://nightlies.apache.org/gluten/).
-They have been verified on Centos 7/8/9, Ubuntu 20.04/22.04.
+They have been verified on Centos 8/9, Ubuntu 20.04/22.04.
 
 ### Build From Source
 
