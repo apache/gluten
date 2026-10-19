@@ -870,9 +870,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("test with low buffer spill threshold")
   enableSuite[GlutenTakeOrderedAndProjectSuite]
   enableSuite[GlutenSessionExtensionSuite]
-    .exclude(
-      "Gluten - test gluten extensions"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenBucketedReadWithoutHiveSupportSuite]
     // Exclude the following suite for plan changed from SMJ to SHJ.
     .exclude("avoid shuffle when join 2 bucketed tables")
@@ -1431,7 +1428,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenResolveDefaultColumnsSuite]
     .exclude(
       "SPARK-57187: non-foldable default exceeding CHAR/VARCHAR length fails at INSERT time (explicit DEFAULT keyword)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
+    ) // Rewritten in GlutenResolveDefaultColumnsSuite: Velox throws a different error type.
   enableSuite[GlutenSubqueryHintPropagationSuite]
   enableSuite[GlutenUrlFunctionsSuite]
   enableSuite[GlutenParquetRowIndexSuite]
