@@ -16,12 +16,12 @@ known limitations.
 
 Take a Delta table partitioned by `sale_date`:
 
-````
+```sql
 SELECT SUM(amount)
 FROM sales
 WHERE sale_date = DATE '2026-10-01'
   AND amount > 100;
-````
+```
 
 ```mermaid
 flowchart LR
@@ -60,7 +60,7 @@ Delta Lake loads the snapshot and prunes partitions and files while Spark plans 
 offloads the operators Velox supports, and the rest run on Spark, so one query can mix Velox and Spark
 operators. Delta Lake keeps the table metadata, the transaction log and commits.
 
-## Supported Spark version
+## Supported Spark and Delta Lake versions
 
 | Spark | Delta Lake | Delta Lake jar | Read | Native write | Tested by |
 |---|---|---|---|---|---|
@@ -84,11 +84,11 @@ Delta Lake support for Spark 4.2 is in progress in [#13271](https://github.com/a
 
 Delta Lake support is compiled in only with the `-Pdelta` Maven profile. Build the native library first, as described in [Gluten with Velox Backend](Velox.md).
 
-````
+```bash
 ./build/mvn clean install -Pbackends-velox -Pspark-3.5 -Pdelta -DskipTests
 ./build/mvn clean install -Pbackends-velox -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pdelta \
   -DskipTests -Dmaven.compiler.release=17
-````
+```
 
 `dev/buildbundle-veloxbe.sh` does not pass `-Pdelta`, so its bundle has no Delta Lake support. `dev/release/build-release.sh` passes `-Pdelta` only for Spark 3.4 and 3.5, so its Spark 4.0 and 4.1 bundles have no Delta Lake support either. No Gluten bundle contains the Delta Lake jar, including one built with `-Pdelta`. Add Delta Lake with `--packages` and the coordinate from the table above, which also adds its `delta-storage` dependency. When `io.delta.sql.DeltaSparkSessionExtension` is not on the classpath, Gluten logs `Excluding runtime-incompatible component` and leaves its Delta support off. From code.
 
@@ -96,7 +96,7 @@ Native writes to HDFS, S3, GCS or ABFS paths need the native library built with 
 
 For example, on Spark 3.5:
 
-````
+```bash
 spark-shell \
   --packages io.delta:delta-spark_2.12:3.3.2 \
   --jars gluten-velox-bundle-spark3.5_2.12-<os>_<arch>-<version>.jar \
@@ -106,7 +106,7 @@ spark-shell \
   --conf spark.shuffle.manager=org.apache.spark.shuffle.sort.ColumnarShuffleManager \
   --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
   --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog
-````
+```
 
 On Spark 4.0 or 4.1, use the Gluten bundle and the Delta Lake jar for that version, and add `--conf spark.sql.ansi.enabled=false`.
 
@@ -114,9 +114,9 @@ On Spark 4.0 or 4.1, use the Gluten bundle and the Delta Lake jar for that versi
 
 Spark 4.0 and 4.1 turn ANSI mode on by default. With Gluten's default `spark.gluten.sql.ansiFallback.enabled=true`, every query then falls back, Delta scans and native writes included. From code. Turning ANSI mode off also changes Spark's own behavior for invalid input. For example, `CAST('a' AS INT)` returns NULL instead of failing.
 
-````
+```properties
 spark.sql.ansi.enabled=false
-````
+```
 
 Gluten's Delta tests run with ANSI mode off in CI. The nightly Delta Lake job turns ANSI mode off in the test setup that loads Gluten. That setup and some Gluten Delta suites also set `spark.gluten.sql.ansiFallback.enabled=false`. On Spark 3.x, turning ANSI mode on makes every query fall back in the same way. From code.
 
@@ -128,10 +128,10 @@ The following values show the Delta Lake support status:
 | Value          | Description                                                                |
 |----------------|----------------------------------------------------------------------------|
 | Offload        | Runs in the Velox backend. For writes, Velox writes the data files.       |
-| PartialOffload | Some operators run in Velox and the rest fall back                         |
-| Fallback       | Runs on Spark or Delta Lake                                                |
-| Exception      | Fails instead of falling back                                              |
-| ResultMismatch | Can return wrong results or write wrong files                              |
+| PartialOffload | Some operators run in Velox and the rest fall back.                        |
+| Fallback       | Runs on Spark or Delta Lake.                                               |
+| Exception      | Fails instead of falling back.                                             |
+| ResultMismatch | Can return wrong results or write wrong files.                             |
 
 Not tested: no test covers the case.<br>
 From code: the status comes from reading the source. No test that runs in CI checks it.<br>
@@ -147,44 +147,44 @@ Catalog operations run on the driver. From code.
 ## Creating a table
 Fallback
 
-````
+```sql
 CREATE TABLE t (id INT, name STRING) USING delta;
-````
+```
 
 A table created without `AS SELECT` is a metadata-only commit. There is nothing to offload. From code.
 
 Offload
 
-````
+```sql
 SET spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite=true;
 CREATE TABLE t2 USING delta AS SELECT * FROM t;
-````
+```
 
 With `spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite=true` on Spark 3.5 to 4.1, Velox writes the data files of `CREATE TABLE ... AS SELECT` and `REPLACE TABLE ... AS SELECT` when the target catalog is a DeltaCatalog. Seen on 4.1. On 3.5 and 4.0 this is from code. On Spark 4.x, also apply [ANSI mode on Spark 4.x](#ansi-mode-on-spark-4x).
 
 ## Writing
 PartialOffload
 
-````
+```sql
 INSERT INTO t SELECT id, name FROM source WHERE length(name) = 1;
-````
+```
 
 Delta's writer writes the files of `INSERT`, with or without native write. The `SELECT` can run in Velox. From code.
 
 Fallback
 
-````
+```sql
 INSERT INTO t VALUES (1, 'a'), (2, 'b'), (3, 'c');
-````
+```
 
 With the default `spark.gluten.sql.columnar.localTableScan=false`, the `VALUES` scan runs on Spark. Delta's writer writes the files. From code.
 
 Offload
 
-````
+```sql
 SET spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite=true;
 UPDATE t SET name = 'b' WHERE id = 2;
-````
+```
 
 On Spark 3.5 to 4.1, set `spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite=true` to have Velox write the data files of the commands marked Offload in [Write commands](#write-commands). Velox writes the files of this UPDATE. Seen on 4.1. On 3.5 and 4.0 this is from code. On Spark 4.x, also apply [ANSI mode on Spark 4.x](#ansi-mode-on-spark-4x).
 
@@ -194,10 +194,10 @@ Native write does not check the codec, the path scheme or the partition column t
 
 A command that Gluten wraps for native write shows a `GlutenDelta` node, for example `Execute GlutenDelta UpdateCommand` or `GlutenDelta AtomicCreateTableAsSelect`. Without the prefix, Delta's writer wrote the files.
 
-````
+```scala
 val df = spark.sql("UPDATE delta.`/data/t` SET name = 'bb' WHERE id = 2")
 df.queryExecution.executedPlan.treeString.contains("GlutenDelta ")
-````
+```
 
 The node also shows when Velox writes no data files. This happens for a DELETE that writes only deletion vectors or only metadata, and for a Spark 4.x write whose schema Velox cannot write, such as one with a VARIANT column. From code. For `DataFrameWriter` calls, read the command's plan from the Spark UI SQL tab or a `QueryExecutionListener`. Each write also reports a nested `deltaTransactionalWrite` execution for the query that feeds it. That plan never has the prefix, whichever writer ran. From code.
 
@@ -245,11 +245,11 @@ Offload/Fallback
 | Change data feed, no deletion vectors in range | Offload. PartialOffload when the table allows deletion vectors and the range has `_change_data` files, because those scans then fall back (from code). | Offload |
 | Change data feed, deletion vectors in range | Fallback, PartialOffload when a file scan inside Delta's change data feed scan reads no files with deletion vectors and no `_change_data` files (from code) | Fallback, PartialOffload when a file scan inside Delta's change data feed scan reads no files with deletion vectors (from code) |
 
-````
+```sql
 SELECT count(1) AS count, name
 FROM t
 GROUP BY name;
-````
+```
 
 Reads need no Gluten option. With `spark.sql.adaptive.enabled=false`, `EXPLAIN` shows the native scan as `FileDeltaScanTransformer` and `EXPLAIN FORMATTED` shows `DeltaScanTransformer`. With AQE on, the default, `EXPLAIN` and `EXPLAIN FORMATTED` of a query with a shuffle, such as this one, print the plan from before Gluten offloads it. The Spark UI plan graph of a finished query shows `DeltaScanTransformer`. Delta prunes partitions and skips files by statistics while it plans the query, before the scan runs.
 
@@ -264,22 +264,22 @@ Reads need no Gluten option. With `spark.sql.adaptive.enabled=false`, `EXPLAIN` 
 ### Deletion vectors
 Offload
 
-````
+```sql
 OPTIMIZE t;
 ALTER TABLE t SET TBLPROPERTIES ('delta.enableDeletionVectors' = true);
 DELETE FROM t WHERE id IN (3, 4);
 SELECT * FROM t;
-````
+```
 
 On Spark 3.5 to 4.1, Velox drops the deleted rows in the scan. This needs Delta's `spark.databricks.delta.deletionVectors.useMetadataRowIndex=true`, the default. The DML target scan, which finds the rows for new deletion vectors, also runs in Velox. Gluten tests check the scan on Spark 3.5 to 4.1 and the DML target scan on Spark 3.5 and 4.0. Delta writes the deletion-vector files.
 
 Fallback
 
-````
+```sql
 SET spark.databricks.delta.deletionVectors.useMetadataRowIndex=false;
 SELECT * FROM t;
 RESET spark.databricks.delta.deletionVectors.useMetadataRowIndex;
-````
+```
 
 | Case | Behavior |
 |---|---|
@@ -293,7 +293,7 @@ The fallback reasons show in [Gluten UI](GlutenUI.md).
 ### Change data feed
 Offload
 
-````
+```sql
 CREATE TABLE c (id INT, name STRING) USING delta
   TBLPROPERTIES ('delta.enableChangeDataFeed' = true);
 INSERT INTO c VALUES (1, 'a'), (2, 'b');
@@ -301,35 +301,35 @@ UPDATE c SET name = 'bb' WHERE id = 2;
 SELECT id, name, _change_type, _commit_version
 FROM table_changes('c', 1)
 WHERE id = 2;
-````
+```
 
 Gluten expands a batch change data feed read into Delta file scans that run in Velox with the filters pushed down. Delta also adds an empty placeholder scan to the plan. That scan falls back when the table schema has a MAP at any nesting level (from code). If the expansion fails, Gluten logs a warning and the read uses Delta's change data feed scan. From code.
 
 PartialOffload
 
-````
+```sql
 SET spark.gluten.sql.columnar.backend.velox.delta.enableChangeDataFeedScan=false;
 SELECT * FROM table_changes('c', 1);
-````
+```
 
 A read whose version range adds or removes a file with a deletion vector uses Delta's change data feed scan. Insert-only ranges of a table with deletion vectors enabled still run in Velox. With `spark.gluten.sql.columnar.backend.velox.delta.enableChangeDataFeedScan=false`, every batch change data feed read uses Delta's scan. Delta's scan reads the data files in a query of its own that Gluten also plans, and `EXPLAIN` does not show it (from code). That query's file scans can run in Velox, except scans of added or removed files that have deletion vectors and, on Spark 3.4, scans of `_change_data` files when the table allows deletion vectors (from code). Streaming change data feed reads ignore this option. They run as Delta file scans. A scan whose files have deletion vectors falls back, and on Spark 3.4 so does a scan of `_change_data` files when the table allows deletion vectors (from code).
 
 ### Read metadata
 Offload
 
-````
+```sql
 SELECT id, _metadata.file_path, _metadata.row_index
 FROM t
 WHERE _metadata.row_index = 2;
-````
+```
 
 The native scan fills the `_metadata` file fields and `input_file_name()` (from code), and `_metadata.row_index`. On Spark 3.5 to 4.1, Delta Lake exposes `_metadata.row_index` only on tables that allow deletion vectors or have row tracking, so the example needs `t` from [Deletion vectors](#deletion-vectors) (from code). A query that selects only `_metadata.file_name` can fail when the table has a BIGINT data column named `file_name` (seen on 4.1, see [Read problems](#read-problems)). Gluten tests check `_metadata.row_index` in the native scan on Spark 3.5 and 4.0, and Delta Lake tests that read it pass (seen on 4.1). Spark 3.4 is not tested. On row-tracking tables, `_metadata.row_id` and `_metadata.row_commit_version` are read natively (from code). In the nightly job, they return correct values except in the cases in [Read problems](#read-problems) (seen on 4.1).
 
 Fallback
 
-````
+```sql
 DESCRIBE HISTORY t;
-````
+```
 
 `DESCRIBE HISTORY` reads each commit file on Spark, through Delta's LogStore in a `mapPartitions` job. When Delta replays the log for a snapshot, every scan under `_delta_log`, checkpoints included, stays on Spark with the reason `fallback Delta _delta_log scan`. From code.
 
@@ -434,7 +434,7 @@ The `mergeSchema` and `overwriteSchema` rows need native write on Spark 3.5 to 4
 | Problem | Status | Versions | Issue |
 |---|---|---|---|
 | A column default stored as `EXISTS_DEFAULT` metadata, for example after `CONVERT TO DELTA`, reads as NULL for rows in files without that column. | ResultMismatch | Seen on 4.1. #11494 reports the same bug for plain Parquet on 3.4 to 4.1. | [#11494](https://github.com/apache/gluten/issues/11494) |
-| In column mapping id mode, when field IDs no longer match the Parquet column names, Gluten returns the column with the matching physical name. Delta Lake returns NULL when no file column has that ID (seen on 4.1). It returns the column the ID points to when another column has it (from code). | ResultMismatch | 3.4 to 4.1. Seen on 4.1 for the NULL case, from code otherwise | [#12241](https://github.com/apache/gluten/issues/12241) |
+| In column mapping id mode, when field IDs no longer match the Parquet column names, Gluten returns the column with the matching physical name. Delta Lake returns NULL when no file column has that ID (seen on 4.1). It returns the column the ID points to when another column has it (from code). | ResultMismatch | 3.4 to 4.1. Seen on 4.1 for the NULL case, from code otherwise. | [#12241](https://github.com/apache/gluten/issues/12241) |
 | On a TIMESTAMP-partitioned table with six partition values from .1 to .123456 seconds, `count(DISTINCT ts)` returns 3, as if the values were truncated to milliseconds. Equality filters on the column still return the right rows. | ResultMismatch | Seen on 4.1 | |
 | Reading a data column widened from DATE to TIMESTAMP_NTZ fails on files written before the change with `Converted type DATE is not allowed for requested type TIMESTAMP UTC`. A partition column widened the same way reads correctly. | Exception | Seen on 4.1 | |
 | A query that selects only `_metadata.file_name` from a table with a BIGINT data column named `file_name` reads the data column and fails with `Converted type BIGINT is not allowed for requested type VARCHAR`. | Exception | Seen on 4.1 | |
@@ -574,11 +574,11 @@ A blank cell means unknown.
 | readChangeFeed | false | Read the change data feed. Ranges with deletion vectors fall back. | ⚠️ |
 | startingVersion, endingVersion | (none) | Change data feed version range. `startingVersion` also applies to streaming reads. | ✅ |
 | startingTimestamp, endingTimestamp | (none) | Change data feed timestamp range. `startingTimestamp` also applies to streaming reads. Seen on 4.1. | ✅ |
-| maxFilesPerTrigger | 1000 | Streaming: files per micro-batch | 🚫 |
-| maxBytesPerTrigger | (unset) | Streaming: bytes per micro-batch | 🚫 |
-| ignoreDeletes, ignoreChanges, skipChangeCommits | false | Streaming: how to treat commits that remove data | 🚫 |
-| excludeRegex | (none) | Streaming: skip files whose path matches | 🚫 |
-| failOnDataLoss | true | Streaming: fail when Delta log files the stream needs are missing | 🚫 |
+| maxFilesPerTrigger | 1000 | Streaming: files per micro-batch. | 🚫 |
+| maxBytesPerTrigger | (unset) | Streaming: bytes per micro-batch. | 🚫 |
+| ignoreDeletes, ignoreChanges, skipChangeCommits | false | Streaming: how to treat commits that remove data. | 🚫 |
+| excludeRegex | (none) | Streaming: skip files whose path matches. | 🚫 |
+| failOnDataLoss | true | Streaming: fail when Delta log files the stream needs are missing. | 🚫 |
 | allowSourceColumnDrop, allowSourceColumnRename, allowSourceColumnTypeChange | (unset) | Streaming schema tracking. Delta Lake 4.0.1 and 4.1.0. | 🚫 |
 
 #### Write options
