@@ -24,10 +24,13 @@ import org.scalactic.source.Position
 import org.scalatest.Tag
 import org.scalatest.funsuite.AnyFunSuiteLike
 
+import java.io.File
+
 trait GlutenTestsBaseTrait extends AnyFunSuiteLike {
 
   protected val rootPath: String = getClass.getResource("/").getPath
-  protected val basePath: String = rootPath + "unit-tests-working-home"
+  protected val basePath: String =
+    new File(sys.props.getOrElse("gluten.test.dir", rootPath), "unit-tests-working-home").getPath
 
   protected val warehouse: String = basePath + "/spark-warehouse"
   protected val metaStorePathAbsolute: String = basePath + "/meta"

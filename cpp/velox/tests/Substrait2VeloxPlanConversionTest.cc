@@ -59,11 +59,12 @@ class Substrait2VeloxPlanConversionTest : public exec::test::HiveConnectorTestBa
       auto path = fmt::format("{}{}", tmpDir_->getPath(), paths[i]);
       auto start = starts[i];
       auto length = lengths[i];
-      auto split = facebook::velox::exec::test::HiveConnectorSplitBuilder(path)
-                       .fileFormat(fileFormat)
-                       .start(start)
-                       .length(length)
-                       .build();
+      facebook::velox::exec::test::HiveConnectorSplitBuilder splitBuilder(path);
+      splitBuilder.fileFormat(fileFormat).start(start).length(length);
+      if (splitInfo->columnMappingMode.has_value()) {
+        splitBuilder.columnMappingMode(*splitInfo->columnMappingMode);
+      }
+      auto split = splitBuilder.build();
       splits.emplace_back(split);
     }
     return splits;

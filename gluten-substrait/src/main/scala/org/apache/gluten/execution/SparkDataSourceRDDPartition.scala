@@ -20,8 +20,9 @@ import org.apache.spark.Partition
 import org.apache.spark.sql.connector.read.InputPartition
 
 /**
- * Copy from spark's [[org.apache.spark.sql.execution.datasources.v2.DataSourceRDDPartition]] to
- * make compatible with spark3.3 and before.
+ * A variant of spark's [[org.apache.spark.sql.execution.datasources.v2.DataSourceRDDPartition]]
+ * that holds the several input partitions Gluten groups into one split, and reports their combined
+ * preferred locations.
  */
 class SparkDataSourceRDDPartition(val index: Int, val inputPartitions: Seq[InputPartition])
   extends Partition

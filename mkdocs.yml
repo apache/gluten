@@ -58,6 +58,7 @@ nav:
   - Substrait Modifications: developers/SubstraitModifications.md
   - Micro Benchmarks: developers/MicroBenchmarks.md
   - Velox UDF and UDAF: developers/VeloxUDF.md
+  - Updating the Function Support Docs: developers/UpdateFunctionSupportDocs.md
   - Velox Function Development: developers/velox-function-development-guide.md
   - Velox Backend CI: developers/velox-backend-CI.md
   - Build in Docker: developers/velox-backend-build-in-docker.md

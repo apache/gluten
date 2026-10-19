@@ -25,6 +25,7 @@ import org.apache.gluten.sql.shims.{DeltaShimLoader, SparkShimLoader}
 import org.apache.gluten.substrait.plan.PlanNode
 import org.apache.gluten.substrait.rel._
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
+import org.apache.gluten.utils.FileMetadataUtil
 import org.apache.gluten.vectorized.{BatchIterator, CHNativeExpressionEvaluator, CloseableCHColumnBatchIterator}
 
 import org.apache.spark.{InterruptibleIterator, Partition, SparkConf, TaskContext}
@@ -175,7 +176,7 @@ class CHIteratorApi extends IteratorApi with Logging with LogLevelUtil {
             lengths.add(JLong.valueOf(file.length))
             val metadataColumn =
               if (needMetadataColumns) {
-                SparkShimLoader.getSparkShims
+                FileMetadataUtil
                   .generateMetadataColumns(file, metadataColumnNames)
                   .asJava
               } else {

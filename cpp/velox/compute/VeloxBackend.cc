@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <algorithm>
 #include <filesystem>
 
 #include "VeloxBackend.h"
@@ -51,6 +52,7 @@
 #include "shuffle/ArrowShuffleDictionaryWriter.h"
 #include "udf/UdfLoader.h"
 #include "utils/Exception.h"
+#include "utils/VeloxWriterUtils.h"
 #include "velox/common/caching/SsdCache.h"
 #include "velox/common/file/FileSystems.h"
 #include "velox/connectors/hive/BufferedInputBuilder.h"
@@ -63,7 +65,6 @@
 #include "velox/connectors/hive/storage_adapters/hdfs/RegisterHdfsFileSystem.h" // @manual
 #include "velox/dwio/orc/reader/OrcReader.h"
 #include "velox/dwio/parquet/RegisterParquetReader.h"
-#include "velox/dwio/parquet/RegisterParquetWriter.h"
 #include "velox/serializers/PrestoSerializer.h"
 
 DECLARE_bool(velox_exception_user_stacktrace_enabled);
@@ -254,11 +255,15 @@ void VeloxBackend::init(
         std::make_unique<folly::CPUThreadPoolExecutor>(ioThreads, folly::CPUThreadPoolExecutor::makeLifoSemQueue());
   }
 
+  const auto broadcastHashTableBuildThreads =
+      std::max<int32_t>(1, backendConf_->get<int32_t>(kBroadcastHashTableBuildThreads, numTaskSlotsPerExecutor));
+  broadcastHashTableBuildExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(broadcastHashTableBuildThreads);
+
   initJolFilesystem();
 
   velox::dwio::common::registerFileSinks();
   velox::parquet::registerParquetReaderFactory();
-  velox::parquet::registerParquetWriterFactory();
+  velox::dwio::common::registerWriterFactory(std::make_shared<GlutenParquetWriterFactory>());
   velox::orc::registerOrcReaderFactory();
   velox::exec::ExprToSubfieldFilterParser::registerParser(std::make_unique<SparkExprToSubfieldFilterParser>(
       backendConf_->get<bool>(kScanBloomFilterPushdownEnabled, kScanBloomFilterPushdownEnabledDefault)));
@@ -472,6 +477,7 @@ void VeloxBackend::tearDown() {
   spillExecutor_.reset();
   ioExecutor_.reset();
   ssdCacheExecutor_.reset();
+  broadcastHashTableBuildExecutor_.reset();
   globalMemoryManager_.reset();
 
   // dump cache stats on exit if enabled

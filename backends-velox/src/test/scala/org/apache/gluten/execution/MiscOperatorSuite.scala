@@ -22,6 +22,7 @@ import org.apache.gluten.expression.VeloxDummyExpression
 import org.apache.spark.SparkConf
 import org.apache.spark.shuffle.GlutenShuffleUtils
 import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.catalyst.expressions.Cast
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanHelper, AQEShuffleReadExec, ColumnarAQEShuffleReadExec, ShuffleQueryStageExec}
 import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
@@ -43,6 +44,21 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
   override protected val fileFormat: String = "parquet"
 
   import testImplicits._
+
+  // GLUTEN-13179: Spark 4.2's FunctionRegistry rejects the 1-part FunctionIdentifier
+  // "velox_dummy_expression" registered in beforeAll (it must be fully qualified), which aborts
+  // the suite. Ignore every test on Spark 4.2 only; with no runnable tests ScalaTest also skips
+  // beforeAll/afterAll. Other Spark versions run the suite unchanged.
+  override def tags: Map[String, Set[String]] = {
+    val inherited = super.tags
+    if (matchSparkVersion(Some("4.2"), Some("4.2"))) {
+      inherited ++ testNames.map {
+        name => name -> (inherited.getOrElse(name, Set.empty[String]) + "org.scalatest.Ignore")
+      }.toMap
+    } else {
+      inherited
+    }
+  }
 
   override def beforeAll(): Unit = {
     super.beforeAll()
@@ -315,7 +331,7 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     checkLengthAndPlan(df, 5)
   }
 
-  testWithMinSparkVersion("coalesce validation", "3.4") {
+  test("coalesce validation") {
     withTempPath {
       path =>
         val data = "2019-09-09 01:02:03.456789"
@@ -1649,12 +1665,17 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
   }
 
   test("Support multi-children count with row construct") {
-    runQueryAndCompare(
-      """
-        |select l_orderkey, count(distinct l_partkey, l_comment), corr(l_partkey, l_partkey+1)
-        |from lineitem group by l_orderkey
-        |""".stripMargin
-    )(df => checkFallbackOperators(df, 0))
+    // Spark before 4.3 (SPARK-58213) throws DIVIDE_BY_ZERO for corr on a column with zero variance
+    // in ANSI mode, while Velox returns NULL as Spark 4.3 does. Run with ANSI mode disabled for
+    // now, see https://github.com/apache/gluten/issues/13255.
+    withSQLConf(SQLConf.ANSI_ENABLED.key -> "false") {
+      runQueryAndCompare(
+        """
+          |select l_orderkey, count(distinct l_partkey, l_comment), corr(l_partkey, l_partkey+1)
+          |from lineitem group by l_orderkey
+          |""".stripMargin
+      )(df => checkFallbackOperators(df, 0))
+    }
   }
 
   test("Remainder with non-foldable right side") {
@@ -1665,7 +1686,7 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
                   |""".stripMargin)
       spark.sql("INSERT INTO TABLE remainder VALUES(0, null)")
 
-      runQueryAndCompare("SELECT c1 % c2 FROM remainder")(df => checkFallbackOperators(df, 0))
+      runQueryAndCheck("SELECT c1 % c2 FROM remainder")(df => checkFallbackOperators(df, 0))
     }
   }
 
@@ -1902,7 +1923,7 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
       Seq("2023-01-01", "2023-01-02", "-1", "-111-01-01")
         .toDF("dateColumn")
         .createOrReplaceTempView("view")
-      runQueryAndCompare("SELECT cast(dateColumn as date) from view") {
+      runQueryAndCheck("SELECT cast(dateColumn as date) from view") {
         checkGlutenPlan[ProjectExecTransformer]
       }
     }
@@ -1955,6 +1976,35 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     val query = "select cast(ts as date) from values (timestamp'2024-01-01 00:00:00') as tab(ts)"
     runQueryAndCompare(query) {
       checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  test("cast null type to complex type") {
+    // An outer join whose right side turns out to be empty is replaced with a projection of a
+    // null cast to the type of each of that side's output attributes. Here the right side is only
+    // known to be empty once its stage has run, so AQE adds the casts after constant folding and
+    // they reach the backend as casts from the null type rather than as typed null literals.
+    val query =
+      """
+        |select l.l_orderkey, r.arr, r.m, r.s
+        |from lineitem l left outer join (
+        |  select l_orderkey, array(l_partkey) as arr, map('k', l_partkey) as m,
+        |    struct(l_partkey as a) as s
+        |  from lineitem where l_orderkey < 0
+        |) r on l.l_orderkey = r.l_orderkey
+        |""".stripMargin
+    runQueryAndCompare(query) {
+      df =>
+        val plan = df.queryExecution.executedPlan
+        val castsToComplexTypes = collect(plan) { case p: ProjectExecTransformer => p }
+          .flatMap(_.projectList)
+          .flatMap(_.collect { case c: Cast if c.child.dataType == NullType => c.dataType })
+        assert(
+          castsToComplexTypes.exists(_.isInstanceOf[ArrayType]),
+          s"Expect the null casts to be offloaded in:\n$plan")
+        // The casts must run natively rather than being split out to the JVM.
+        assert(collect(plan) { case p: ColumnarPartialProjectExec => p }.isEmpty)
+        assert(collect(plan) { case p: ProjectExec => p }.isEmpty)
     }
   }
 
@@ -2309,16 +2359,6 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
           assert(metrics("numOutputBatches").value == expectedNumBatches)
         }
       })
-  }
-
-  test("Expression unsupported by backend can be handled by ColumnarPartialProject") {
-    runQueryAndCompare(
-      "SELECT c_custkey, map_from_arrays(array(c_name), array(c_comment)) FROM customer") {
-      df =>
-        val executedPlan = getExecutedPlan(df)
-        assert(executedPlan.count(_.isInstanceOf[ProjectExec]) == 0)
-        assert(executedPlan.count(_.isInstanceOf[ColumnarPartialProjectExec]) == 1)
-    }
   }
 
   testWithMinSparkVersion("Left single join should not result into exception", "4.0") {

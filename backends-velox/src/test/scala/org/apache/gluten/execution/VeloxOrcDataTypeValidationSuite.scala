@@ -429,11 +429,7 @@ class VeloxOrcDataTypeValidationSuite extends VeloxWholeStageTransformerSuite {
         " type2 where type1.struct.struct_1 = type2.struct.struct_1") { _ => }
   }
 
-  // TODO: Re-enable once Velox implements HugeintValuesUsingHashTable::mergeWith.
-  // The hash join on decimal(38, 18) pushes a hugeint dynamic filter into the scan
-  // (velox#18159), and merging it with the existing IsNotNull filter throws
-  // "mergeWith() is not supported".
-  ignore("Decimal type") {
+  test("Decimal type") {
     // Validation: BatchScan Project Aggregate Expand Sort Limit
     runQueryAndCompare(
       "select int, decimal from type1 " +
@@ -465,16 +461,25 @@ class VeloxOrcDataTypeValidationSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
-  ignore("Velox Parquet Write") {
+  test("Velox Parquet Write") {
     withSQLConf((GlutenConfig.NATIVE_WRITER_ENABLED.key, "true")) {
       withTempDir {
         dir =>
-          val write_path = dir.toURI.getPath
-          val data_path = getClass.getResource("/").getPath + "/data-type-validation-data/type1"
-          val df = spark.read.format("parquet").load(data_path)
-          df.write.mode("append").format("parquet").save(write_path)
+          val writePath = dir.toURI.getPath
+          val dataPath = getClass.getResource("/").getPath + "/data-type-validation-data/type1"
+          // Velox native write doesn't support Complex type.
+          val df = spark.read
+            .format("parquet")
+            .load(dataPath)
+            .drop("array")
+            .drop("struct")
+            .drop("map")
+          df.write.mode("append").format("parquet").save(writePath)
+          val parquetDf = spark.read
+            .format("parquet")
+            .load(writePath)
+          checkAnswer(parquetDf, df)
       }
     }
-
   }
 }

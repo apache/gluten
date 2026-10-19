@@ -18,11 +18,11 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.columnarbatch.{ColumnarBatches, VeloxColumnarBatches}
+import org.apache.gluten.expression.ExpressionUtils
 import org.apache.gluten.expression.InterpretedArrowGenerate
 import org.apache.gluten.extension.columnar.transition.Convention
 import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
-import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.vectorized.{ArrowColumnarBatch, ArrowColumnarRow, ArrowWritableColumnVector}
 
 import org.apache.spark.rdd.RDD
@@ -61,7 +61,7 @@ case class ColumnarPartialGenerateExec(generateExec: GenerateExec, child: SparkP
   private var hasUnsupportedDataType = false
 
   private val rightSchema =
-    SparkShimLoader.getSparkShims.structFromAttributes(generateExec.generatorOutput)
+    ExpressionUtils.structFromAttributes(generateExec.generatorOutput)
 
   getColumnIndexInChildOutput(
     pruneChildAttributes,

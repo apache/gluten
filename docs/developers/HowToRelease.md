@@ -74,7 +74,7 @@ being added to `NOTICE-binary`.
 
 ```bash
 # Requires the `regex` Python package: pip install regex
-python3 dev/check.py header main
+python3 .github/workflows/util/check.py header main
 ```
 
 Reviewers also run [Apache RAT](https://creadur.apache.org/rat/) against the source archive. Note
@@ -91,8 +91,8 @@ Pull and download the build environment docker image. The docker image is period
 built and uploaded to DockerHub by scheduled GitHub Actions jobs.
 
 ```bash
-docker pull apache/gluten:vcpkg-centos-7-gcc13
-docker run -it apache/gluten:vcpkg-centos-7-gcc13 bash
+docker pull apache/gluten:vcpkg-almalinux-8-gcc13
+docker run -it apache/gluten:vcpkg-almalinux-8-gcc13 bash
 ```
 
 ### Clone the repository
@@ -132,11 +132,10 @@ mkdir -p release
 cp -R package/target/* release/
 ```
 
-The directory should end up holding these five JARs, matching the Spark and Scala combinations
+The directory should end up holding these four JARs, matching the Spark and Scala combinations
 `package-release.sh` expects:
 
 ```
-gluten-velox-bundle-spark3.3_2.12-linux_amd64-1.7.0.jar
 gluten-velox-bundle-spark3.4_2.12-linux_amd64-1.7.0.jar
 gluten-velox-bundle-spark3.5_2.12-linux_amd64-1.7.0.jar
 gluten-velox-bundle-spark4.0_2.13-linux_amd64-1.7.0.jar
@@ -168,7 +167,6 @@ ls -1 release/*.tar.gz
 
 ```
 release/apache-gluten-1.7.0-src.tar.gz
-release/apache-gluten-1.7.0-bin-spark-3.3.tar.gz
 release/apache-gluten-1.7.0-bin-spark-3.4.tar.gz
 release/apache-gluten-1.7.0-bin-spark-3.5.tar.gz
 release/apache-gluten-1.7.0-bin-spark-4.0.tar.gz
@@ -349,7 +347,6 @@ one binary archive per supported Spark version, each with its `.asc` and `.sha51
 
 ```
 apache-gluten-1.7.0-src.tar.gz{,.asc,.sha512}
-apache-gluten-1.7.0-bin-spark-3.3.tar.gz{,.asc,.sha512}
 apache-gluten-1.7.0-bin-spark-3.4.tar.gz{,.asc,.sha512}
 apache-gluten-1.7.0-bin-spark-3.5.tar.gz{,.asc,.sha512}
 apache-gluten-1.7.0-bin-spark-4.0.tar.gz{,.asc,.sha512}

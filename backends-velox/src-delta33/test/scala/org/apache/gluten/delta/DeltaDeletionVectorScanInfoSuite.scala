@@ -27,6 +27,7 @@ import org.apache.spark.sql.delta.{DeltaLog, GlutenDeltaParquetFileFormat}
 import org.apache.spark.sql.delta.actions.DeletionVectorDescriptor
 import org.apache.spark.sql.delta.catalog.DeltaCatalog
 import org.apache.spark.sql.delta.test.DeltaSQLTestUtils
+import org.apache.spark.sql.delta.util.DeltaFileOperations
 import org.apache.spark.sql.execution.datasources.PartitionedFile
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
@@ -239,6 +240,64 @@ class DeltaDeletionVectorScanInfoSuite
     DeltaDeletionVectorScanInfo.normalize(Seq(partitionedFile), tablePath).get._2.head
   }
 
+  test("normalize uses current AddFile when split DV metadata is stale") {
+    withTempDir {
+      tempDir =>
+        val tablePath = new Path(tempDir.getCanonicalPath, "spark%dir%prefix")
+        Seq((1, "a"), (2, "b"), (3, "c"), (4, "d"))
+          .toDF("id", "value")
+          .coalesce(1)
+          .write
+          .format("delta")
+          .save(tablePath.toString)
+
+        spark.sql(
+          s"ALTER TABLE delta.`$tablePath` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
+        spark.sql(s"DELETE FROM delta.`$tablePath` WHERE id = 4")
+        val staleFile = DeltaLog
+          .forTable(spark, tablePath)
+          .update()
+          .allFiles
+          .collect()
+          .find(_.deletionVector != null)
+          .get
+        val partitionedFile = partitionedFileWithMetadata(
+          tablePath.toString,
+          staleFile.path,
+          staleFile.size,
+          Map(
+            GlutenDeltaParquetFileFormat.FILE_ROW_INDEX_FILTER_ID_ENCODED ->
+              staleFile.deletionVector.serializeToBase64(),
+            GlutenDeltaParquetFileFormat.FILE_ROW_INDEX_FILTER_TYPE -> "IF_CONTAINED",
+            "kept_key" -> "kept_value"
+          )
+        )
+
+        spark.sql(s"DELETE FROM delta.`$tablePath` WHERE id = 3")
+        val currentFile = DeltaLog
+          .forTable(spark, tablePath)
+          .update()
+          .allFiles
+          .collect()
+          .find(_.path == staleFile.path)
+          .get
+        assert(currentFile.deletionVector.cardinality > staleFile.deletionVector.cardinality)
+
+        val addFileLookup = DeltaDeletionVectorScanInfo
+          .buildAddFileLookup(tablePath, Seq(currentFile))
+        val result = DeltaDeletionVectorScanInfo.normalizeFromAddFiles(
+          Seq(partitionedFile),
+          tablePath,
+          addFileLookup)
+        assert(result.isDefined)
+        val (metadata, options) = result.get
+        assert(metadata.head.size() == 1)
+        assert(metadata.head.get("kept_key") == "kept_value")
+        assert(
+          options.head.deletionVectorCardinality == currentFile.deletionVector.cardinality)
+    }
+  }
+
   override protected def partitionedFileWithMetadata(
       tablePath: String,
       relativeFilePath: String,
@@ -246,7 +305,8 @@ class DeltaDeletionVectorScanInfoSuite
       metadata: Map[String, Object]): PartitionedFile = {
     PartitionedFile(
       partitionValues = InternalRow.empty,
-      filePath = SparkPath.fromPath(new Path(tablePath, relativeFilePath)),
+      filePath = SparkPath.fromPath(
+        DeltaFileOperations.absolutePath(tablePath, relativeFilePath)),
       start = 0L,
       length = fileSize,
       fileSize = fileSize,

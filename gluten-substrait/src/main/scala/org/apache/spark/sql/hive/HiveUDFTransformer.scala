@@ -26,7 +26,7 @@ import java.util.Locale
 object HiveUDFTransformer {
   def isHiveUDF(expr: Expression): Boolean = {
     expr match {
-      case _: HiveSimpleUDF | _: HiveGenericUDF => true
+      case _: HiveSimpleUDF | _: HiveGenericUDF | _: HiveGenericUDTF => true
       case _ => false
     }
   }
@@ -36,6 +36,8 @@ object HiveUDFTransformer {
       (s.name.stripPrefix("default."), s.funcWrapper.functionClassName)
     case g: HiveGenericUDF =>
       (g.name.stripPrefix("default."), g.funcWrapper.functionClassName)
+    case t: HiveGenericUDTF =>
+      (t.name.stripPrefix("default."), t.funcWrapper.functionClassName)
     case _ =>
       throw new GlutenNotSupportException(
         s"Expression $expr is not a HiveSimpleUDF or HiveGenericUDF")

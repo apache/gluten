@@ -24,6 +24,18 @@ import org.scalatest.funsuite.AnyFunSuiteLike
 
 class SparkConfigUtilSuite extends AnyFunSuiteLike {
 
+  private object TestMode extends Enumeration {
+    val FIRST, LAST = Value
+  }
+
+  private object TestConfigs extends ConfigRegistry {
+    val mode = buildConf("spark.gluten.test.enum.mode")
+      .enumConf(TestMode)
+      .createWithDefault(TestMode.FIRST)
+
+    override def get: GlutenCoreConfig = GlutenCoreConfig.get
+  }
+
   test("SparkConfigUtil.get and set methods") {
     val conf = new SparkConf()
     conf.set(GlutenConfig.SHUFFLE_WRITER_BUFFER_SIZE, Some(1024 * 1024))
@@ -42,5 +54,25 @@ class SparkConfigUtilSuite extends AnyFunSuiteLike {
     assert(SparkConfigUtil.get(conf, GlutenConfig.TEXT_INPUT_ROW_MAX_BLOCK_SIZE) === 8L * 1024)
     assert(SparkConfigUtil.get(conf, GlutenConfig.SHUFFLE_WRITER_BUFFER_SIZE) === Some(1024 * 1024))
     assert(SparkConfigUtil.get(conf, GlutenConfig.GLUTEN_LOAD_LIB_OS).isEmpty)
+  }
+
+  test("enum config through SQLConf") {
+    val conf = new SQLConf
+    val glutenConf = new GlutenCoreConfig(conf)
+    val entry = TestConfigs.mode
+
+    assert(glutenConf.getConf(entry) == TestMode.FIRST)
+    TestMode.values.foreach {
+      mode =>
+        conf.setConfString(entry.key, mode.toString.toLowerCase(java.util.Locale.ROOT))
+        assert(glutenConf.getConf(entry) == mode)
+    }
+    conf.unsetConf(entry.key)
+    assert(glutenConf.getConf(entry) == TestMode.FIRST)
+
+    val error = intercept[IllegalArgumentException] {
+      conf.setConfString(entry.key, "invalid")
+    }
+    assert(error.getMessage.contains(entry.key))
   }
 }

@@ -78,6 +78,7 @@ object MetricsUtil extends Logging {
     metrics.flushRowCount = customMetricSum(node, "flushRowCount")
     metrics.abandonedPartialAggregationRows =
       customMetricSum(node, "abandonedPartialAggregationRows")
+    metrics.toIntermediateFastPathCalls = customMetricSum(node, "toIntermediateFastPathCalls")
     metrics.loadedToValueHook = customMetricSum(node, "loadedToValueHook")
     metrics.bloomFilterBlocksByteSize = customMetricSum(node, "bloomFilterSize")
     metrics.bloomFilterTestedRows = customMetricSum(node, "bloomFilterTestedRows")
@@ -241,6 +242,7 @@ object MetricsUtil extends Logging {
     var numDynamicFilterInputRows: Long = 0
     var flushRowCount: Long = 0
     var abandonedPartialAggregationRows: Long = 0
+    var toIntermediateFastPathCalls: Long = 0
     var loadedToValueHook: Long = 0
     var bloomFilterBlocksByteSize: Long = 0
     var bloomFilterTestedRows: Long = 0
@@ -282,6 +284,7 @@ object MetricsUtil extends Logging {
       numDynamicFilterInputRows += metrics.numDynamicFilterInputRows
       flushRowCount += metrics.flushRowCount
       abandonedPartialAggregationRows += metrics.abandonedPartialAggregationRows
+      toIntermediateFastPathCalls += metrics.toIntermediateFastPathCalls
       loadedToValueHook += metrics.loadedToValueHook
       bloomFilterBlocksByteSize += metrics.bloomFilterBlocksByteSize
       bloomFilterTestedRows += metrics.bloomFilterTestedRows
@@ -330,6 +333,7 @@ object MetricsUtil extends Logging {
       numDynamicFilterInputRows,
       flushRowCount,
       abandonedPartialAggregationRows,
+      toIntermediateFastPathCalls,
       loadedToValueHook,
       bloomFilterBlocksByteSize,
       scanTime,

@@ -17,10 +17,12 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.execution.IcebergScanTransformer.{containsMetadataColumn, containsUuidOrFixedType}
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.rel.{LocalFilesNode, SplitInfo}
+import org.apache.gluten.substrait.rel.LocalFilesNode.ColumnMappingMode
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.Partition
@@ -85,6 +87,11 @@ case class IcebergScanTransformer(
   }
 
   override def doValidateInternal(): ValidationResult = {
+    if (GlutenIcebergSourceUtil.hasVendedCredentials(scan)) {
+      return ValidationResult.failed(
+        "Iceberg scan uses catalog-vended credentials, which native readers do not support")
+    }
+
     val validationResult = super.doValidateInternal()
     if (!validationResult.ok()) {
       return validationResult
@@ -192,8 +199,12 @@ case class IcebergScanTransformer(
 
   override def getDataSchema: StructType = new StructType()
 
-  // TODO: get root paths from table.
-  override def getRootPathsInternal: Seq[String] = Seq.empty
+  private lazy val fileFormatAndRootPaths: (ReadFileFormat, Seq[String]) =
+    GlutenIcebergSourceUtil.getFileFormatAndRootPaths(
+      scan,
+      collectRootPaths = GlutenConfig.get.scanFileSchemeValidationEnabled)
+
+  override def getRootPathsInternal: Seq[String] = fileFormatAndRootPaths._2
 
   private lazy val readSchemaFields =
     scan.readSchema().fieldNames.map(_.toLowerCase(Locale.ROOT)).toSet
@@ -212,16 +223,20 @@ case class IcebergScanTransformer(
     metadataColumns ++ extraMetadataColumns
   }
 
-  override lazy val fileFormat: ReadFileFormat = GlutenIcebergSourceUtil.getFileFormat(scan)
+  override lazy val fileFormat: ReadFileFormat = fileFormatAndRootPaths._1
 
   override def getSplitInfosFromPartitions(
       partitions: Seq[(Partition, ReadFileFormat)]): Seq[SplitInfo] = {
     val metadataColumnNames = getMetadataColumns().map(_.name)
-    partitions.map { case (partition, _) => partitionToSplitInfo(partition, metadataColumnNames) }
+    partitions.map {
+      case (partition, readFileFormat) =>
+        partitionToSplitInfo(partition, readFileFormat, metadataColumnNames)
+    }
   }
 
   private def partitionToSplitInfo(
       partition: Partition,
+      readFileFormat: ReadFileFormat,
       metadataColumnNames: Seq[String]): SplitInfo = {
     val splitInfo = partition match {
       case p: SparkDataSourceRDDPartition =>
@@ -233,8 +248,19 @@ case class IcebergScanTransformer(
           icebergInitialDefaults)
       case _ => throw new GlutenNotSupportException()
     }
-    numSplits.add(splitInfo.asInstanceOf[LocalFilesNode].getPaths.size())
+    val localFiles = splitInfo.asInstanceOf[LocalFilesNode]
+    icebergColumnMappingMode(readFileFormat).foreach(localFiles.setColumnMappingMode)
+    numSplits.add(localFiles.getPaths.size())
     splitInfo
+  }
+
+  private def icebergColumnMappingMode(fileFormat: ReadFileFormat): Option[ColumnMappingMode] = {
+    fileFormat match {
+      case ReadFileFormat.ParquetReadFormat | ReadFileFormat.OrcReadFormat =>
+        Some(ColumnMappingMode.NAME)
+      case _ =>
+        None
+    }
   }
 
   override def doCanonicalize(): IcebergScanTransformer = {
@@ -340,14 +366,14 @@ object IcebergScanTransformer {
       batchScan.output.map(a => a.withName(AvroSchemaUtil.makeCompatibleName(a.name))),
       batchScan.scan,
       batchScan.runtimeFilters,
-      table = SparkShimLoader.getSparkShims.getBatchScanExecTable(batchScan),
-      keyGroupedPartitioning = SparkShimLoader.getSparkShims.getKeyGroupedPartitioning(batchScan),
+      table = batchScan.table,
+      keyGroupedPartitioning = batchScan.keyGroupedPartitioning,
       commonPartitionValues = SparkShimLoader.getSparkShims.getCommonPartitionValues(batchScan)
     )
   }
 
   def supportsBatchScan(scan: Scan): Boolean = {
-    scan.getClass == GlutenIcebergSourceUtil.getClassOfSparkBatchQueryScan
+    GlutenIcebergSourceUtil.isSupportedScan(scan)
   }
 
   private def containsUuidOrFixedType(dataType: Type): Boolean = {

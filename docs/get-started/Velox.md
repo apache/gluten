@@ -9,18 +9,18 @@ parent: Getting-Started
 
 | Type  | Version                             |
 |-------|-------------------------------------|
-| Spark | 3.3.1, 3.4.4, 3.5.5, 4.0.2, 4.1.1   |
-| OS    | Ubuntu20.04/22.04, Centos7/8        |
+| Spark | 3.4.4, 3.5.5, 4.0.2, 4.1.1   |
+| OS    | Ubuntu20.04/22.04, Centos8          |
 | jdk   | openjdk8/jdk17                      |
 | scala | 2.12                                |
 
-Note: Spark 4.0 and 4.1 require JDK 17+ and Scala 2.13 (build with `-Pspark-4.0` or `-Pspark-4.1` plus `-Pjava-17 -Pscala-2.13`). Spark 3.3 to 3.5 can be built with JDK 8/17 and Scala 2.12.
+Note: Spark 4.0 and 4.1 require JDK 17+ and Scala 2.13 (build with `-Pspark-4.0` or `-Pspark-4.1` plus `-Pjava-17 -Pscala-2.13`). Spark 3.4 and 3.5 can be built with JDK 8/17 and Scala 2.12.
 
 # Prerequisite
 
-Currently, the statically built Gluten+Velox backend supports all Linux OSes but is only tested on **Ubuntu 20.04/22.04/CentOS 7/8**. The dynamically built backend supports **Ubuntu 20.04/22.04/CentOS 7/8** and their variants.
+Currently, the statically built Gluten+Velox backend supports all Linux OSes but is only tested on **Ubuntu 20.04/22.04/CentOS 8**. The dynamically built backend supports **Ubuntu 20.04/22.04/CentOS 8** and their variants.
 
-Currently, the officially supported Spark versions are 3.3.1, 3.4.4, 3.5.5, 4.0.2 and 4.1.1.
+Currently, the officially supported Spark versions are 3.4.4, 3.5.5, 4.0.2 and 4.1.1.
 
 We need to set up the `JAVA_HOME` env. Currently, Gluten supports **java 8** and **java 17**.
 
@@ -94,8 +94,6 @@ Currently, Gluten uses an [IBM Velox fork](https://github.com/IBM/velox), which 
 
 ## compile Gluten java module and create package jar
 cd /path/to/gluten
-# For spark3.3.x
-mvn clean package -Pbackends-velox -Pspark-3.3 -DskipTests
 # For spark3.4.x
 mvn clean package -Pbackends-velox -Pspark-3.4 -DskipTests
 # For spark3.5.x (default)
@@ -259,6 +257,27 @@ Currently there are several ways to access S3 in Spark. Please refer [Velox S3](
 
 Please refer [GCS](VeloxGCS.md)
 
+## Timezone database (tzdata) support
+
+Velox resolves timezone names using the IANA timezone database, normally found at `/usr/share/zoneinfo`. This works out of
+the box on CentOS-based images, which ship `tzdata` at that path, but may fail on minimal base images (e.g. Red Hat UBI9)
+where `tzdata` is not installed by default. Velox's vendored `tzdb` honors the `TZDIR` environment variable to override
+this location, which can be set the same way as other native env vars consumed by Gluten (see `LIBHDFS3_CONF` and
+`KRB5CCNAME` above):
+
+```
+// Spark local mode
+export TZDIR="/path/to/zoneinfo"
+
+// Spark Yarn cluster mode
+--conf spark.executorEnv.TZDIR="/path/to/zoneinfo"
+--conf spark.driverEnv.TZDIR="/path/to/zoneinfo"
+
+// Spark on Kubernetes (driver env uses a different config key)
+--conf spark.executorEnv.TZDIR="/path/to/zoneinfo"
+--conf spark.kubernetes.driverEnv.TZDIR="/path/to/zoneinfo"
+```
+
 # Remote Shuffle Service Support
 
 ## Celeborn support
@@ -272,7 +291,7 @@ First refer to this URL(https://github.com/apache/celeborn) to setup a celeborn 
 When compiling the Gluten Java module, it's required to enable `celeborn` profile, as follows:
 
 ```
-mvn clean package -Pbackends-velox -Pspark-3.3 -Pceleborn -DskipTests
+mvn clean package -Pbackends-velox -Pspark-3.5 -Pceleborn -DskipTests
 ```
 
 Then add the Gluten and Spark Celeborn Client packages to your Spark application's classpath (usually add them into `$SPARK_HOME/jars`).
@@ -329,7 +348,7 @@ First refer to this URL(https://uniffle.apache.org/docs/intro) to get start with
 When compiling the Gluten Java module, it's required to enable `uniffle` profile, as follows:
 
 ```
-mvn clean package -Pbackends-velox -Pspark-3.3 -Puniffle -DskipTests
+mvn clean package -Pbackends-velox -Pspark-3.5 -Puniffle -DskipTests
 ```
 
 Then add the Uniffle and Spark Celeborn Client packages to your Spark application's classpath (usually add them into `$SPARK_HOME/jars`).
@@ -369,7 +388,7 @@ Gluten with velox backend supports [DeltaLake](https://delta.io/) table.
 First of all, compile gluten-delta module by a `delta` profile, as follows:
 
 ```
-mvn clean package -Pbackends-velox -Pspark-3.3 -Pdelta -DskipTests
+mvn clean package -Pbackends-velox -Pspark-3.5 -Pdelta -DskipTests
 ```
 
 Once built successfully, delta features will be included in gluten-velox-bundle-X jar. Then you can query delta table by gluten/velox without scan's fallback.
@@ -386,7 +405,8 @@ Gluten with velox backend supports [Iceberg](https://iceberg.apache.org/) table.
 First, compile the gluten-iceberg module with the `iceberg` profile, as follows:
 
 ```
-mvn clean package -Pbackends-velox -Pspark-3.3 -Piceberg -DskipTests
+# For spark3.5.x with Iceberg (requires JDK 11+; CI and the release build use JDK 17)
+mvn clean package -Pbackends-velox -Pspark-3.5 -Piceberg -DskipTests
 ```
 
 Once built successfully, iceberg features will be included in the gluten-velox-bundle-X jar. You can then query iceberg tables via Gluten/Velox without falling back on scan.
@@ -397,7 +417,7 @@ Gluten with velox backend supports [Hudi](https://hudi.apache.org/) table. Curre
 
 ## Paimon Support
 
-Gluten with velox backend supports [Paimon](https://paimon.apache.org/) table. Currently, only non-pk table is supported, and the Spark version needs to be >= 3.3.
+Gluten with velox backend supports [Paimon](https://paimon.apache.org/) table. Currently, only non-pk table is supported.
 
 ### How to use
 
@@ -414,7 +434,7 @@ Once built successfully, paimon features will be included in the gluten-velox-bu
 First, compile the gluten-hudi module with the `hudi` profile, as follows:
 
 ```
-mvn clean package -Pbackends-velox -Pspark-3.3 -Phudi -DskipTests
+mvn clean package -Pbackends-velox -Pspark-3.5 -Phudi -DskipTests
 ```
 
 Once built successfully, hudi features will be included in the gluten-velox-bundle-X jar. You can then query hudi **COW** tables via Gluten/Velox without falling back on scan.
