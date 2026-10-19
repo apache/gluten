@@ -340,7 +340,7 @@ The Read column covers Spark 3.5 to 4.1. It covers Spark 3.4 only where the row 
 
 | Feature | Read | Native write | Notes |
 |---|---|---|---|
-| Deletion vectors | Offload, Fallback on Spark 3.4 | PartialOffload | Gluten's tests check deletion vector DELETE and MERGE results with native write on, on Spark 3.5 and 4.0. Which writer writes each file is from code. See [Deletion vectors](#deletion-vectors). |
+| Deletion vectors | Offload, Fallback on Spark 3.4 | PartialOffload | Gluten's tests check the results of deletion vector DELETE and MERGE on Spark 3.5 and 4.0 with native write turned on. Delta writes the deletion vector files, and MERGE writes its data files with Delta's writer (see [Write commands](#write-commands)). Both are from code. See [Deletion vectors](#deletion-vectors). |
 | Change data feed | Offload, also on Spark 3.4. Ranges with deletion vectors fall back. On Spark 3.4, scans of `_change_data` files also fall back when the table allows deletion vectors (from code). | Offload | UPDATE and DELETE write the `_change_data` files with Velox (from code). Change data feed reads of their changes are correct (seen on 4.1). See [Change data feed](#change-data-feed). |
 | Column mapping, name mode | Offload, also on Spark 3.4 | ResultMismatch | Files have no Parquet field IDs. Seen on 4.1. See [Write problems](#write-problems). |
 | Column mapping, id mode | Offload, also on Spark 3.4. ResultMismatch when matching by field ID would select no column (seen on 4.1) or a different column (from code). | ResultMismatch, Exception when Spark's reader reads the files (seen on 4.1) | Gluten matches columns by physical name. See [Known problems](#known-problems). |
@@ -589,8 +589,8 @@ A blank cell means unknown.
 | maxRecordsPerFile | spark.sql.files.maxRecordsPerFile | Exact on partitioned native writes. See [Write problems](#write-problems). | ⚠️ |
 | partitionOverwriteMode | spark.sql.sources.partitionOverwriteMode | `dynamic` works through `save(path)`. `INSERT OVERWRITE` and `insertInto` use Delta's writer (from code). | ✅ |
 | replaceWhere | (none) | A violating partitioned native write fails with a different error type (seen on 4.1) and commits nothing (from code). See [Error types](#error-types). | ⚠️ |
-| mergeSchema | spark.databricks.delta.schema.autoMerge.enabled | Delta applies the schema change before the write. | 🚫 |
-| overwriteSchema | false | Delta applies the schema change before the write. | 🚫 |
+| mergeSchema | spark.databricks.delta.schema.autoMerge.enabled | Delta applies the schema change before the write. With native write on, Velox writes the evolved schema through `save(path)` (see [Schema evolution](#schema-evolution)). | ✅ |
+| overwriteSchema | false | Delta applies the schema change before the write. With native write on, Velox writes the files of `save(path)` (see [Schema evolution](#schema-evolution)). | ✅ |
 | optimizeWrite | (unset) | Runs the rebalancing shuffle in Velox before the native write. From code. | ✅ |
 | txnAppId, txnVersion | (unset) | Idempotent writes. Commit only. | 🚫 |
 | userMetadata | (unset) | Stored in `commitInfo.userMetadata`. Commit only. | 🚫 |
