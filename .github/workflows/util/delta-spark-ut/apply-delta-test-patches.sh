@@ -123,7 +123,7 @@ __BLANK_CONTEXT__
 PATCH
 then
   echo "ERROR: mock S3 fixture patch did not apply." >&2
-  echo "The patch expects the Delta v4.2.0 path-scheme fixture;" \
+  echo "The patch expects the mock-S3 path-scheme fixture in ConvertToDeltaSuiteBase.scala;" \
     "ref '${DELTA_REF}' must remain source-compatible." >&2
   exit 1
 fi
