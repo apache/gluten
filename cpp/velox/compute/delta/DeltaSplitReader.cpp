@@ -22,6 +22,8 @@
 #include "compute/delta/DeltaSplit.h"
 #include "velox/connectors/hive/HiveConfig.h"
 #include "velox/dwio/common/BufferUtil.h"
+#include "velox/vector/DecodedVector.h"
+#include "velox/vector/FlatVector.h"
 
 using namespace facebook::velox::dwio::common;
 
@@ -83,6 +85,10 @@ DeltaSplitReader::DeltaSplitReader(
 #endif
       baseReadRowNumber_(0),
       deleteBitmap_(nullptr) {
+  const auto* spec = scanSpec->childByName(kRowDeletedColumnName);
+  if (spec && spec->columnType() == common::ScanSpec::ColumnType::kRowIndex) {
+    rowDeletedChannel_ = readerOutputType->getChildIdx(kRowDeletedColumnName);
+  }
 }
 
 void DeltaSplitReader::prepareSplit(
@@ -141,7 +147,7 @@ uint64_t DeltaSplitReader::next(uint64_t size, VectorPtr& output) {
   }
 
   const auto deltaSplit = checkedPointerCast<const HiveDeltaSplit>(hiveSplit_);
-  if (deletionVectorReader_ && !deletionVectorReader_->empty()) {
+  if (!rowDeletedChannel_.has_value() && deletionVectorReader_ && !deletionVectorReader_->empty()) {
     const auto numBytes = bits::nbytes(actualSize);
     ensureCapacity<int8_t>(deleteBitmap_, numBytes, connectorQueryCtx_->memoryPool(), false, true);
     deleteBitmap_->setSize(numBytes);
@@ -157,6 +163,25 @@ uint64_t DeltaSplitReader::next(uint64_t size, VectorPtr& output) {
   mutation.deletedRows = deleteBitmap_ && deleteBitmap_->size() > 0 ? deleteBitmap_->as<uint64_t>() : nullptr;
 
   auto rowsScanned = baseRowReader_->next(actualSize, output, &mutation);
+  if (rowsScanned > 0 && output->size() > 0 && rowDeletedChannel_.has_value()) {
+    auto* rows = output->asChecked<RowVector>();
+    auto& column = rows->childAt(*rowDeletedChannel_);
+    DecodedVector positions(*column);
+    auto flags = BaseVector::create(BIGINT(), rows->size(), connectorQueryCtx_->memoryPool());
+    auto* values = flags->asFlatVector<int64_t>();
+    for (vector_size_t i = 0; i < rows->size(); ++i) {
+      VELOX_CHECK(!positions.isNullAt(i), "Missing absolute file row index for Delta deletion vector");
+      bool drop = false;
+      // An absent DV is KeepAllRows, even on a split from an inverse-filter scan. A present
+      // empty bitmap is different: IF_NOT_CONTAINED must mark every row in that case.
+      if (deletionVectorReader_ && deltaSplit->filterType != DeltaRowIndexFilterType::kKeepAll) {
+        const bool contained = deletionVectorReader_->isRowDeleted(positions.valueAt<int64_t>(i));
+        drop = deltaSplit->filterType == DeltaRowIndexFilterType::kIfContained ? contained : !contained;
+      }
+      values->set(i, drop ? 1 : 0);
+    }
+    column = std::move(flags);
+  }
   if (rowsScanned > 0 && output->size() > 0 && !bucketChannels().empty()) {
     applyBucketConversion(output, bucketConversionRows(*output->asChecked<RowVector>()));
   }

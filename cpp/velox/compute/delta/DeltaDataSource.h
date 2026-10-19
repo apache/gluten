@@ -18,6 +18,7 @@
 #pragma once
 
 #include "velox/connectors/hive/HiveDataSource.h"
+#include "velox/type/Filter.h"
 
 #ifndef GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER
 #if __has_include("velox/connectors/hive/FileSplitReader.h")
@@ -52,12 +53,23 @@ class DeltaDataSource : public HiveDataSource {
       const ConnectorQueryCtx* connectorQueryCtx,
       const std::shared_ptr<HiveConfig>& hiveConfig);
 
+  std::optional<RowVectorPtr> next(uint64_t size, ContinueFuture& future) override;
+
+  void addDynamicFilter(column_index_t outputChannel, const std::shared_ptr<common::Filter>& filter) override;
+
+  void setFromDataSource(std::unique_ptr<DataSource> source) override;
+
  protected:
 #if GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER
   std::unique_ptr<FileSplitReader> createSplitReader() override;
 #else
   std::unique_ptr<SplitReader> createSplitReader() override;
 #endif
+
+ private:
+  const RowTypePtr deltaOutputType_;
+  std::optional<column_index_t> rowDeletedChannel_;
+  std::unordered_map<column_index_t, std::shared_ptr<common::Filter>> generatedFilters_;
 };
 
 } // namespace gluten::delta

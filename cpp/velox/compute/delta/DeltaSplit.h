@@ -30,6 +30,8 @@ using namespace facebook::velox;
 using namespace facebook::velox::connector;
 using namespace facebook::velox::connector::hive;
 
+inline constexpr char kRowDeletedColumnName[] = "__delta_internal_is_row_deleted";
+
 enum class DeltaRowIndexFilterType {
   kKeepAll,
   kIfContained,
