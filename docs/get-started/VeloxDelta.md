@@ -169,7 +169,7 @@ PartialOffload
 INSERT INTO t SELECT id, name FROM source WHERE length(name) = 1;
 ```
 
-Delta's writer writes the files of `INSERT`, with or without native write. The `SELECT` can run in Velox. From code.
+SQL `INSERT` on a Delta table plans as a write node Gluten does not wrap for native write: `AppendDataExecV1` for `INSERT INTO`, `OverwriteByExpressionExecV1` for `INSERT OVERWRITE`, or Delta Lake's `DeltaDynamicPartitionOverwriteCommand` for a dynamic partition overwrite. Gluten wraps only the commands marked Offload in [Write commands](#write-commands). So Delta's writer writes the files of `INSERT`, even with native write on. The `SELECT` can still run in Velox. To append with Velox's writer, use `df.write.format("delta").mode("append").save(path)`. From code.
 
 Fallback
 
@@ -425,7 +425,7 @@ The `mergeSchema` and `overwriteSchema` rows need native write on Spark 3.5 to 4
 | `RENAME COLUMN` with column mapping | Offload | Reads after top-level and nested renames return correct results. After a top-level rename, partition pruning and file skipping still work. |
 | `DROP COLUMN` with column mapping | Offload | The drop is a metadata-only commit. Reads after the drop run in Velox. Both are from code. Delta Lake's `DeltaDropColumnSuite` passes (seen on 4.1). |
 | Type widening | Offload, Exception for DATE to TIMESTAMP_NTZ and for native writes to FLOAT or DOUBLE partition columns | Seen on 4.1. See [Table features](#table-features). |
-| `spark.sql.parquet.mergeSchema=true` | Fallback | Every Parquet scan falls back, Delta scans included. From code. |
+| Parquet schema merging on read (`spark.sql.parquet.mergeSchema=true`) | Fallback | This is Spark's Parquet read option. Delta Lake's `mergeSchema` write option is a different setting, and it is Offload (see the first row). With the read option on, every Parquet scan falls back, Delta scans included. From code. |
 
 ## Known problems
 
@@ -469,7 +469,7 @@ These need native write on, unless a row says otherwise.
 
 ### MERGE, UPDATE and DELETE problems
 
-MERGE does not use native write, so the MERGE rows also apply with native write off (from code).
+MERGE is a write command, but on main Delta's writer writes its files even with native write on (see `MERGE INTO` in [Write commands](#write-commands)). The MERGE problems below come from the parts of MERGE that run in Velox, so they also happen with native write off (from code). The UPDATE and DELETE row says when native write matters.
 
 | Problem | Status | Versions | Issue |
 |---|---|---|---|
@@ -543,7 +543,7 @@ A blank cell means unknown.
 | spark.sql.files.maxRecordsPerFile | 0 | Exact on partitioned native writes. See [Write problems](#write-problems). | ⚠️ |
 | spark.sql.maxConcurrentOutputFileWriters | 0 | Above 0, partitioned native writes with unsorted input fail. From code. | ❌ |
 | spark.sql.files.ignoreMissingFiles | false | Passed to Velox. Native scans skip missing files when true. Tested on Spark 3.5 and 4.0, seen on 4.1, from code on 3.4. | ✅ |
-| spark.sql.parquet.mergeSchema | false | When true, Delta scans fall back. From code. | ❌ |
+| spark.sql.parquet.mergeSchema | false | Spark's Parquet read option. When true, Delta scans fall back. Delta Lake's `mergeSchema` write option is a different setting (see [Write options](#write-options)). From code. | ❌ |
 | spark.sql.parquet.outputTimestampType | INT96 | Ignored by native writes. From code. See [Natively written files](#natively-written-files). | ❌ |
 | spark.sql.parquet.writeLegacyFormat | false | Native writes apply it to DECIMAL only. From code. See [Natively written files](#natively-written-files). | ⚠️ |
 | spark.sql.caseSensitive | false | When false, native writes lowercase nested struct field names. From code. | ⚠️ |
