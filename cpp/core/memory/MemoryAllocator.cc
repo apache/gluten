@@ -146,7 +146,8 @@ bool StdMemoryAllocator::allocateZeroFilled(int64_t nmemb, int64_t size, void** 
 
 bool StdMemoryAllocator::allocateAligned(uint64_t alignment, int64_t size, void** out) {
   GLUTEN_CHECK(size >= 0, "size is less than 0");
-  *out = aligned_alloc(alignment, size);
+  auto allocSize = ROUND_TO_LINE(static_cast<uint64_t>(size), alignment);
+  *out = std::aligned_alloc(alignment, allocSize);
   if (*out == nullptr) {
     return false;
   }
@@ -168,14 +169,8 @@ bool StdMemoryAllocator::reallocateAligned(void* p, uint64_t alignment, int64_t 
   if (newSize <= 0) {
     return false;
   }
-  if (newSize <= size) {
-    auto aligned = ROUND_TO_LINE(static_cast<uint64_t>(newSize), alignment);
-    if (aligned <= size) {
-      // shrink-to-fit
-      return reallocate(p, size, aligned, out);
-    }
-  }
-  void* reallocatedP = std::aligned_alloc(alignment, newSize);
+  auto allocSize = ROUND_TO_LINE(static_cast<uint64_t>(newSize), alignment);
+  void* reallocatedP = std::aligned_alloc(alignment, allocSize);
   if (reallocatedP == nullptr) {
     return false;
   }
