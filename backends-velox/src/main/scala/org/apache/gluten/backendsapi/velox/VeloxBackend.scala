@@ -104,6 +104,8 @@ object VeloxBackendSettings extends BackendSettingsApi {
 
   override def supportTimestampNtz: Boolean = true
 
+  override def supportLargeVarTypes: Boolean = true
+
   override def validateScanExec(
       format: ReadFileFormat,
       fields: Array[StructField],
