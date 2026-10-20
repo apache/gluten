@@ -26,6 +26,12 @@ the overlay takes precedence over the Velox implementation.
    Velox's function authoring APIs (simple function, vector function, aggregate,
    or window function). See `Round.h` for a simple-function example and
    [Velox scalar functions guide](https://github.com/facebookincubator/velox/blob/main/velox/docs/develop/scalar-functions.rst).
+   When a Spark expression freezes ANSI/failOnError-like behavior as a field
+   captured at analysis time, prefer registering a second, differently-named
+   function and having the backend-specific transformer pick between the two
+   from that frozen field -- see `CheckedGetTimestamp.h` and
+   `genGetTimestampTransformer`, which mirrors `MakeTimestamp`'s existing
+   `make_timestamp`/`try_make_timestamp` split.
 2. Register it in `RegisterFunctionOverlay.cc` inside
    `registerFunctionOverlay()`. Use the same name Gluten's Substrait plan
    conversion emits (Spark's function name in most cases).
