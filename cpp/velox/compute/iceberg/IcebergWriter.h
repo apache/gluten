@@ -20,7 +20,6 @@
 #include "IcebergNestedField.pb.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "utils/Metrics.h"
-#include "utils/ParquetFieldIds.h"
 #include "velox/connectors/hive/iceberg/IcebergColumnHandle.h"
 #include "velox/connectors/hive/iceberg/IcebergDataSink.h"
 
@@ -61,8 +60,7 @@ class IcebergWriter {
 
  private:
   facebook::velox::RowTypePtr rowType_;
-  // Resolved against rowType_ and validated (arity, positivity, uniqueness) at
-  // construction, so it is safe to index by column ordinal.
+  // One per column of rowType_, checked against it at construction.
   const std::vector<facebook::velox::parquet::ParquetFieldId> fieldIds_;
   int32_t partitionId_;
   int64_t taskId_;

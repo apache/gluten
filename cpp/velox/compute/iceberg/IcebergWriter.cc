@@ -160,6 +160,13 @@ std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
       fileNameGenerator);
 }
 
+// The field IDs of the columns of `rowType`, checked so that they can be indexed by column.
+std::vector<parquet::ParquetFieldId> icebergFieldIds(const gluten::IcebergNestedField& field, const RowType& rowType) {
+  auto fieldIds = gluten::parquetFieldIdsFromProto(field);
+  gluten::validateParquetFieldIds(fieldIds, rowType, /*allowMissingIds=*/false);
+  return fieldIds;
+}
+
 } // namespace
 
 namespace gluten {
@@ -177,7 +184,7 @@ IcebergWriter::IcebergWriter(
     std::shared_ptr<facebook::velox::memory::MemoryPool> memoryPool,
     std::shared_ptr<facebook::velox::memory::MemoryPool> connectorPool)
     : rowType_(rowType),
-      fieldIds_(gluten::resolveParquetFieldIds(gluten::fromProto(field), rowType, /*checkNames=*/false)),
+      fieldIds_(icebergFieldIds(field, *rowType)),
       partitionId_(partitionId),
       taskId_(taskId),
       operationId_(operationId),

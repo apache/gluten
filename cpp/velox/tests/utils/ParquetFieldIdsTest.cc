@@ -19,7 +19,7 @@
 
 #include <gtest/gtest.h>
 
-#include "ParquetFieldIds.pb.h"
+#include "IcebergNestedField.pb.h"
 #include "utils/Exception.h"
 #include "velox/type/Type.h"
 
@@ -28,215 +28,126 @@ using namespace gluten;
 
 namespace {
 
-// Builders keep the tests readable; every one of them mirrors what the JVM walker
-// is specified to emit.
-FieldIdNode prim(const std::string& name, std::optional<int32_t> id) {
-  return FieldIdNode{name, FieldIdNode::Kind::kPrimitive, id, {}};
+using FieldIds = std::vector<parquet::ParquetFieldId>;
+
+parquet::ParquetFieldId id(int32_t fieldId, FieldIds children = {}) {
+  return parquet::ParquetFieldId{fieldId, std::move(children)};
 }
 
-FieldIdNode strct(const std::string& name, std::optional<int32_t> id, std::vector<FieldIdNode> children) {
-  return FieldIdNode{name, FieldIdNode::Kind::kStruct, id, std::move(children)};
-}
-
-FieldIdNode arr(const std::string& name, std::optional<int32_t> id, FieldIdNode element) {
-  return FieldIdNode{name, FieldIdNode::Kind::kArray, id, {std::move(element)}};
-}
-
-FieldIdNode map(const std::string& name, std::optional<int32_t> id, FieldIdNode key, FieldIdNode value) {
-  return FieldIdNode{name, FieldIdNode::Kind::kMap, id, {std::move(key), std::move(value)}};
-}
-
-std::string resolveError(const std::vector<FieldIdNode>& nodes, const RowTypePtr& rowType, bool checkNames = true) {
+std::string validationError(const FieldIds& fieldIds, const RowTypePtr& rowType, bool allowMissingIds = false) {
   try {
-    resolveParquetFieldIds(nodes, rowType, checkNames);
+    validateParquetFieldIds(fieldIds, *rowType, allowMissingIds);
   } catch (const GlutenException& e) {
     return e.what();
   }
   return "";
 }
 
+void expectValid(const FieldIds& fieldIds, const RowTypePtr& rowType, bool allowMissingIds = false) {
+  EXPECT_EQ(validationError(fieldIds, rowType, allowMissingIds), "");
+}
+
+void expectError(
+    const FieldIds& fieldIds,
+    const RowTypePtr& rowType,
+    const std::vector<std::string>& fragments,
+    bool allowMissingIds = false) {
+  const auto error = validationError(fieldIds, rowType, allowMissingIds);
+  ASSERT_NE(error, "");
+  for (const auto& fragment : fragments) {
+    EXPECT_NE(error.find(fragment), std::string::npos) << error;
+  }
+}
+
 } // namespace
 
 TEST(ParquetFieldIdsTest, flatSchema) {
-  auto rowType = ROW({"a", "b"}, {INTEGER(), VARCHAR()});
-  auto ids = resolveParquetFieldIds({prim("a", 1), prim("b", 2)}, rowType, true);
-  ASSERT_EQ(ids.size(), 2);
-  EXPECT_EQ(ids[0].fieldId, 1);
-  EXPECT_EQ(ids[1].fieldId, 2);
-  EXPECT_TRUE(ids[0].children.empty());
+  expectValid({id(1), id(2)}, ROW({"a", "b"}, {INTEGER(), VARCHAR()}));
 }
 
-TEST(ParquetFieldIdsTest, nestedStruct) {
-  auto rowType = ROW({"s"}, {ROW({"x", "y"}, {INTEGER(), INTEGER()})});
-  auto ids = resolveParquetFieldIds({strct("s", 1, {prim("x", 2), prim("y", 3)})}, rowType, true);
-  ASSERT_EQ(ids.size(), 1);
-  EXPECT_EQ(ids[0].fieldId, 1);
-  ASSERT_EQ(ids[0].children.size(), 2);
-  EXPECT_EQ(ids[0].children[0].fieldId, 2);
-  EXPECT_EQ(ids[0].children[1].fieldId, 3);
+TEST(ParquetFieldIdsTest, nestedTypes) {
+  auto rowType =
+      ROW({"s", "a", "m", "items"},
+          {ROW({"x", "y"}, {INTEGER(), INTEGER()}),
+           ARRAY(INTEGER()),
+           MAP(VARCHAR(), INTEGER()),
+           ARRAY(ROW({"sku", "qty"}, {VARCHAR(), INTEGER()}))});
+  expectValid(
+      {id(1, {id(2), id(3)}), id(4, {id(5)}), id(6, {id(7), id(8)}), id(9, {id(10, {id(11), id(12)})})}, rowType);
 }
 
-TEST(ParquetFieldIdsTest, arrayHasExactlyOneChild) {
-  auto rowType = ROW({"a"}, {ARRAY(INTEGER())});
-  auto ids = resolveParquetFieldIds({arr("a", 1, prim("", 2))}, rowType, true);
-  ASSERT_EQ(ids.size(), 1);
-  ASSERT_EQ(ids[0].children.size(), 1);
-  EXPECT_EQ(ids[0].children[0].fieldId, 2);
+TEST(ParquetFieldIdsTest, nestedArraysAndMaps) {
+  auto rowType = ROW({"a", "b"}, {ARRAY(ARRAY(INTEGER())), ARRAY(MAP(VARCHAR(), ARRAY(INTEGER())))});
+  expectValid({id(1, {id(2, {id(3)})}), id(4, {id(5, {id(6), id(7, {id(8)})})})}, rowType);
 }
 
-TEST(ParquetFieldIdsTest, mapHasKeyThenValue) {
-  auto rowType = ROW({"m"}, {MAP(VARCHAR(), INTEGER())});
-  auto ids = resolveParquetFieldIds({map("m", 1, prim("", 2), prim("", 3))}, rowType, true);
-  ASSERT_EQ(ids[0].children.size(), 2);
-  EXPECT_EQ(ids[0].children[0].fieldId, 2);
-  EXPECT_EQ(ids[0].children[1].fieldId, 3);
-}
-
-TEST(ParquetFieldIdsTest, arrayOfStruct) {
-  auto rowType = ROW({"items"}, {ARRAY(ROW({"sku", "qty"}, {VARCHAR(), INTEGER()}))});
-  auto ids = resolveParquetFieldIds({arr("items", 5, strct("", 6, {prim("sku", 7), prim("qty", 8)}))}, rowType, true);
-  ASSERT_EQ(ids[0].children.size(), 1);
-  ASSERT_EQ(ids[0].children[0].children.size(), 2);
-  EXPECT_EQ(ids[0].children[0].children[1].fieldId, 8);
-}
-
-// The two cases velox's own validateSchemaRecursive never reaches: it recurses into
-// an array element only when that element is a ROW, so a short tree under a nested
-// array or a map reaches an unguarded .at(0) instead of a diagnostic.
-TEST(ParquetFieldIdsTest, nestedArrayShortTreeIsRejected) {
-  auto rowType = ROW({"a"}, {ARRAY(ARRAY(INTEGER()))});
-  auto bad = arr("a", 1, FieldIdNode{"", FieldIdNode::Kind::kArray, 2, {}}); // inner array missing its element
-  auto err = resolveError({bad}, rowType);
-  EXPECT_NE(err.find("a.element"), std::string::npos) << err;
-  EXPECT_NE(err.find("exactly one child"), std::string::npos) << err;
-}
-
-TEST(ParquetFieldIdsTest, arrayOfMapShortTreeIsRejected) {
-  auto rowType = ROW({"a"}, {ARRAY(MAP(VARCHAR(), INTEGER()))});
-  auto bad = arr("a", 1, FieldIdNode{"", FieldIdNode::Kind::kMap, 2, {prim("", 3)}}); // map with one child
-  auto err = resolveError({bad}, rowType);
-  EXPECT_NE(err.find("a.element"), std::string::npos) << err;
-  EXPECT_NE(err.find("exactly two children"), std::string::npos) << err;
-}
-
-TEST(ParquetFieldIdsTest, nestedArrayHappyPath) {
-  auto rowType = ROW({"a"}, {ARRAY(ARRAY(INTEGER()))});
-  auto ids = resolveParquetFieldIds({arr("a", 1, arr("", 2, prim("", 3)))}, rowType, true);
-  EXPECT_EQ(ids[0].children[0].children[0].fieldId, 3);
-}
-
-TEST(ParquetFieldIdsTest, tooFewTopLevelNodesIsRejected) {
+// Iceberg allows 0, and velox::parquet::Writer writes it to the footer like any other ID.
+TEST(ParquetFieldIdsTest, zeroIsAnId) {
   auto rowType = ROW({"a", "b"}, {INTEGER(), INTEGER()});
-  auto err = resolveError({prim("a", 1)}, rowType);
-  EXPECT_NE(err.find("one child per struct field"), std::string::npos) << err;
+  expectValid({id(0), id(1)}, rowType);
+  expectError({id(0), id(0)}, rowType, {"Parquet field ID 0 of 'b' is also the ID of 'a'"});
 }
 
-// velox guards with '<=', so it silently accepts and ignores extra children.
-TEST(ParquetFieldIdsTest, tooManyNodesIsRejected) {
-  auto rowType = ROW({"a"}, {INTEGER()});
-  auto err = resolveError({prim("a", 1), prim("b", 2)}, rowType);
-  EXPECT_NE(err.find("got 2"), std::string::npos) << err;
+TEST(ParquetFieldIdsTest, missingIds) {
+  auto rowType = ROW({"a", "s"}, {INTEGER(), ROW({"x"}, {INTEGER()})});
+  expectError({id(1), id(2, {id(-1)})}, rowType, {"'s.x' is missing"});
+  // Missing IDs are not compared with each other.
+  expectValid({id(-1), id(2, {id(-1)})}, rowType, /*allowMissingIds=*/true);
 }
 
-TEST(ParquetFieldIdsTest, nameMismatchIsRejectedWhenCheckingNames) {
-  auto rowType = ROW({"a", "b"}, {INTEGER(), INTEGER()});
-  auto err = resolveError({prim("a", 1), prim("wrong", 2)}, rowType);
-  EXPECT_NE(err.find("'wrong'"), std::string::npos) << err;
-  EXPECT_NE(err.find("'b'"), std::string::npos) << err;
+// Velox does not check below an array or a map whose element, key or value is not a struct.
+TEST(ParquetFieldIdsTest, shortTreeBelowArrayOrMap) {
+  expectError({id(1, {id(2)})}, ROW({"a"}, {ARRAY(ARRAY(INTEGER()))}), {"'a.element'", "expected 1 children", "got 0"});
+  expectError(
+      {id(1, {id(2, {id(3)})})},
+      ROW({"a"}, {ARRAY(MAP(VARCHAR(), INTEGER()))}),
+      {"'a.element'", "expected 2 children", "got 1"});
 }
 
-TEST(ParquetFieldIdsTest, nameMismatchIsToleratedWhenNotCheckingNames) {
-  // The Iceberg wire format carries no names.
-  auto rowType = ROW({"a", "b"}, {INTEGER(), INTEGER()});
-  auto ids = resolveParquetFieldIds({prim("", 1), prim("", 2)}, rowType, false);
-  EXPECT_EQ(ids[1].fieldId, 2);
+// Velox ignores extra children.
+TEST(ParquetFieldIdsTest, extraChildren) {
+  expectError({id(1), id(2)}, ROW({"a"}, {INTEGER()}), {"'<root>'", "expected 1 children", "got 2"});
+  expectError({id(1, {id(2)})}, ROW({"a"}, {INTEGER()}), {"'a'", "expected 0 children", "got 1"});
+  expectError({id(1, {id(2), id(3)})}, ROW({"s"}, {ROW({"x"}, {INTEGER()})}), {"'s'", "expected 1 children", "got 2"});
 }
 
-TEST(ParquetFieldIdsTest, kindMismatchIsRejected) {
-  auto rowType = ROW({"a"}, {ARRAY(INTEGER())});
-  auto err = resolveError({prim("a", 1)}, rowType);
-  EXPECT_NE(err.find("PRIMITIVE"), std::string::npos) << err;
-  EXPECT_NE(err.find("ARRAY"), std::string::npos) << err;
+TEST(ParquetFieldIdsTest, tooFewColumns) {
+  expectError({id(1)}, ROW({"a", "b"}, {INTEGER(), INTEGER()}), {"'<root>'", "expected 2 children", "got 1"});
 }
 
-TEST(ParquetFieldIdsTest, absentIdLowersToSentinelNotZero) {
-  // A Delta row-tracking column legitimately has no field id. It must reach velox
-  // as a strictly negative value: fieldIdMetadata() emits metadata for id >= 0, so
-  // 0 would be written to the footer as a real field id.
-  auto rowType = ROW({"a", "internal"}, {INTEGER(), INTEGER()});
-  auto ids = resolveParquetFieldIds({prim("a", 1), prim("internal", std::nullopt)}, rowType, true);
-  EXPECT_EQ(ids[0].fieldId, 1);
-  EXPECT_EQ(ids[1].fieldId, kNoParquetFieldId);
-  EXPECT_LT(ids[1].fieldId, 0);
-}
-
-TEST(ParquetFieldIdsTest, zeroIdIsRejected) {
-  auto rowType = ROW({"a"}, {INTEGER()});
-  auto err = resolveError({prim("a", 0)}, rowType);
-  EXPECT_NE(err.find("positive"), std::string::npos) << err;
-}
-
-TEST(ParquetFieldIdsTest, negativeIdIsRejected) {
-  auto rowType = ROW({"a"}, {INTEGER()});
-  auto err = resolveError({prim("a", -1)}, rowType);
-  EXPECT_NE(err.find("positive"), std::string::npos) << err;
-}
-
-// Global, not per-level. velox checks neither.
-TEST(ParquetFieldIdsTest, duplicateIdAcrossSiblingStructsIsRejected) {
+TEST(ParquetFieldIdsTest, duplicateIdAcrossSiblingStructs) {
   auto rowType = ROW({"s1", "s2"}, {ROW({"x"}, {INTEGER()}), ROW({"y"}, {INTEGER()})});
-  auto err = resolveError({strct("s1", 1, {prim("x", 5)}), strct("s2", 2, {prim("y", 5)})}, rowType);
-  EXPECT_NE(err.find("Duplicate"), std::string::npos) << err;
-  EXPECT_NE(err.find("s1.x"), std::string::npos) << err;
-  EXPECT_NE(err.find("s2.y"), std::string::npos) << err;
+  expectError({id(1, {id(5)}), id(2, {id(5)})}, rowType, {"ID 5 of 's2.y' is also the ID of 's1.x'"});
 }
 
 TEST(ParquetFieldIdsTest, errorNamesTheDottedPath) {
   auto rowType = ROW({"payload"}, {ROW({"items"}, {ARRAY(ROW({"sku"}, {VARCHAR()}))})});
-  auto bad = strct("payload", 1, {arr("items", 2, strct("", 3, {}))}); // struct element missing 'sku'
-  auto err = resolveError({bad}, rowType);
-  EXPECT_NE(err.find("payload.items.element"), std::string::npos) << err;
+  expectError({id(1, {id(2, {id(3)})})}, rowType, {"'payload.items.element'"});
 }
 
-TEST(ParquetFieldIdsTest, emptySchemaResolvesToEmptyVector) {
-  auto rowType = ROW({}, {});
-  auto ids = resolveParquetFieldIds({}, rowType, true);
-  EXPECT_TRUE(ids.empty());
+TEST(ParquetFieldIdsTest, emptySchema) {
+  expectValid({}, ROW({}, {}));
 }
 
-TEST(ParquetFieldIdsTest, decodesFromProtoWithFieldPresence) {
-  ParquetFieldIdSchema schema;
-  auto* a = schema.add_fields();
-  a->set_name("a");
-  a->set_kind(ParquetFieldIdNode::PRIMITIVE);
-  a->set_id(7);
-  auto* b = schema.add_fields();
-  b->set_name("b");
-  b->set_kind(ParquetFieldIdNode::PRIMITIVE);
-  // no id set -> absence, which must survive decoding as absence
-
-  auto nodes = fromProto(schema);
-  ASSERT_EQ(nodes.size(), 2);
-  ASSERT_TRUE(nodes[0].id.has_value());
-  EXPECT_EQ(nodes[0].id.value(), 7);
-  EXPECT_FALSE(nodes[1].id.has_value());
-}
-
-TEST(ParquetFieldIdsTest, decodesNestedProto) {
-  ParquetFieldIdSchema schema;
-  auto* items = schema.add_fields();
-  items->set_name("items");
-  items->set_kind(ParquetFieldIdNode::ARRAY);
+TEST(ParquetFieldIdsTest, fromIcebergProto) {
+  // As IcebergNestedFieldVisitor builds it: a root without an ID around the columns.
+  IcebergNestedField root;
+  auto* a = root.add_children();
+  a->set_id(0);
+  auto* items = root.add_children();
   items->set_id(1);
   auto* element = items->add_children();
-  element->set_kind(ParquetFieldIdNode::STRUCT);
   element->set_id(2);
-  auto* sku = element->add_children();
-  sku->set_name("sku");
-  sku->set_kind(ParquetFieldIdNode::PRIMITIVE);
-  sku->set_id(3);
+  element->add_children()->set_id(3);
 
-  auto rowType = ROW({"items"}, {ARRAY(ROW({"sku"}, {VARCHAR()}))});
-  auto ids = resolveParquetFieldIds(fromProto(schema), rowType, true);
-  EXPECT_EQ(ids[0].children[0].children[0].fieldId, 3);
+  auto fieldIds = parquetFieldIdsFromProto(root);
+  ASSERT_EQ(fieldIds.size(), 2);
+  EXPECT_EQ(fieldIds[0].fieldId, 0);
+  EXPECT_TRUE(fieldIds[0].children.empty());
+  EXPECT_EQ(fieldIds[1].fieldId, 1);
+  ASSERT_EQ(fieldIds[1].children.size(), 1);
+  EXPECT_EQ(fieldIds[1].children[0].fieldId, 2);
+  ASSERT_EQ(fieldIds[1].children[0].children.size(), 1);
+  EXPECT_EQ(fieldIds[1].children[0].children[0].fieldId, 3);
+  expectValid(fieldIds, ROW({"a", "items"}, {INTEGER(), ARRAY(ROW({"sku"}, {VARCHAR()}))}));
 }

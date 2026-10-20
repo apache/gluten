@@ -209,10 +209,10 @@ set(VELOX_SRCS
     udf/UdfLoader.cc
     utils/Common.cc
     utils/ConfigExtractor.cc
+    utils/ParquetFieldIds.cc
     utils/VeloxArrowUtils.cc
     utils/VeloxBatchResizer.cc
     utils/VeloxWholeStageDumper.cc
-    utils/ParquetFieldIds.cc
     utils/VeloxWriterUtils.cc)
 
 if(ENABLE_S3)
