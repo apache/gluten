@@ -67,6 +67,7 @@ nav:
   - Memory Profiling: developers/ProfileMemoryOfGlutenWithVelox.md
   - Dynamic Off-Heap Sizing: developers/VeloxDynamicSizingOffheap.md
   - Partial Project: developers/PartialProject.md
+  - Arrow Columnar Conversion: developers/ArrowColumnarConversion.md
   - Bloop Integration: developers/bloop-integration.md
   - Debug CH Backend: developers/clickhouse-backend-debug.md
   - Jemalloc with CH: developers/UsingJemallocWithCH.md

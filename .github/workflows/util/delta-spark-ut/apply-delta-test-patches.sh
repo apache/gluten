@@ -42,8 +42,8 @@ DELTA_DIR="$2"
 # scan-metric checks across many suites). delta-io/delta#7104 and #7105 widen the
 # matches to the shared `FileSourceScanLike` interface that both the vanilla and
 # Gluten scans implement (behavior-preserving for vanilla). Both are merged
-# upstream but land after the pinned DELTA_REF (v4.2.0), so apply them here; once
-# DELTA_REF includes a fix, cherry_pick_delta_fix detects it and skips (see below).
+# upstream; Delta v4.4.0 and later contain both, and cherry_pick_delta_fix skips a
+# fix the DELTA_REF already contains (see below). They stay for older refs.
 #
 # Depth-2 fetch brings each fix commit and its parent, which cherry-pick needs to
 # diff against (a depth-1 fetch grafts the parent away); `-n` stages the change
@@ -115,7 +115,7 @@ __BLANK_CONTEXT__
 PATCH
 then
   echo "ERROR: DeltaParquetFileFormat fixture patch did not apply." >&2
-  echo "The patch expects the Delta v4.2.0 generateData fixture shape;" \
+  echo "The patch expects the Delta v4.4.1 generateData fixture shape;" \
     "ref '${DELTA_REF}' must remain source-compatible." >&2
   exit 1
 fi
@@ -176,7 +176,7 @@ __BLANK_CONTEXT__
 PATCH
 then
   echo "ERROR: predicate-pushdown DV fixture patch did not apply." >&2
-  echo "The patch expects the Delta v4.2.0 beforeAll fixture shape;" \
+  echo "The patch expects the Delta v4.4.1 beforeAll fixture shape;" \
     "ref '${DELTA_REF}' must remain source-compatible." >&2
   exit 1
 fi

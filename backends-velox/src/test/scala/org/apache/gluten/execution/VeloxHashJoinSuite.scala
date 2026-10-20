@@ -531,6 +531,23 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
+  // The LATERAL VIEW output `key` reaches the build side under a generated alias.
+  private val generatedBuildKeyAliasQuery =
+    """
+      |SELECT /*+ BROADCAST(r) */ l.l_orderkey, l.l_partkey, r.key
+      |FROM lineitem l
+      |LEFT JOIN (
+      |  SELECT p_partkey, key
+      |  FROM (
+      |    SELECT p_partkey, concat('{"Key":"', CAST(p_partkey AS STRING), '"}') AS json_field
+      |    FROM part
+      |  ) p
+      |  LATERAL VIEW json_tuple(json_field, 'Key') b AS key
+      |) r
+      |ON l.l_partkey = r.p_partkey
+      | AND CAST(l.l_partkey AS STRING) = r.key
+      |""".stripMargin
+
   test("Broadcast build once with generated build key alias") {
     withSQLConf(
       ("spark.sql.autoBroadcastJoinThreshold", "10MB"),
@@ -538,29 +555,39 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
       (VeloxConfig.VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR.key, "true")
     ) {
       createTPCHNotNullTables()
-      val query =
-        """
-          |SELECT /*+ BROADCAST(r) */ l.l_orderkey, l.l_partkey, r.key
-          |FROM lineitem l
-          |LEFT JOIN (
-          |  SELECT p_partkey, key
-          |  FROM (
-          |    SELECT p_partkey, concat('{"Key":"', CAST(p_partkey AS STRING), '"}') AS json_field
-          |    FROM part
-          |  ) p
-          |  LATERAL VIEW json_tuple(json_field, 'Key') b AS key
-          |) r
-          |ON l.l_partkey = r.p_partkey
-          | AND CAST(l.l_partkey AS STRING) = r.key
-          |""".stripMargin
-
-      runQueryAndCompare(query) {
+      runQueryAndCompare(generatedBuildKeyAliasQuery) {
         df =>
           val plan = df.queryExecution.executedPlan
           val broadcastJoins = plan.collect { case bhj: BroadcastHashJoinExecTransformer => bhj }
           assert(broadcastJoins.nonEmpty, "Should use broadcast hash join")
       }
     }
+  }
+
+  Seq(false, true).foreach {
+    offHeap =>
+      test(s"Driver-side build with generated build key alias, off-heap relation: $offHeap") {
+        withSQLConf(
+          ("spark.sql.autoBroadcastJoinThreshold", "10MB"),
+          ("spark.sql.adaptive.enabled", "false"),
+          (VeloxConfig.VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD.key, "true"),
+          (VeloxConfig.VELOX_BROADCAST_BUILD_RELATION_USE_OFFHEAP.key, offHeap.toString)
+        ) {
+          createTPCHNotNullTables()
+          runQueryAndCompare(generatedBuildKeyAliasQuery) {
+            df =>
+              val relations = collectBroadcastRelations(df)
+              assert(relations.nonEmpty, "Should use a columnar broadcast")
+              // A failed driver-side build falls back to the executor-side relation.
+              relations.foreach {
+                relation =>
+                  assert(
+                    relation.isInstanceOf[SerializedHashTableBroadcastRelation],
+                    s"Driver-side build fell back, got ${relation.getClass.getName}")
+              }
+          }
+        }
+      }
   }
 
   test("Reuse broadcast exchange with different hash table") {
