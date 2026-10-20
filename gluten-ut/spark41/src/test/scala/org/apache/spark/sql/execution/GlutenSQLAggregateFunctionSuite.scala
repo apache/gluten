@@ -23,8 +23,7 @@ import org.apache.spark.sql.internal.SQLConf
 
 class GlutenSQLAggregateFunctionSuite extends GlutenSQLTestsTrait {
 
-  // TODO: fix in Spark-4.0
-  ignoreGluten("GLUTEN-4853: The result order is reversed for count and count distinct") {
+  testGluten("GLUTEN-4853: The result order is reversed for count and count distinct") {
     val query =
       """
         |select count(distinct if(sex = 'x', id, null)) as uv, count(if(sex = 'x', id, null)) as pv
@@ -36,8 +35,7 @@ class GlutenSQLAggregateFunctionSuite extends GlutenSQLTestsTrait {
     assert(getExecutedPlan(df).count(_.isInstanceOf[HashAggregateExecBaseTransformer]) == 4)
   }
 
-  // TODO: fix in Spark-4.0
-  ignoreGluten("Return NaN or null when dividing by zero") {
+  testGluten("Return NaN or null when dividing by zero") {
     val query =
       """
         |select skewness(value), kurtosis(value)

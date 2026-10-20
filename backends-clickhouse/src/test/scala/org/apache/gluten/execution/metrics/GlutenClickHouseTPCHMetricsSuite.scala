@@ -246,7 +246,10 @@ class GlutenClickHouseTPCHMetricsSuite extends ParquetTPCHSuite {
         ) {
           () =>
             val allGlutenPlans = wholeStageTransformer1.collect {
-              case g: GlutenPlan if !g.isInstanceOf[InputIteratorTransformer] => g
+              case g: GlutenPlan
+                  if !g.isInstanceOf[InputIteratorTransformer] &&
+                    !g.isInstanceOf[ColumnarInputAdapter] =>
+                g
             }
 
             val scanPlan = allGlutenPlans(9)
@@ -283,7 +286,10 @@ class GlutenClickHouseTPCHMetricsSuite extends ParquetTPCHSuite {
         ) {
           () =>
             val allGlutenPlans = wholeStageTransformer2.collect {
-              case g: GlutenPlan if !g.isInstanceOf[InputIteratorTransformer] => g
+              case g: GlutenPlan
+                  if !g.isInstanceOf[InputIteratorTransformer] &&
+                    !g.isInstanceOf[ColumnarInputAdapter] =>
+                g
             }
 
             assert(allGlutenPlans.size == 58)

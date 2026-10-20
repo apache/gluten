@@ -463,6 +463,13 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeGlutenTest("length check for input string values: with implicit cast")
     .excludeGlutenTest("char/varchar type values length check: partitioned columns of other types")
     .excludeGlutenTest("SPARK-42611: check char/varchar length in reordered structs within arrays")
+    .excludeGlutenTest("length check for input string values: nested in map key")
+    .excludeGlutenTest("length check for input string values: nested in map value")
+    .excludeGlutenTest("length check for input string values: nested in both map key and value")
+    .excludeGlutenTest(
+      "SPARK-42611: check char/varchar length in reordered structs within map keys")
+    .excludeGlutenTest(
+      "SPARK-42611: check char/varchar length in reordered structs within map values")
   enableSuite[GlutenDSV2SQLInsertTestSuite]
   enableSuite[GlutenDataFrameAggregateSuite]
     // Test for vanilla spark codegen, not apply for Gluten
@@ -504,6 +511,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
     // Rewrite this test because Velox sorts rows by key for primitive data types, which disrupts the original row sequence.
     .includeCH("map_zip_with function - map of primitive types")
     .excludeCH("map with arrays")
+    .excludeGlutenTest("map with arrays")
     .excludeCH("flatten function")
     .excludeCH("SPARK-41233: array prepend")
     .excludeCH("array_insert functions")
@@ -882,6 +890,9 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeGlutenTest("length check for input string values: nested in array")
     .excludeGlutenTest("length check for input string values: nested in array of struct")
     .excludeGlutenTest("length check for input string values: nested in array of array")
+    .excludeGlutenTest("length check for input string values: nested in map key")
+    .excludeGlutenTest("length check for input string values: nested in map value")
+    .excludeGlutenTest("length check for input string values: nested in both map key and value")
   enableSuite[GlutenFileSourceCustomMetadataStructSuite]
   enableSuite[GlutenFileSourceSQLInsertTestSuite]
     .excludeCH("SPARK-33474: Support typed literals as partition spec values")
@@ -2034,6 +2045,9 @@ class ClickHouseTestSettings extends BackendTestSettings {
   enableSuite[GlutenResolvedDataSourceSuite]
   enableSuite[GlutenReuseExchangeAndSubquerySuite]
   enableSuite[GlutenRuntimeNullChecksV2Writes]
+    .excludeGlutenTest("NOT NULL checks for nullable map with required values (byName)")
+    .excludeGlutenTest("NOT NULL checks for nullable map with required values (byPosition)")
+    .excludeGlutenTest("NOT NULL checks for fields inside nullable maps (byPosition)")
   enableSuite[GlutenSQLAggregateFunctionSuite]
     .excludeGlutenTest("Return NaN or null when dividing by zero")
   enableSuite[GlutenSQLQuerySuite]

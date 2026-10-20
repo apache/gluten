@@ -20,8 +20,9 @@ import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.extension.columnar.validator.FallbackInjects
 
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.catalyst.expressions.aggregate.{Final, Partial}
+import org.apache.spark.sql.catalyst.expressions.aggregate.{Final, Partial, PartialMerge}
 import org.apache.spark.sql.execution.aggregate.BaseAggregateExec
+import org.apache.spark.sql.execution.exchange.ShuffleExchangeLike
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
@@ -417,7 +418,7 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
     }
   }
 
-  testWithMinSparkVersion("regr_slope", "3.4") {
+  test("regr_slope") {
     runQueryAndCompare("""
                          |select regr_slope(l_partkey, l_suppkey) from lineitem;
                          |""".stripMargin) {
@@ -436,7 +437,7 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
     }
   }
 
-  testWithMinSparkVersion("regr_intercept", "3.4") {
+  test("regr_intercept") {
     runQueryAndCompare("""
                          |select regr_intercept(l_partkey, l_suppkey) from lineitem;
                          |""".stripMargin) {
@@ -455,7 +456,7 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
     }
   }
 
-  testWithMinSparkVersion("regr_sxy regr_sxx regr_syy", "3.4") {
+  test("regr_sxy regr_sxx regr_syy") {
     runQueryAndCompare("""
                          |select regr_sxy(l_quantity, l_tax) from lineitem;
                          |""".stripMargin) {
@@ -503,6 +504,26 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
                 plan.isInstanceOf[HashAggregateExecTransformer]
               }) == 4)
         }
+    }
+  }
+
+  test("aggregate over a map column") {
+    // checkType gates the aggregate's result and buffer attributes. Spark has no aggregate that
+    // builds a map out of non-map input, so the type only reaches checkType when a map column is
+    // carried through a type-preserving aggregate -- first / last / any_value / max_by. Velox
+    // holds a map accumulator for these.
+    withTempView("map_agg_tbl") {
+      Seq((1, Map("a" -> 1.0d)), (1, Map("a" -> 1.0d)), (2, Map("b" -> 2.0d)))
+        .toDF("k", "m")
+        .createOrReplaceTempView("map_agg_tbl")
+
+      // One distinct value per group, so which row first keeps does not change the answer.
+      runQueryAndCompare("select k, first(m) from map_agg_tbl group by k") {
+        checkGlutenPlan[HashAggregateExecTransformer]
+      }
+      runQueryAndCompare("select k, last(m) from map_agg_tbl group by k") {
+        checkGlutenPlan[HashAggregateExecTransformer]
+      }
     }
   }
 
@@ -1201,11 +1222,19 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
       ) {
         df =>
           {
-            assert(
-              getExecutedPlan(df).count(
-                plan => {
-                  plan.isInstanceOf[SortHashAggregateExecTransformer]
-                }) == 2)
+            val executedPlan = getExecutedPlan(df)
+            val sortHashCount =
+              executedPlan.count(_.isInstanceOf[SortHashAggregateExecTransformer])
+            val flushableCount =
+              executedPlan.count(_.isInstanceOf[FlushableHashAggregateExecTransformer])
+            assert(sortHashCount + flushableCount == 2)
+            if (VeloxConfig.get.enableVeloxFlushablePartialAggregation) {
+              assert(sortHashCount == 1)
+              assert(flushableCount == 1)
+            } else {
+              assert(sortHashCount == 2)
+              assert(flushableCount == 0)
+            }
           }
       }
     }
@@ -1257,11 +1286,29 @@ class VeloxAggregateFunctionsFlushSuite extends VeloxAggregateFunctionsSuite {
     }
   }
 
+  test("flushable aggregate rule - single-partition partial aggregate") {
+    withSQLConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false") {
+      withTempView("single_partition") {
+        spark
+          .range(0, 10, 1, 1)
+          .selectExpr("id % 2 as k")
+          .createOrReplaceTempView("single_partition")
+        runQueryAndCompare("select k, count(*) from single_partition group by k") {
+          df =>
+            val executedPlan = getExecutedPlan(df)
+            assert(!executedPlan.exists(_.isInstanceOf[ShuffleExchangeLike]))
+            assert(executedPlan.exists(_.isInstanceOf[FlushableHashAggregateExecTransformer]))
+        }
+      }
+    }
+  }
+
   test("flushable aggregate rule - count distinct keeps partial merge regular") {
     withSQLConf(
       SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false",
       SQLConf.FILES_MAX_PARTITION_BYTES.key -> "1k") {
-      runQueryAndCompare("select count(distinct l_partkey) from lineitem group by l_orderkey") {
+      runQueryAndCompare(
+        "select count(distinct l_partkey), count(*) from lineitem group by l_orderkey") {
         df =>
           val executedPlan = getExecutedPlan(df)
           val regularAggCount = executedPlan.count {
@@ -1277,6 +1324,102 @@ class VeloxAggregateFunctionsFlushSuite extends VeloxAggregateFunctionsSuite {
             flushableAggCount == 2,
             s"expected 2 flushable hash aggregates in one-distinct pipeline, got" +
               s" $flushableAggCount")
+      }
+    }
+  }
+
+  test("flushable aggregate rule - vanilla distinct-partial keeps partial merge regular") {
+    withSQLConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false") {
+      withTable("flush_distinct_src") {
+        spark
+          .range(0, 30000, 1, 10)
+          .selectExpr("id % 28000 as z")
+          .selectExpr("z % 3 as k", "z")
+          .write
+          .format("parquet")
+          .saveAsTable("flush_distinct_src")
+        // histogram_numeric is not offloaded, so the distinct-partial aggregate runs in vanilla
+        // Spark on top of the offloaded PartialMerge aggregate. The raw histogram depends on input
+        // order, so only the sum of its counts is compared.
+        val sql =
+          """
+            |select k, count(distinct z), count(*),
+            |  aggregate(histogram_numeric(distinct z, 5), 0D, (acc, e) -> acc + e.y)
+            |from flush_distinct_src group by k
+            |""".stripMargin
+        // With useObjectHashAggregateExec=false the vanilla aggregates are SortAggregateExec, which
+        // reads its child through a local sort; with columnar sort off that sort is a SortExec.
+        Seq(
+          Seq(SQLConf.USE_OBJECT_HASH_AGG.key -> "true"),
+          Seq(SQLConf.USE_OBJECT_HASH_AGG.key -> "false"),
+          Seq(
+            SQLConf.USE_OBJECT_HASH_AGG.key -> "false",
+            GlutenConfig.COLUMNAR_SORT_ENABLED.key -> "false")
+        ).foreach {
+          confs =>
+            withSQLConf(confs: _*) {
+              runQueryAndCompare(sql) {
+                df =>
+                  val distinctPartialAggs = getExecutedPlan(df).collect {
+                    case agg: BaseAggregateExec
+                        if agg.aggregateExpressions.exists(
+                          e => e.isDistinct && e.mode == Partial) =>
+                      agg
+                  }
+                  assert(
+                    distinctPartialAggs.nonEmpty &&
+                      distinctPartialAggs.forall(!_.isInstanceOf[HashAggregateExecTransformer]),
+                    "expected the distinct-partial aggregate to run in vanilla Spark"
+                  )
+                  val partialMergeAggs = distinctPartialAggs.flatMap(_.collectFirst {
+                    case agg: HashAggregateExecTransformer
+                        if agg.aggregateExpressions.forall(_.mode == PartialMerge) =>
+                      agg
+                  })
+                  assert(
+                    partialMergeAggs.nonEmpty,
+                    "expected an offloaded PartialMerge aggregate below the distinct-partial one")
+                  assert(
+                    partialMergeAggs.forall(!_.isInstanceOf[FlushableHashAggregateExecTransformer]),
+                    "the PartialMerge aggregate below the distinct-partial aggregate must not be " +
+                      "flushable"
+                  )
+              }
+            }
+        }
+      }
+    }
+  }
+
+  test("flushable aggregate rule - distinct feeding a join keeps final agg regular") {
+    withSQLConf(
+      SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false",
+      SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
+      SQLConf.FILES_MAX_PARTITION_BYTES.key -> "1k") {
+      // The join key is a strict subset of the distinct keys, so the distinct's final aggregate
+      // is repartitioned by a following exchange and thus visited by FlushableHashAggregateRule.
+      // Flushing it would emit duplicate distinct keys and inflate the join output.
+      runQueryAndCompare("""
+                           |select count(*) from orders
+                           |left join (select distinct l_orderkey, l_partkey from lineitem) d
+                           |  on o_orderkey = d.l_orderkey
+                           |""".stripMargin) {
+        df =>
+          val executedPlan = getExecutedPlan(df)
+          val groupingOnlyFinalAggs = executedPlan.collect {
+            case agg: HashAggregateExecTransformer
+                if agg.aggregateExpressions.isEmpty &&
+                  agg.requiredChildDistributionExpressions.isDefined =>
+              agg
+          }
+          assert(
+            groupingOnlyFinalAggs.nonEmpty,
+            "expected the distinct's final aggregate in the plan")
+          assert(
+            groupingOnlyFinalAggs.forall(
+              agg => !agg.isInstanceOf[FlushableHashAggregateExecTransformer]),
+            "the final aggregate of a grouping-only aggregation must not be flushable"
+          )
       }
     }
   }

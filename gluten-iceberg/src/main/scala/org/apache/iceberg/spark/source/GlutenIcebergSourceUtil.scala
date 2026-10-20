@@ -28,10 +28,13 @@ import org.apache.spark.sql.catalyst.catalog.ExternalCatalogUtils
 import org.apache.spark.sql.connector.read.Scan
 import org.apache.spark.sql.types.StructType
 
+import org.apache.hadoop.fs.Path
 import org.apache.iceberg._
+import org.apache.iceberg.io.{FileIO, SupportsStorageCredentials}
 import org.apache.iceberg.spark.SparkSchemaUtil
+import org.apache.iceberg.util.PropertyUtil
 
-import java.lang.{Class, Long => JLong}
+import java.lang.{Long => JLong}
 import java.util.{ArrayList => JArrayList, HashMap => JHashMap, List => JList, Map => JMap}
 import java.util.Locale
 
@@ -42,8 +45,40 @@ object GlutenIcebergSourceUtil {
   private val InputFileBlockStartCol = "input_file_block_start"
   private val InputFileBlockLengthCol = "input_file_block_length"
 
-  def getClassOfSparkBatchQueryScan(): Class[SparkBatchQueryScan] = {
-    classOf[SparkBatchQueryScan]
+  def isSupportedScan(sparkScan: Scan): Boolean = sparkScan match {
+    case _: SparkBatchQueryScan | _: SparkStagedScan => true
+    case _ => false
+  }
+
+  def isSparkStagedScan(sparkScan: Scan): Boolean = sparkScan.isInstanceOf[SparkStagedScan]
+
+  def hasVendedCredentials(sparkScan: Scan): Boolean =
+    isSupportedScan(sparkScan) && hasVendedCredentials(getTable(sparkScan).io())
+
+  private def hasVendedCredentials(io: FileIO): Boolean = {
+    io match {
+      case credentials: SupportsStorageCredentials if !credentials.credentials().isEmpty =>
+        return true
+      case _ =>
+    }
+    val properties =
+      try {
+        io.properties()
+      } catch {
+        case _: UnsupportedOperationException => return false
+      }
+    (Option(properties.get("s3.access-key-id")).exists(_.nonEmpty) &&
+      Option(properties.get("s3.secret-access-key")).exists(_.nonEmpty)) ||
+    Option(properties.get("gcs.oauth2.token")).exists(_.nonEmpty) ||
+    properties.asScala.exists {
+      case (key, value) =>
+        key.startsWith("adls.sas-token.") && Option(value).exists(_.nonEmpty)
+    } ||
+    Seq("client", "gcs.oauth2", "adls").exists {
+      prefix =>
+        Option(properties.get(s"$prefix.refresh-credentials-endpoint")).exists(_.nonEmpty) &&
+        PropertyUtil.propertyAsBoolean(properties, s"$prefix.refresh-credentials-enabled", true)
+    }
   }
 
   def deleteExists(p: SparkDataSourceRDDPartition): Boolean = {
@@ -114,32 +149,22 @@ object GlutenIcebergSourceUtil {
 
   def getFieldIds(sparkScan: Scan): JHashMap[String, Integer] = {
     val fieldIds = new JHashMap[String, Integer]()
-    sparkScan match {
-      case scan: SparkBatchQueryScan =>
-        scan.table().schema().columns().asScala.foreach {
-          field => fieldIds.put(field.name(), field.fieldId())
-        }
-      case _ =>
-        throw new GlutenNotSupportException("Only support iceberg SparkBatchQueryScan.")
+    getTable(sparkScan).schema().columns().asScala.foreach {
+      field => fieldIds.put(field.name(), field.fieldId())
     }
     fieldIds
   }
 
   def getInitialDefaults(sparkScan: Scan): JHashMap[String, String] = {
     val initialDefaults = new JHashMap[String, String]()
-    sparkScan match {
-      case scan: SparkBatchQueryScan =>
-        scan.table().schema().columns().asScala.foreach {
-          field =>
-            val defaultValue = IcebergDefaultValueUtil.getInitialDefault(field)
-            if (defaultValue != null) {
-              initialDefaults.put(
-                field.name(),
-                TypeUtil.getPartitionValueString(field.`type`(), defaultValue))
-            }
+    getTable(sparkScan).schema().columns().asScala.foreach {
+      field =>
+        val defaultValue = IcebergDefaultValueUtil.getInitialDefault(field)
+        if (defaultValue != null) {
+          initialDefaults.put(
+            field.name(),
+            TypeUtil.getPartitionValueString(field.`type`(), defaultValue))
         }
-      case _ =>
-        throw new GlutenNotSupportException("Only support iceberg SparkBatchQueryScan.")
     }
     initialDefaults
   }
@@ -162,65 +187,126 @@ object GlutenIcebergSourceUtil {
     metadataColumns
   }
 
-  def getFileFormat(sparkScan: Scan): ReadFileFormat = sparkScan match {
-    case scan: SparkBatchQueryScan =>
-      val tasks = scan.tasks().asScala
-      asFileScanTask(tasks.toList).foreach {
-        task =>
+  /**
+   * Derives both the file format and, optionally, the root path(s) actually scanned from the
+   * planned Iceberg scan tasks in a single pass over `getScanTasks(sparkScan)`.
+   *
+   * Root paths are derived from the real per-file (and, when present, per-delete-file) paths rather
+   * than table metadata (Table.location() / write.data.path), since data files can live at a
+   * location the static metadata does not reflect (e.g. after write.data.path is changed without
+   * moving previously-written files). One representative path per distinct scheme prefix is kept,
+   * since callers only need this to validate that the native filesystem implementation supports
+   * every scheme in play, not to enumerate every file.
+   *
+   * NOTE: this deliberately reuses the same `getScanTasks(sparkScan)` (Iceberg's own
+   * SparkPartitioningAwareScan#tasks()) that `getReadPartitionSchema` already calls unconditionally
+   * from `doValidateInternal()`, not Spark's BatchScanExecShim#filteredPartitions (which
+   * additionally calls SupportsRuntimeV2Filtering#filter() and
+   * Scan#toBatch().planInputPartitions(), and was the root cause of the DPP regression from
+   * https://github.com/apache/gluten/issues/12712 when a prior revision of this fix read paths from
+   * BatchScanExecTransformerBase#finalPartitions).
+   */
+  def getFileFormatAndRootPaths(
+      sparkScan: Scan,
+      collectRootPaths: Boolean): (ReadFileFormat, Seq[String]) = {
+    var fileFormat: ReadFileFormat = ReadFileFormat.UnknownFormat
+    // Built with plain mutable local collections that are never returned or captured, then
+    // copied into an immutable Seq at the end: the result is cached in a `lazy val` on
+    // IcebergScanTransformer (a case class captured by Spark task closures), so it must not
+    // retain any reference to a non-serializable mutable collection.
+    val seenSchemes = scala.collection.mutable.HashSet.empty[String]
+    val rootPathsBuilder = Seq.newBuilder[String]
+
+    def recordPath(path: String): Unit = {
+      if (collectRootPaths) {
+        // Use Hadoop's Path to extract the scheme rather than java.net.URI (whose strict RFC
+        // 3986 parsing throws URISyntaxException on characters like spaces or '[' / ']' that
+        // Hadoop-style paths otherwise tolerate, e.g. from a partition value baked into the file
+        // name) or plain "://"-based string slicing (which mis-detects single-slash Hadoop paths
+        // like "file:/tmp/x.parquet" or "hdfs:/warehouse/x.parquet" as having no scheme at all,
+        // causing them to collide with each other and silently drop a real scheme).
+        val scheme = Option(new Path(path).toUri.getScheme).getOrElse("")
+        if (seenSchemes.add(scheme)) {
+          rootPathsBuilder += path
+        }
+      }
+    }
+
+    asFileScanTask(getScanTasks(sparkScan)).foreach {
+      task =>
+        if (fileFormat == ReadFileFormat.UnknownFormat) {
           task.file().format() match {
-            case FileFormat.PARQUET => return ReadFileFormat.ParquetReadFormat
-            case FileFormat.ORC => return ReadFileFormat.OrcReadFormat
+            case FileFormat.PARQUET => fileFormat = ReadFileFormat.ParquetReadFormat
+            case FileFormat.ORC => fileFormat = ReadFileFormat.OrcReadFormat
             case _ =>
           }
-      }
+        }
+        if (collectRootPaths) {
+          recordPath(task.file().path().toString)
+          task.deletes().asScala.foreach(deleteFile => recordPath(deleteFile.path().toString))
+        }
+    }
+
+    if (fileFormat == ReadFileFormat.UnknownFormat) {
       throw new GlutenNotSupportException("Iceberg Only support parquet and orc file format.")
-    case _ =>
-      throw new GlutenNotSupportException("Only support iceberg SparkBatchQueryScan.")
+    }
+    (fileFormat, rootPathsBuilder.result())
   }
 
-  def getReadPartitionSchema(sparkScan: Scan): StructType = sparkScan match {
-    case scan: SparkBatchQueryScan =>
-      val tasks = scan.tasks().asScala
-      asFileScanTask(tasks.toList).foreach {
-        task =>
-          val spec = task.spec()
-          if (spec.isPartitioned) {
-            val readFields = scan.readSchema().fields.map(_.name).toSet
-            // Iceberg will generate some non-table fields as partition fields, such as x_bucket,
-            // which will not appear in readFields, they also cannot be filtered.
-            val tableFields = spec.schema().columns().asScala.map(_.name()).toSet
-            val voidTransformFields = scan
-              .table()
-              .spec()
+  def getReadPartitionSchema(sparkScan: Scan): StructType = {
+    asFileScanTask(getScanTasks(sparkScan)).foreach {
+      task =>
+        val spec = task.spec()
+        if (spec.isPartitioned) {
+          val readFields = sparkScan.readSchema().fields.map(_.name).toSet
+          // Iceberg will generate some non-table fields as partition fields, such as x_bucket,
+          // which will not appear in readFields, they also cannot be filtered.
+          val tableFields = spec.schema().columns().asScala.map(_.name()).toSet
+          val voidTransformFields = getTable(sparkScan)
+            .spec()
+            .fields()
+            .asScala
+            .filter(
+              f => {
+                f.transform().isVoid
+              })
+            .map(_.name())
+            .toSet
+          val partitionFields =
+            spec
+              .partitionType()
               .fields()
               .asScala
-              .filter(
-                f => {
-                  f.transform().isVoid
-                })
-              .map(_.name())
-              .toSet
-            val partitionFields =
-              spec
-                .partitionType()
-                .fields()
-                .asScala
-                .filter(f => !tableFields.contains(f.name) || readFields.contains(f.name()))
-                .filter(f => !voidTransformFields.contains(f.name()))
-            partitionFields.foreach {
-              field => TypeUtil.validatePartitionColumnType(field.`type`().typeId())
-            }
-
-            val icebergSchema = new Schema(partitionFields.toList.asJava)
-            return SparkSchemaUtil.convert(icebergSchema)
-          } else {
-            return new StructType()
+              .filter(f => !tableFields.contains(f.name) || readFields.contains(f.name()))
+              .filter(f => !voidTransformFields.contains(f.name()))
+          partitionFields.foreach {
+            field => TypeUtil.validatePartitionColumnType(field.`type`().typeId())
           }
-      }
-      throw new UnsupportedOperationException(
-        "Failed to get partition schema from iceberg SparkBatchQueryScan.")
+
+          val icebergSchema = new Schema(partitionFields.toList.asJava)
+          return SparkSchemaUtil.convert(icebergSchema)
+        } else {
+          return new StructType()
+        }
+    }
+    throw new UnsupportedOperationException("Failed to get partition schema from iceberg scan.")
+  }
+
+  private def getTable(sparkScan: Scan): Table = sparkScan match {
+    case scan: SparkBatchQueryScan => scan.table()
+    case scan: SparkStagedScan => scan.table()
     case _ =>
-      throw new UnsupportedOperationException("Only support iceberg SparkBatchQueryScan.")
+      throw new GlutenNotSupportException(
+        s"Unsupported Iceberg scan: ${sparkScan.getClass.getName}.")
+  }
+
+  private def getScanTasks(sparkScan: Scan): List[ScanTask] = sparkScan match {
+    case scan: SparkBatchQueryScan => scan.tasks().asScala.toList
+    case scan: SparkStagedScan =>
+      scan.taskGroups().asScala.flatMap(_.tasks().asScala).toList
+    case _ =>
+      throw new GlutenNotSupportException(
+        s"Unsupported Iceberg scan: ${sparkScan.getClass.getName}.")
   }
 
   private def asFileScanTask(tasks: List[ScanTask]): List[FileScanTask] = {

@@ -18,7 +18,6 @@ package org.apache.gluten.extension.columnar
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.{CollectLimitExec, SparkPlan}
@@ -34,7 +33,7 @@ case class CollectLimitTransformerRule() extends Rule[SparkPlan] {
           if exec.child.supportsColumnar &&
             (exec.child.output.nonEmpty ||
               BackendsApiManager.getSettings.supportEmptySchemaColumnarShuffle()) =>
-        val offset = SparkShimLoader.getSparkShims.getCollectLimitOffset(exec)
+        val offset = exec.offset
         BackendsApiManager.getSparkPlanExecApiInstance
           .genColumnarCollectLimitExec(exec.limit, exec.child, offset)
     }

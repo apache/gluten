@@ -19,8 +19,8 @@ package org.apache.spark.sql.execution
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.columnarbatch.ColumnarBatches
 import org.apache.gluten.config.VeloxConfig
+import org.apache.gluten.expression.ExpressionUtils
 import org.apache.gluten.runtime.Runtimes
-import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.vectorized.{ColumnarBatchSerializeResult, ColumnarBatchSerializerJniWrapper}
 
 import org.apache.spark.SparkContext
@@ -28,6 +28,7 @@ import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.UnsafeRow
 import org.apache.spark.sql.catalyst.plans.physical.{BroadcastMode, BroadcastPartitioning, IdentityBroadcastMode, Partitioning}
+import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.execution.joins.{BuildSideRelation, EmptyHashedRelation, HashedRelation, HashedRelationBroadcastMode, LongHashedRelation}
 import org.apache.spark.sql.execution.unsafe.UnsafeColumnarBuildSideRelation
 import org.apache.spark.sql.types.StructType
@@ -100,20 +101,20 @@ object BroadcastUtils {
         serializeStream(batchItr()) match {
           case ColumnarBatchSerializeResult.EMPTY =>
             ColumnarBuildSideRelation(
-              SparkShimLoader.getSparkShims.attributesFromStruct(schema),
+              ExpressionUtils.attributesFromStruct(schema),
               Array[Array[Byte]](),
               mode)
           case result: ColumnarBatchSerializeResult =>
             if (result.isOffHeap) {
               UnsafeColumnarBuildSideRelation(
-                SparkShimLoader.getSparkShims.attributesFromStruct(schema),
+                ExpressionUtils.attributesFromStruct(schema),
                 result.offHeapData().asScala.toSeq,
                 mode,
                 Seq.empty,
                 result.isOffHeap)
             } else {
               ColumnarBuildSideRelation(
-                SparkShimLoader.getSparkShims.attributesFromStruct(schema),
+                ExpressionUtils.attributesFromStruct(schema),
                 result.onHeapData().asScala.toArray,
                 mode)
             }
@@ -138,6 +139,18 @@ object BroadcastUtils {
         context.broadcast(toRelation).asInstanceOf[Broadcast[T]]
       case _ => throw new IllegalStateException("Unexpected broadcast mode: " + mode)
     }
+  }
+
+  /**
+   * Returns the error vanilla Spark's BroadcastExchangeExec throws when the broadcast table is too
+   * large, so that it has the same error condition.
+   */
+  def cannotBroadcastTableOverMaxTableBytesError(
+      maxBroadcastTableBytes: Long,
+      dataSize: Long): Throwable = {
+    QueryExecutionErrors.cannotBroadcastTableOverMaxTableBytesError(
+      maxBroadcastTableBytes,
+      dataSize)
   }
 
   def getBroadcastMode(partitioning: Partitioning): BroadcastMode = {

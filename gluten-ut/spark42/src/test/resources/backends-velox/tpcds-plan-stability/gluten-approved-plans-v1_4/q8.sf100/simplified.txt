@@ -1,0 +1,91 @@
+VeloxColumnarToRow
+  TakeOrderedAndProjectExecTransformer [s_store_name,sum(ss_net_profit)]
+    WholeStageCodegenTransformer (12)
+      ProjectExecTransformer [s_store_name,sum(UnscaledValue(ss_net_profit))]
+        RegularHashAggregateExecTransformer [s_store_name,sum] [sum(UnscaledValue(ss_net_profit)),sum]
+          InputIteratorTransformer
+            InputAdapter
+              ColumnarExchange [s_store_name,sum] #1
+                VeloxResizeBatches
+                  WholeStageCodegenTransformer (11)
+                    ProjectExecTransformer [s_store_name,sum]
+                      FlushableHashAggregateExecTransformer [s_store_name,_pre_x] [sum,sum,sum]
+                        ProjectExecTransformer [s_store_name,ss_net_profit]
+                          ShuffledHashJoinExecTransformer [s_zip,ca_zip]
+                            InputIteratorTransformer
+                              InputAdapter
+                                ColumnarExchange [s_zip,ss_net_profit,s_store_name] #2
+                                  VeloxResizeBatches
+                                    WholeStageCodegenTransformer (4)
+                                      ProjectExecTransformer [s_zip,ss_net_profit,s_store_name]
+                                        BroadcastHashJoinExecTransformer [ss_store_sk,s_store_sk]
+                                          ProjectExecTransformer [ss_store_sk,ss_net_profit]
+                                            BroadcastHashJoinExecTransformer [ss_sold_date_sk,d_date_sk]
+                                              FilterExecTransformer [ss_store_sk]
+                                                FileSourceScanExecTransformer parquet spark_catalog.default.store_sales [ss_store_sk,ss_net_profit,ss_sold_date_sk]
+                                                  ColumnarSubqueryBroadcast [d_date_sk] #1
+                                                    ColumnarBroadcastExchange #3
+                                                      WholeStageCodegenTransformer (1)
+                                                        ProjectExecTransformer [d_date_sk]
+                                                          FilterExecTransformer [d_qoy,d_year,d_date_sk]
+                                                            FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_date_sk,d_year,d_qoy]
+                                              InputIteratorTransformer
+                                                InputAdapter
+                                                  ReusedExchange [d_date_sk] #3
+                                          InputIteratorTransformer
+                                            InputAdapter
+                                              ColumnarBroadcastExchange #4
+                                                WholeStageCodegenTransformer (3)
+                                                  FilterExecTransformer [s_store_sk,s_zip]
+                                                    FileSourceScanExecTransformer parquet spark_catalog.default.store [s_store_sk,s_store_name,s_zip]
+                            InputIteratorTransformer
+                              InputAdapter
+                                ColumnarExchange [ca_zip] #5
+                                  VeloxResizeBatches
+                                    WholeStageCodegenTransformer (10)
+                                      ProjectExecTransformer [ca_zip]
+                                        RegularHashAggregateExecTransformer [ca_zip]
+                                          InputIteratorTransformer
+                                            InputAdapter
+                                              ColumnarExchange [ca_zip] #6
+                                                VeloxResizeBatches
+                                                  WholeStageCodegenTransformer (9)
+                                                    ProjectExecTransformer [ca_zip]
+                                                      FlushableHashAggregateExecTransformer [ca_zip]
+                                                        BroadcastHashJoinExecTransformer [ca_zip,ca_zip]
+                                                          ProjectExecTransformer [ca_zip]
+                                                            FilterExecTransformer [ca_zip]
+                                                              FileSourceScanExecTransformer parquet spark_catalog.default.customer_address [ca_zip]
+                                                          InputIteratorTransformer
+                                                            InputAdapter
+                                                              ColumnarBroadcastExchange #7
+                                                                WholeStageCodegenTransformer (8)
+                                                                  ProjectExecTransformer [ca_zip]
+                                                                    FilterExecTransformer [cnt]
+                                                                      ProjectExecTransformer [ca_zip,count(1)]
+                                                                        RegularHashAggregateExecTransformer [ca_zip,count] [count(1),count]
+                                                                          InputIteratorTransformer
+                                                                            InputAdapter
+                                                                              ColumnarExchange [ca_zip,count] #8
+                                                                                VeloxResizeBatches
+                                                                                  WholeStageCodegenTransformer (7)
+                                                                                    ProjectExecTransformer [ca_zip,count]
+                                                                                      FlushableHashAggregateExecTransformer [ca_zip] [count,count]
+                                                                                        ProjectExecTransformer [ca_zip]
+                                                                                          ShuffledHashJoinExecTransformer [ca_address_sk,c_current_addr_sk]
+                                                                                            InputIteratorTransformer
+                                                                                              InputAdapter
+                                                                                                ColumnarExchange [ca_address_sk,ca_zip] #9
+                                                                                                  VeloxResizeBatches
+                                                                                                    WholeStageCodegenTransformer (5)
+                                                                                                      ProjectExecTransformer [ca_address_sk,ca_zip]
+                                                                                                        FilterExecTransformer [ca_address_sk]
+                                                                                                          FileSourceScanExecTransformer parquet spark_catalog.default.customer_address [ca_address_sk,ca_zip]
+                                                                                            InputIteratorTransformer
+                                                                                              InputAdapter
+                                                                                                ColumnarExchange [c_current_addr_sk] #10
+                                                                                                  VeloxResizeBatches
+                                                                                                    WholeStageCodegenTransformer (6)
+                                                                                                      ProjectExecTransformer [c_current_addr_sk]
+                                                                                                        FilterExecTransformer [c_preferred_cust_flag,c_current_addr_sk]
+                                                                                                          FileSourceScanExecTransformer parquet spark_catalog.default.customer [c_current_addr_sk,c_preferred_cust_flag]

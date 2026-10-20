@@ -1,0 +1,54 @@
+VeloxColumnarToRow
+  TakeOrderedAndProjectExecTransformer [numwait,s_name]
+    WholeStageCodegenTransformer (7)
+      RegularHashAggregateExecTransformer [s_name,count] [count(1),numwait,count]
+        InputIteratorTransformer
+          InputAdapter
+            ColumnarExchange [s_name,count] #1
+              VeloxResizeBatches
+                WholeStageCodegenTransformer (6)
+                  ProjectExecTransformer [s_name,count]
+                    FlushableHashAggregateExecTransformer [s_name] [count,count]
+                      ProjectExecTransformer [s_name]
+                        BroadcastHashJoinExecTransformer [s_nationkey,n_nationkey]
+                          ProjectExecTransformer [s_name,s_nationkey]
+                            BroadcastHashJoinExecTransformer [l_orderkey,o_orderkey]
+                              ProjectExecTransformer [s_name,s_nationkey,l_orderkey]
+                                BroadcastHashJoinExecTransformer [s_suppkey,l_suppkey]
+                                  FilterExecTransformer [s_suppkey,s_nationkey]
+                                    FileSourceScanExecTransformer parquet spark_catalog.default.supplier [s_suppkey,s_name,s_nationkey]
+                                  InputIteratorTransformer
+                                    InputAdapter
+                                      ColumnarBroadcastExchange #2
+                                        WholeStageCodegenTransformer (3)
+                                          BroadcastHashJoinExecTransformer [l_orderkey,l_orderkey,l_suppkey,l_suppkey]
+                                            BroadcastHashJoinExecTransformer [l_orderkey,l_orderkey,l_suppkey,l_suppkey]
+                                              ProjectExecTransformer [l_orderkey,l_suppkey]
+                                                FilterExecTransformer [l_receiptdate,l_commitdate,l_suppkey,l_orderkey]
+                                                  FileSourceScanExecTransformer parquet spark_catalog.default.lineitem [l_orderkey,l_suppkey,l_commitdate,l_receiptdate]
+                                              InputIteratorTransformer
+                                                InputAdapter
+                                                  ColumnarBroadcastExchange #3
+                                                    WholeStageCodegenTransformer (1)
+                                                      FileSourceScanExecTransformer parquet spark_catalog.default.lineitem [l_orderkey,l_suppkey]
+                                            InputIteratorTransformer
+                                              InputAdapter
+                                                ColumnarBroadcastExchange #4
+                                                  WholeStageCodegenTransformer (2)
+                                                    ProjectExecTransformer [l_orderkey,l_suppkey]
+                                                      FilterExecTransformer [l_receiptdate,l_commitdate]
+                                                        FileSourceScanExecTransformer parquet spark_catalog.default.lineitem [l_orderkey,l_suppkey,l_commitdate,l_receiptdate]
+                              InputIteratorTransformer
+                                InputAdapter
+                                  ColumnarBroadcastExchange #5
+                                    WholeStageCodegenTransformer (4)
+                                      ProjectExecTransformer [o_orderkey]
+                                        FilterExecTransformer [o_orderstatus,o_orderkey]
+                                          FileSourceScanExecTransformer parquet spark_catalog.default.orders [o_orderkey,o_orderstatus]
+                          InputIteratorTransformer
+                            InputAdapter
+                              ColumnarBroadcastExchange #6
+                                WholeStageCodegenTransformer (5)
+                                  ProjectExecTransformer [n_nationkey]
+                                    FilterExecTransformer [n_name,n_nationkey]
+                                      FileSourceScanExecTransformer parquet spark_catalog.default.nation [n_nationkey,n_name]

@@ -20,7 +20,13 @@ import org.apache.gluten.config.GlutenIcebergConfig
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.execution.QueryExecution
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
+import org.apache.spark.sql.util.QueryExecutionListener
+
+import org.apache.iceberg.spark.source.GlutenIcebergSourceUtil
+
+import java.util.concurrent.{CountDownLatch, TimeUnit}
 
 abstract class IcebergSuite extends WholeStageTransformerSuite {
   protected val rootPath: String = getClass.getResource("/").getPath
@@ -60,6 +66,130 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
+  test("iceberg getRootPathsInternal covers the actual scanned data files") {
+    // See https://github.com/apache/gluten/issues/12712: getRootPathsInternal used to always
+    // return Seq.empty for Iceberg scans, silently skipping native filesystem scheme validation.
+    withTable("iceberg_root_paths_tb") {
+      spark.sql("""
+                  |CREATE TABLE iceberg_root_paths_tb (id INT)
+                  |USING iceberg
+                  |""".stripMargin)
+      spark.sql("INSERT INTO iceberg_root_paths_tb VALUES (1), (2)")
+
+      val actualFilePath = spark
+        .sql("SELECT input_file_name() FROM iceberg_root_paths_tb LIMIT 1")
+        .collect()(0)
+        .getString(0)
+
+      runQueryAndCompare("SELECT * FROM iceberg_root_paths_tb") {
+        df =>
+          val scans = getExecutedPlan(df).collect { case i: IcebergScanTransformer => i }
+          assert(scans.size == 1)
+          val rootPaths = scans.head.getRootPathsInternal
+          assert(rootPaths.nonEmpty, "getRootPathsInternal should not be empty for Iceberg tables")
+          assert(
+            rootPaths.exists(actualFilePath.startsWith),
+            s"expected one of root paths ($rootPaths) to be a prefix of the actual scanned " +
+              s"file ($actualFilePath)"
+          )
+      }
+    }
+  }
+
+  test("iceberg getRootPathsInternal reflects a custom write.data.path") {
+    // See https://github.com/apache/gluten/issues/12712 (review discussion): the table's
+    // declared location can differ from where data files actually live, e.g. via the
+    // write.data.path property. getRootPathsInternal must reflect that, not just the table's
+    // default location.
+    withTempDir {
+      dataDir =>
+        withTable("iceberg_custom_data_path_tb") {
+          spark.sql(s"""
+                       |CREATE TABLE iceberg_custom_data_path_tb (id INT)
+                       |USING iceberg
+                       |TBLPROPERTIES ('write.data.path' = '${dataDir.getCanonicalPath}')
+                       |""".stripMargin)
+          spark.sql("INSERT INTO iceberg_custom_data_path_tb VALUES (1), (2)")
+
+          runQueryAndCompare("SELECT * FROM iceberg_custom_data_path_tb") {
+            df =>
+              val scans = getExecutedPlan(df).collect { case i: IcebergScanTransformer => i }
+              assert(scans.size == 1)
+              val rootPaths = scans.head.getRootPathsInternal
+              assert(
+                rootPaths.exists(_.contains(dataDir.getCanonicalPath)),
+                s"expected root paths ($rootPaths) to include the configured " +
+                  s"write.data.path (${dataDir.getCanonicalPath})"
+              )
+          }
+        }
+    }
+  }
+
+  test("rewrite_data_files uses an iceberg staged scan transformer") {
+    val tableName = "iceberg_rewrite_tb"
+    withTable(tableName) {
+      withSQLConf("spark.sql.adaptive.enabled" -> "false") {
+        spark.sql(s"CREATE TABLE $tableName (id INT, data STRING) USING iceberg")
+        (1 to 5).foreach {
+          id => spark.sql(s"INSERT INTO $tableName VALUES ($id, 'value-$id')")
+        }
+
+        def dataFileCount: Long =
+          spark.table(s"spark_catalog.default.$tableName.files").count()
+
+        assert(dataFileCount == 5)
+        val stagedScanSeen = new CountDownLatch(1)
+        val listener = new QueryExecutionListener {
+          override def onSuccess(
+              funcName: String,
+              qe: QueryExecution,
+              durationNs: Long): Unit = {
+            if (
+              qe.executedPlan.exists {
+                case scan: IcebergScanTransformer =>
+                  GlutenIcebergSourceUtil.isSparkStagedScan(scan.scan)
+                case _ => false
+              }
+            ) {
+              stagedScanSeen.countDown()
+            }
+          }
+
+          override def onFailure(
+              funcName: String,
+              qe: QueryExecution,
+              exception: Exception): Unit = {}
+        }
+
+        try {
+          spark.listenerManager.register(listener)
+          val result = spark
+            .sql(s"""
+                    |CALL spark_catalog.system.rewrite_data_files(
+                    |  table => 'default.$tableName',
+                    |  options => map('min-input-files', '2'))
+                    |""".stripMargin)
+            .collect()
+
+          assert(result.length == 1)
+          assert(result.head.getInt(0) == 5)
+          assert(result.head.getInt(1) == 1)
+          assert(
+            stagedScanSeen.await(10, TimeUnit.SECONDS),
+            "Rewrite read did not use IcebergScanTransformer with SparkStagedScan")
+        } finally {
+          spark.listenerManager.unregister(listener)
+        }
+
+        assert(dataFileCount == 1)
+        checkAnswer(
+          spark.sql(s"SELECT * FROM $tableName ORDER BY id"),
+          (1 to 5).map(id => Row(id, s"value-$id")))
+      }
+    }
+  }
+
   test("iceberg input_file_name") {
     withTable("iceberg_input_file_tb") {
       spark.sql("""
@@ -85,7 +215,7 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("iceberg bucketed join", "3.4") {
+  test("iceberg bucketed join") {
     val leftTable = "p_str_tb"
     val rightTable = "p_int_tb"
     withTable(leftTable, rightTable) {
@@ -159,7 +289,7 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("iceberg bucketed join with partition", "3.4") {
+  test("iceberg bucketed join with partition") {
     val leftTable = "p_str_tb"
     val rightTable = "p_int_tb"
     withTable(leftTable, rightTable) {
@@ -233,7 +363,7 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("iceberg bucketed join partition value not exists", "3.4") {
+  test("iceberg bucketed join partition value not exists") {
     val leftTable = "p_str_tb"
     val rightTable = "p_int_tb"
     withTable(leftTable, rightTable) {
@@ -308,9 +438,7 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion(
-    "iceberg bucketed join partition value not exists partial cluster",
-    "3.4") {
+  test("iceberg bucketed join partition value not exists partial cluster") {
     val leftTable = "p_str_tb"
     val rightTable = "p_int_tb"
     withTable(leftTable, rightTable) {
@@ -385,7 +513,7 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
-  testWithMinSparkVersion("iceberg bucketed join with partition filter", "3.4") {
+  test("iceberg bucketed join with partition filter") {
     val leftTable = "p_str_tb"
     val rightTable = "p_int_tb"
     withTable(leftTable, rightTable) {
@@ -619,7 +747,7 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
 
   // Spark configuration spark.sql.iceberg.handle-timestamp-without-timezone is not supported
   // in Spark 3.4
-  testWithSpecifiedSparkVersion("iceberg partition type - timestamp", "3.3", "3.5") {
+  testWithSpecifiedSparkVersion("iceberg partition type - timestamp", "3.5") {
     Seq("true", "false").foreach {
       flag =>
         withSQLConf(

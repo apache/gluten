@@ -52,7 +52,13 @@ class VeloxDeltaComponent extends Component {
     // offloads, and DeltaScanTransformer materializes the per-file DV payloads for Velox.
     legacy.injectTransform {
       c =>
-        val offload = Seq(OffloadDeltaScan(), OffloadDeltaProject(), OffloadDeltaFilter())
+        val offload = Seq(
+          OffloadDeltaScan(
+            enableNativeDmlRowIndexScan =
+              new VeloxDeltaConfig(c.sqlConf).enableNativeDmlRowIndexScan),
+          OffloadDeltaProject(),
+          OffloadDeltaFilter()
+        )
           .map(_.toStrcitRule())
         HeuristicTransform.Simple(
           Validators.newValidator(new GlutenConfig(c.sqlConf), offload),

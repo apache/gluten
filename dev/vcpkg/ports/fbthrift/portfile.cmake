@@ -2,13 +2,11 @@ vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO facebook/fbthrift
     REF "v${VERSION}"
-    SHA512 32f2a648496a321b6aaf55197c2dc1412d030ca82f8d8a5ca0516379379a0f71dc17e2edcb2be3972f76603935c7dcae29769c067caa1ec8a33e7f4efb251581
+    SHA512 f8693bd82c6cee898886bb9ec1cb5c5c6672fbb3bed6b520c40d6cfff66e1ff5c15266f2141c8d1f80e0ebbdce4988981ce98986f6badc0445455fa71b1a7acd
     HEAD_REF main
     PATCHES
         fix-deps.patch
-        folly-has-liburing.diff
         fix-fmt-include.patch
-        compactv1-protocol-refiller.patch # patch from velox
 )
 
 file(REMOVE "${SOURCE_PATH}/thrift/cmake/FindGMock.cmake")

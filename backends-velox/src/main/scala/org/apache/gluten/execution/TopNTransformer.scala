@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.execution
 
+import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.expression.ExpressionConverter
 import org.apache.gluten.metrics.MetricsUpdater
 import org.apache.gluten.substrait.SubstraitContext
@@ -25,6 +26,7 @@ import org.apache.spark.sql.catalyst.expressions.{Attribute, SortOrder}
 import org.apache.spark.sql.catalyst.plans.physical.{AllTuples, Distribution, Partitioning, UnspecifiedDistribution}
 import org.apache.spark.sql.catalyst.util.truncatedString
 import org.apache.spark.sql.execution.SparkPlan
+import org.apache.spark.sql.execution.metric.SQLMetric
 
 import io.substrait.proto.SortField
 
@@ -34,8 +36,17 @@ case class TopNTransformer(
     limit: Long,
     sortOrder: Seq[SortOrder],
     global: Boolean,
-    child: SparkPlan)
+    child: SparkPlan)(
+    @transient private val parentMetrics: Map[String, SQLMetric])
   extends UnaryTransformSupport {
+
+  // This node is synthesized from TakeOrderedAndProjectExecTransformer at execution time and never
+  // appears in the executed plan. Reuse the parent's metrics so the collected native metrics are
+  // reported on the plan-visible TakeOrderedAndProjectExecTransformer node.
+  @transient override lazy val metrics: Map[String, SQLMetric] = parentMetrics
+
+  override def otherCopyArgs: Seq[AnyRef] = Seq(parentMetrics)
+
   override def output: Seq[Attribute] = child.output
   override def outputPartitioning: Partitioning = child.outputPartitioning
   override def outputOrdering: Seq[SortOrder] = sortOrder
@@ -52,7 +63,7 @@ case class TopNTransformer(
   }
 
   override protected def withNewChildInternal(newChild: SparkPlan): SparkPlan = {
-    copy(child = newChild)
+    copy(child = newChild)(parentMetrics)
   }
 
   override protected def doValidateInternal(): ValidationResult = {
@@ -110,5 +121,6 @@ case class TopNTransformer(
     }
   }
 
-  override def metricsUpdater(): MetricsUpdater = MetricsUpdater.Todo // TODO
+  override def metricsUpdater(): MetricsUpdater =
+    BackendsApiManager.getMetricsApiInstance.genTopNTransformerMetricsUpdater(metrics)
 }

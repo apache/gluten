@@ -49,6 +49,11 @@ object ConverterUtils extends Logging {
   }
 
   def normalizeColName(name: String): String = {
+    // An attribute may carry a null name (e.g. built from a StructField with a null name,
+    // SPARK-57725). Map it to an empty name; generated column names stay unique via the exprId.
+    if (name == null) {
+      return ""
+    }
     val caseSensitive = SQLConf.get.caseSensitiveAnalysis
     if (caseSensitive) name else name.toLowerCase(Locale.ROOT)
   }
@@ -184,10 +189,10 @@ object ConverterUtils extends Logging {
         (DecimalType(precision, scale), isNullable(decimal.getNullability))
       case Type.KindCase.STRUCT =>
         val struct_ = substraitType.getStruct
-        val fields = struct_.getTypesList.asScala.map {
-          typ =>
+        val fields = struct_.getTypesList.asScala.zip(structFieldNames(struct_)).map {
+          case (typ, name) =>
             val (field, nullable) = parseFromSubstraitType(typ)
-            StructField("", field, nullable)
+            StructField(name, field, nullable)
         }
         (StructType(fields.toSeq), isNullable(substraitType.getStruct.getNullability))
       case Type.KindCase.LIST =>
@@ -205,6 +210,15 @@ object ConverterUtils extends Logging {
         (NullType, true)
       case unsupported =>
         throw new GlutenNotSupportException(s"Type $unsupported not supported.")
+    }
+  }
+
+  // Not every producer sets `names`; without one name per field, the fields stay unnamed.
+  private def structFieldNames(substraitStruct: Type.Struct): Seq[String] = {
+    if (substraitStruct.getNamesCount == substraitStruct.getTypesCount) {
+      substraitStruct.getNamesList.asScala.toSeq
+    } else {
+      Seq.fill(substraitStruct.getTypesCount)("")
     }
   }
 
@@ -239,7 +253,7 @@ object ConverterUtils extends Logging {
         TypeBuilder.makeDecimal(nullable, precision, scale)
       case TimestampType =>
         TypeBuilder.makeTimestamp(nullable)
-      case other if other.typeName == "timestamp_ntz" =>
+      case TimestampNTZType =>
         TypeBuilder.makeTimestampNTZ(nullable)
       case m: MapType =>
         TypeBuilder.makeMap(
@@ -414,7 +428,8 @@ object ConverterUtils extends Logging {
       case DoubleType => "fp64"
       case DateType => "date"
       case TimestampType => "ts"
-      case other if other.typeName == "timestamp_ntz" => "ts_ntz"
+      // Underscores delimit arguments in native function signatures.
+      case TimestampNTZType => "tsntz"
       case StringType => "str"
       case BinaryType => "vbin"
       case DecimalType() =>
@@ -444,7 +459,7 @@ object ConverterUtils extends Logging {
         sigName = sigName.concat(getTypeSigName(valueType))
         sigName = sigName.concat(">")
         sigName
-      case CharType(_) =>
+      case _: CharType =>
         "fchar"
       case NullType =>
         "nothing"

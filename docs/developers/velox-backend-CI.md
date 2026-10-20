@@ -13,7 +13,7 @@ A weekly job defined in `docker_image.yml` builds the Docker images used for CI 
 
 file | images | comments
 -- | -- | --
-Dockerfile.centos7-gcc13-static-build | apache/gluten:vcpkg-centos-7-gcc13 | centos 7, static link, jdk8
+Dockerfile.almalinux8-gcc13-static-build | apache/gluten:vcpkg-almalinux-8-gcc13 | almalinux 8, static link, jdk8
 Dockerfile.centos8-gcc13-static-build | apache/gluten:vcpkg-centos-8-gcc13 | centos 8, static link, jdk8
 Dockerfile.centos8-dynamic-build | apache/gluten:centos-8-jdk8 | centos 8, dynamic link, jdk8
 Dockerfile.centos8-dynamic-build | apache/gluten:centos-8-jdk11 | centos 8, dynamic link, jdk11
@@ -65,3 +65,94 @@ To refresh the baseline after fixing something, run the workflow with `update_ba
 See [.github/workflows/util/delta-spark-ut/README.md](https://github.com/apache/gluten/blob/main/.github/workflows/util/delta-spark-ut/README.md)
 for the gate, the flaky-test quarantine and baseline bootstrapping.
 Open follow-ups are tracked in [#12743](https://github.com/apache/gluten/issues/12743).
+
+## Iceberg Spark UT
+
+`iceberg_spark_ut.yml` runs upstream Iceberg query/write tests on Spark 3.5. PR runs are
+limited to Iceberg sources and the harness, native/Velox code, shared production code in
+the Velox backend, core, Substrait and Arrow modules, Spark 3.5/common shims, and their
+Maven/native-build inputs.
+
+`iceberg_upstream_revision.yml` builds each revision's native and JVM artifacts once and
+shares them across five class shards, with one Spark fork per runner.
+
+### Results and gate
+
+The observer records Iceberg scans/writes during each test body, excluding annotated setup
+and cleanup. Native proof requires positive executor metrics from successful tasks, including
+final adaptive plans and subqueries.
+
+| Result | Meaning |
+| --- | --- |
+| `PASSED_NATIVE` | Passed with proven native execution for every observed Iceberg operation. |
+| `PASSED_FALLBACK` | Passed with Spark fallback, possibly alongside native execution. |
+| `FAILED` | An upstream assertion or error failed. |
+| `NO_ICEBERG_EXECUTION` | Passed without observed Iceberg I/O. |
+| `PASSED_UNVERIFIED` | Passed, but native execution could not be proved for every operation. |
+| `SKIPPED` | Disabled upstream or aborted by an assumption. |
+| `COVERAGE_ERROR` | Missing or invalid execution evidence; reporting fails. |
+
+Failing methods run again without Gluten unless whitelisted. `control.py` attributes a failure
+to Gluten only when vanilla Spark passes with matching parameters and settings. Missing,
+skipped, failing or mismatched controls fail the gate. Timeouts, resource exhaustion and
+broken-runtime failures remain unverified even if the control passes.
+
+Parameter/setup randomness is seeded.
+
+`iceberg-upstream-gate (3.5)` applies these rules to each invocation:
+
+- Native passes must remain native; newly failed invocations fail the gate.
+- Other changes are informational, including missing/skipped non-native tests, base/head
+  parameter differences, and lost native node coverage without a native-status regression.
+- Missing artifacts, duplicate results, incompatible report schemas, invalid execution evidence,
+  unverified failure attribution and failed infrastructure checks fail the gate.
+
+Tests listed by `class,method` in [flaky-tests.csv](../../.github/workflows/util/iceberg-upstream/flaky-tests.csv) still run and appear in reports, but do not affect the gate.
+
+`iceberg-upstream-spark3.5-reports` contains base/head coverage JSON and CSVs, head raw logs,
+comparison validation details and a changes-only CSV. Separate CSVs show native, fallback,
+failed, unverified and skipped outcomes.
+
+### Local reproduction
+
+After building the native backend, use JDK 17:
+
+```bash
+ICEBERG_PROFILES=-Pbackends-velox,iceberg,iceberg-upstream-test,hadoop-3.4,java-17,spark-3.5,scala-2.12
+./build/mvn clean install -pl backends-velox -am $ICEBERG_PROFILES -Pfast-build -DskipTests
+./build/mvn surefire:test@iceberg-upstream -pl backends-velox $ICEBERG_PROFILES
+python3 .github/workflows/util/iceberg-upstream/summarize.py backends-velox/target/iceberg-upstream-reports
+```
+
+Use `-Dtest=org.apache.iceberg.spark.sql.TestSelect` for one class, or
+`'-Dtest=org.apache.gluten.integration.*Test'` for observer regressions. Local failures fail
+Maven by default. Use clean, separate directories via `-Diceberg.upstream.reports=/path` when
+changing selections. To reproduce a CI shard, add `-Diceberg.upstream.shards=5` and
+`-Diceberg.upstream.shard=N` (0–4) to both Gluten and vanilla commands. Without these options,
+local discovery covers the full suite. The default is one fork; override
+`-Diceberg.upstream.forks=N` only with enough resources for concurrent Spark contexts.
+
+Before comparing reports containing failures, run vanilla controls for each report directory:
+
+```bash
+reports="$PWD/backends-velox/target/iceberg-upstream-reports"
+scripts=.github/workflows/util/iceberg-upstream
+python3 "$scripts/control.py" "$reports" --select "$reports/vanilla-selection.txt"
+selection=$(cat "$reports/vanilla-selection.txt")
+if [ -n "$selection" ]; then
+  ./build/mvn surefire:test@iceberg-upstream -pl backends-velox $ICEBERG_PROFILES \
+    "-Dtest=$selection" -Dspark.plugins= -Dmaven.test.failure.ignore=true \
+    -Diceberg.upstream.reports="$reports/vanilla"
+fi
+python3 "$scripts/control.py" "$reports" --vanilla "$reports/vanilla"
+```
+
+Compare base and current reports with the same gate rules:
+
+```bash
+python3 .github/workflows/util/iceberg-upstream/compare.py \
+  /path/to/base/execution-coverage.json /path/to/current/execution-coverage.json \
+  --output /path/to/comparison.json
+```
+
+This also writes `comparison.csv`, with headers only when nothing changed.

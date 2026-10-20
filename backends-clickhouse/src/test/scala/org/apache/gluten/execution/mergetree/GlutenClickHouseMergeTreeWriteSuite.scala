@@ -720,7 +720,7 @@ class GlutenClickHouseMergeTreeWriteSuite extends CreateMergeTreeSuite {
     }
   }
 
-  testSparkVersionLE33("test mergetree write with bucket table") {
+  ignoreSpark33OnlyCase("test mergetree write with bucket table") {
     spark.sql(s"""
                  |DROP TABLE IF EXISTS lineitem_mergetree_bucket;
                  |""".stripMargin)
@@ -1596,7 +1596,7 @@ class GlutenClickHouseMergeTreeWriteSuite extends CreateMergeTreeSuite {
     }
   }
 
-  testSparkVersionLE33("test mergetree with primary keys filter pruning by driver with bucket") {
+  ignoreSpark33OnlyCase("test mergetree with primary keys filter pruning by driver with bucket") {
     spark.sql(s"""
                  |DROP TABLE IF EXISTS lineitem_mergetree_pk_pruning_by_driver_bucket;
                  |""".stripMargin)

@@ -2,9 +2,9 @@ VeloxColumnarToRow
   WholeStageCodegenTransformer (7)
     ProjectExecTransformer [count(ws_order_number),sum(UnscaledValue(ws_ext_ship_cost)),sum(UnscaledValue(ws_net_profit))]
       RegularHashAggregateExecTransformer [sum,sum,count] [sum(UnscaledValue(ws_ext_ship_cost)),sum(UnscaledValue(ws_net_profit)),count(ws_order_number),sum,sum,count]
-        RegularHashAggregateExecTransformer [ws_order_number] [sum(UnscaledValue(ws_ext_ship_cost)),sum(UnscaledValue(ws_net_profit)),count(ws_order_number),sum,sum,count,sum,sum,count]
+        FlushableHashAggregateExecTransformer [ws_order_number] [sum(UnscaledValue(ws_ext_ship_cost)),sum(UnscaledValue(ws_net_profit)),count(ws_order_number),sum,sum,count,sum,sum,count]
           RegularHashAggregateExecTransformer [ws_order_number] [sum(UnscaledValue(ws_ext_ship_cost)),sum(UnscaledValue(ws_net_profit)),sum,sum,sum,sum]
-            RegularHashAggregateExecTransformer [ws_order_number,_pre_x,_pre_x] [sum(UnscaledValue(ws_ext_ship_cost)),sum(UnscaledValue(ws_net_profit)),sum,sum,sum,sum]
+            FlushableHashAggregateExecTransformer [ws_order_number,_pre_x,_pre_x] [sum(UnscaledValue(ws_ext_ship_cost)),sum(UnscaledValue(ws_net_profit)),sum,sum,sum,sum]
               ProjectExecTransformer [ws_order_number,ws_ext_ship_cost,ws_net_profit]
                 BroadcastHashJoinExecTransformer [ws_web_site_sk,web_site_sk]
                   ProjectExecTransformer [ws_web_site_sk,ws_order_number,ws_ext_ship_cost,ws_net_profit]

@@ -39,51 +39,52 @@ if(NOT glog_FOUND)
   include(BuildGlog)
 endif()
 
-get_filename_component(libglog_ext ${GLOG_LIBRARY} EXT)
-if(libglog_ext STREQUAL ".a")
-  set(libglog_type STATIC)
-  set(libgflags_component static)
-else()
-  set(libglog_type SHARED)
-  set(libgflags_component shared)
-endif()
+if(NOT TARGET glog::glog)
+  get_filename_component(libglog_ext ${GLOG_LIBRARY} EXT)
+  if(libglog_ext STREQUAL ".a")
+    set(libglog_type STATIC)
+    set(libgflags_component static)
+  else()
+    set(libglog_type SHARED)
+    set(libgflags_component shared)
+  endif()
 
-# glog::glog may already exist. Use google::glog to avoid conflicts.
-add_library(google::glog ${libglog_type} IMPORTED)
-set_target_properties(google::glog PROPERTIES INTERFACE_INCLUDE_DIRECTORIES
+  add_library(glog::glog ${libglog_type} IMPORTED)
+  set_target_properties(glog::glog PROPERTIES INTERFACE_INCLUDE_DIRECTORIES
                                               "${GLOG_INCLUDE_DIR}")
-set_target_properties(
-  google::glog PROPERTIES IMPORTED_LINK_INTERFACE_LANGUAGES "C"
+  set_target_properties(
+    glog::glog PROPERTIES IMPORTED_LINK_INTERFACE_LANGUAGES "C"
                           IMPORTED_LOCATION "${GLOG_LIBRARY}")
 
-set(GLUTEN_GFLAGS_VERSION 2.2.2)
-find_package(gflags ${GLUTEN_GFLAGS_VERSION} CONFIG
-             COMPONENTS ${libgflags_component})
+  set(GLUTEN_GFLAGS_VERSION 2.2.2)
+  find_package(gflags ${GLUTEN_GFLAGS_VERSION} CONFIG
+               COMPONENTS ${libgflags_component})
 
-if(NOT gflags_FOUND AND glog_FOUND)
-  message(
-    FATAL_ERROR
-      "Glog found but Gflags not found. Set BUILD_GLOG=ON and reload cmake.")
-endif()
-
-if(gflags_FOUND)
-  if(NOT TARGET gflags::gflags_${libgflags_component}
-     AND NOT TARGET gflags_${libgflags_component})
+  if(NOT gflags_FOUND AND glog_FOUND)
     message(
       FATAL_ERROR
-        "Found Gflags but missing component gflags_${libgflags_component}")
+        "Glog found but Gflags not found. Set BUILD_GLOG=ON and reload cmake.")
   endif()
-  if(TARGET gflags::gflags_${libgflags_component})
-    set_target_properties(
-      google::glog PROPERTIES IMPORTED_LINK_INTERFACE_LIBRARIES
+
+  if(gflags_FOUND)
+    if(NOT TARGET gflags::gflags_${libgflags_component}
+       AND NOT TARGET gflags_${libgflags_component})
+      message(
+        FATAL_ERROR
+          "Found Gflags but missing component gflags_${libgflags_component}")
+    endif()
+    if(TARGET gflags::gflags_${libgflags_component})
+      set_target_properties(
+        glog::glog PROPERTIES IMPORTED_LINK_INTERFACE_LIBRARIES
                               gflags::gflags_${libgflags_component})
-  else()
-    set_target_properties(
-      google::glog PROPERTIES IMPORTED_LINK_INTERFACE_LIBRARIES
+    else()
+      set_target_properties(
+        glog::glog PROPERTIES IMPORTED_LINK_INTERFACE_LIBRARIES
                               gflags_${libgflags_component})
+    endif()
+  else()
+    include(BuildGflags)
+    set_target_properties(
+      glog::glog PROPERTIES IMPORTED_LINK_INTERFACE_LIBRARIES gflags_static)
   endif()
-else()
-  include(BuildGflags)
-  set_target_properties(
-    google::glog PROPERTIES IMPORTED_LINK_INTERFACE_LIBRARIES gflags_static)
 endif()

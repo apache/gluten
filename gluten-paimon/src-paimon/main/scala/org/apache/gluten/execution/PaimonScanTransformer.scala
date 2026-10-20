@@ -221,8 +221,8 @@ object PaimonScanTransformer {
       batchScan.output,
       batchScan.scan,
       batchScan.runtimeFilters,
-      table = SparkShimLoader.getSparkShims.getBatchScanExecTable(batchScan),
-      keyGroupedPartitioning = SparkShimLoader.getSparkShims.getKeyGroupedPartitioning(batchScan),
+      table = batchScan.table,
+      keyGroupedPartitioning = batchScan.keyGroupedPartitioning,
       commonPartitionValues = SparkShimLoader.getSparkShims.getCommonPartitionValues(batchScan)
     )
   }

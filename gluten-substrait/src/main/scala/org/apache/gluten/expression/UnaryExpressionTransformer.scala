@@ -18,7 +18,6 @@ package org.apache.gluten.expression
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.exception.GlutenNotSupportException
-import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.`type`.ListNode
 import org.apache.gluten.substrait.`type`.MapNode
 import org.apache.gluten.substrait.SubstraitContext
@@ -45,11 +44,10 @@ case class CastTransformer(substraitExprName: String, child: ExpressionTransform
   extends UnaryExpressionTransformer {
   override def doTransform(context: SubstraitContext): ExpressionNode = {
     val typeNode = ConverterUtils.getTypeNode(dataType, original.nullable)
-    val sparkShims = SparkShimLoader.getSparkShims
     // Store-assignment casts can carry EvalMode.ANSI even when session ANSI is disabled.
-    val castMode = if (sparkShims.withTryEvalMode(original)) {
+    val castMode = if (ExpressionUtils.withTryEvalMode(original)) {
       CastNode.CastMode.TRY
-    } else if (sparkShims.withAnsiEvalMode(original)) {
+    } else if (ExpressionUtils.withAnsiEvalMode(original)) {
       CastNode.CastMode.ANSI
     } else {
       CastNode.CastMode.LEGACY

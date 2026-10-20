@@ -27,8 +27,7 @@ import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.expressions.{Expression, NamedExpression}
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.connector.read.Scan
-import org.apache.spark.sql.execution.command.CreateDataSourceTableAsSelectCommand
-import org.apache.spark.sql.execution.datasources.{FileFormat, InsertIntoHadoopFsRelationCommand}
+import org.apache.spark.sql.execution.datasources.FileFormat
 import org.apache.spark.sql.types.{StructField, StructType}
 
 import org.apache.hadoop.conf.Configuration
@@ -107,8 +106,6 @@ trait BackendSettingsApi {
 
   def excludeScanExecFromCollapsedStage(): Boolean = false
 
-  def rescaleDecimalArithmetic: Boolean = false
-
   /**
    * After https://github.com/apache/spark/pull/36698, every arithmetic should report the accurate
    * result decimal type and implement `CheckOverflow` by itself. <p/> Regardless of whether there
@@ -122,10 +119,6 @@ trait BackendSettingsApi {
   def needOutputSchemaForPlan(): Boolean = false
 
   def insertPostProjectForGenerate(): Boolean = false
-
-  def skipNativeCtas(ctas: CreateDataSourceTableAsSelectCommand): Boolean = false
-
-  def skipNativeInsertInto(insertInto: InsertIntoHadoopFsRelationCommand): Boolean = false
 
   def alwaysFailOnMapExpression(): Boolean = false
 

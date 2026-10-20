@@ -94,13 +94,16 @@ DB::FormatSettings ExcelTextFormatFile::createFormatSettings() const
     format_settings.csv.delimiter = *delimiter.data();
 
     if (file_info.start() == 0)
-        format_settings.csv.skip_first_lines = file_info.text().header();
+        format_settings.csv.skip_first_lines = file_info.text().header_lines_to_skip();
 
     if (delimiter == "\t" || delimiter == " ")
         format_settings.csv.allow_whitespace_or_tab_as_delimiter = true;
 
-    if (!file_info.text().null_value().empty())
-        format_settings.csv.null_representation = file_info.text().null_value();
+    /// `value_treated_as_null` is an `optional` field, so presence -- not emptiness -- says whether
+    /// the producer asked for a null representation at all. An explicitly set empty string means
+    /// "an empty field is NULL", which is not the same as the field being absent.
+    if (file_info.text().has_value_treated_as_null())
+        format_settings.csv.null_representation = file_info.text().value_treated_as_null();
 
     bool empty_as_null = true;
     if (context->getSettingsRef().has(EXCEL_EMPTY_AS_NULL))

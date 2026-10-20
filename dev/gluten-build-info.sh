@@ -44,6 +44,13 @@ function echo_velox_revision_info() {
   echo velox_revision_time=$(git -C "$BACKEND_HOME" show -s --format=%ci HEAD)
 }
 
+function echo_bolt_revision_info() {
+  BACKEND_HOME=$1
+  echo bolt_branch=$(git -C "$BACKEND_HOME" rev-parse --abbrev-ref HEAD)
+  echo bolt_revision=$(git -C "$BACKEND_HOME" rev-parse HEAD)
+  echo bolt_revision_time=$(git -C "$BACKEND_HOME" show -s --format=%ci HEAD)
+}
+
 function echo_clickhouse_revision_info() {
   echo ch_org=$(cat $GLUTEN_ROOT/cpp-ch/clickhouse.version | grep -oP '(?<=^CH_ORG=).*')
   echo ch_branch=$(cat $GLUTEN_ROOT/cpp-ch/clickhouse.version | grep -oP '(?<=^CH_BRANCH=).*')
@@ -79,6 +86,26 @@ function resolve_velox_home() {
   echo "$GLUTEN_ROOT/ep/build-velox/build/velox_ep"
 }
 
+function resolve_bolt_home() {
+  if [ -n "$BACKEND_HOME" ]; then
+    echo "$BACKEND_HOME"
+    return
+  fi
+
+  if [ -n "${BOLT_HOME:-}" ]; then
+    echo "$BOLT_HOME"
+    return
+  fi
+
+  CACHED_BOLT_HOME=$(read_cmake_cache_value BOLT_HOME)
+  if [ -n "$CACHED_BOLT_HOME" ]; then
+    echo "$CACHED_BOLT_HOME"
+    return
+  fi
+
+  echo "$GLUTEN_ROOT/ep/build-bolt/build/bolt_ep"
+}
+
 while (( "$#" )); do
   echo "$1"
   case $1 in
@@ -92,6 +119,9 @@ while (( "$#" )); do
       if [ "velox" = "$BACKEND_TYPE" ]; then
         BACKEND_HOME=$(resolve_velox_home)
         echo_velox_revision_info "$BACKEND_HOME" >> "$BUILD_INFO"
+      elif [ "bolt" = "$BACKEND_TYPE" ]; then
+        BACKEND_HOME=$(resolve_bolt_home)
+        echo_bolt_revision_info "$BACKEND_HOME" >> "$BUILD_INFO"
       elif [ "ch" = "$BACKEND_TYPE" ] || [ "clickhouse" = "$BACKEND_TYPE" ]; then
         echo_clickhouse_revision_info >> "$BUILD_INFO"
       fi
