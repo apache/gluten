@@ -48,6 +48,15 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
       writeOptions: Option[DeltaOptions],
       isOptimize: Boolean,
       additionalConstraints: Seq[Constraint]): Seq[FileAction] = {
+    // Delta writes Parquet field IDs for both name and id column mapping, and Iceberg
+    // compatibility requires column mapping. The Velox writer drops field metadata, so its files
+    // would carry no field IDs, which Spark's reader rejects under id mapping.
+    if (metadata.columnMappingMode != NoMapping) {
+      logInfo(
+        "Parquet field IDs for column mapping are not written by the Velox writer; " +
+          "falling back to the vanilla Delta write path.")
+      return super.writeFiles(inputData, writeOptions, isOptimize, additionalConstraints)
+    }
     hasWritten = true
 
     val spark = inputData.sparkSession
