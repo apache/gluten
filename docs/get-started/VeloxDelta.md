@@ -157,18 +157,20 @@ UPDATE t SET name = 'b' WHERE id = 2;
 
 On Spark 3.5 or 4.x, set `spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite=true` to have Velox write the data files of the commands marked Offload in [Write commands](#write-commands). Velox writes the files of this UPDATE. Seen on 4.1. On 3.5 and 4.0 this is from code. On Spark 4.x, also apply [ANSI mode on Spark 4.x](#ansi-mode-on-spark-4x).
 
-On Spark 3.5, native write sends column-mapped tables, including UniForm tables, to Delta's writer, since Delta Lake writes Parquet field IDs for them (from code). It does not check the codec, the path scheme or the partition column types before it runs. Unsupported values make the task fail or write wrong files. On Spark 4.x, the checks in [Native write on Spark 4.x](#native-write-on-spark-4x) send most of those writes to Delta's writer. Read [Write problems](#write-problems) before turning it on.
+On Spark 3.5, native write sends column-mapped tables to Delta's writer, since Delta Lake writes Parquet field IDs for them. Unpartitioned tables with Iceberg compatibility V1 or V2 (UniForm) are the exception: Velox writes their field IDs (from code). It does not check the codec, the path scheme or the partition column types before it runs. Unsupported values make the task fail or write wrong files. On Spark 4.x, the checks in [Native write on Spark 4.x](#native-write-on-spark-4x) send most of those writes to Delta's writer. Read [Write problems](#write-problems) before turning it on.
 
 ### Native write on Spark 4.x
 
 On Spark 4.x, native Delta write writes what Delta Lake's own writer would write: the same rows, schema, Parquet physical types, field IDs and partition columns, honoring the compression codec, `maxRecordsPerFile`, Parquet version and encryption. Row group and page sizes, encodings and other Parquet tuning are Velox's own. Settings are read where Delta Lake's writer reads them: the session, the writer options, and the job's Hadoop configuration, which includes the table properties. Writes the Velox writer cannot match fall back to Delta Lake's writer. These are:
 
 - partitioned tables whose data files store the partition columns, which is Delta Lake 4.4's default
-  (`delta.writePartitionColumnsToParquet`) and required by `materializePartitionColumns`;
-- column mapping (`name` or `id`), and other columns with `parquet.field.id` metadata, since
-  Delta Lake writes Parquet field IDs;
+  (`delta.writePartitionColumnsToParquet`) and required by `materializePartitionColumns` and by
+  Iceberg compatibility;
+- column mapping (`name` or `id`) without Iceberg compatibility V1 or V2, and other columns with
+  `parquet.field.id` metadata, since Delta Lake writes Parquet field IDs;
 - timestamps, unless `spark.sql.parquet.outputTimestampType` (and the writer option or table
-  property of the same name, if set) is `TIMESTAMP_MICROS`; Spark's default is `INT96`;
+  property of the same name, if set) is `TIMESTAMP_MICROS`, or the table has Iceberg compatibility;
+  Spark's default is `INT96`;
 - `TIMESTAMP_NTZ` and `VOID` columns;
 - compression codecs other than `uncompressed`, `snappy`, `gzip`, `lz4` and `zstd`;
 - `maxRecordsPerFile` (option or session conf) on unpartitioned tables;
@@ -179,7 +181,7 @@ On Spark 4.x, native Delta write writes what Delta Lake's own writer would write
   columns, and `spark.sql.parquet.writeLegacyFormat` with array or map columns, or set as a table
   property to a value other than the session's;
 - concurrent output writers (`spark.sql.maxConcurrentOutputFileWriters`) on partitioned tables;
-- Iceberg compatibility, variant shredding and any writer option the gate does not know.
+- IcebergCompatV3, variant shredding and any writer option the gate does not know.
 
 These checks are in `GlutenDeltaNativeWriteGate` (from code).
 
@@ -335,14 +337,14 @@ The Read column covers Spark 3.5 to 4.2. It covers Spark 3.4 only where the row 
 |---|---|---|---|
 | Deletion vectors | Offload, Fallback on Spark 3.4 | PartialOffload | Gluten's tests check the results of deletion vector DELETE and MERGE on Spark 3.5 and 4.0 with native write turned on. Delta writes the deletion vector files, and MERGE writes its data files with Delta's writer (see [Write commands](#write-commands)). Both are from code. See [Deletion vectors](#deletion-vectors). |
 | Change data feed | Offload, also on Spark 3.4. Ranges with deletion vectors fall back. On Spark 3.4, scans of `_change_data` files also fall back when the table allows deletion vectors (from code). | Offload | UPDATE and DELETE write the `_change_data` files with Velox (from code). Change data feed reads of their changes are correct (seen on 4.1). See [Change data feed](#change-data-feed). |
-| Column mapping, name mode | Offload, also on Spark 3.4 | Fallback | Delta Lake writes Parquet field IDs, which the Velox writer does not, so Delta's writer writes the files. From code. |
+| Column mapping, name mode | Offload, also on Spark 3.4 | Fallback, except with Iceberg compatibility V1 or V2 (see UniForm) | Delta Lake writes Parquet field IDs, which the Velox writer writes only for tables with Iceberg compatibility, so Delta's writer writes the files. From code. |
 | Column mapping, id mode | Offload, also on Spark 3.4. ResultMismatch when matching by field ID would select no column (seen on 4.1) or a different column (from code). | Fallback, as in name mode. From code. | Gluten matches columns by physical name. See [Known problems](#known-problems). |
 | Identity columns | Offload | Offload | Seen on 4.1. High-water marks are correct. The projection that generates identity values runs on Spark (from code). |
 | Generated columns | Offload | Offload | Seen on 4.1. No Gluten test covers generated columns. Velox computes the generated values when it supports the expression (from code). Partition filters derived from them reach the native scan. `DATE_FORMAT` results for years above 9999 differ (see [Write problems](#write-problems)). |
 | CHECK constraints, NOT NULL | Offload | Offload | Delta checks the rows on the JVM before Velox writes them. Gluten's tests cover NOT NULL on Spark 3.5 and 4.0. Seen on 4.1. |
 | Row tracking | Offload, Exception for `_metadata.base_row_id` filters, ResultMismatch for `_metadata.row_id` when older files lack base row IDs | Offload | Seen on 4.1. See [Read problems](#read-problems). |
 | Liquid clustering | Offload | PartialOffload | Reads use the same native scan as other tables. Native commands write to clustered tables. `OPTIMIZE`, which clusters the data, uses Delta's writer. All three are from code. |
-| UniForm (IcebergCompatV1, V2) | | Fallback | Iceberg compatibility requires column mapping. The write status is from code. No test reads a UniForm table. |
+| UniForm (IcebergCompatV1, V2) | | Offload. Partitioned tables fall back, since Iceberg compatibility keeps the partition columns in the data files. | The Velox writer writes the Parquet field IDs Delta Lake writes, including those of array elements and map keys and values for IcebergCompatV2. Gluten's tests compare them with Delta Lake's files and read the table back by field ID, in id mode. IcebergCompatV3 falls back. The write status is from code. No test reads a UniForm table with Iceberg. |
 | Type widening | Offload, Exception for DATE to TIMESTAMP_NTZ data columns | Offload. Writes to FLOAT or DOUBLE partition columns and some TIMESTAMP_NTZ writes failed (seen on 4.1). Spark 4.x now sends those writes to Delta's writer (from code). | Seen on 4.1. Spark 3.5 and 4.0 are not covered. Delta Lake 3.3.2 on Spark 3.5 allows only TINYINT to SMALLINT to INT. |
 | TIMESTAMP_NTZ | PartialOffload, also on Spark 3.4 | Offload on Spark 3.5, Exception for some writes. Fallback on Spark 4.x. Both are from code. | See [DataType](#datatype). |
 | Variant, including shredding | Fallback | Fallback | Spark 4.x. From code. See [DataType](#datatype). |
@@ -383,7 +385,7 @@ Delta data files are Parquet, and Gluten reads them with Velox's Parquet reader.
 | Compression | snappy (default), gzip, zstd (always level 3), lz4 (Hadoop framing), none. From code. Other codecs fall back on Spark 4.x; for Spark 3.5, see [Write problems](#write-problems). |
 | Row groups | Sized by `spark.gluten.sql.columnar.parquet.write.blockSize` and `spark.gluten.sql.native.parquet.write.blockRows`. `parquet.*` settings are ignored. From code. |
 | TIMESTAMP | INT64 microseconds. On Spark 3.5, `spark.sql.parquet.outputTimestampType` is ignored, and Delta Lake's writer uses INT96 by default. On Spark 4.x, writes with TIMESTAMP columns fall back unless that setting is `TIMESTAMP_MICROS`. Spark reads both. From code. |
-| Parquet field IDs | Not written. Writes to column-mapped and UniForm tables fall back. On Spark 4.x, so do writes of other columns with `parquet.field.id` metadata. From code. |
+| Parquet field IDs | Written for tables with Iceberg compatibility V1 or V2, as Delta Lake writes them. Writes to other column-mapped tables fall back. On Spark 4.x, so do writes of other columns with `parquet.field.id` metadata. From code. |
 | Spark schema footer entry | `org.apache.spark.sql.parquet.row.metadata` is not written ([#13288](https://github.com/apache/gluten/issues/13288)). Seen on 4.1. |
 | Nested field names | Lowercased below the top level when `spark.sql.caseSensitive=false`. Spark and Gluten match them case-insensitively. A case-sensitive reader can miss them. From code. |
 | Page index | Always written. From code. |
@@ -597,10 +599,10 @@ A blank cell means unknown.
 | --- | --- | --- | --- |
 | delta.enableDeletionVectors | false | Velox applies deletion vectors in the scan on Spark 3.5 to 4.2. On Spark 3.4, a read falls back when a file it selects has a deletion vector. For other Spark 3.4 scans, see [Deletion vectors](#deletion-vectors). | ✅ Spark 3.5 to 4.1 |
 | delta.enableChangeDataFeed | false | Change data feed reads offload, except ranges with deletion vectors. With native write on, Velox writes the `_change_data` files of UPDATE and DELETE (from code). For MERGE, see [MERGE, UPDATE and DELETE problems](#merge-update-and-delete-problems). | ⚠️ |
-| delta.columnMapping.mode | none | Reads offload. Native writes fall back (from code). For id mode, see [Known problems](#known-problems). | ⚠️ |
+| delta.columnMapping.mode | none | Reads offload. Native writes fall back, except with Iceberg compatibility V1 or V2 (from code). For id mode, see [Known problems](#known-problems). | ⚠️ |
 | delta.enableRowTracking | false | Reads and native writes offload. Seen on 4.1. For `_metadata.base_row_id` filters and for `_metadata.row_id` when older files lack base row IDs, see [Read problems](#read-problems). | ⚠️ |
 | delta.enableTypeWidening | false | Most widenings read natively. Seen on 4.1. For DATE to TIMESTAMP_NTZ and for FLOAT or DOUBLE partition columns, see [Known problems](#known-problems). | ⚠️ |
-| delta.universalFormat.enabledFormats | (empty) | Native writes fall back. From code. | ⚠️ |
+| delta.universalFormat.enabledFormats | (empty) | With IcebergCompatV1 or V2, native writes to unpartitioned tables offload, and Delta Lake writes the Iceberg metadata. Other native writes fall back. From code. | ⚠️ |
 | delta.enableIcebergCompatV2 | (unset) | Same as `delta.universalFormat.enabledFormats`. | ⚠️ |
 | delta.autoOptimize.optimizeWrite | (unset) | Native writes run the optimized write shuffle in Velox. From code. | ✅ |
 | delta.autoOptimize.autoCompact | (unset) | Compacts natively written tables. Seen on 4.1. | ✅ |

@@ -23,7 +23,9 @@
 
 #include "arrow/c/bridge.h"
 #include "compute/VeloxRuntime.h"
+#include "config/GlutenConfig.h"
 
+#include "utils/ParquetFieldIds.h"
 #include "utils/VeloxArrowUtils.h"
 #include "utils/VeloxWriterUtils.h"
 
@@ -46,6 +48,13 @@ void VeloxParquetDataSource::init(const std::unordered_map<std::string, std::str
   initSink(sparkConfs);
   auto schema = gluten::fromArrowSchema(schema_);
   const auto writeOption = gluten::makeParquetWriteOption(sparkConfs);
+  if (auto it = sparkConfs.find(kParquetFieldIds); it != sparkConfs.end()) {
+    auto fieldIds = parquetFieldIdsFromWriteOption(it->second);
+    // Some columns have no field ID, such as the materialized row tracking columns of Delta.
+    validateParquetFieldIds(fieldIds, *asRowType(schema), /*allowMissingIds=*/true);
+    std::static_pointer_cast<velox::parquet::ParquetWriterOptions>(writeOption->formatSpecificOptions)
+        ->parquetFieldIds = std::move(fieldIds);
+  }
   parquetWriter_ = std::make_unique<velox::parquet::Writer>(std::move(sink_), *writeOption, pool_, asRowType(schema));
 }
 

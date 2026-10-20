@@ -275,7 +275,12 @@ case class GlutenDeltaParquetFileFormat(
                              job: Job,
                              options: Map[String, String],
                              dataSchema: StructType): OutputWriterFactory = {
-    val writeOptions = GlutenDeltaParquetFieldId.withParquetFieldIds(options, dataSchema, metadata)
+    // The Velox writer ignores the job conf set below and takes the field IDs from the options.
+    val writeOptions = GlutenDeltaParquetFieldIds.withFieldIds(
+      options,
+      dataSchema,
+      metadata,
+      sparkSession.sessionState.conf)
     val factory = super.prepareWrite(sparkSession, job, writeOptions, dataSchema)
     val conf = ContextUtil.getConfiguration(job)
     // Always write timestamp as TIMESTAMP_MICROS for Iceberg compat based on Iceberg spec

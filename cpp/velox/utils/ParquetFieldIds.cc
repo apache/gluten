@@ -22,6 +22,7 @@
 
 #include "IcebergNestedField.pb.h"
 #include "utils/Exception.h"
+#include "velox/common/encode/Base64.h"
 
 using namespace facebook::velox;
 
@@ -29,10 +30,20 @@ namespace gluten {
 
 namespace {
 
-parquet::ParquetFieldId fromProto(const IcebergNestedField& field) {
-  parquet::ParquetFieldId fieldId{field.id(), {}};
-  fieldId.children.reserve(field.children_size());
-  for (const auto& child : field.children()) {
+// IcebergNestedField and ParquetFieldIdNode differ only in the name of the ID.
+int32_t idOf(const IcebergNestedField& field) {
+  return field.id();
+}
+
+int32_t idOf(const ParquetFieldIdNode& node) {
+  return node.field_id();
+}
+
+template <typename Node>
+parquet::ParquetFieldId fromProto(const Node& node) {
+  parquet::ParquetFieldId fieldId{idOf(node), {}};
+  fieldId.children.reserve(node.children_size());
+  for (const auto& child : node.children()) {
     fieldId.children.push_back(fromProto(child));
   }
   return fieldId;
@@ -109,6 +120,24 @@ class Validator {
 
 std::vector<parquet::ParquetFieldId> parquetFieldIdsFromProto(const IcebergNestedField& root) {
   return fromProto(root).children;
+}
+
+std::vector<parquet::ParquetFieldId> parquetFieldIdsFromProto(
+    const google::protobuf::RepeatedPtrField<ParquetFieldIdNode>& columns) {
+  std::vector<parquet::ParquetFieldId> fieldIds;
+  fieldIds.reserve(columns.size());
+  for (const auto& column : columns) {
+    fieldIds.push_back(fromProto(column));
+  }
+  return fieldIds;
+}
+
+std::vector<parquet::ParquetFieldId> parquetFieldIdsFromWriteOption(std::string_view value) {
+  ParquetFieldIdNode root;
+  if (!root.ParseFromString(encoding::Base64::decode(value))) {
+    throw GlutenException("Failed to parse the Parquet field IDs of the write.");
+  }
+  return parquetFieldIdsFromProto(root.children());
 }
 
 void validateParquetFieldIds(

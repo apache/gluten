@@ -20,7 +20,9 @@
 #include <gtest/gtest.h>
 
 #include "IcebergNestedField.pb.h"
+#include "ParquetFieldIds.pb.h"
 #include "utils/Exception.h"
+#include "velox/common/encode/Base64.h"
 #include "velox/type/Type.h"
 
 using namespace facebook::velox;
@@ -150,4 +152,30 @@ TEST(ParquetFieldIdsTest, fromIcebergProto) {
   ASSERT_EQ(fieldIds[1].children[0].children.size(), 1);
   EXPECT_EQ(fieldIds[1].children[0].children[0].fieldId, 3);
   expectValid(fieldIds, ROW({"a", "items"}, {INTEGER(), ARRAY(ROW({"sku"}, {VARCHAR()}))}));
+}
+
+TEST(ParquetFieldIdsTest, fromWriteOption) {
+  // As the Delta write path builds it: a root without an ID around the columns.
+  ParquetFieldIdNode root;
+  root.set_field_id(-1);
+  auto* a = root.add_children();
+  a->set_field_id(1);
+  auto* items = root.add_children();
+  items->set_field_id(2);
+  auto* element = items->add_children();
+  element->set_field_id(3);
+  // A struct field without an ID, such as a materialized row tracking column.
+  element->add_children()->set_field_id(-1);
+
+  auto fieldIds = parquetFieldIdsFromWriteOption(encoding::Base64::encode(root.SerializeAsString()));
+  ASSERT_EQ(fieldIds.size(), 2);
+  EXPECT_EQ(fieldIds[0].fieldId, 1);
+  EXPECT_EQ(fieldIds[1].fieldId, 2);
+  ASSERT_EQ(fieldIds[1].children.size(), 1);
+  EXPECT_EQ(fieldIds[1].children[0].fieldId, 3);
+  ASSERT_EQ(fieldIds[1].children[0].children.size(), 1);
+  EXPECT_EQ(fieldIds[1].children[0].children[0].fieldId, -1);
+  auto rowType = ROW({"a", "items"}, {INTEGER(), ARRAY(ROW({"x"}, {VARCHAR()}))});
+  expectValid(fieldIds, rowType, /*allowMissingIds=*/true);
+  expectError(fieldIds, rowType, {"'items.element.x' is missing"});
 }

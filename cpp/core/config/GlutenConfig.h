@@ -76,6 +76,8 @@ const std::string kParquetEnablePageIndex = "parquet.enable.page.index";
 
 const std::string kParquetWriterVersion = "parquet.writer.version";
 
+// The Parquet field IDs of the columns, set by Gluten: a Base64-encoded ParquetFieldIdNode whose
+// children are the columns.
 const std::string kParquetFieldIds = "parquet.field.ids";
 
 const std::string kParquetCompressionCodec = "spark.sql.parquet.compression.codec";

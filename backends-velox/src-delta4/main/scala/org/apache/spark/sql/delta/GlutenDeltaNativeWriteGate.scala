@@ -93,7 +93,7 @@ object GlutenDeltaNativeWriteGate {
         // Only the partitioned native writer splits a batch across files.
         "maxRecordsPerFile is not supported by the unpartitioned Velox writer"
       })
-      .orElse(unsupportedDatetimeEncoding(sqlConf, hadoopConf, options, fileSchema))
+      .orElse(unsupportedDatetimeEncoding(sqlConf, hadoopConf, options, fileSchema, metadata))
       .orElse(unsupportedLegacyFormat(sqlConf, hadoopConf, fileSchema))
       .orElse(Option.when(partitionColumns.nonEmpty && isTrue(options, writePartitionColumns)) {
         "Partition columns in data files are not written by the Velox writer"
@@ -101,16 +101,11 @@ object GlutenDeltaNativeWriteGate {
       .orElse(Option.when(partitionColumns.nonEmpty && sqlConf.maxConcurrentOutputFileWriters > 0) {
         "Concurrent output file writers are not supported by the native Delta writer"
       })
-      .orElse(Option.when(metadata.columnMappingMode != NoMapping) {
-        // Delta writes Parquet field IDs for both name and id column mapping.
-        "Parquet field IDs for column mapping are not written by the Velox writer"
-      })
-      .orElse(Option.when(ParquetUtils.hasFieldIds(fileSchema)) {
+      .orElse(GlutenDeltaParquetFieldIds.unsupported(metadata, fileSchema, sqlConf))
+      .orElse(Option.when(
+        !IcebergCompat.isAnyEnabled(metadata) && ParquetUtils.hasFieldIds(fileSchema)) {
         // Vanilla writes a column's parquet.field.id metadata as its Parquet field ID.
         "Parquet field IDs are not written by the Velox writer"
-      })
-      .orElse(Option.when(IcebergCompat.isAnyEnabled(metadata)) {
-        "Iceberg compatibility is not supported by the Velox writer"
       })
   }
 
@@ -168,13 +163,15 @@ object GlutenDeltaNativeWriteGate {
    * Velox writes timestamps as INT64 microseconds and never rebases dates or timestamps. Vanilla
    * writes INT96 by default (spark.sql.parquet.outputTimestampType). Spark 4.0/4.1 take the type
    * from the session conf, Spark 4.2 from the job conf, where a table property overrides the
-   * session. Those, and the writer option of that name, must all ask for microseconds.
+   * session. Those, and the writer option of that name, must all ask for microseconds, unless the
+   * table has Iceberg compatibility: then Delta always writes microseconds.
    */
   private def unsupportedDatetimeEncoding(
       sqlConf: SQLConf,
       hadoopConf: Configuration,
       options: Map[String, String],
-      schema: StructType): Option[String] = {
+      schema: StructType,
+      metadata: Metadata): Option[String] = {
     val hasTimestamp = exists(schema, _ == TimestampType)
     val hasDatetime = hasTimestamp || exists(schema, _ == DateType)
     val micros = SQLConf.ParquetOutputTimestampType.TIMESTAMP_MICROS.toString
@@ -182,7 +179,8 @@ object GlutenDeltaNativeWriteGate {
       Option(hadoopConf.get(SQLConf.PARQUET_OUTPUT_TIMESTAMP_TYPE.key)) ++
       find(options, DeltaOptions.PARQUET_OUTPUT_TIMESTAMP_TYPE)
     val rebaseMode = sqlConf.getConf(SQLConf.PARQUET_REBASE_MODE_IN_WRITE).toString
-    if (hasTimestamp && !timestampTypes.forall(_.equalsIgnoreCase(micros))) {
+    val alwaysMicros = IcebergCompat.isAnyEnabled(metadata)
+    if (hasTimestamp && !alwaysMicros && !timestampTypes.forall(_.equalsIgnoreCase(micros))) {
       Some(s"Timestamps are written as ${timestampTypes.mkString("/")}, not by the Velox writer")
     } else if (hasDatetime && !rebaseMode.equalsIgnoreCase("CORRECTED")) {
       Some(s"Datetime rebase mode $rebaseMode is not supported by the Velox writer")

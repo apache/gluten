@@ -19,7 +19,7 @@ package org.apache.spark.sql.delta
 import org.apache.gluten.backendsapi.velox.VeloxBatchType
 import org.apache.gluten.extension.columnar.transition.Transitions
 
-import org.apache.spark.sql.{AnalysisException, Dataset}
+import org.apache.spark.sql.{AnalysisException, Dataset, SparkSession}
 import org.apache.spark.sql.delta.actions.{AddFile, FileAction}
 import org.apache.spark.sql.delta.constraints.{Constraint, Constraints, DeltaInvariantCheckerExec}
 import org.apache.spark.sql.delta.files.{GlutenDeltaFileFormatWriter, TransactionalWrite}
@@ -48,14 +48,10 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
       writeOptions: Option[DeltaOptions],
       isOptimize: Boolean,
       additionalConstraints: Seq[Constraint]): Seq[FileAction] = {
-    // Delta writes Parquet field IDs for both name and id column mapping, and Iceberg
-    // compatibility requires column mapping. The Velox writer drops field metadata, so its files
-    // would carry no field IDs, which Spark's reader rejects under id mapping.
-    if (metadata.columnMappingMode != NoMapping) {
-      logInfo(
-        "Parquet field IDs for column mapping are not written by the Velox writer; " +
-          "falling back to the vanilla Delta write path.")
-      return super.writeFiles(inputData, writeOptions, isOptimize, additionalConstraints)
+    unsupportedNativeWrite(inputData.sparkSession).foreach {
+      reason =>
+        logInfo(s"$reason; falling back to the vanilla Delta write path.")
+        return super.writeFiles(inputData, writeOptions, isOptimize, additionalConstraints)
     }
     hasWritten = true
 
@@ -247,6 +243,23 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
     }
 
     resultFiles.toSeq ++ committer.changeFiles
+  }
+
+  /**
+   * Delta writes Parquet field IDs for both name and id column mapping, which Spark's reader needs
+   * under id mapping. The Velox writer writes them for tables with Iceberg compatibility V1 or V2,
+   * but not the partition columns that those tables keep in their data files.
+   */
+  private def unsupportedNativeWrite(spark: SparkSession): Option[String] = {
+    val physicalSchema = DeltaColumnMapping.createPhysicalSchema(
+      metadata.schema,
+      metadata.schema,
+      metadata.columnMappingMode)
+    if (IcebergCompat.isAnyEnabled(metadata) && metadata.partitionColumns.nonEmpty) {
+      Some("Partition columns in data files are not written by the Velox writer")
+    } else {
+      GlutenDeltaParquetFieldIds.unsupported(metadata, physicalSchema, spark.sessionState.conf)
+    }
   }
 
   private def shouldOptimizeWrite(

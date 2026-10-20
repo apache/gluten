@@ -17,8 +17,10 @@
 
 #pragma once
 
+#include <string_view>
 #include <vector>
 
+#include "ParquetFieldIds.pb.h"
 #include "velox/dwio/common/ParquetFieldId.h"
 #include "velox/type/Type.h"
 
@@ -34,6 +36,14 @@ class IcebergNestedField;
 /// The field IDs of the Iceberg write path. The root of IcebergNestedField wraps the columns in a
 /// struct of its own and has no ID, so the columns are its children.
 std::vector<facebook::velox::parquet::ParquetFieldId> parquetFieldIdsFromProto(const IcebergNestedField& root);
+
+/// The field IDs of one ParquetFieldIdNode per column.
+std::vector<facebook::velox::parquet::ParquetFieldId> parquetFieldIdsFromProto(
+    const google::protobuf::RepeatedPtrField<ParquetFieldIdNode>& columns);
+
+/// The field IDs of the Parquet writer option kParquetFieldIds: a Base64-encoded ParquetFieldIdNode
+/// whose children are the columns.
+std::vector<facebook::velox::parquet::ParquetFieldId> parquetFieldIdsFromWriteOption(std::string_view value);
 
 /// Checks that `fieldIds` describes `rowType` at every depth. Throws a GlutenException naming the
 /// dotted path of the first node that:
