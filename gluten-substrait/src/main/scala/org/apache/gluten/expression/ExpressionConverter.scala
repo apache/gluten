@@ -126,18 +126,16 @@ object ExpressionConverter extends SQLConfHelper with Logging {
       substraitName: String,
       b: BinaryArithmetic,
       attributeSeq: Seq[Attribute],
-      expressionsMap: Map[Class[_], String]): DecimalArithmeticExpressionTransformer = {
-    val resultType = DecimalArithmeticUtil.getResultType(
-      b,
-      b.left.dataType.asInstanceOf[DecimalType],
-      b.right.dataType.asInstanceOf[DecimalType]
-    )
-
+      expressionsMap: Map[Class[_], String]): ExpressionTransformer = {
     val leftChild =
       replaceWithExpressionTransformer0(b.left, attributeSeq, expressionsMap)
     val rightChild =
       replaceWithExpressionTransformer0(b.right, attributeSeq, expressionsMap)
-    DecimalArithmeticExpressionTransformer(substraitName, leftChild, rightChild, resultType, b)
+    BackendsApiManager.getSparkPlanExecApiInstance.genDecimalArithmeticTransformer(
+      substraitName,
+      leftChild,
+      rightChild,
+      b)
   }
 
   // Mapping for Iceberg static invoke functions
