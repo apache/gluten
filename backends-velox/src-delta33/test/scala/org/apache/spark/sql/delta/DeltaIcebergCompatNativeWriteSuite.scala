@@ -22,6 +22,7 @@ import org.apache.spark.sql.delta.test.DeltaSQLCommandTest
 import org.apache.spark.sql.delta.util.DeltaFileOperations
 import org.apache.spark.sql.execution.{QueryExecution, SparkPlan}
 import org.apache.spark.sql.util.QueryExecutionListener
+import org.apache.spark.tags.ExtendedSQLTest
 
 import org.apache.parquet.hadoop.ParquetFileReader
 import org.apache.parquet.hadoop.metadata.ParquetMetadata
@@ -37,6 +38,7 @@ import scala.collection.JavaConverters._
  * Parquet field IDs, which the Velox writer must write too: Iceberg, and Spark's reader under id
  * column mapping, match columns by them.
  */
+@ExtendedSQLTest
 class DeltaIcebergCompatNativeWriteSuite extends DeltaSQLCommandTest {
 
   // IcebergCompatV1 does not allow arrays and maps.

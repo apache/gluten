@@ -23,6 +23,7 @@ import org.apache.gluten.substrait.rel.ParquetFieldId
 import org.apache.spark.sql.delta.actions.Metadata
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
+import org.apache.spark.tags.ExtendedSQLTest
 
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -31,6 +32,7 @@ import java.util.Base64
 import scala.collection.JavaConverters._
 
 /** GlutenDeltaParquetFieldIds on the physical schemas Delta gives its writer. */
+@ExtendedSQLTest
 class GlutenDeltaParquetFieldIdsSuite extends AnyFunSuite {
 
   private def compat(version: Int): Metadata =
