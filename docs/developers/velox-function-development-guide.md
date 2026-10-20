@@ -54,6 +54,15 @@ Use the overlay when:
 * A Velox `sparksql` function has a semantic gap with Spark. Put the corrected implementation in the overlay to override it while
   the fix is pending upstream. The `round` function (`overlay/Round.h`) is an example of such an override.
 
+An overlay function follows Spark's ANSI rule the same way Velox's `sparksql` functions do: read
+`SparkQueryConfig::ansiEnabled()` from the query config, which Gluten populates from the session's
+`spark.sql.ansi.enabled`, then return NULL on invalid input with ANSI mode off and raise a user error with it on. When
+only the ANSI behavior is missing from an otherwise correct Velox function, keep delegating to it instead of forking it:
+`conv` (`overlay/Conv.h`) wraps Velox's `conv` and only adds the overflow error that ANSI mode requires, and `element_at`
+(`overlay/ElementAt.h`) just picks the Velox `SubscriptImpl` instantiation that raises an error for an out-of-bound array
+index. Note that Gluten still falls back on ANSI mode as a whole unless `spark.gluten.sql.ansiFallback.enabled` is set to
+`false`.
+
 To add a function:
 1. Implement it in a file under `cpp/velox/operators/functions/overlay/`, using Velox's function authoring APIs (simple function,
    vector function, aggregate, or window function).

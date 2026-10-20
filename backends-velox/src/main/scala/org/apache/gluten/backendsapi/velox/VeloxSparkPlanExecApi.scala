@@ -1161,6 +1161,28 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       left: ExpressionTransformer,
       right: ExpressionTransformer,
       original: ElementAt): ExpressionTransformer = {
+    // Only the array input reads failOnError: Spark returns NULL for a key a map does not
+    // contain whatever the ANSI mode is, and so does Velox.
+    if (original.left.dataType.isInstanceOf[ArrayType]) {
+      if (original.defaultValueOutOfBound.isDefined) {
+        GlutenExceptionUtil
+          .throwsNotFullySupported(
+            ExpressionNames.ELEMENT_AT,
+            ElementAtRestrictions.NOT_SUPPORT_DEFAULT_VALUE_OUT_OF_BOUND
+          )
+      }
+      // Velox derives whether an out-of-bound index raises an error from the session's
+      // 'spark.sql.ansi.enabled', while Spark captures it in ElementAt.failOnError at
+      // analysis time. The two differ for try_element_at, which Spark rewrites to an
+      // ElementAt with failOnError = false whatever the ANSI mode is, so fall back then.
+      if (original.failOnError != SQLConf.get.ansiEnabled) {
+        GlutenExceptionUtil
+          .throwsNotFullySupported(
+            ExpressionNames.ELEMENT_AT,
+            ElementAtRestrictions.NOT_SUPPORT_FAIL_ON_ERROR_MISMATCH
+          )
+      }
+    }
     if (original.left.dataType.isInstanceOf[MapType] && !original.failOnError) {
       GenericExpressionTransformer(ExpressionNames.GET_MAP_VALUE, Seq(left, right), original)
     } else {
@@ -1309,6 +1331,42 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         )
     }
     GenericExpressionTransformer(substraitExprName, child, expr)
+  }
+
+  override def genEltTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      expr: Elt): ExpressionTransformer = {
+    // Velox's elt derives whether an out-of-range index raises an error from the session's
+    // 'spark.sql.ansi.enabled', while Spark captures it in Elt.failOnError at analysis time.
+    // The two differ for a view, which is analyzed with the ANSI mode it was created with, or
+    // when the config changes after a DataFrame is analyzed; fall back then.
+    if (expr.failOnError != SQLConf.get.ansiEnabled) {
+      GlutenExceptionUtil
+        .throwsNotFullySupported(
+          ExpressionNames.ELT,
+          EltRestrictions.NOT_SUPPORT_FAIL_ON_ERROR_MISMATCH
+        )
+    }
+    GenericExpressionTransformer(substraitExprName, children, expr)
+  }
+
+  override def genConvTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      expr: Conv): ExpressionTransformer = {
+    // Velox derives whether an overflow raises an error from the session's
+    // 'spark.sql.ansi.enabled', while Spark captures it in Conv.ansiEnabled at analysis time.
+    // The two differ for a view, which is analyzed with the ANSI mode it was created with, or
+    // when the config changes after a DataFrame is analyzed; fall back then.
+    if (expr.ansiEnabled != SQLConf.get.ansiEnabled) {
+      GlutenExceptionUtil
+        .throwsNotFullySupported(
+          ExpressionNames.CONV,
+          ConvRestrictions.NOT_SUPPORT_ANSI_ENABLED_MISMATCH
+        )
+    }
+    GenericExpressionTransformer(substraitExprName, children, expr)
   }
 
   override def genBase64StaticInvokeTransformer(

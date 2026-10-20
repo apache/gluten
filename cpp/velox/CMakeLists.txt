@@ -175,6 +175,7 @@ set(VELOX_SRCS
     memory/VeloxMemoryManager.cc
     operators/functions/RegistrationAllFunctions.cc
     operators/functions/delta/DeltaBitmapAggregator.cc
+    operators/functions/overlay/ElementAt.cc
     operators/functions/overlay/GetMapValue.cc
     operators/functions/overlay/RegisterFunctionOverlay.cc
     operators/functions/RowConstructorWithNull.cc
