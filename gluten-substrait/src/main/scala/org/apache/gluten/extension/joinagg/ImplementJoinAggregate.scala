@@ -17,6 +17,7 @@
 package org.apache.gluten.extension.joinagg
 
 import org.apache.gluten.config.{GlutenConfig, JoinAggregateTwoStageMode}
+import org.apache.gluten.extension.joinagg.JoinAggregateFunctionWrapper.TargetPhase
 
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.{Alias, Expression, GetStructField, NamedExpression}
@@ -38,9 +39,8 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
    * This strategy lowers the logical join-aggregate wrapper shape produced by
    * `PushAggregateThroughJoin` into ordinary Spark physical hash aggregates.
    *
-   * The optimizer builds two wrapper phases:
-   *   - pushed phase: wrapper partial below / through joins
-   *   - final phase: wrapper final above the pushed phase
+   * The pushdown strategy creates explicit partial, partial-merge, and final logical nodes.
+   * Grouping-only aggregates use the same phases without aggregate-function wrappers.
    *
    * Spark's physical aggregate operators still expect normal aggregate functions and normal input
    * / buffer attributes. This strategy therefore:
@@ -62,41 +62,23 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
     }
 
     plan match {
-      case agg: Aggregate if containsWrapperAggregate(agg) =>
-        planJoinAggregate(agg).toSeq
+      case agg: JoinAggregate =>
+        planJoinAggregate(agg.asAggregate, agg.phase).toSeq
       case _ =>
         Nil
     }
   }
 
-  private def planJoinAggregate(agg: Aggregate): Option[SparkPlan] = agg match {
+  private def planJoinAggregate(agg: Aggregate, phase: TargetPhase): Option[SparkPlan] = agg match {
     case PhysicalAggregation(groupingExpressions, aes, resultExpressions, child) =>
       // KEEP: For compatibility with Spark version before 3.5, which widens
       // the aggregate expressions
       // to `Seq[NamedExpression]` instead of `Seq[AggregateExpression]`.
       val aggExpressions = aes.map(_.asInstanceOf[AggregateExpression])
-      // A single logical aggregate must lower either entirely as pushed-phase wrappers or entirely
-      // as final-phase wrappers. Mixed-phase aggregates are rejected here.
       val grouping = groupingExpressions.collect { case ne: NamedExpression => ne }
       if (grouping.size != groupingExpressions.size) {
         return None
       }
-
-      val wrappers = aggExpressions.flatMap {
-        case ae @ AggregateExpression(wrapper: JoinAggregateFunctionWrapper, _, _, _, _) =>
-          Some((ae, wrapper))
-        case _ =>
-          None
-      }
-      if (wrappers.isEmpty) {
-        return None
-      }
-
-      val phases = wrappers.map(_._2.targetPhase).distinct
-      if (phases.size != 1) {
-        return None
-      }
-      val phase = phases.head
 
       val childPlan = planLater(child)
       phase match {
@@ -173,9 +155,6 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
       packOutputBuffers: Boolean,
       stage: AggregationStage.Value): Option[SparkPlan] = {
     val rewrittenAggExprs = rewriteWrapperAggregates(aggregateExpressions)
-    if (rewrittenAggExprs.isEmpty) {
-      return None
-    }
     val preparedChild = if (unpackInputBuffers) {
       unpackInputBufferFields(childPlan, aggregateExpressions, rewrittenAggExprs)
     } else {
@@ -389,15 +368,6 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
         resultExpressions = rewrittenResultExpressions,
         child = childPlan
       ))
-  }
-
-  private def containsWrapperAggregate(agg: Aggregate): Boolean = {
-    agg.aggregateExpressions.exists {
-      _.exists {
-        case AggregateExpression(wrapper: JoinAggregateFunctionWrapper, _, _, _, _) => true
-        case _ => false
-      }
-    }
   }
 
   private def rewriteSingleAggregateExpression(

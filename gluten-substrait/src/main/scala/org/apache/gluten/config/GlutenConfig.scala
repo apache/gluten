@@ -776,9 +776,7 @@ object GlutenConfig extends ConfigRegistry {
       .doc(
         "Enables the push-aggregate-through-join optimization in Gluten. " +
           "When enabled, aggregate operators may be pushed below joins " +
-          "during logical optimization " +
-          "and corresponding physical plans may be rewritten to execute " +
-          "the aggregation earlier."
+          "during physical planning, after Spark's logical optimization."
       )
       .booleanConf
       .createWithDefault(false)

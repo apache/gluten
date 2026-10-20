@@ -17,18 +17,29 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.extension.joinagg.{ImplementJoinAggregate, PushAggregateThroughJoinBatch}
+import org.apache.gluten.extension.joinagg.{ImplementJoinAggregate, JoinAggregate, PushAggregateThroughJoin, PushAggregateThroughJoinBatch}
 
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.DataFrame
-import org.apache.spark.sql.SparkSessionExtensions
+import org.apache.spark.sql.{DataFrame, SparkSessionExtensions}
 import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
-import org.apache.spark.sql.catalyst.plans.logical.Aggregate
+import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import org.apache.spark.sql.execution.{SparkPlan, SparkStrategy}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 
 class VanillaJoinAggregateLogicalOnlyExtensions extends (SparkSessionExtensions => Unit) {
   override def apply(extensions: SparkSessionExtensions): Unit = {
-    extensions.injectOptimizerRule(PushAggregateThroughJoinBatch.apply)
+    extensions.injectPlannerStrategy(PushAggregateThroughJoin.apply)
+    extensions.injectPlannerStrategy {
+      spark =>
+        new SparkStrategy {
+          override def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
+            // Test the rewrite independently of ImplementJoinAggregate by using Spark's own
+            // strategy.
+            case agg: JoinAggregate => spark.sessionState.planner.Aggregation(agg.asAggregate)
+            case _ => Nil
+          }
+        }
+    }
   }
 }
 
@@ -50,7 +61,7 @@ class StarSchemaJoinAggregateVanillaLogicalOnlySuite extends StarSchemaJoinAggre
 
 class VanillaJoinAggregateExtensions extends (SparkSessionExtensions => Unit) {
   override def apply(extensions: SparkSessionExtensions): Unit = {
-    extensions.injectOptimizerRule(PushAggregateThroughJoinBatch.apply)
+    extensions.injectPlannerStrategy(PushAggregateThroughJoin.apply)
     extensions.injectPlannerStrategy(ImplementJoinAggregate.apply)
   }
 }
@@ -76,6 +87,10 @@ class StarSchemaJoinAggregateMaxDepthOneSuite extends StarSchemaJoinAggregateSui
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key, "false")
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE.key, "none")
   }
+
+  override protected def checkPlan(df: DataFrame): Unit = {
+    checkGlutenPlan[HashAggregateExecTransformer](df)
+  }
 }
 
 class StarSchemaJoinAggregatePartialMergeTwoStageSuite extends StarSchemaJoinAggregateSuite {
@@ -84,6 +99,10 @@ class StarSchemaJoinAggregatePartialMergeTwoStageSuite extends StarSchemaJoinAgg
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key, Int.MaxValue.toString)
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key, "true")
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE.key, "final")
+  }
+
+  override protected def checkPlan(df: DataFrame): Unit = {
+    checkGlutenPlan[HashAggregateExecTransformer](df)
   }
 }
 
@@ -94,6 +113,10 @@ class StarSchemaJoinAggregateTwoStageFinalSuite extends StarSchemaJoinAggregateS
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key, "false")
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE.key, "final")
   }
+
+  override protected def checkPlan(df: DataFrame): Unit = {
+    checkGlutenPlan[HashAggregateExecTransformer](df)
+  }
 }
 
 class StarSchemaJoinAggregateDefaultSuite extends StarSchemaJoinAggregateSuite {
@@ -102,6 +125,10 @@ class StarSchemaJoinAggregateDefaultSuite extends StarSchemaJoinAggregateSuite {
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key, Int.MaxValue.toString)
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key, "false")
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE.key, "none")
+  }
+
+  override protected def checkPlan(df: DataFrame): Unit = {
+    checkGlutenPlan[HashAggregateExecTransformer](df)
   }
 }
 
@@ -437,9 +464,10 @@ abstract class StarSchemaJoinAggregateSuite
   }
 
   private def checkDf(df: DataFrame): Unit = {
-    assert(df.queryExecution.optimizedPlan.toString().contains("join_agg_wrapper_"))
-    val invalidPushedAggregates = df.queryExecution.optimizedPlan.collect {
-      case agg: Aggregate
+    val pushedPlan = PushAggregateThroughJoinBatch(spark)(df.queryExecution.optimizedPlan)
+    assert(pushedPlan.toString().contains("join_agg_wrapper_"))
+    val invalidPushedAggregates = pushedPlan.collect {
+      case agg: JoinAggregate
           if agg.aggregateExpressions.exists(_.exists {
             case AggregateExpression(_, _, _, _, _) => true
             case _ => false
@@ -469,13 +497,12 @@ abstract class StarSchemaJoinAggregateSuite
   }
 
   private def checkDfNoPush(df: DataFrame): Unit = {
-    assert(!df.queryExecution.optimizedPlan.toString().contains("join_agg_wrapper_"))
+    val pushedPlan = PushAggregateThroughJoinBatch(spark)(df.queryExecution.optimizedPlan)
+    assert(!pushedPlan.toString().contains("join_agg_wrapper_"))
     checkPlan(df)
   }
 
-  protected def checkPlan(df: DataFrame): Unit = {
-    checkGlutenPlan[HashAggregateExecTransformer](df)
-  }
+  protected def checkPlan(df: DataFrame): Unit
 
   test("Join-aggregate wrapper aggregate") {
     val query =
@@ -1013,7 +1040,8 @@ abstract class StarSchemaJoinAggregateSuite
         | order by d_week_seq1
         |""".stripMargin
 
-    runQueryAndCompare(query)(df => checkDf(df))
+    // Each conditional SUM references both join sides, so no aggregate can be pushed.
+    runQueryAndCompare(query)(df => checkDfNoPush(df))
   }
 
   test("Support TPC-DS q62 shape") {
@@ -1104,5 +1132,28 @@ abstract class StarSchemaJoinAggregateSuite
                   |JOIN date_dim d ON ss.ss_sold_date_sk = d.d_date_sk
                   |""".stripMargin
     runQueryAndCompare(query)(df => checkDf(df))
+  }
+
+  test("Push DISTINCT through a single join") {
+    val query = """
+                  |SELECT DISTINCT ss.ss_sold_date_sk, i.i_item_desc
+                  |FROM store_sales ss
+                  |JOIN item i ON ss.ss_item_sk = i.i_item_sk
+                  |""".stripMargin
+    runQueryAndCompare(query) {
+      df => checkPlan(df)
+    }
+  }
+
+  test("Push DISTINCT through two consecutive joins") {
+    val query = """
+                  |SELECT DISTINCT i.i_item_desc, d.d_year
+                  |FROM store_sales ss
+                  |JOIN item i ON ss.ss_item_sk = i.i_item_sk
+                  |JOIN date_dim d ON ss.ss_sold_date_sk = d.d_date_sk
+                  |""".stripMargin
+    runQueryAndCompare(query) {
+      df => checkPlan(df)
+    }
   }
 }

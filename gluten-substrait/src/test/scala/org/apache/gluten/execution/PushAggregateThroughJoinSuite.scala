@@ -17,8 +17,7 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.extension.joinagg.ImplementJoinAggregate
-import org.apache.gluten.extension.joinagg.PushAggregateThroughJoin
+import org.apache.gluten.extension.joinagg.{ImplementJoinAggregate, JoinAggregate, PushAggregateThroughJoin, PushAggregateThroughJoinRule}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
@@ -33,8 +32,8 @@ import org.apache.spark.sql.test.SharedSparkSession
 import java.sql.Date
 
 class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
-  private val joinAggregateRule = PushAggregateThroughJoin(spark)
-  private val debugMode: Boolean = true
+  private val joinAggregateRule = PushAggregateThroughJoinRule(spark)
+  private val debugMode: Boolean = false
 
   private case class PushdownCase(inputSql: String)
 
@@ -112,6 +111,9 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
             val (withoutRuleRows, withoutRuleLogicalPlan, withoutRulePhysicalPlan) =
               withExtraPlanning(Nil, Nil) {
                 val df = spark.sql(testCase.inputSql)
+                assert(df.queryExecution.optimizedPlan.collect {
+                  case agg: JoinAggregate => agg
+                }.isEmpty)
                 (
                   df.collect().toSeq.sortBy(_.toString()),
                   df.queryExecution.optimizedPlan,
@@ -119,39 +121,30 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
                 )
               }
 
-            val (withRuleRows, withRuleLogicalPlan, withRulePhysicalPlan) =
-              withExtraPlanning(Seq(joinAggregateRule), Nil) {
-                joinAggregateRule.resetSuccessfulPushCount()
-                val df = spark.sql(testCase.inputSql)
-                val withRuleRows = df.collect().toSeq.sortBy(_.toString())
-                val withRulePlan = df.queryExecution.optimizedPlan
-                val withRulePhysicalPlan = finalExecutedPlan(df.queryExecution.executedPlan)
-                val aggregateNodeCount = withRulePlan.collect { case _: Aggregate => 1 }.size
-                val nodesWithMissingInput = withRulePlan.collect {
-                  case p if p.missingInput.nonEmpty => p
-                }
-
-                assert(
-                  withRulePlan.resolved,
-                  s"Optimized plan unresolved:\n${withRulePlan.treeString}\n" +
-                    s"MissingInput=${withRulePlan.missingInput}")
-                assert(
-                  nodesWithMissingInput.isEmpty,
-                  s"Plan has missing input:\n${nodesWithMissingInput
-                      .map(_.treeString)
-                      .mkString("\n---\n")}")
-                assert(joinAggregateRule.getSuccessfulPushCount == expectedPushCount)
-                assert(aggregateNodeCount == expectedAggCount)
-                (withRuleRows, withRulePlan, withRulePhysicalPlan)
-              }
+            joinAggregateRule.resetSuccessfulPushCount()
+            val withRuleLogicalPlan = joinAggregateRule(withoutRuleLogicalPlan)
+            val aggregateNodeCount = withRuleLogicalPlan.collect {
+              case _: Aggregate => 1
+              case _: JoinAggregate => 1
+            }.size
+            assert(withRuleLogicalPlan.resolved, withRuleLogicalPlan.treeString)
+            assert(withRuleLogicalPlan.collect {
+              case p if p.missingInput.nonEmpty => p
+            }.isEmpty)
+            assert(joinAggregateRule.getSuccessfulPushCount == expectedPushCount)
+            assert(aggregateNodeCount == expectedAggCount)
 
             val (
               withRuleAndStrategyRows,
               withRuleAndStrategyLogicalPlan,
               withRuleAndStrategyPhysicalPlan) =
-              withExtraPlanning(Seq(joinAggregateRule), Seq(ImplementJoinAggregate(spark))) {
-                joinAggregateRule.resetSuccessfulPushCount()
+              withExtraPlanning(
+                Nil,
+                Seq(PushAggregateThroughJoin(spark), ImplementJoinAggregate(spark))) {
                 val df = spark.sql(testCase.inputSql)
+                assert(df.queryExecution.optimizedPlan.collect {
+                  case agg: JoinAggregate => agg
+                }.isEmpty)
                 (
                   df.collect().toSeq.sortBy(_.toString()),
                   df.queryExecution.optimizedPlan,
@@ -170,21 +163,16 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
               println(withRuleAndStrategyLogicalPlan.treeString)
               println("=== Physical Plan Before (without PushAggregateThroughJoin) ===")
               println(withoutRulePhysicalPlan.treeString)
-              println("=== Physical Plan After (with PushAggregateThroughJoin only) ===")
-              println(withRulePhysicalPlan.treeString)
               println(
                 "=== Physical Plan After (with PushAggregateThroughJoin and strategy) ===")
               println(withRuleAndStrategyPhysicalPlan.treeString)
               println("=== Result Before (without PushAggregateThroughJoin) ===")
               println(withoutRuleRows.mkString("\n"))
-              println("=== Result After (with PushAggregateThroughJoin only) ===")
-              println(withRuleRows.mkString("\n"))
               println("=== Result After (with PushAggregateThroughJoin and strategy) ===")
               println(withRuleAndStrategyRows.mkString("\n"))
               // scalastyle:on println
             }
 
-            assertRowsEqual(withRuleRows, withoutRuleRows)
             assertRowsEqual(withRuleAndStrategyRows, withoutRuleRows)
           }
         }
@@ -214,6 +202,20 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       spark.experimental.extraOptimizations = previousOptimizations
       spark.experimental.extraStrategies = previousStrategies
     }
+  }
+
+  test("push grouping-only aggregate to both join sides") {
+    val pushdownCase = PushdownCase(
+      inputSql = """
+                   |SELECT DISTINCT ss_item_sk AS item_sk, i_item_desc AS itemdesc
+                   |FROM store_sales
+                   |JOIN item ON ss_item_sk = i_item_sk
+                   |""".stripMargin)
+    runCaseWithMaxDepth(
+      pushdownCase,
+      maxDepth = 1,
+      expectedPushCount = 2,
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 3, partialMergeEnabled = 3))
   }
 
   test("pre-aggregate store_sales for both joins with having filter") {
@@ -511,7 +513,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 3))
   }
 
-  test("partial merge is not retained when no side can be pushed") {
+  test("original aggregate is retained when no side can be pushed") {
     val pushdownCase = PushdownCase(
       inputSql = """
                    |SELECT sum(ss_sales_price), sum(i_category_id)
@@ -523,7 +525,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 0,
-      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 2))
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 1, partialMergeEnabled = 1))
   }
 
   test("pre-aggregate with filter inside inner equi-join") {
