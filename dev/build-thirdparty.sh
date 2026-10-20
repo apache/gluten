@@ -86,8 +86,6 @@ elif [ "$LINUX_OS" == "centos" ]; then
     process_setup_centos_9
   elif [ "$VERSION" == "8" ]; then
     process_setup_centos_8
-  elif [ "$VERSION" == "7" ]; then
-    process_setup_centos_7
   fi
 elif [ "$LINUX_OS" == "openEuler" ]; then
   if [ "${VERSION}" == "24.03" ]; then
@@ -96,13 +94,9 @@ elif [ "$LINUX_OS" == "openEuler" ]; then
 elif [ "$LINUX_OS" == "alinux" ]; then
   if [ "${VERSION:0:1}" == "3" ]; then
     process_setup_centos_8
-  elif [ "${VERSION:0:1}" == "2" ]; then
-    process_setup_centos_7
   fi
 elif [ "$LINUX_OS" == "tencentos" ]; then
-  if [ "$VERSION" == "2.4" ]; then
-    process_setup_centos_7
-  elif [ "$VERSION" == "3.2" ]; then
+  if [ "$VERSION" == "3.2" ]; then
     process_setup_centos_8
   fi
 elif [ "$LINUX_OS" == "debian" ]; then

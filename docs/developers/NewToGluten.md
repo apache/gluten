@@ -9,7 +9,7 @@ parent: Developer Overview
 
 ## Environment
 
-Gluten supports Ubuntu 20.04/22.04, CentOS 7/8, and MacOS.
+Gluten supports Ubuntu 20.04/22.04, CentOS 8, and MacOS.
 
 ### JDK
 

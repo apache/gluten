@@ -73,7 +73,7 @@ function install_build_prerequisites {
 
 # Install dependencies from the package managers.
 function install_velox_deps_from_dnf {
-  dnf_install libevent-devel librdkafka-devel \
+  dnf_install libevent-devel \
     openssl-devel lz4-devel curl-devel libicu-devel zlib-devel
   # install sphinx for doc gen
   pip install sphinx sphinx-tabs breathe sphinx_rtd_theme
@@ -203,8 +203,12 @@ function install_c-ares {
 function install_s3 {
   install_aws_deps
 
-  local MINIO_OS="linux"
-  install_minio ${MINIO_OS}
+  # Velox renamed install_minio to install_silo; support both.
+  if declare -F install_silo > /dev/null; then
+    install_silo linux
+  else
+    install_minio linux
+  fi
 }
 
 function install_gcs {

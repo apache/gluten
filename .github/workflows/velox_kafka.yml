@@ -80,10 +80,9 @@ jobs:
           ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --enable_kafka=ON \
             --build_arrow=OFF --build_tests=ON --build_benchmarks=OFF --build_examples=OFF \
             --enable_s3=OFF --enable_gcs=OFF --enable_hdfs=OFF --enable_abfs=OFF
-      # TODO: Re-enable after https://github.com/apache/gluten/pull/13183 is merged.
-      # - name: Run native Kafka connector tests
-      #   run: ./cpp/build/velox/tests/velox_kafka_connector_test
-      # TODO: Re-enable when the Kafka plan-conversion tests are added.
+      - name: Run native Kafka connector tests
+        run: ./cpp/build/velox/tests/velox_kafka_connector_test
+      # TODO: Re-enable when the Kafka plan-conversion tests are added in #13236.
       # - name: Run Kafka and file plan conversion tests
       #   run: |
       #     ./cpp/build/velox/tests/velox_plan_conversion_test \
@@ -127,11 +126,12 @@ jobs:
           --health-retries 12
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '11'
-          cache: maven
+      - name: Setup java
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openjdk-17-jdk
+          echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
+          echo "/usr/lib/jvm/java-17-openjdk-amd64/bin" >> $GITHUB_PATH
       - uses: actions/download-artifact@v8
         with:
           name: velox-kafka-native-${{ github.sha }}
@@ -139,18 +139,18 @@ jobs:
       - name: Install Spark 3.5 modules with Kafka support
         run: |
           ./build/mvn -B -ntp install -Pbackends-velox -Pspark-3.5 -Pscala-2.12 \
-            -Pjava-11 -Pkafka -Pspark-ut -Pfast-build -DskipTests
+            -Pjava-17 -Pkafka -Pspark-ut -Pfast-build -DskipTests
       # TODO: Re-enable when VeloxKafkaScanValidationSuite is added.
       # - name: Check Kafka schema validation without a broker
       #   run: |
       #     ./build/mvn -B -ntp test -pl gluten-ut/spark35 -Pbackends-velox -Pspark-3.5 \
-      #       -Pscala-2.12 -Pjava-11 -Pspark-ut -Pfast-build \
+      #       -Pscala-2.12 -Pjava-17 -Pspark-ut -Pfast-build \
       #       -Dsuites=org.apache.gluten.execution.VeloxKafkaScanValidationSuite
-      # TODO: Re-enable when VeloxGlutenKafkaScanSuite is added.
+      # TODO: Re-enable when VeloxGlutenKafkaScanSuite is added in #13237.
       # - name: Check native micro-batch reads and headers fallback
       #   run: |
       #     ./build/mvn -B -ntp test -pl backends-velox -Pbackends-velox -Pspark-3.5 \
-      #       -Pscala-2.12 -Pjava-11 -Pkafka -Pfast-build \
+      #       -Pscala-2.12 -Pjava-17 -Pkafka -Pfast-build \
       #       -Dsuites=org.apache.gluten.execution.kafka.VeloxGlutenKafkaScanSuite
       - name: Upload test results
         if: always()

@@ -8,7 +8,7 @@ parent: Developer Overview
 Currently, we have two way to build Gluten, static link or dynamic link. 
 
 # Static link
-The static link approach builds all dependency libraries in vcpkg for both Velox and Gluten. It then statically links these libraries into libvelox.so and libgluten.so, enabling the build of Gluten on *any* Linux OS on x86 platforms with 64G memory. However we only verified on Centos-7/8/9 and Ubuntu 20.04/22.04. Please submit an issue if it fails on your OS.
+The static link approach builds all dependency libraries in vcpkg for both Velox and Gluten. It then statically links these libraries into libvelox.so and libgluten.so, enabling the build of Gluten on *any* Linux OS on x86 platforms with 64G memory. However we only verified on Centos-8/9 and Ubuntu 20.04/22.04. Please submit an issue if it fails on your OS.
 
 Here is the dependency libraries required on target system, they are the essential libraries pre-installed in every Linux OS.
 ```
@@ -24,16 +24,16 @@ libc.so.6
 The 'dockerfile' to build Gluten jar:
 
 ```
-FROM apache/gluten:vcpkg-centos-7
+FROM apache/gluten:vcpkg-almalinux-8-gcc13
 
 # Build Gluten Jar
-RUN source /opt/rh/devtoolset-11/enable && \
+RUN source /opt/rh/gcc-toolset-13/enable && \
     git clone https://github.com/apache/gluten.git && \
     cd gluten && \
     ./dev/builddeps-veloxbe.sh --run_setup_script=OFF --enable_s3=ON --enable_gcs=ON --enable_abfs=ON --enable_vcpkg=ON --build_arrow=OFF && \
-    mvn clean package -Pbackends-velox -Pceleborn -Piceberg -Pdelta -Pspark-3.4 -DskipTests
+    ./build/mvn clean package -Pbackends-velox -Pceleborn -Piceberg -Pdelta -Pspark-3.4 -DskipTests
 ```
-`enable_vcpkg=ON` enables the static link. Vcpkg packages are already pre-installed in the vcpkg-centos-7 image and can be reused automatically. The image is maintained by Gluten community.
+`enable_vcpkg=ON` enables the static link. Vcpkg packages are already pre-installed in the vcpkg-almalinux-8-gcc13 image and can be reused automatically. The image is maintained by Gluten community.
 
 The command builds Gluten jar in 'glutenimage':
 ```
@@ -42,7 +42,7 @@ docker build -t glutenimage -f dockerfile
 The gluten jar can be copied from glutenimage:/gluten/package/target/gluten-velox-bundle-*.jar
 
 # Dynamic link
-The dynamic link approach needs to install the dependencies libraries. It then dynamically link the .so files into libvelox.so and libgluten.so. Currently, Centos-7/8/9 and
+The dynamic link approach needs to install the dependencies libraries. It then dynamically link the .so files into libvelox.so and libgluten.so. Currently, Centos-8/9 and
  Ubuntu 20.04/22.04 are supported to build Gluten Velox backend dynamically. 
 
 The 'dockerfile' to build Gluten jar:
@@ -51,7 +51,7 @@ The 'dockerfile' to build Gluten jar:
 FROM apache/gluten:centos-8-jdk8
 
 # Build Gluten Jar
-RUN source /opt/rh/devtoolset-11/enable && \
+RUN source /opt/rh/gcc-toolset-11/enable && \
     git clone https://github.com/apache/gluten.git && \
     cd gluten && \
     ./dev/builddeps-veloxbe.sh --run_setup_script=ON --enable_hdfs=ON --enable_vcpkg=OFF --build_arrow=OFF && \
