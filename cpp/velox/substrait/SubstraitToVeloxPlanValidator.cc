@@ -116,7 +116,7 @@ bool SubstraitToVeloxPlanValidator::flattenDualLevel(const TypePtr& type, std::v
 
 bool SubstraitToVeloxPlanValidator::validateRound(
     const ::substrait::Expression::ScalarFunction& scalarFunction,
-    const RowTypePtr& inputType) {
+    const std::vector<core::TypedExprPtr>& params) {
   const auto& arguments = scalarFunction.arguments();
   if (arguments.size() < 2) {
     return false;
@@ -125,6 +125,15 @@ bool SubstraitToVeloxPlanValidator::validateRound(
   if (!arguments[1].value().has_literal()) {
     LOG_VALIDATION_MSG("Round scale is expected.");
     return false;
+  }
+
+  const auto& scale = arguments[1].value().literal();
+  if (scale.has_null() && scale.null().has_i32()) {
+    const auto& valueType = params[0]->type();
+    if (!valueType->isDecimal() &&
+        (valueType->isTinyint() || valueType->isSmallint() || valueType->isInteger() || valueType->isBigint())) {
+      return true;
+    }
   }
 
   // Velox has different result with Spark on negative scale.
@@ -213,7 +222,7 @@ bool SubstraitToVeloxPlanValidator::validateScalarFunction(
   std::vector<std::string> types = SubstraitParser::getSubFunctionTypes(function);
 
   if (name == "round") {
-    return validateRound(scalarFunction, inputType);
+    return validateRound(scalarFunction, params);
   }
   if (name == "extract") {
     return validateExtractExpr(params);
