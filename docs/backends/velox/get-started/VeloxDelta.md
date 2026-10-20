@@ -179,6 +179,8 @@ On Spark 4.x, native Delta write writes what Delta Lake's own writer would write
   columns, and `spark.sql.parquet.writeLegacyFormat` with array or map columns, or set as a table
   property to a value other than the session's;
 - concurrent output writers (`spark.sql.maxConcurrentOutputFileWriters`) on partitioned tables;
+- tables on a filesystem the Velox writer does not open: anything but local, HDFS, S3 (`s3`,
+  `s3a`, `oss`, `cos`, `cosn`), GCS and ABFS, for example `viewfs` or `wasbs`;
 - Iceberg compatibility, variant shredding and any writer option the gate does not know.
 
 These checks are in `GlutenDeltaNativeWriteGate` (from code).

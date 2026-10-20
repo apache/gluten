@@ -25,6 +25,8 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types._
 
+import org.apache.hadoop.fs.Path
+
 class GlutenDeltaNativeWriteGateSuite extends SharedSparkSession {
 
   private val plainSchema = new StructType().add("id", LongType).add("s", StringType)
@@ -262,6 +264,31 @@ class GlutenDeltaNativeWriteGateSuite extends SharedSparkSession {
       val schema = plainSchema.add("c", dataType)
       assert(GlutenDeltaNativeWriteGate.unsupportedSchema(schema).isDefined, dataType)
       assert(unsupported(schema = schema).isDefined, dataType)
+    }
+  }
+
+  test("filesystems the Velox writer does not open fall back") {
+    for (
+      path <- Seq(
+        "file:/tmp/t",
+        "hdfs://nn:8020/t",
+        "s3://b/t",
+        "s3a://b/t",
+        "oss://b/t",
+        "gs://b/t",
+        "abfss://c@a.dfs.core.windows.net/t")
+    ) {
+      assert(GlutenDeltaNativeWriteGate.unsupportedPath(new Path(path)).isEmpty, path)
+    }
+    for (
+      path <- Seq(
+        "viewfs://cluster/t",
+        "wasbs://c@a.blob.core.windows.net/t",
+        "s3n://b/t",
+        "failing-fs:/tmp/t",
+        "/tmp/t")
+    ) {
+      assert(GlutenDeltaNativeWriteGate.unsupportedPath(new Path(path)).isDefined, path)
     }
   }
 }
