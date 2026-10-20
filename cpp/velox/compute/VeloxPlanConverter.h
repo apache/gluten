@@ -41,8 +41,14 @@ class VeloxPlanConverter {
 
   std::shared_ptr<const facebook::velox::core::PlanNode> toVeloxPlan(
       const ::substrait::Plan& substraitPlan,
-      std::vector<::substrait::ReadRel_LocalFiles> localFiles,
-      std::vector<std::string> rawSplitInfos = {});
+      std::vector<::substrait::ReadRel_LocalFiles> localFiles);
+
+  std::shared_ptr<const facebook::velox::core::PlanNode> toVeloxPlanWithSplitInfos(
+      const ::substrait::Plan& substraitPlan,
+      std::vector<std::shared_ptr<SplitInfo>> splitInfos);
+
+  static std::shared_ptr<SplitInfo>
+  parseSplitInfo(const facebook::velox::config::ConfigBase* veloxCfg, const uint8_t* data, int32_t size);
 
   static std::shared_ptr<SplitInfo> parseScanSplitInfo(
       const facebook::velox::config::ConfigBase* veloxCfg,

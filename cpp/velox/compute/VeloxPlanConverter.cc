@@ -22,10 +22,14 @@
 
 #include <google/protobuf/any.pb.h>
 #include <google/protobuf/wrappers.pb.h>
+#include "compute/ProtobufUtils.h"
 #include "config/GlutenConfig.h"
 #include "delta/DeltaSplitInfo.h"
 #include "iceberg/IcebergPlanConverter.h"
 #include "operators/plannodes/IteratorSplit.h"
+#ifdef ENABLE_KAFKA
+#include "operators/reader/KafkaSplitInfo.h"
+#endif
 
 namespace gluten {
 
@@ -256,30 +260,48 @@ std::shared_ptr<SplitInfo> VeloxPlanConverter::parseScanSplitInfo(
   return splitInfo;
 }
 
-namespace {
-void parseLocalFileNodes(
-    SubstraitToVeloxPlanConverter* planConverter,
+std::shared_ptr<SplitInfo> VeloxPlanConverter::parseSplitInfo(
     const facebook::velox::config::ConfigBase* veloxCfg,
-    std::vector<::substrait::ReadRel_LocalFiles>& localFiles) {
-  std::vector<std::shared_ptr<SplitInfo>> splitInfos;
-  splitInfos.reserve(localFiles.size());
-  for (const auto& localFile : localFiles) {
-    splitInfos.push_back(VeloxPlanConverter::parseScanSplitInfo(veloxCfg, localFile));
+    const uint8_t* data,
+    int32_t size) {
+#ifdef ENABLE_KAFKA
+  // Kafka splits carry an explicit Any type URL. Parsing success alone cannot distinguish an
+  // ExtensionTable from LocalFiles because both messages use field 1 for an embedded message.
+  ::substrait::ReadRel_ExtensionTable extensionTable;
+  if (parseProtobuf(data, size, &extensionTable) && extensionTable.detail().Is<StreamKafka>()) {
+    auto splitInfo = std::make_shared<KafkaSplitInfo>();
+    splitInfo->leafType = SplitInfo::LeafType::TABLE_SCAN;
+    VELOX_CHECK(
+        extensionTable.detail().UnpackTo(&splitInfo->streamKafka),
+        "Kafka split info must contain a gluten.StreamKafka payload");
+    return splitInfo;
   }
-
-  planConverter->setSplitInfos(std::move(splitInfos));
+#endif
+  ::substrait::ReadRel_LocalFiles localFiles;
+  VELOX_CHECK(parseProtobuf(data, size, &localFiles), "Parse split info failed");
+  return parseScanSplitInfo(veloxCfg, localFiles);
 }
-} // namespace
 
 std::shared_ptr<const facebook::velox::core::PlanNode> VeloxPlanConverter::toVeloxPlan(
     const ::substrait::Plan& substraitPlan,
-    std::vector<::substrait::ReadRel_LocalFiles> localFiles,
-    std::vector<std::string> rawSplitInfos) {
+    std::vector<::substrait::ReadRel_LocalFiles> localFiles) {
+  std::vector<std::shared_ptr<SplitInfo>> splitInfos;
   if (!validationMode_) {
-    if (rawSplitInfos.empty()) {
-      parseLocalFileNodes(&substraitVeloxPlanConverter_, veloxCfg_, localFiles);
+    splitInfos.reserve(localFiles.size());
+    for (const auto& localFile : localFiles) {
+      splitInfos.push_back(parseScanSplitInfo(veloxCfg_, localFile));
     }
-    substraitVeloxPlanConverter_.setRawSplitInfos(std::move(rawSplitInfos));
+  }
+  return toVeloxPlanWithSplitInfos(substraitPlan, std::move(splitInfos));
+}
+
+std::shared_ptr<const facebook::velox::core::PlanNode> VeloxPlanConverter::toVeloxPlanWithSplitInfos(
+    const ::substrait::Plan& substraitPlan,
+    std::vector<std::shared_ptr<SplitInfo>> splitInfos) {
+  if (!validationMode_) {
+    // Runtime splits are already decoded as file or Kafka SplitInfo objects in scan traversal order.
+    // Transfer the shared pointers without copying their payloads; each physical scan consumes one.
+    substraitVeloxPlanConverter_.setSplitInfos(std::move(splitInfos));
   }
 
   return substraitVeloxPlanConverter_.toVeloxPlan(substraitPlan);

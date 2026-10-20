@@ -206,12 +206,7 @@ class SubstraitToVeloxPlanConverter {
   }
 
   void setSplitInfos(std::vector<std::shared_ptr<SplitInfo>> splitInfos) {
-    splitInfos_ = splitInfos;
-  }
-
-  /// Serialized splits in scan traversal order, decoded according to each ReadRel's scan type.
-  void setRawSplitInfos(std::vector<std::string> rawSplitInfos) {
-    rawSplitInfos_ = std::move(rawSplitInfos);
+    splitInfos_ = std::move(splitInfos);
   }
 
   /// The input iterators not inlined to VeloxPlan. They should be then manually added to the Velox task
@@ -313,7 +308,6 @@ class SubstraitToVeloxPlanConverter {
 
   int32_t splitInfoIdx_{0};
   std::vector<std::shared_ptr<SplitInfo>> splitInfos_;
-  std::vector<std::string> rawSplitInfos_;
 
   /// The Expression converter used to convert Substrait representations into
   /// Velox expressions.

@@ -19,7 +19,6 @@
 
 #include "TypeUtils.h"
 #include "VariantToVectorConverter.h"
-#include "compute/VeloxPlanConverter.h"
 #include "compute/delta/DeltaConnector.h"
 #include "compute/delta/DeltaSplitInfo.h"
 #include "compute/iceberg/IcebergPlanConverter.h"
@@ -27,6 +26,7 @@
 #include "operators/hashjoin/HashTableBuilder.h"
 #include "operators/plannodes/RowVectorStream.h"
 #ifdef ENABLE_KAFKA
+#include "kafka.pb.h"
 #include "operators/reader/KafkaConnector.h"
 #include "operators/reader/KafkaSplitInfo.h"
 #endif
@@ -44,7 +44,6 @@
 #include "config.pb.h"
 #include "config/GlutenConfig.h"
 #include "config/VeloxConfig.h"
-#include "kafka.pb.h"
 
 #ifdef GLUTEN_ENABLE_GPU
 #include "operators/plannodes/CudfVectorStream.h"
@@ -58,16 +57,15 @@ using namespace cudf_velox::connector::hive;
 namespace gluten {
 namespace {
 
+#ifdef ENABLE_KAFKA
 bool isKafkaRead(const ::substrait::ReadRel& readRel) {
   return readRel.has_extension_table() && readRel.extension_table().detail().Is<StreamKafka>();
 }
+#endif
 
-bool useCudfTableHandle(const std::vector<std::shared_ptr<SplitInfo>>& splitInfos) {
+bool useCudfTableHandle(const std::shared_ptr<SplitInfo>& splitInfo) {
 #ifdef GLUTEN_ENABLE_GPU
-  if (splitInfos.empty()) {
-    return false;
-  }
-  return splitInfos[0]->canUseCudfConnector();
+  return splitInfo->canUseCudfConnector();
 #else
   return false;
 #endif
@@ -1524,19 +1522,13 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::constructCudfValueStreamNode(
 #ifdef ENABLE_KAFKA
 core::PlanNodePtr SubstraitToVeloxPlanConverter::constructKafkaStreamNode(const ::substrait::ReadRel& readRel) {
   VELOX_USER_CHECK(!readRel.has_filter(), "Filter pushdown is not supported for Kafka reads.");
-  // Like other table scans, a Kafka scan consumes the next split info. The JVM sends it as a serialized
-  // ReadRel.ExtensionTable containing a gluten.StreamKafka rather than LocalFiles.
+  // File and Kafka scans consume the same typed split sequence in scan traversal order.
   auto splitInfo = std::make_shared<KafkaSplitInfo>();
   splitInfo->leafType = SplitInfo::LeafType::TABLE_SCAN;
   if (!validationMode_) {
-    VELOX_CHECK_LT(splitInfoIdx_, rawSplitInfos_.size(), "Plan must have readRel and related split info.");
-    ::substrait::ReadRel_ExtensionTable extensionTable;
-    VELOX_CHECK(
-        extensionTable.ParseFromString(rawSplitInfos_[splitInfoIdx_++]),
-        "Failed to parse Kafka split info as ReadRel.ExtensionTable");
-    VELOX_CHECK(
-        extensionTable.detail().UnpackTo(&splitInfo->streamKafka),
-        "Kafka split info must contain a gluten.StreamKafka payload");
+    VELOX_CHECK_LT(splitInfoIdx_, splitInfos_.size(), "Plan must have readRel and related split info.");
+    splitInfo = std::dynamic_pointer_cast<KafkaSplitInfo>(splitInfos_[splitInfoIdx_++]);
+    VELOX_CHECK_NOT_NULL(splitInfo, "Kafka read requires Kafka split info");
   }
 
   std::vector<std::string> colNameList;
@@ -1601,13 +1593,15 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         !readRel.common().has_emit(), "Emit not supported for ValuesNode and TableScanNode related Substrait plans.");
   }
 
-  if (isKafkaRead(readRel)) {
 #ifdef ENABLE_KAFKA
+  if (isKafkaRead(readRel)) {
     return constructKafkaStreamNode(readRel);
-#else
-    VELOX_USER_FAIL("The plan contains a Kafka read, but Gluten was built without ENABLE_KAFKA.");
-#endif
   }
+#else
+  if (readRel.has_extension_table()) {
+    VELOX_USER_FAIL("The plan contains an extension table read, but Gluten was built without ENABLE_KAFKA.");
+  }
+#endif
 
   auto streamIdx = getStreamIndex(readRel);
   if (streamIdx >= 0) {
@@ -1629,18 +1623,11 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   auto splitInfo = std::make_shared<SplitInfo>();
   splitInfo->leafType = SplitInfo::LeafType::TABLE_SCAN;
   if (!validationMode_) {
-    if (!rawSplitInfos_.empty()) {
-      VELOX_CHECK_LT(splitInfoIdx_, rawSplitInfos_.size(), "Plan must have readRel and related split info.");
-      ::substrait::ReadRel_LocalFiles localFiles;
-      VELOX_CHECK(
-          localFiles.ParseFromString(rawSplitInfos_[splitInfoIdx_++]),
-          "Failed to parse file split info as ReadRel.LocalFiles");
-      splitInfo = VeloxPlanConverter::parseScanSplitInfo(veloxCfg_, localFiles);
-      splitInfos_.push_back(splitInfo);
-    } else {
-      VELOX_CHECK_LT(splitInfoIdx_, splitInfos_.size(), "Plan must have readRel and related split info.");
-      splitInfo = splitInfos_[splitInfoIdx_++];
-    }
+    VELOX_CHECK_LT(splitInfoIdx_, splitInfos_.size(), "Plan must have readRel and related split info.");
+    splitInfo = splitInfos_[splitInfoIdx_++];
+#ifdef ENABLE_KAFKA
+    VELOX_CHECK(!std::dynamic_pointer_cast<KafkaSplitInfo>(splitInfo), "File read requires local file split info");
+#endif
   }
 
   // Get output names and types.
@@ -1705,8 +1692,8 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   if (std::dynamic_pointer_cast<IcebergSplitInfo>(splitInfo)) {
     connectorId = connectorIds_.iceberg;
   }
-  if ((connectorId == connectorIds_.hive || connectorId == connectorIds_.iceberg) && useCudfTableHandle(splitInfos_) &&
-      veloxCfg_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault) &&
+  if (!validationMode_ && (connectorId == connectorIds_.hive || connectorId == connectorIds_.iceberg) &&
+      useCudfTableHandle(splitInfo) && veloxCfg_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault) &&
       veloxCfg_->get<bool>(kCudfEnabled, kCudfEnabledDefault)) {
 #ifdef GLUTEN_ENABLE_GPU
     connectorId = connectorIds_.cudfHive;
