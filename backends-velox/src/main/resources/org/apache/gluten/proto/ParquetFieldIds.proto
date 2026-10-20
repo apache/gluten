@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: Apache-2.0
+syntax = "proto3";
+
+package gluten;
+
+option java_package = "org.apache.gluten.proto";
+option java_multiple_files = true;
+
+// The Parquet field ID of one node of a column's type. A struct's children follow its fields in
+// order, an array has one child for its element, and a map has two, for its key and value. A
+// negative ID means the node has none.
+message ParquetFieldIdNode {
+  int32 field_id = 1;
+  repeated ParquetFieldIdNode children = 2;
+}

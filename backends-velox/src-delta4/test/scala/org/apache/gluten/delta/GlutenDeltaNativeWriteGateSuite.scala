@@ -237,14 +237,57 @@ class GlutenDeltaNativeWriteGateSuite extends SharedSparkSession {
     assert(unsupported(deltaOptions() + ("someNewDeltaOption" -> "x")).isDefined)
   }
 
-  test("column mapping and Iceberg compatibility fall back") {
+  test("column mapping without Iceberg compatibility falls back") {
     for (mode <- Seq("name", "id")) {
       assert(unsupported(configuration = Map("delta.columnMapping.mode" -> mode)).isDefined, mode)
     }
+  }
+
+  private def withId(field: StructField, id: Long, nestedIds: (String, Long)*): StructField = {
+    val metadata =
+      new MetadataBuilder().withMetadata(field.metadata).putLong("parquet.field.id", id)
+    if (nestedIds.nonEmpty) {
+      val nested = new MetadataBuilder()
+      nestedIds.foreach { case (path, nestedId) => nested.putLong(path, nestedId) }
+      metadata.putMetadata("parquet.field.nested.ids", nested.build())
+    }
+    field.copy(metadata = metadata.build())
+  }
+
+  private def icebergCompat(version: Int): Map[String, String] =
+    Map("delta.columnMapping.mode" -> "id", s"delta.enableIcebergCompatV$version" -> "true")
+
+  test("Iceberg compatibility V1 and V2 are written natively, with their field IDs") {
+    val schema = StructType(
+      Seq(
+        withId(StructField("id", LongType), 1),
+        // Delta writes microseconds under Iceberg compatibility, whatever the session asks for.
+        withId(StructField("ts", TimestampType), 2)
+      ))
+    for (version <- Seq(1, 2)) {
+      assert(unsupported(schema = schema, configuration = icebergCompat(version)).isEmpty, version)
+      // Iceberg compatibility keeps partition columns in the data files.
+      assert(
+        unsupported(schema = schema, partitioned = true, configuration = icebergCompat(version))
+          .isDefined,
+        version)
+    }
+    // From IcebergCompatV2 on, Delta's writer also writes the IDs of array elements, which a column
+    // that has none cannot be written with.
+    val array = StructField("a", ArrayType(IntegerType))
+    val withElementId = StructType(Seq(withId(array, 3, "a.element" -> 4)))
+    val withoutElementId = StructType(Seq(withId(array, 3)))
+    assert(unsupported(schema = withElementId, configuration = icebergCompat(2)).isEmpty)
+    assert(unsupported(schema = withoutElementId, configuration = icebergCompat(2)).isDefined)
+    assert(unsupported(schema = withoutElementId, configuration = icebergCompat(1)).isEmpty)
+  }
+
+  test("Iceberg compatibility V3 falls back") {
+    val schema = StructType(Seq(withId(StructField("id", LongType), 1)))
     assert(
-      unsupported(configuration =
-        Map("delta.columnMapping.mode" -> "name", "delta.enableIcebergCompatV2" -> "true"))
-        .isDefined)
+      unsupported(
+        schema = schema,
+        configuration = icebergCompat(3) + ("delta.enableRowTracking" -> "true")).isDefined)
   }
 
   test("VOID and TIMESTAMP_NTZ columns fall back, at any depth") {

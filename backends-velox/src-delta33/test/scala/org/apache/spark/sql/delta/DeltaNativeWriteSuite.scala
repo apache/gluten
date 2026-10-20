@@ -19,16 +19,23 @@ package org.apache.spark.sql.delta
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.config.VeloxDeltaConfig
 
-import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.delta.actions.AddFile
 import org.apache.spark.sql.delta.commands.optimize.OptimizeMetrics
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.test.DeltaSQLCommandTest
+import org.apache.spark.sql.delta.util.DeltaFileOperations
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.command.ExecutedCommandExec
 import org.apache.spark.sql.execution.datasources.v2.{GlutenDeltaLeafRunnableCommand, GlutenDeltaLeafV2CommandExec, GlutenDeltaRunnableCommand}
 import org.apache.spark.sql.internal.SQLConf
+
+import org.apache.parquet.hadoop.ParquetFileReader
+import org.apache.parquet.hadoop.metadata.ParquetMetadata
+import org.apache.parquet.hadoop.util.HadoopInputFile
+
+import scala.collection.JavaConverters._
 
 class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
 
@@ -93,6 +100,36 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
 
   private def files(deltaLog: DeltaLog): Set[AddFile] = {
     deltaLog.update().allFiles.collect().toSet
+  }
+
+  private def footers(path: String): Seq[(AddFile, ParquetMetadata)] = {
+    val deltaLog = DeltaLog.forTable(spark, path)
+    val hadoopConf = deltaLog.newDeltaHadoopConf()
+    files(deltaLog).toSeq.map {
+      file =>
+        val reader = ParquetFileReader.open(
+          HadoopInputFile.fromPath(DeltaFileOperations.absolutePath(path, file.path), hadoopConf))
+        try {
+          file -> reader.getFooter
+        } finally {
+          reader.close()
+        }
+    }
+  }
+
+  // Vanilla Spark writes with parquet-mr; the Velox writer does not.
+  private def writtenByVelox(footer: ParquetMetadata): Boolean =
+    !footer.getFileMetaData.getCreatedBy.startsWith("parquet-mr")
+
+  private def appendRows(path: String): Unit = {
+    spark
+      .range(10)
+      .selectExpr("id", "CAST(id AS STRING) AS value")
+      .coalesce(1)
+      .write
+      .format("delta")
+      .mode("append")
+      .save(path)
   }
 
   private def collectOptimizeMetrics(df: DataFrame): OptimizeMetrics = {
@@ -281,6 +318,56 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
 
           val result = spark.read.format("delta").load(path)
           assert(result.collect().map(_.getLong(0)).toSet == (0L until 20L).toSet)
+      }
+    }
+  }
+
+  test("a table without column mapping is written natively") {
+    withNativeWriteOffloadConf {
+      withTempDir {
+        dir =>
+          val path = dir.getCanonicalPath
+          sql(s"CREATE TABLE delta.`$path` (id BIGINT, value STRING) USING delta")
+          appendRows(path)
+
+          val written = footers(path)
+          assert(written.nonEmpty)
+          written.foreach {
+            case (file, footer) =>
+              assert(writtenByVelox(footer), s"${file.path}: ${footer.getFileMetaData}")
+          }
+      }
+    }
+  }
+
+  for (mode <- Seq("name", "id")) {
+    test(s"$mode column mapping falls back and writes Parquet field IDs") {
+      withNativeWriteOffloadConf {
+        withTempDir {
+          dir =>
+            val path = dir.getCanonicalPath
+            sql(
+              s"CREATE TABLE delta.`$path` (id BIGINT, value STRING) USING delta " +
+                s"TBLPROPERTIES ('delta.columnMapping.mode' = '$mode')")
+            appendRows(path)
+
+            val written = footers(path)
+            assert(written.nonEmpty)
+            written.foreach {
+              case (file, footer) =>
+                assert(!writtenByVelox(footer), s"${file.path}: ${footer.getFileMetaData}")
+                assert(
+                  footer.getFileMetaData.getSchema.getFields.asScala.forall(_.getId != null),
+                  s"${file.path}: ${footer.getFileMetaData.getSchema}")
+            }
+            // Spark's reader matches columns by field ID under id mapping, and fails on files
+            // without them.
+            withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+              assert(
+                spark.read.format("delta").load(path).collect().toSet ==
+                  (0 until 10).map(i => Row(i.toLong, i.toString)).toSet)
+            }
+        }
       }
     }
   }
