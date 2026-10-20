@@ -63,4 +63,33 @@ public class RexNodeConverterTest {
     assertThat(variant).isInstanceOf(VarCharValue.class);
     assertThat(((VarCharValue) variant).getValue()).isEqualTo("banana");
   }
+
+  @Test
+  public void testNullLiteralConvertsToNullCarrier() {
+    SqlTypeName[] names = {
+      SqlTypeName.VARCHAR,
+      SqlTypeName.INTEGER,
+      SqlTypeName.BIGINT,
+      SqlTypeName.DOUBLE,
+      SqlTypeName.TIMESTAMP,
+    };
+    for (SqlTypeName name : names) {
+      RexLiteral literal = (RexLiteral) rexBuilder.makeNullLiteral(typeFactory.createSqlType(name));
+      Variant variant = RexNodeConverter.toVariant(literal);
+      assertThat(variant).isInstanceOf(VarCharValue.class);
+      assertThat(((VarCharValue) variant).getValue()).isNull();
+    }
+  }
+
+  @Test
+  public void testDecimalNullLiteralConvertsToNullCarrier() {
+    RexLiteral literal =
+        (RexLiteral)
+            rexBuilder.makeNullLiteral(typeFactory.createSqlType(SqlTypeName.DECIMAL, 10, 2));
+    Variant variant = RexNodeConverter.toVariant(literal);
+    assertThat(variant).isInstanceOf(VarCharValue.class);
+    assertThat(((VarCharValue) variant).getValue()).isNull();
+  }
+
 }
+
