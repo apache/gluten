@@ -7,7 +7,7 @@ VeloxColumnarToRow (111)
    :  :  :  :- ^ VeloxBroadcastNestedLoopJoinExecTransformer Inner BuildRight (33)
    :  :  :  :  :- ^ ProjectExecTransformer (14)
    :  :  :  :  :  +- ^ RegularHashAggregateExecTransformer (13)
-   :  :  :  :  :     +- ^ RegularHashAggregateExecTransformer (12)
+   :  :  :  :  :     +- ^ FlushableHashAggregateExecTransformer (12)
    :  :  :  :  :        +- ^ RegularHashAggregateExecTransformer (11)
    :  :  :  :  :           +- ^ InputIteratorTransformer (10)
    :  :  :  :  :              +- ColumnarExchange (8)
@@ -21,7 +21,7 @@ VeloxColumnarToRow (111)
    :  :  :  :     +- ColumnarBroadcastExchange (30)
    :  :  :  :        +- ^ ProjectExecTransformer (28)
    :  :  :  :           +- ^ RegularHashAggregateExecTransformer (27)
-   :  :  :  :              +- ^ RegularHashAggregateExecTransformer (26)
+   :  :  :  :              +- ^ FlushableHashAggregateExecTransformer (26)
    :  :  :  :                 +- ^ RegularHashAggregateExecTransformer (25)
    :  :  :  :                    +- ^ InputIteratorTransformer (24)
    :  :  :  :                       +- ColumnarExchange (22)
@@ -35,7 +35,7 @@ VeloxColumnarToRow (111)
    :  :  :     +- ColumnarBroadcastExchange (49)
    :  :  :        +- ^ ProjectExecTransformer (47)
    :  :  :           +- ^ RegularHashAggregateExecTransformer (46)
-   :  :  :              +- ^ RegularHashAggregateExecTransformer (45)
+   :  :  :              +- ^ FlushableHashAggregateExecTransformer (45)
    :  :  :                 +- ^ RegularHashAggregateExecTransformer (44)
    :  :  :                    +- ^ InputIteratorTransformer (43)
    :  :  :                       +- ColumnarExchange (41)
@@ -49,7 +49,7 @@ VeloxColumnarToRow (111)
    :  :     +- ColumnarBroadcastExchange (68)
    :  :        +- ^ ProjectExecTransformer (66)
    :  :           +- ^ RegularHashAggregateExecTransformer (65)
-   :  :              +- ^ RegularHashAggregateExecTransformer (64)
+   :  :              +- ^ FlushableHashAggregateExecTransformer (64)
    :  :                 +- ^ RegularHashAggregateExecTransformer (63)
    :  :                    +- ^ InputIteratorTransformer (62)
    :  :                       +- ColumnarExchange (60)
@@ -63,7 +63,7 @@ VeloxColumnarToRow (111)
    :     +- ColumnarBroadcastExchange (87)
    :        +- ^ ProjectExecTransformer (85)
    :           +- ^ RegularHashAggregateExecTransformer (84)
-   :              +- ^ RegularHashAggregateExecTransformer (83)
+   :              +- ^ FlushableHashAggregateExecTransformer (83)
    :                 +- ^ RegularHashAggregateExecTransformer (82)
    :                    +- ^ InputIteratorTransformer (81)
    :                       +- ColumnarExchange (79)
@@ -77,7 +77,7 @@ VeloxColumnarToRow (111)
       +- ColumnarBroadcastExchange (106)
          +- ^ ProjectExecTransformer (104)
             +- ^ RegularHashAggregateExecTransformer (103)
-               +- ^ RegularHashAggregateExecTransformer (102)
+               +- ^ FlushableHashAggregateExecTransformer (102)
                   +- ^ RegularHashAggregateExecTransformer (101)
                      +- ^ InputIteratorTransformer (100)
                         +- ColumnarExchange (98)
@@ -139,7 +139,7 @@ Functions [2]: [merge_avg(UnscaledValue(ss_list_price#3)), merge_count(ss_list_p
 Aggregate Attributes [2]: [avg(UnscaledValue(ss_list_price#3))#7, count(ss_list_price#3)#8]
 Results [4]: [ss_list_price#3, sum#9, count#10, count#11]
 
-(12) RegularHashAggregateExecTransformer
+(12) FlushableHashAggregateExecTransformer
 Input [4]: [ss_list_price#3, sum#9, count#10, count#11]
 Keys: []
 Functions [3]: [merge_avg(UnscaledValue(ss_list_price#3)), merge_count(ss_list_price#3), partial_count(distinct ss_list_price#3)]
@@ -207,7 +207,7 @@ Functions [2]: [merge_avg(UnscaledValue(ss_list_price#20)), merge_count(ss_list_
 Aggregate Attributes [2]: [avg(UnscaledValue(ss_list_price#20))#24, count(ss_list_price#20)#25]
 Results [4]: [ss_list_price#20, sum#26, count#27, count#28]
 
-(26) RegularHashAggregateExecTransformer
+(26) FlushableHashAggregateExecTransformer
 Input [4]: [ss_list_price#20, sum#26, count#27, count#28]
 Keys: []
 Functions [3]: [merge_avg(UnscaledValue(ss_list_price#20)), merge_count(ss_list_price#20), partial_count(distinct ss_list_price#20)]
@@ -293,7 +293,7 @@ Functions [2]: [merge_avg(UnscaledValue(ss_list_price#37)), merge_count(ss_list_
 Aggregate Attributes [2]: [avg(UnscaledValue(ss_list_price#37))#41, count(ss_list_price#37)#42]
 Results [4]: [ss_list_price#37, sum#43, count#44, count#45]
 
-(45) RegularHashAggregateExecTransformer
+(45) FlushableHashAggregateExecTransformer
 Input [4]: [ss_list_price#37, sum#43, count#44, count#45]
 Keys: []
 Functions [3]: [merge_avg(UnscaledValue(ss_list_price#37)), merge_count(ss_list_price#37), partial_count(distinct ss_list_price#37)]
@@ -379,7 +379,7 @@ Functions [2]: [merge_avg(UnscaledValue(ss_list_price#54)), merge_count(ss_list_
 Aggregate Attributes [2]: [avg(UnscaledValue(ss_list_price#54))#58, count(ss_list_price#54)#59]
 Results [4]: [ss_list_price#54, sum#60, count#61, count#62]
 
-(64) RegularHashAggregateExecTransformer
+(64) FlushableHashAggregateExecTransformer
 Input [4]: [ss_list_price#54, sum#60, count#61, count#62]
 Keys: []
 Functions [3]: [merge_avg(UnscaledValue(ss_list_price#54)), merge_count(ss_list_price#54), partial_count(distinct ss_list_price#54)]
@@ -465,7 +465,7 @@ Functions [2]: [merge_avg(UnscaledValue(ss_list_price#71)), merge_count(ss_list_
 Aggregate Attributes [2]: [avg(UnscaledValue(ss_list_price#71))#75, count(ss_list_price#71)#76]
 Results [4]: [ss_list_price#71, sum#77, count#78, count#79]
 
-(83) RegularHashAggregateExecTransformer
+(83) FlushableHashAggregateExecTransformer
 Input [4]: [ss_list_price#71, sum#77, count#78, count#79]
 Keys: []
 Functions [3]: [merge_avg(UnscaledValue(ss_list_price#71)), merge_count(ss_list_price#71), partial_count(distinct ss_list_price#71)]
@@ -551,7 +551,7 @@ Functions [2]: [merge_avg(UnscaledValue(ss_list_price#88)), merge_count(ss_list_
 Aggregate Attributes [2]: [avg(UnscaledValue(ss_list_price#88))#92, count(ss_list_price#88)#93]
 Results [4]: [ss_list_price#88, sum#94, count#95, count#96]
 
-(102) RegularHashAggregateExecTransformer
+(102) FlushableHashAggregateExecTransformer
 Input [4]: [ss_list_price#88, sum#94, count#95, count#96]
 Keys: []
 Functions [3]: [merge_avg(UnscaledValue(ss_list_price#88)), merge_count(ss_list_price#88), partial_count(distinct ss_list_price#88)]

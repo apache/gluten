@@ -145,6 +145,17 @@ std::vector<ParquetFieldId> parseParquetFieldIds(std::string_view value) {
 }
 } // namespace
 
+std::shared_ptr<dwio::common::FormatSpecificOptions> GlutenParquetWriterFactory::createFormatOptions(
+    const config::ConfigBase& connectorConfig,
+    const config::ConfigBase& session) const {
+  auto options = ParquetWriterFactory::createFormatOptions(connectorConfig, session);
+  if (auto level = session.get<int32_t>("writer_compression_level")) {
+    auto parquetOptions = std::static_pointer_cast<ParquetWriterOptions>(options);
+    parquetOptions->codecOptions = std::make_shared<parquet::arrow::util::CodecOptions>(*level);
+  }
+  return options;
+}
+
 std::shared_ptr<facebook::velox::dwio::common::WriterOptions> makeParquetWriteOption(
     const std::unordered_map<std::string, std::string>& sparkConfs) {
   int64_t maxRowGroupBytes = 134217728; // 128MB

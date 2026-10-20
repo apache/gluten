@@ -56,7 +56,7 @@ const char* extractFileName(const char* file) {
 const std::unordered_set<std::string> kRegexFunctions =
     {"regexp_extract", "regexp_extract_all", "regexp_replace", "regexp_instr", "rlike", "split"};
 
-const std::unordered_set<std::string> kBlackList = {"split_part", "sequence", "approx_percentile", "map_from_arrays"};
+const std::unordered_set<std::string> kBlackList = {"split_part", "sequence", "approx_percentile"};
 } // namespace
 
 bool SubstraitToVeloxPlanValidator::parseVeloxType(
@@ -305,13 +305,13 @@ bool SubstraitToVeloxPlanValidator::isAllowedCast(const TypePtr& fromType, const
   // Limited support for TimestampNTZ from/to X
   // Casts between Timestamp and TimestampNTZ are handled in from/to timestamp.
   if (fromType->equivalent(*TIMESTAMP_UTC())) {
-    if (toType->isVarchar() || toType->isVarbinary()) {
+    if (toType->isDate() || toType->isVarchar() || toType->isVarbinary()) {
       return true;
     }
     return false;
   }
   if (toType->equivalent(*TIMESTAMP_UTC())) {
-    if (fromType->isVarchar()) {
+    if (fromType->isDate() || fromType->isVarchar()) {
       return true;
     }
     return false;

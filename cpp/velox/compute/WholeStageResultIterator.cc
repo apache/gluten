@@ -650,6 +650,10 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
 
     configs[SparkQueryConfig::qualify(SparkQueryConfig::kPartitionId)] = std::to_string(taskInfo_.partitionId);
 
+    // Spark keeps each call of a non-deterministic function separate, with its own state. Without
+    // this, Velox merges identical calls such as two monotonically_increasing_id() into one.
+    configs[velox::core::QueryConfig::kExprDedupNonDeterministic] = "false";
+
     // Enable Spark legacy date formatter if spark.sql.legacy.timeParserPolicy is set to 'LEGACY'
     // or 'legacy'
     if (veloxCfg_->get<std::string>(kSparkLegacyTimeParserPolicy, "") == "LEGACY") {
@@ -669,6 +673,9 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
 
     configs[SparkQueryConfig::qualify(SparkQueryConfig::kJsonIgnoreNullFields)] =
         std::to_string(veloxCfg_->get<bool>(kSparkJsonIgnoreNullFields, true));
+
+    configs[SparkQueryConfig::qualify(SparkQueryConfig::kDecimalToFloatHighPrecisionCastEnabled)] =
+        std::to_string(veloxCfg_->get<bool>(kDecimalToFloatHighPrecisionCastEnabled, false));
 
     configs[velox::core::QueryConfig::kExprMaxCompiledRegexes] =
         std::to_string(veloxCfg_->get<int32_t>(kExprMaxCompiledRegexes, 100));

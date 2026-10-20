@@ -16,6 +16,8 @@
  */
 package org.apache.gluten.utils
 
+import org.apache.gluten.proto.Kafka
+
 import org.apache.spark.internal.Logging
 
 import com.google.protobuf.WrappersProto
@@ -31,6 +33,9 @@ object SubstraitPlanPrinterUtil extends Logging {
       .newBuilder()
       .add(d)
       .add(defaultRegistry)
+      // Gluten's own payloads (e.g. StreamKafka) ride in Any fields of the Substrait plan, and
+      // nothing imports kafka.proto, so its messages are not reachable from the plan descriptor.
+      .add(Kafka.getDescriptor.getMessageTypes)
       .build()
   }
   private def MessageToJson(message: com.google.protobuf.Message): String = {

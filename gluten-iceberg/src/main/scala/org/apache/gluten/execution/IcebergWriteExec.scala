@@ -19,10 +19,12 @@ package org.apache.gluten.execution
 import org.apache.gluten.backendsapi.BackendsApiManager
 
 import org.apache.iceberg.{FileFormat, PartitionField, PartitionSpec, Schema, TableProperties}
-import org.apache.iceberg.TableProperties.{ORC_COMPRESSION, ORC_COMPRESSION_DEFAULT, PARQUET_COMPRESSION, PARQUET_COMPRESSION_DEFAULT, PARQUET_DICT_SIZE_BYTES, PARQUET_DICT_SIZE_BYTES_DEFAULT, PARQUET_PAGE_SIZE_BYTES, PARQUET_PAGE_SIZE_BYTES_DEFAULT}
+import org.apache.iceberg.TableProperties._
 import org.apache.iceberg.avro.AvroSchemaUtil
 import org.apache.iceberg.spark.source.IcebergWriteUtil
 import org.apache.iceberg.types.Type.TypeID
+
+import java.util.Locale
 
 import scala.collection.JavaConverters._
 
@@ -46,25 +48,49 @@ trait IcebergWriteExec extends ColumnarV2TableWriteExec {
     }
     if (codec.equalsIgnoreCase("uncompressed")) {
       "none"
-    } else codec
+    } else codec.toLowerCase(Locale.ROOT)
+  }
+
+  protected def getParquetCompressionLevel: Option[String] = {
+    Option(IcebergWriteUtil.getWriteProperty(write).get(PARQUET_COMPRESSION_LEVEL))
+      .orElse(Option(IcebergWriteUtil.getTable(write).properties().get(PARQUET_COMPRESSION_LEVEL)))
+  }
+
+  protected def getParquetPageVersion: String = {
+    IcebergWriteUtil
+      .getTable(write)
+      .properties()
+      .getOrDefault("write.parquet.page-version", "v1")
+      .toUpperCase(Locale.ROOT)
   }
 
   protected def getParquetPageSizeBytes: String = {
     val tableProps = IcebergWriteUtil.getTable(write).properties()
-    tableProps.getOrDefault(
-      normalizeCapacityString(PARQUET_PAGE_SIZE_BYTES),
-      normalizeCapacityString(PARQUET_PAGE_SIZE_BYTES_DEFAULT.toString))
+    normalizeCapacityString(
+      tableProps.getOrDefault(PARQUET_PAGE_SIZE_BYTES, PARQUET_PAGE_SIZE_BYTES_DEFAULT.toString))
+  }
+
+  protected def getParquetPageRowLimit: String = {
+    val tableProps = IcebergWriteUtil.getTable(write).properties()
+    tableProps.getOrDefault(PARQUET_PAGE_ROW_LIMIT, PARQUET_PAGE_ROW_LIMIT_DEFAULT.toString)
   }
 
   protected def getTargetFileSizeBytes: String = {
-    IcebergWriteUtil.getWriteConf(write).targetDataFileSize().toString
+    normalizeCapacityString(IcebergWriteUtil.getWriteConf(write).targetDataFileSize().toString)
+  }
+
+  protected def getParquetRowGroupSizeBytes: String = {
+    val tableProps = IcebergWriteUtil.getTable(write).properties()
+    normalizeCapacityString(
+      tableProps.getOrDefault(
+        PARQUET_ROW_GROUP_SIZE_BYTES,
+        PARQUET_ROW_GROUP_SIZE_BYTES_DEFAULT.toString))
   }
 
   protected def getDictSizeBytes: String = {
     val tableProps = IcebergWriteUtil.getTable(write).properties()
-    tableProps.getOrDefault(
-      normalizeCapacityString(PARQUET_DICT_SIZE_BYTES),
-      normalizeCapacityString(PARQUET_DICT_SIZE_BYTES_DEFAULT.toString))
+    normalizeCapacityString(
+      tableProps.getOrDefault(PARQUET_DICT_SIZE_BYTES, PARQUET_DICT_SIZE_BYTES_DEFAULT.toString))
   }
 
   protected def getPartitionSpec: PartitionSpec = {
@@ -113,8 +139,9 @@ trait IcebergWriteExec extends ColumnarV2TableWriteExec {
     }
 
     val codec = getCodec
-    if (Seq("brotli, lzo").contains(codec)) {
-      return ValidationResult.failed("Not support this codec " + codec)
+    val unsupported = Set("brotli", "lzo", "lz4raw", "lz4_raw")
+    if (unsupported.contains(codec.toLowerCase(Locale.ROOT))) {
+      return ValidationResult.failed("Codec unsupported: " + codec)
     }
     if (query.output.exists(a => !AvroSchemaUtil.makeCompatibleName(a.name).equals(a.name))) {
       return ValidationResult.failed("Not support the compatible column name")
@@ -135,7 +162,7 @@ trait IcebergWriteExec extends ColumnarV2TableWriteExec {
     ValidationResult.succeeded
   }
 
-  private def normalizeCapacityString(value: String): String = {
+  protected def normalizeCapacityString(value: String): String = {
     val trimmed = value.trim
     if (trimmed.lastOption.exists(_.isDigit)) s"${trimmed}B" else trimmed
   }

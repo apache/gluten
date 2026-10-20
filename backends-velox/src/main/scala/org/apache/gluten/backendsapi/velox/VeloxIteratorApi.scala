@@ -27,6 +27,7 @@ import org.apache.gluten.substrait.plan.PlanNode
 import org.apache.gluten.substrait.rel.{LocalFilesBuilder, LocalFilesNode, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ColumnMappingMode
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
+import org.apache.gluten.utils.FileMetadataUtil
 import org.apache.gluten.vectorized._
 
 import org.apache.spark.{Partition, SparkConf, TaskContext}
@@ -128,7 +129,7 @@ class VeloxIteratorApi extends IteratorApi with Logging {
         partitionFiles
           .map(
             f =>
-              SparkShimLoader.getSparkShims.generateMetadataColumns(f, metadataColumnNames).asJava)
+              FileMetadataUtil.generateMetadataColumns(f, metadataColumnNames).asJava)
           .asJava
       } else {
         java.util.Collections.nCopies(partitionFiles.size, emptyMetadataColumn)

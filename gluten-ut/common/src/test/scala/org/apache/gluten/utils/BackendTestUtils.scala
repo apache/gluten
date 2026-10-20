@@ -30,4 +30,8 @@ object BackendTestUtils {
   def isCHBackendLoaded(): Boolean = {
     BackendsApiManager.getBackendName == "ch" // the same with CHBackend.BACKEND_NAME
   }
+
+  def isBoltBackendLoaded(): Boolean = {
+    BackendsApiManager.getBackendName == "bolt" // the same with BoltBackend.BACKEND_NAME
+  }
 }

@@ -16,6 +16,7 @@
  */
 package org.apache.spark.sql.execution.utils
 
+import org.apache.gluten.expression.ExpressionUtils
 import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression}
@@ -32,7 +33,7 @@ object PushDownUtil {
       filter: Expression
   ): Boolean = {
     val schema = new SparkToParquetSchemaConverter(conf).convert(
-      SparkShimLoader.getSparkShims.structFromAttributes(output))
+      ExpressionUtils.structFromAttributes(output))
     val parquetFilters = SparkShimLoader.getSparkShims.createParquetFilters(conf, schema)
     DataSourceStrategy.translateFilter(filter, supportNestedPredicatePushdown = true) match {
       case Some(sources.StringStartsWith(_, _)) => false

@@ -23,7 +23,6 @@ import org.apache.gluten.expression.{ArrowProjection, ConverterUtils, Expression
 import org.apache.gluten.extension.columnar.transition.Convention
 import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
-import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.`type`.TypeBuilder
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.vectorized.{ArrowColumnarRow, ArrowWritableColumnVector}
@@ -32,7 +31,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans.QueryPlan
-import org.apache.spark.sql.execution.{ExplainUtils, OrderPreservingNodeShim, PartitioningPreservingNodeShim, ProjectExec, SparkPlan, UnaryExecNode}
+import org.apache.spark.sql.execution.{ExplainUtils, OrderPreservingUnaryExecNode, PartitioningPreservingUnaryExecNode, ProjectExec, SparkPlan, UnaryExecNode}
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.hive.{HiveUDFTransformer, VeloxHiveUDFTransformer}
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
@@ -56,8 +55,8 @@ import scala.collection.mutable.ListBuffer
 case class ColumnarPartialProjectExec(projectList: Seq[Expression], child: SparkPlan)(
     replacedAlias: Seq[Alias])
   extends UnaryExecNode
-  with OrderPreservingNodeShim
-  with PartitioningPreservingNodeShim
+  with OrderPreservingUnaryExecNode
+  with PartitioningPreservingUnaryExecNode
   with ValidatablePlan {
 
   private val projectAttributes: ListBuffer[Attribute] = ListBuffer()
@@ -132,6 +131,10 @@ case class ColumnarPartialProjectExec(projectList: Seq[Expression], child: Spark
     if (hasUnsupportedDataType) {
       return ValidationResult.failed(
         "Attribute in the partial projected expressions contains unsupported type")
+    }
+    if (projectAttributes.isEmpty) {
+      return ValidationResult.failed(
+        "The partial projected expressions do not reference any child column")
     }
     if (projectAttributes.size == child.output.size) {
       return ValidationResult.failed(
@@ -229,7 +232,7 @@ case class ColumnarPartialProjectExec(projectList: Seq[Expression], child: Spark
     c2a += System.currentTimeMillis() - start
 
     val schema =
-      SparkShimLoader.getSparkShims.structFromAttributes(replacedAlias.map(_.toAttribute))
+      ExpressionUtils.structFromAttributes(replacedAlias.map(_.toAttribute))
     val vectors: Array[ArrowWritableColumnVector] = ArrowWritableColumnVector
       .allocateColumns(numRows, schema)
       .map {

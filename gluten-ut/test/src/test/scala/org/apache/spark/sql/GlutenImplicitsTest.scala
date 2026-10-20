@@ -137,11 +137,10 @@ class GlutenImplicitsTest extends GlutenQueryTest with SharedSparkSession {
     withAQEEnabledAndDisabled {
       withTable("tmp") {
         val df = spark.sql("create table tmp using parquet as select * from t1")
-        // Spark 3.3 counts one Gluten node here. Since 3.4 the CTAS is executed as an
-        // ExecutedCommandExec, which collectFallbackNodes walks past without counting anything,
-        // so the summary reports neither a Gluten node nor a fallback node.
-        val expectedGlutenNodes = if (isSparkVersionGE("3.4")) 0 else 1
-        assert(df.fallbackSummary().numGlutenNodes == expectedGlutenNodes, df.fallbackSummary())
+        // The CTAS is executed as an ExecutedCommandExec, which collectFallbackNodes walks past
+        // without counting anything, so the summary reports neither a Gluten node nor a fallback
+        // node.
+        assert(df.fallbackSummary().numGlutenNodes == 0, df.fallbackSummary())
         assert(df.fallbackSummary().numFallbackNodes == 0, df.fallbackSummary())
       }
     }

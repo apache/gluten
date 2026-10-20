@@ -58,8 +58,8 @@ VeloxWholeStageDumper::VeloxWholeStageDumper(
     const SparkTaskInfo& taskInfo,
     const std::string& saveDir,
     int64_t batchSize,
-    facebook::velox::memory::MemoryPool* aggregatePool)
-    : taskInfo_(taskInfo), saveDir_(saveDir), batchSize_(batchSize), pool_(aggregatePool) {}
+    VeloxMemoryManager* memoryManager)
+    : taskInfo_(taskInfo), saveDir_(saveDir), batchSize_(batchSize), memoryManager_(memoryManager) {}
 
 void VeloxWholeStageDumper::dumpConf(const std::unordered_map<std::string, std::string>& confMap) {
   const auto& backendConfMap = VeloxBackend::get()->getBackendConf()->rawConfigs();
@@ -113,18 +113,22 @@ std::shared_ptr<ColumnarBatchIterator> VeloxWholeStageDumper::dumpInputIterator(
       fmt::format("data_{}_{}_{}_{}.parquet", taskInfo_.stageId, taskInfo_.partitionId, taskInfo_.vId, iteratorIndex);
   const auto dumpPath = checkAndGetDumpPath(saveDir_, fileName);
 
-  // Velox parquet writer requires aggregate memory pool.
+  // Velox parquet writer requires aggregate memory pool. The writer is short-lived so a dedicated child pool is fine.
   auto writer = std::make_shared<VeloxColumnarBatchWriter>(
-      dumpPath, batchSize_, pool_->addAggregateChild(fmt::format("dump_iterator.{}", iteratorIndex)));
+      dumpPath,
+      batchSize_,
+      memoryManager_->getAggregateMemoryPool()->addAggregateChild(fmt::format("dump_iterator.{}", iteratorIndex)));
 
   while (auto cb = inputIterator->next()) {
     GLUTEN_THROW_NOT_OK(writer->write(cb));
   }
   GLUTEN_THROW_NOT_OK(writer->close());
 
-  // Velox parquet reader requires leaf memory pool.
-  return std::make_shared<ParquetStreamReaderIterator>(
-      dumpPath, batchSize_, pool_->addLeafChild(fmt::format("retrieve_iterator.{}", iteratorIndex)));
+  // Velox parquet reader requires leaf memory pool. Do not create a dedicated child pool here: the reader
+  // iterator is destroyed as soon as the input stream is exhausted, while vectors it produced may still be
+  // referenced by downstream operators or by batches handed to Java. Freeing them against a destroyed pool
+  // crashes in AlignedBuffer::freeToPool, so use the Runtime's leaf pool which outlives all of them.
+  return std::make_shared<ParquetStreamReaderIterator>(dumpPath, batchSize_, memoryManager_->getLeafMemoryPool());
 }
 
 } // namespace gluten

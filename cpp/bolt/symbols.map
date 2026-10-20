@@ -1,0 +1,16 @@
+{
+  global:
+    extern "C++" {
+        *gluten::*;
+        *bytedance::bolt::*;
+    };
+
+    Java_org_apache_gluten_*;
+    Java_io_gluten*;
+    JNI_OnLoad;
+    JNI_OnUnload;
+    jit_*;
+  local:
+    # Hide all other symbols except the above global symbols.
+    *;
+};

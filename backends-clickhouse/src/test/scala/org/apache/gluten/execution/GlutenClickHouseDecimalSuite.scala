@@ -57,7 +57,7 @@ class GlutenClickHouseDecimalSuite extends ParquetSuite {
     (DecimalType.apply(18, 8), Seq()),
     // 3/10: all value is null and compare with limit
     // 1 Spark 3.5
-    (DecimalType.apply(38, 19), if (isSparkVersionLE("3.3")) Seq(3, 10) else Seq(3, 10))
+    (DecimalType.apply(38, 19), Seq(3, 10))
   )
 
   private def createDecimalTables(dataType: DecimalType): Unit = {

@@ -72,7 +72,7 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
         // TODO: maybe remove constant complex type restriction (Spark 3.4+)
         checkNativeWrite(
           s"INSERT OVERWRITE DIRECTORY '$path' USING PARQUET SELECT array(struct(1), null) as var1",
-          expectNative = !isSparkVersionGE("3.4"))
+          expectNative = false)
     }
   }
 
@@ -178,7 +178,7 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
       // TODO: maybe remove constant complex type restriction (Spark 3.4+)
       checkNativeWrite(
         "INSERT INTO src SELECT array(1, 2, 3)",
-        expectNative = !isSparkVersionGE("3.4"))
+        expectNative = false)
       spark.sql("CREATE TABLE t (ids ARRAY<INT>) USING PARQUET")
       checkNativeWrite("INSERT INTO t SELECT ids FROM src")
       checkAnswer(spark.table("t"), Row(Seq(1, 2, 3)))
@@ -191,7 +191,7 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
       // TODO: maybe remove constant complex type restriction (Spark 3.4+)
       checkNativeWrite(
         "INSERT INTO src SELECT map('a', 1, 'b', 2)",
-        expectNative = !isSparkVersionGE("3.4"))
+        expectNative = false)
       spark.sql("CREATE TABLE t (kv MAP<STRING, INT>) USING PARQUET")
       checkNativeWrite("INSERT INTO t SELECT kv FROM src")
       checkAnswer(spark.table("t"), Row(Map("a" -> 1, "b" -> 2)))
@@ -219,9 +219,7 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
         .range(100)
         .toDF("id")
         .createOrReplaceTempView("ctas_temp")
-      checkNativeWrite(
-        "CREATE TABLE velox_ctas USING PARQUET AS SELECT * FROM ctas_temp",
-        expectNative = isSparkVersionGE("3.4"))
+      checkNativeWrite("CREATE TABLE velox_ctas USING PARQUET AS SELECT * FROM ctas_temp")
     }
   }
 

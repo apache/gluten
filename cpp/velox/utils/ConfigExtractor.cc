@@ -265,7 +265,7 @@ std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorSessionC
   configs[facebook::velox::connector::hive::HiveConfig::kReadTimestampUnitSession] = std::string("6");
   configs[facebook::velox::connector::hive::HiveConfig::kMaxPartitionsPerWritersSession] =
       conf->get<std::string>(kMaxPartitions, "10000");
-  configs[facebook::velox::connector::hive::HiveConfig::kParquetMaxTargetFileSize] =
+  configs[facebook::velox::connector::hive::HiveConfig::kParquetMaxTargetFileSizeSession] =
       conf->get<std::string>(kParquetMaxTargetFileSize, "0B"); // 0 means no limit on target file size
   configs[facebook::velox::connector::hive::HiveConfig::kIgnoreMissingFilesSession] =
       conf->get<bool>(kIgnoreMissingFiles, false) ? "true" : "false";
@@ -273,6 +273,8 @@ std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorSessionC
       conf->get<bool>(kAllowInt32Narrowing, true) ? "true" : "false";
   configs[parquetSessionProperty(facebook::velox::parquet::ParquetConfig::kWriterPageSizeSession)] =
       conf->get<std::string>(kWriteParquetPageSizeBytes, "1MB");
+  configs[parquetSessionProperty(facebook::velox::parquet::ParquetConfig::kWriterRowGroupSizeSession)] =
+      conf->get<std::string>(kColumnarParquetWriteBlockSize, "128MB");
   configs[parquetSessionProperty(facebook::velox::parquet::ParquetConfig::kWriterDictionaryPageSizeLimitSession)] =
       conf->get<std::string>(kWriteParquetDictSizeBytes, "2MB");
   configs[parquetSessionProperty(facebook::velox::parquet::ParquetConfig::kNullStructIfAllFieldsMissingSession)] =

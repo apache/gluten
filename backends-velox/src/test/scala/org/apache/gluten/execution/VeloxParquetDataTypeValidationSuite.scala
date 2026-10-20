@@ -430,11 +430,7 @@ class VeloxParquetDataTypeValidationSuite extends VeloxWholeStageTransformerSuit
         " type2 where type1.struct.struct_1 = type2.struct.struct_1") { _ => }
   }
 
-  // TODO: Re-enable once Velox implements HugeintValuesUsingHashTable::mergeWith.
-  // The hash join on decimal(38, 18) pushes a hugeint dynamic filter into the scan
-  // (velox#18159), and merging it with the existing IsNotNull filter throws
-  // "mergeWith() is not supported".
-  ignore("Decimal type") {
+  test("Decimal type") {
     // Validation: BatchScan Project Aggregate Expand Sort Limit
     runQueryAndCompare(
       "select int, decimal from type1 " +
@@ -465,7 +461,7 @@ class VeloxParquetDataTypeValidationSuite extends VeloxWholeStageTransformerSuit
     }
   }
 
-  testWithMinSparkVersion("TimestampNTZ type scan", "3.4") {
+  test("TimestampNTZ type scan") {
     withTempDir {
       dir =>
         val path = new File(dir, "ntz_data").toURI.getPath
@@ -479,9 +475,7 @@ class VeloxParquetDataTypeValidationSuite extends VeloxWholeStageTransformerSuit
     }
   }
 
-  testWithMinSparkVersion(
-    "Schema validation for TimestampNTZ respects enableTimestampNtzValidation",
-    "3.4") {
+  test("Schema validation for TimestampNTZ respects enableTimestampNtzValidation") {
     val ntzType = spark.sql("SELECT TIMESTAMP_NTZ'2024-01-01'").schema.head.dataType
     Seq("true", "false").foreach {
       enabled =>

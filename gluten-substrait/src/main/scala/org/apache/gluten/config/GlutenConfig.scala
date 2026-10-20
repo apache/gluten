@@ -30,6 +30,12 @@ import java.util.Locale
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 
+object JoinAggregateTwoStageMode extends Enumeration {
+  // TODO: Support ALL at existing shuffle boundaries; splitting below joins can otherwise
+  //  introduce unnecessary shuffles, especially for broadcast hash joins.
+  val NONE, FINAL = Value
+}
+
 trait ShuffleWriterType {
   val name: String
   val requiresResizingShuffleInput: Boolean
@@ -95,6 +101,8 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def enableColumnarWindowGroupLimit: Boolean = getConf(COLUMNAR_WINDOW_GROUP_LIMIT_ENABLED)
 
+  def enableColumnarEmptyRelation: Boolean = getConf(COLUMNAR_EMPTY_RELATION_ENABLED)
+
   def enableColumnarLocalTableScan: Boolean = getConf(COLUMNAR_LOCAL_TABLE_SCAN_ENABLED)
 
   def enableAppendData: Boolean = getConf(COLUMNAR_APPEND_DATA_ENABLED)
@@ -155,6 +163,12 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def pushAggregateThroughJoinMaxDepth: Int =
     getConf(PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH)
+
+  def pushAggregateThroughJoinPartialMergeEnabled: Boolean =
+    getConf(PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED)
+
+  def pushAggregateThroughJoinTwoStageMode: JoinAggregateTwoStageMode.Value =
+    getConf(PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE)
 
   def forceOrcCharTypeScanFallbackEnabled: Boolean =
     getConf(VELOX_FORCE_ORC_CHAR_TYPE_SCAN_FALLBACK)
@@ -495,6 +509,7 @@ object GlutenConfig extends ConfigRegistry {
     BENCHMARK_SAVE_DIR.key,
     GlutenCoreConfig.COLUMNAR_TASK_OFFHEAP_SIZE_IN_BYTES.key,
     COLUMNAR_MAX_BATCH_SIZE.key,
+    COLUMNAR_PARQUET_WRITE_BLOCK_SIZE.key,
     SHUFFLE_WRITER_BUFFER_SIZE.key,
     COLUMNAR_CUDF_ENABLED.key,
     SQLConf.LEGACY_SIZE_OF_NULL.key,
@@ -782,6 +797,20 @@ object GlutenConfig extends ConfigRegistry {
       .checkValue(_ >= 1, "must be greater than or equal to 1.")
       .createWithDefault(Int.MaxValue)
 
+  val PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED =
+    buildConf("spark.gluten.sql.pushAggregateThroughJoin.partialMerge.enabled")
+      .doc("Retains local partial merges between joins crossed by aggregate pushdown.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE =
+    buildConf("spark.gluten.sql.pushAggregateThroughJoin.twoStage.mode")
+      .doc(
+        "Controls physical staging of the final join aggregate: NONE uses a single final " +
+          "stage; FINAL adds a local partial merge before the final aggregation exchange.")
+      .enumConf(JoinAggregateTwoStageMode)
+      .createWithDefault(JoinAggregateTwoStageMode.NONE)
+
   val GLUTEN_SOFT_AFFINITY_ENABLED =
     buildConf("spark.gluten.soft-affinity.enabled")
       .doc("Whether to enable Soft Affinity scheduling.")
@@ -948,6 +977,16 @@ object GlutenConfig extends ConfigRegistry {
   val COLUMNAR_WINDOW_GROUP_LIMIT_ENABLED =
     buildConf("spark.gluten.sql.columnar.window.group.limit")
       .doc("Enable or disable columnar window group limit.")
+      .booleanConf
+      .createWithDefault(true)
+
+  val COLUMNAR_EMPTY_RELATION_ENABLED =
+    buildConf("spark.gluten.sql.columnar.emptyRelation")
+      .doc(
+        "Enable or disable columnar execution of EmptyRelationExec (Spark 4.0+). When " +
+          "true, Gluten replaces EmptyRelationExec (a leaf node AQE creates when it proves a " +
+          "subtree produces no output) with a columnar transformer, avoiding unnecessary " +
+          "ColumnarToRow / RowToColumnar transitions around the empty relation.")
       .booleanConf
       .createWithDefault(true)
 

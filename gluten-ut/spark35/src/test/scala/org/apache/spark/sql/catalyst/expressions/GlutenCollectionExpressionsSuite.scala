@@ -105,7 +105,7 @@ class GlutenCollectionExpressionsSuite extends CollectionExpressionsSuite with G
     val ai1 = Literal.create(Seq(row(1, null), row(2, 20), row(3, null)), aiType)
     val ai2 = Literal.create(Seq.empty, aiType)
     val ai3 = Literal.create(null, aiType)
-    // Velox doesn't support duplicated map key
+    // Velox/Bolt doesn't support duplicated map key
     // val ai4 = Literal.create(Seq(row(1, 10), row(1, 20)), aiType)
     // The map key is null
     val ai5 = Literal.create(Seq(row(1, 10), row(null, 20)), aiType)
