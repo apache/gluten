@@ -271,10 +271,10 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
   // scalastyle:on
 
   /**
-   * The plan the Velox writer consumes: Delta's plan made columnar, and the native invariant checker
-   * the writer must apply to it, if any. When every constraint is a top-level NOT NULL, the checker
-   * replaces Delta's row-based invariant checker; otherwise the invariant checker is kept, and it is
-   * left out only when there are no constraints, to avoid the transitions around it.
+   * The plan the Velox writer consumes: Delta's plan made columnar, and the native invariant
+   * checker the writer must apply to it, if any. When every constraint is a top-level NOT NULL, the
+   * checker replaces Delta's row-based invariant checker; otherwise the invariant checker is kept,
+   * and it is left out only when there are no constraints, to avoid the transitions around it.
    */
   private def glutenPhysicalPlan(
       spark: SparkSession,

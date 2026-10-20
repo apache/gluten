@@ -219,4 +219,66 @@ class DeltaNativeWriteInvariantSuite extends DeltaSQLCommandTest {
       }
     }
   }
+
+  test("native delta write reports NOT NULL violations in data read from Parquet") {
+    withNativeWriteOffloadConf {
+      withTable("delta_native_write_not_null_parquet_source") {
+        withTempDir {
+          dir =>
+            val sourcePath = new java.io.File(dir, "source").getCanonicalPath
+            val path = new java.io.File(dir, "target").getCanonicalPath
+            // Few distinct values, so the Parquet columns are dictionary-encoded.
+            spark
+              .range(0, 1000)
+              .selectExpr("IF(id = 500, NULL, id % 3) AS id", "CAST(id % 5 AS STRING) AS value")
+              .write
+              .parquet(sourcePath)
+            sql(
+              s"CREATE TABLE delta_native_write_not_null_parquet_source " +
+                s"(id BIGINT NOT NULL, value STRING) USING delta LOCATION '$path'")
+
+            val exception = intercept[InvariantViolationException] {
+              spark.read.parquet(sourcePath).write.format("delta").mode("append").save(path)
+            }
+            assert(exception.getMessage.contains("NOT NULL constraint violated for column: id"))
+            assert(spark.read.format("delta").load(path).count() == 0)
+        }
+      }
+    }
+  }
+
+  test("native delta write reports NOT NULL violations with optimized writes") {
+    withNativeWriteOffloadConf {
+      withSQLConf(DeltaSQLConf.DELTA_OPTIMIZE_WRITE_ENABLED.key -> "true") {
+        withTable("delta_native_write_not_null_optimized") {
+          withTempDir {
+            dir =>
+              val path = dir.getCanonicalPath
+              sql(
+                s"CREATE TABLE delta_native_write_not_null_optimized " +
+                  s"(id BIGINT NOT NULL, value STRING) USING delta LOCATION '$path'")
+
+              Seq((1L, "a"), (2L, "b"))
+                .toDF("id", "value")
+                .write
+                .format("delta")
+                .mode("append")
+                .save(path)
+              val exception = intercept[InvariantViolationException] {
+                Seq[(java.lang.Long, String)]((3L, "c"), (null, "d"))
+                  .toDF("id", "value")
+                  .write
+                  .format("delta")
+                  .mode("append")
+                  .save(path)
+              }
+              assert(exception.getMessage.contains("NOT NULL constraint violated for column: id"))
+              assert(
+                spark.read.format("delta").load(path).collect().toSet ==
+                  Set(Row(1L, "a"), Row(2L, "b")))
+          }
+        }
+      }
+    }
+  }
 }

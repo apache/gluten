@@ -20,6 +20,7 @@
 #include "utils/VeloxArrowUtils.h"
 #include "velox/row/UnsafeRowFast.h"
 #include "velox/type/Type.h"
+#include "velox/vector/DecodedVector.h"
 #include "velox/vector/FlatVector.h"
 
 namespace gluten {
@@ -158,6 +159,41 @@ std::shared_ptr<VeloxColumnarBatch> VeloxColumnarBatch::select(
 
   auto rowVector = makeRowVector(pool, numRows(), std::move(childNames), rowVector_->nulls(), std::move(childVectors));
   return std::make_shared<VeloxColumnarBatch>(rowVector);
+}
+
+int32_t VeloxColumnarBatch::firstNullColumnIndex(const std::vector<int32_t>& columnIndices) const {
+  const auto numRows = rowVector_->size();
+  const auto numColumns = static_cast<int32_t>(rowVector_->childrenSize());
+  for (const auto index : columnIndices) {
+    GLUTEN_CHECK(index >= 0 && index < numColumns, "Column index out of range when looking for nulls");
+  }
+  if (columnIndices.empty()) {
+    return -1;
+  }
+
+  // The cached null count is not used: it can be stale, and on a dictionary or constant wrapping it misses the nulls
+  // of the wrapped values. The nulls buffers are scanned a word at a time instead.
+  // A RowVector is flat, so its own nulls buffer is indexed by row.
+  const auto* rowNulls = rowVector_->rawNulls();
+  if (rowNulls != nullptr && bits::countNulls(rowNulls, 0, numRows) > 0) {
+    return 0;
+  }
+
+  const SelectivityVector allRows(numRows);
+  for (size_t i = 0; i < columnIndices.size(); ++i) {
+    const auto& child = rowVector_->childAt(columnIndices[i]);
+    VELOX_CHECK_NOT_NULL(child, "Column vector is null when looking for nulls.");
+    // Decoding combines the nulls of every wrapping with the nulls of the base values.
+    DecodedVector decoded(*child, allRows);
+    if (!decoded.mayHaveNulls()) {
+      continue;
+    }
+    const auto* nulls = decoded.nulls(&allRows);
+    if (nulls != nullptr && bits::countNulls(nulls, 0, numRows) > 0) {
+      return static_cast<int32_t>(i);
+    }
+  }
+  return -1;
 }
 
 std::vector<char> VeloxColumnarBatch::toUnsafeRow(int32_t rowId) const {

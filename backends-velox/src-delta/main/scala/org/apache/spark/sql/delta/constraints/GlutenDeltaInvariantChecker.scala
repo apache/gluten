@@ -29,19 +29,25 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
  * Native write-time invariant checker for constraints that can be validated without converting
  * Velox batches back to Spark rows.
  *
- * Violations are detected natively from batch null metadata (no per-row expression evaluation, no
- * extra operator in the write plan) but thrown on the JVM side, preserving Delta's typed
- * [[DeltaInvariantViolationException]] error contract. Offloading Delta's CheckDeltaInvariant
- * expression to Velox instead would lose that contract: exceptions raised inside Velox surface only
- * as GlutenException with a message string. CHECK constraints and nested NOT NULL constraints fall
- * back to Delta's row-based DeltaInvariantCheckerExec.
+ * Violations are detected natively, by scanning the nulls of the constrained columns of each Velox
+ * batch (no per-row expression evaluation, no extra operator in the write plan), but thrown on the
+ * JVM side, preserving Delta's typed [[DeltaInvariantViolationException]] error contract.
+ * Offloading Delta's CheckDeltaInvariant expression to Velox instead would lose that contract:
+ * exceptions raised inside Velox surface only as GlutenException with a message string. CHECK
+ * constraints and nested NOT NULL constraints fall back to Delta's row-based
+ * DeltaInvariantCheckerExec.
+ *
+ * Shared by every Delta version, so that they all enforce the constraints the same way.
+ *
+ * @param columnOrdinals
+ *   the ordinal in the write plan's output of the column each constraint checks
+ * @param constraints
+ *   the constraints, parallel to `columnOrdinals`
  */
-private[delta] case class GlutenDeltaInvariantChecker private (
-    notNullConstraints: Seq[(Int, NotNull)])
+private[delta] class GlutenDeltaInvariantChecker private (
+    columnOrdinals: Array[Int],
+    constraints: Array[NotNull])
   extends Serializable {
-
-  @transient private lazy val columnOrdinals: Array[Int] =
-    notNullConstraints.map(_._1).toArray
 
   def wrap(rows: Iterator[InternalRow]): Iterator[InternalRow] = {
     rows.map {
@@ -60,16 +66,15 @@ private[delta] case class GlutenDeltaInvariantChecker private (
   private def check(batch: ColumnarBatch): Unit = {
     val failedConstraintIndex = VeloxColumnarBatches.firstNullColumnIndex(batch, columnOrdinals)
     if (failedConstraintIndex >= 0) {
-      throw DeltaInvariantViolationException(notNullConstraints(failedConstraintIndex)._2)
+      throw DeltaInvariantViolationException(constraints(failedConstraintIndex))
     }
   }
 
   private def checkRow(row: InternalRow): Unit = {
     var i = 0
-    while (i < notNullConstraints.size) {
-      val (ordinal, constraint) = notNullConstraints(i)
-      if (row.isNullAt(ordinal)) {
-        throw DeltaInvariantViolationException(constraint)
+    while (i < columnOrdinals.length) {
+      if (row.isNullAt(columnOrdinals(i))) {
+        throw DeltaInvariantViolationException(constraints(i))
       }
       i += 1
     }
@@ -77,6 +82,11 @@ private[delta] case class GlutenDeltaInvariantChecker private (
 }
 
 private[delta] object GlutenDeltaInvariantChecker {
+
+  /**
+   * Returns a checker for `constraints` if all of them are top-level NOT NULL constraints on
+   * columns of `output`, or None if any of them needs Delta's row-based DeltaInvariantCheckerExec.
+   */
   def create(
       output: Seq[Attribute],
       constraints: Seq[Constraint]): Option[GlutenDeltaInvariantChecker] = {
@@ -91,17 +101,17 @@ private[delta] object GlutenDeltaInvariantChecker {
       return None
     }
 
-    val checks = topLevelNotNullConstraints.map {
+    val columnOrdinals = topLevelNotNullConstraints.map {
       constraint =>
-        val columnName = constraint.column.head
-        val ordinal = output.indexWhere {
-          attribute => SchemaUtils.DELTA_COL_RESOLVER(attribute.name, columnName)
+        output.indexWhere {
+          attribute => SchemaUtils.DELTA_COL_RESOLVER(attribute.name, constraint.column.head)
         }
-        if (ordinal < 0) {
-          return None
-        }
-        ordinal -> constraint
     }
-    Some(GlutenDeltaInvariantChecker(checks))
+    if (columnOrdinals.contains(-1)) {
+      return None
+    }
+    Some(new GlutenDeltaInvariantChecker(
+      columnOrdinals.toArray,
+      topLevelNotNullConstraints.toArray))
   }
 }

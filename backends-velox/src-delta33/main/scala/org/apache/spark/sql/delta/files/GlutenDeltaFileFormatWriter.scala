@@ -212,6 +212,12 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
     if (Utils.isTesting) outputOrderingMatched = orderingMatched
 
     if (writeFilesOpt.isDefined) {
+      // The native invariant checker runs only in the executeTask path below. A WriteFilesExec
+      // plan writes in its own tasks, so it must keep Delta's DeltaInvariantCheckerExec instead.
+      // Fail rather than write without enforcing the constraints.
+      require(
+        nativeInvariantChecker.isEmpty,
+        "The native Delta invariant checker does not run on the WriteFilesExec write path")
       // build `WriteFilesSpec` for `WriteFiles`
       val concurrentOutputWriterSpecFunc = (plan: SparkPlan) => {
         val sortPlan = createSortPlan(plan, requiredOrdering, outputSpec)
