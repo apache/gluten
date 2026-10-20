@@ -24,6 +24,7 @@
 #include "compute/iceberg/IcebergFormat.h"
 #include "config/VeloxConfig.h"
 #include "utils/ConfigExtractor.h"
+#include "utils/ParquetFieldIds.h"
 #include "velox/connectors/hive/iceberg/IcebergDataSink.h"
 #include "velox/connectors/hive/iceberg/IcebergDeleteFile.h"
 
@@ -102,19 +103,6 @@ class GlutenIcebergFileNameGenerator : public connector::hive::FileNameGenerator
   mutable int32_t fileCount_;
 };
 
-parquet::ParquetFieldId convertToIcebergNestedField(const gluten::IcebergNestedField& protoField) {
-  parquet::ParquetFieldId result;
-  result.fieldId = protoField.id();
-
-  // Recursively convert children
-  result.children.reserve(protoField.children_size());
-  for (const auto& protoChild : protoField.children()) {
-    result.children.push_back(convertToIcebergNestedField(protoChild));
-  }
-
-  return result;
-}
-
 std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
     const RowTypePtr& outputRowType,
     const std::string& outputDirectoryPath,
@@ -124,7 +112,7 @@ std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
     int64_t taskId,
     const std::string& operationId,
     std::shared_ptr<const IcebergPartitionSpec> spec,
-    const parquet::ParquetFieldId& nestedField,
+    const std::vector<parquet::ParquetFieldId>& fieldIds,
     facebook::velox::memory::MemoryPool* pool) {
   std::vector<std::shared_ptr<const iceberg::IcebergColumnHandle>> columnHandles;
 
@@ -142,13 +130,13 @@ std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
           columnNames.at(i),
           connector::hive::HiveColumnHandle::ColumnType::kPartitionKey,
           columnTypes.at(i),
-          nestedField.children[i]));
+          fieldIds.at(i)));
     } else {
       columnHandles.push_back(std::make_shared<iceberg::IcebergColumnHandle>(
           columnNames.at(i),
           connector::hive::HiveColumnHandle::ColumnType::kRegular,
           columnTypes.at(i),
-          nestedField.children[i]));
+          fieldIds.at(i)));
     }
   }
 
@@ -172,6 +160,13 @@ std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
       fileNameGenerator);
 }
 
+// The field IDs of the columns of `rowType`, checked so that they can be indexed by column.
+std::vector<parquet::ParquetFieldId> icebergFieldIds(const gluten::IcebergNestedField& field, const RowType& rowType) {
+  auto fieldIds = gluten::parquetFieldIdsFromProto(field);
+  gluten::validateParquetFieldIds(fieldIds, rowType, /*allowMissingIds=*/false);
+  return fieldIds;
+}
+
 } // namespace
 
 namespace gluten {
@@ -189,7 +184,7 @@ IcebergWriter::IcebergWriter(
     std::shared_ptr<facebook::velox::memory::MemoryPool> memoryPool,
     std::shared_ptr<facebook::velox::memory::MemoryPool> connectorPool)
     : rowType_(rowType),
-      field_(convertToIcebergNestedField(field)),
+      fieldIds_(icebergFieldIds(field, *rowType)),
       partitionId_(partitionId),
       taskId_(taskId),
       operationId_(operationId),
@@ -242,7 +237,7 @@ IcebergWriter::IcebergWriter(
           taskId_,
           operationId_,
           spec,
-          field_,
+          fieldIds_,
           pool_.get()),
       connectorQueryCtx_.get(),
       facebook::velox::connector::CommitStrategy::kNoCommit,
