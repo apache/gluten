@@ -27,7 +27,8 @@ import org.apache.gluten.substrait.plan.PlanNode
 import org.apache.gluten.validate.NativePlanValidationInfo
 import org.apache.gluten.vectorized.NativePlanEvaluator
 
-import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression}
+import org.apache.spark.internal.Logging
+import org.apache.spark.sql.catalyst.expressions.{Attribute, EmptyRow, Expression, Round}
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.types._
@@ -38,12 +39,32 @@ import io.substrait.proto.SimpleExtensionDeclaration
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
 
-class VeloxValidatorApi extends ValidatorApi {
+class VeloxValidatorApi extends ValidatorApi with Logging {
   import VeloxValidatorApi._
 
-  /** For velox backend, key validation is on native side. */
-  override def doExprValidate(substraitExprName: String, expr: Expression): Boolean =
-    true
+  /**
+   * Enforce decimal ROUND scale compatibility on the JVM independently of optional native plan
+   * validation.
+   */
+  override def doExprValidate(substraitExprName: String, expr: Expression): Boolean = expr match {
+    case round: Round if round.child.dataType.isInstanceOf[DecimalType] =>
+      val scale = round.scale
+      val supported =
+        if (scale.dataType != IntegerType || !scale.foldable) {
+          false
+        } else {
+          scale.eval(EmptyRow) match {
+            case null => true
+            case value: Int => value >= -400 && value <= 400
+            case _ => false
+          }
+        }
+      if (!supported) {
+        logDebug("Decimal ROUND requires a foldable INTEGER scale in [-400, 400] or NULL.")
+      }
+      supported
+    case _ => true
+  }
 
   override def doNativeValidateWithFailureReason(plan: PlanNode): ValidationResult = {
     TaskResources.runUnsafe {
