@@ -29,6 +29,7 @@
 
 #include "FilePathGenerator.h"
 #include "compute/VeloxBackend.h"
+#include "kafka.pb.h"
 #ifdef ENABLE_KAFKA
 #include "operators/reader/KafkaSplitInfo.h"
 #endif
@@ -452,7 +453,7 @@ TEST_F(Substrait2VeloxPlanConversionTest, serializedFileSplit) {
 
 TEST_F(Substrait2VeloxPlanConversionTest, kafkaReadValidation) {
   ::substrait::ReadRel read;
-  read.set_stream_kafka(true);
+  read.mutable_extension_table()->mutable_detail()->PackFrom(StreamKafka{}, "");
   read.mutable_base_schema()->add_names("offset");
   read.mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
   SubstraitToVeloxPlanConverter converter(
@@ -471,13 +472,13 @@ TEST_F(Substrait2VeloxPlanConversionTest, kafkaReadValidation) {
 #ifdef ENABLE_KAFKA
 TEST_F(Substrait2VeloxPlanConversionTest, mixedKafkaAndFileSplits) {
   ::substrait::ReadRel kafkaRead;
-  kafkaRead.set_stream_kafka(true);
+  kafkaRead.mutable_extension_table()->mutable_detail()->PackFrom(StreamKafka{}, "");
   kafkaRead.mutable_base_schema()->add_names("offset");
   kafkaRead.mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
   auto fileRead = kafkaRead;
-  fileRead.set_stream_kafka(false);
+  fileRead.clear_extension_table();
 
-  ::substrait::ReadRel_StreamKafka kafka;
+  StreamKafka kafka;
   kafka.mutable_topic_partition()->set_topic("test-topic");
   kafka.mutable_topic_partition()->set_partition(2);
   kafka.set_start_offset(5);
@@ -485,6 +486,8 @@ TEST_F(Substrait2VeloxPlanConversionTest, mixedKafkaAndFileSplits) {
   kafka.set_poll_timeout_ms(1000);
   kafka.set_fail_on_data_loss(true);
   (*kafka.mutable_params())["bootstrap.servers"] = "localhost:9092";
+  ::substrait::ReadRel_ExtensionTable kafkaSplit;
+  kafkaSplit.mutable_detail()->PackFrom(kafka, "");
 
   ::substrait::ReadRel_LocalFiles files;
   files.add_items()->set_uri_file("file:///tmp/kafka-join.parquet");
@@ -497,8 +500,8 @@ TEST_F(Substrait2VeloxPlanConversionTest, mixedKafkaAndFileSplits) {
         {},
         VeloxConnectorIds{.hive = facebook::velox::exec::test::kHiveConnectorId, .kafka = "kafka-test"});
     converter.setRawSplitInfos(
-        kafkaFirst ? std::vector<std::string>{kafka.SerializeAsString(), files.SerializeAsString()}
-                   : std::vector<std::string>{files.SerializeAsString(), kafka.SerializeAsString()});
+        kafkaFirst ? std::vector<std::string>{kafkaSplit.SerializeAsString(), files.SerializeAsString()}
+                   : std::vector<std::string>{files.SerializeAsString(), kafkaSplit.SerializeAsString()});
     auto first = converter.toVeloxPlan(kafkaFirst ? kafkaRead : fileRead);
     auto second = converter.toVeloxPlan(kafkaFirst ? fileRead : kafkaRead);
     const auto& kafkaNode = kafkaFirst ? first : second;
@@ -516,6 +519,42 @@ TEST_F(Substrait2VeloxPlanConversionTest, mixedKafkaAndFileSplits) {
     EXPECT_EQ(
         converter.splitInfos().at(fileNode->id())->paths, std::vector<std::string>{"file:///tmp/kafka-join.parquet"});
   }
+}
+
+TEST_F(Substrait2VeloxPlanConversionTest, kafkaSplitRequiresStreamKafkaPayload) {
+  ::substrait::ReadRel read;
+  read.mutable_extension_table()->mutable_detail()->PackFrom(StreamKafka{});
+  read.mutable_base_schema()->add_names("offset");
+  read.mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
+
+  const auto makeConverter = [&](std::vector<std::string> splits) {
+    auto converter = std::make_unique<SubstraitToVeloxPlanConverter>(
+        pool(),
+        veloxCfg_.get(),
+        std::vector<std::shared_ptr<ResultIterator>>{},
+        VeloxConnectorIds{.kafka = "kafka-test"});
+    converter->setRawSplitInfos(std::move(splits));
+    return converter;
+  };
+
+  VELOX_ASSERT_THROW(makeConverter({})->toVeloxPlan(read), "Plan must have readRel and related split info.");
+  VELOX_ASSERT_THROW(
+      makeConverter({std::string(1, '\xff')})->toVeloxPlan(read),
+      "Failed to parse Kafka split info as ReadRel.ExtensionTable");
+
+  ::substrait::ReadRel_ExtensionTable split;
+  VELOX_ASSERT_THROW(
+      makeConverter({split.SerializeAsString()})->toVeloxPlan(read),
+      "Kafka split info must contain a gluten.StreamKafka payload");
+  split.mutable_detail()->PackFrom(::substrait::ReadRel_LocalFiles{});
+  VELOX_ASSERT_THROW(
+      makeConverter({split.SerializeAsString()})->toVeloxPlan(read),
+      "Kafka split info must contain a gluten.StreamKafka payload");
+  split.mutable_detail()->PackFrom(StreamKafka{});
+  split.mutable_detail()->set_value(std::string(1, '\xff'));
+  VELOX_ASSERT_THROW(
+      makeConverter({split.SerializeAsString()})->toVeloxPlan(read),
+      "Kafka split info must contain a gluten.StreamKafka payload");
 }
 #endif
 

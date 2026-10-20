@@ -17,14 +17,14 @@
 
 #pragma once
 
+#include "kafka.pb.h"
 #include "operators/reader/KafkaSplit.h"
 #include "substrait/SubstraitToVeloxPlan.h"
-#include "substrait/algebra.pb.h"
 
 namespace gluten {
 
 struct KafkaSplitInfo : SplitInfo {
-  ::substrait::ReadRel_StreamKafka streamKafka;
+  StreamKafka streamKafka;
 
   std::shared_ptr<KafkaConnectorSplit> toConnectorSplit(const std::string& connectorId) const {
     return std::make_shared<KafkaConnectorSplit>(

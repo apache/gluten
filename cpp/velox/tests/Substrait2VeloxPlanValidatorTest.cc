@@ -17,6 +17,7 @@
 
 #include "FilePathGenerator.h"
 #include "JsonToProtoConverter.h"
+#include "kafka.pb.h"
 
 #include "memory/VeloxMemoryManager.h"
 #include "substrait/SubstraitToVeloxPlan.h"
@@ -86,7 +87,7 @@ TEST_F(Substrait2VeloxPlanValidatorTest, group) {
 TEST_F(Substrait2VeloxPlanValidatorTest, kafkaReadRequiresNativeSupport) {
   ::substrait::Plan plan;
   auto* read = plan.add_relations()->mutable_rel()->mutable_read();
-  read->set_stream_kafka(true);
+  read->mutable_extension_table()->mutable_detail()->PackFrom(StreamKafka{}, "");
   read->mutable_base_schema()->add_names("offset");
   read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
 #ifdef ENABLE_KAFKA

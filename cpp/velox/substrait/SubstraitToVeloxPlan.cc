@@ -44,6 +44,7 @@
 #include "config.pb.h"
 #include "config/GlutenConfig.h"
 #include "config/VeloxConfig.h"
+#include "kafka.pb.h"
 
 #ifdef GLUTEN_ENABLE_GPU
 #include "operators/plannodes/CudfVectorStream.h"
@@ -56,6 +57,10 @@ using namespace cudf_velox::connector::hive;
 
 namespace gluten {
 namespace {
+
+bool isKafkaRead(const ::substrait::ReadRel& readRel) {
+  return readRel.has_extension_table() && readRel.extension_table().detail().Is<StreamKafka>();
+}
 
 bool useCudfTableHandle(const std::vector<std::shared_ptr<SplitInfo>>& splitInfos) {
 #ifdef GLUTEN_ENABLE_GPU
@@ -1520,14 +1525,18 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::constructCudfValueStreamNode(
 core::PlanNodePtr SubstraitToVeloxPlanConverter::constructKafkaStreamNode(const ::substrait::ReadRel& readRel) {
   VELOX_USER_CHECK(!readRel.has_filter(), "Filter pushdown is not supported for Kafka reads.");
   // Like other table scans, a Kafka scan consumes the next split info. The JVM sends it as a serialized
-  // ReadRel.StreamKafka rather than LocalFiles, so decode it from the raw bytes.
+  // ReadRel.ExtensionTable containing a gluten.StreamKafka rather than LocalFiles.
   auto splitInfo = std::make_shared<KafkaSplitInfo>();
   splitInfo->leafType = SplitInfo::LeafType::TABLE_SCAN;
   if (!validationMode_) {
     VELOX_CHECK_LT(splitInfoIdx_, rawSplitInfos_.size(), "Plan must have readRel and related split info.");
+    ::substrait::ReadRel_ExtensionTable extensionTable;
     VELOX_CHECK(
-        splitInfo->streamKafka.ParseFromString(rawSplitInfos_[splitInfoIdx_++]),
-        "Failed to parse Kafka split info as ReadRel.StreamKafka");
+        extensionTable.ParseFromString(rawSplitInfos_[splitInfoIdx_++]),
+        "Failed to parse Kafka split info as ReadRel.ExtensionTable");
+    VELOX_CHECK(
+        extensionTable.detail().UnpackTo(&splitInfo->streamKafka),
+        "Kafka split info must contain a gluten.StreamKafka payload");
   }
 
   std::vector<std::string> colNameList;
@@ -1592,8 +1601,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         !readRel.common().has_emit(), "Emit not supported for ValuesNode and TableScanNode related Substrait plans.");
   }
 
-  // Check if this is a Kafka stream - handle it specially
-  if (readRel.stream_kafka()) {
+  if (isKafkaRead(readRel)) {
 #ifdef ENABLE_KAFKA
     return constructKafkaStreamNode(readRel);
 #else
@@ -1974,13 +1982,6 @@ std::string SubstraitToVeloxPlanConverter::findFuncSpec(uint64_t id) {
 }
 
 int32_t SubstraitToVeloxPlanConverter::getStreamIndex(const ::substrait::ReadRel& sRead) {
-  // Check if this is a Kafka stream
-  if (sRead.stream_kafka()) {
-    // For Kafka streams, we don't use the iterator pattern
-    // Return -1 to indicate this should be handled as a regular scan
-    return -1;
-  }
-
   if (sRead.has_local_files()) {
     const auto& fileList = sRead.local_files().items();
     if (fileList.size() == 0) {
