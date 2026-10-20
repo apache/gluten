@@ -58,6 +58,9 @@ class GlutenDeltaNativeMergeWriteSuite extends GlutenQueryTest with SharedSparkS
       .set("spark.sql.ansi.enabled", "false")
       .set(GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key, "false")
       .set("spark.sql.adaptive.enabled", "false")
+      // Delta 4.4+ writes partition columns into the data files by default, which makes the write
+      // fall back to vanilla Delta. Older Delta ignores this unknown table property default.
+      .set("spark.databricks.delta.properties.defaults.writePartitionColumnsToParquet", "false")
   }
 
   private def capturePlans(f: => Unit): Seq[SparkPlan] = {
@@ -199,30 +202,32 @@ class GlutenDeltaNativeMergeWriteSuite extends GlutenQueryTest with SharedSparkS
     }
   }
 
+  private def partitionedTable(properties: String = ""): String => Unit = table(
+    "id INT, v STRING, p STRING",
+    "SELECT id, concat('v', id), CASE id % 3 WHEN 0 THEN 'a' WHEN 1 THEN 'b' END FROM range(10)",
+    properties,
+    partitionBy = "p"
+  )
+
+  private val partitionedSource =
+    "SELECT * FROM VALUES (1, 'x', 'delete', 'a'), (2, 'u2', 'update', 'b'), " +
+      "(10, 'n10', 'insert', NULL), (11, 'n11', 'insert', 'c') AS s(id, v, op, p)"
+
+  private val partitionedMerge: String => Unit =
+    path => sql(s"""
+                   |MERGE INTO delta.`$path` t USING src s ON t.id = s.id
+                   |WHEN MATCHED AND s.op = 'delete' THEN DELETE
+                   |WHEN MATCHED THEN UPDATE SET t.v = s.v, t.p = s.p
+                   |WHEN NOT MATCHED THEN INSERT (id, v, p) VALUES (s.id, s.v, s.p)
+                   |""".stripMargin)
+
   for (repartition <- Seq(true, false)) {
     test(s"MERGE into a partitioned table writes native files: repartition=$repartition") {
       assume(BackendTestUtils.isVeloxBackendLoaded())
       withSQLConf(
         "spark.databricks.delta.merge.repartitionBeforeWrite.enabled" -> repartition.toString) {
-        withSource(
-          "SELECT * FROM VALUES (1, 'x', 'delete', 'a'), (2, 'u2', 'update', 'b'), " +
-            "(10, 'n10', 'insert', NULL), (11, 'n11', 'insert', 'c') AS s(id, v, op, p)") {
-          checkMerge(
-            table(
-              "id INT, v STRING, p STRING",
-              "SELECT id, concat('v', id), CASE id % 3 WHEN 0 THEN 'a' WHEN 1 THEN 'b' END " +
-                "FROM range(10)",
-              partitionBy = "p"
-            ),
-            path => sql(s"""
-                           |MERGE INTO delta.`$path` t USING src s ON t.id = s.id
-                           |WHEN MATCHED AND s.op = 'delete' THEN DELETE
-                           |WHEN MATCHED THEN UPDATE SET t.v = s.v, t.p = s.p
-                           |WHEN NOT MATCHED THEN INSERT (id, v, p) VALUES (s.id, s.v, s.p)
-                           |""".stripMargin),
-            nativePlan = true,
-            nativeFiles = true
-          )
+        withSource(partitionedSource) {
+          checkMerge(partitionedTable(), partitionedMerge, nativePlan = true, nativeFiles = true)
         }
       }
     }
@@ -296,45 +301,68 @@ class GlutenDeltaNativeMergeWriteSuite extends GlutenQueryTest with SharedSparkS
     }
   }
 
-  // Tables or settings the native writer does not reproduce faithfully yet.
-  private val unsupportedTables: Seq[(String, String => Unit, Seq[(String, String)])] = Seq(
-    ("native MERGE write disabled", idValueTable, Seq(mergeWriteKey -> "false")),
-    (
-      "column mapping in name mode",
-      table(
-        "id INT, v STRING",
-        "SELECT id, concat('v', id) FROM range(10)",
-        "'delta.columnMapping.mode' = 'name'"),
-      Seq.empty),
-    (
-      "DOUBLE partition column",
-      table(
-        "id INT, v STRING, p DOUBLE",
-        "SELECT id, concat('v', id), CAST(id % 2 AS DOUBLE) FROM range(10)",
-        partitionBy = "p"),
-      Seq.empty),
-    (
-      "nested field name with upper-case letters",
-      table(
-        "id INT, v STRING, s STRUCT<Value: INT>",
-        "SELECT id, concat('v', id), named_struct('Value', id) FROM range(10)"),
-      Seq.empty),
-    (
-      "statistics collection disabled",
-      idValueTable,
-      Seq("spark.databricks.delta.stats.collect" -> "false"))
-  )
+  // On Spark 4.x, MERGE leaves what the Velox writer supports to GlutenDeltaNativeWriteGate, which
+  // checks it when the files are written. The MERGE is then still planned as a Gluten command.
+  private val writerCheckedAtWrite = isSparkVersionGE("4.0")
 
-  for ((name, create, confs) <- unsupportedTables) {
+  // Tables or settings the native writer does not reproduce faithfully yet, and whether the MERGE
+  // is still planned as a Gluten command.
+  private val unsupportedTables: Seq[(String, String => Unit, Seq[(String, String)], Boolean)] =
+    Seq(
+      ("native MERGE write disabled", idValueTable, Seq(mergeWriteKey -> "false"), false),
+      (
+        "column mapping in name mode",
+        table(
+          "id INT, v STRING",
+          "SELECT id, concat('v', id) FROM range(10)",
+          "'delta.columnMapping.mode' = 'name'"),
+        Seq.empty,
+        writerCheckedAtWrite),
+      (
+        "DOUBLE partition column",
+        table(
+          "id INT, v STRING, p DOUBLE",
+          "SELECT id, concat('v', id), CAST(id % 2 AS DOUBLE) FROM range(10)",
+          partitionBy = "p"),
+        Seq.empty,
+        false),
+      (
+        "nested field name with upper-case letters",
+        table(
+          "id INT, v STRING, s STRUCT<Value: INT>",
+          "SELECT id, concat('v', id), named_struct('Value', id) FROM range(10)"),
+        Seq.empty,
+        false),
+      (
+        "statistics collection disabled",
+        idValueTable,
+        Seq("spark.databricks.delta.stats.collect" -> "false"),
+        false)
+    )
+
+  for ((name, create, confs, nativePlan) <- unsupportedTables) {
     test(s"MERGE keeps Delta's writer: $name") {
       assume(BackendTestUtils.isVeloxBackendLoaded())
       withSource(idValueOpSource) {
         checkMerge(
           create,
           path => withSQLConf(confs: _*)(updateDeleteInsert(path)),
-          nativePlan = false,
+          nativePlan = nativePlan,
           nativeFiles = false)
       }
+    }
+  }
+
+  test("MERGE keeps Delta's writer: partition columns in the data files") {
+    assume(BackendTestUtils.isVeloxBackendLoaded())
+    // Delta 3.3 has no such table property.
+    assume(isSparkVersionGE("4.0"))
+    withSource(partitionedSource) {
+      checkMerge(
+        partitionedTable("'delta.writePartitionColumnsToParquet' = 'true'"),
+        partitionedMerge,
+        nativePlan = true,
+        nativeFiles = false)
     }
   }
 
