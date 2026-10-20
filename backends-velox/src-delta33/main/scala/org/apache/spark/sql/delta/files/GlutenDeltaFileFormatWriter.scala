@@ -464,8 +464,10 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
     committer.setupTask(taskAttemptContext)
 
     val dataWriter =
-      if (sparkPartitionId != 0 && !iterator.hasNext) {
-        // In case of empty job, leave first partition to save meta for file format like parquet.
+      if (!iterator.hasNext) {
+        // Spark leaves the first task of an empty job to write a file that carries the schema.
+        // The Velox writer writes no Parquet footer when it gets no rows, so that file would be
+        // zero bytes long and unreadable. Delta keeps the schema in its log, so write no file.
         new EmptyDirectoryDataWriter(description, taskAttemptContext, committer)
       } else if (description.partitionColumns.isEmpty && description.bucketSpec.isEmpty) {
         new SingleDirectoryDataWriter(description, taskAttemptContext, committer)

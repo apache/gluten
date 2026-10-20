@@ -521,7 +521,6 @@ org.apache.spark.sql.delta.rowid.RowIdSuite#Filter by base Row IDs in subquery
 org.apache.spark.sql.delta.rowid.RowIdSuite#No dictionary filtering on _metadata.row_id
 org.apache.spark.sql.delta.rowid.RowIdSuite#missing base row ids and default row commit versions
 org.apache.spark.sql.delta.rowid.RowIdSuite#row ids can be read back
-org.apache.spark.sql.delta.rowtracking.RowTrackingReadWriteSuite#write and read table with all-null materialized columns
 org.apache.spark.sql.delta.stats.StatsCollectionSuite#recompute stats multiple columns and files
 org.apache.spark.sql.delta.storage.dv.DeletionVectorWriteDurabilitySuite#a DELETE whose deletion vector was never written does not corrupt the table
 org.apache.spark.sql.delta.storage.dv.DeletionVectorWriteDurabilitySuite#a MERGE whose deletion vector was never written does not corrupt the table
