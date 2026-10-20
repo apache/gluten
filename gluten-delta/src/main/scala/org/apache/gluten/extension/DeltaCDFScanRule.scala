@@ -23,6 +23,7 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.delta.actions.{AddFile, RemoveFile}
 import org.apache.spark.sql.delta.commands.cdc.CDCReader
 import org.apache.spark.sql.execution.datasources.LogicalRelation
+import org.apache.spark.util.SparkVersionUtil
 
 import scala.util.control.NonFatal
 
@@ -69,15 +70,15 @@ case class DeltaCDFScanRule(spark: SparkSession, offloadEnabled: () => Boolean)
     }
   }
 
-  // Leave the relation untouched on any failure so Delta's own CDF path runs. This rule executes
-  // during analysis, so an escaping exception would fail the query outright -- including for
+  // Leave the relation untouched on any failure so Delta's own CDF path runs. This rule runs in the
+  // optimizer, so an escaping exception would fail the query outright -- including for
   // metadata-only calls such as `explain()` -- where vanilla Spark would have succeeded. Offload is
   // an optimization; it must never be the reason a CDF query stops working.
   private def expandOrDecline(
       relation: LogicalRelation,
       cdfRelation: CDCReader.DeltaCDFRelation): LogicalPlan = {
     try {
-      if (changesContainDeletionVectors(cdfRelation)) {
+      if (!SparkVersionUtil.gteSpark35 && changesContainDeletionVectors(cdfRelation)) {
         relation
       } else {
         expand(relation, cdfRelation)
@@ -91,16 +92,20 @@ case class DeltaCDFScanRule(spark: SparkSession, offloadEnabled: () => Boolean)
 
   // Delta CDF over a commit that uses deletion vectors needs Delta's DV-aware, row-level
   // reconciliation: a deleted row stays physically in its data file and is masked by a DV, so the
-  // CDF `delete` rows for a commit are only the rows the DV newly marks. Expanding the analyzed
-  // CDF batch plan here loses that reconciliation on some Delta versions (e.g. Delta 2.4 / Spark
-  // 3.4), where the remove side would then surface every row of a logically-removed file as a
-  // `delete` change row instead of just the DV-marked ones.
+  // CDF `delete` rows for a commit are only the rows the DV newly marks. On Spark 3.5+ (Delta
+  // 3.3+) Delta's CDF file indexes put each file's DV and row index filter type in its
+  // PartitionedFile metadata (IF_NOT_CONTAINED keeps only the marked rows), and both
+  // DeltaParquetFileFormat and the native Delta scan apply it, so ranges with DVs expand like any
+  // other.
+  //
+  // Spark 3.4 (Delta 2.4) still declines those ranges. Delta 2.4 hands DVs to its reader through a
+  // broadcast map on DeltaParquetFileFormat rather than PartitionedFile metadata, so
+  // OffloadDeltaScan keeps every Spark 3.4 DV scan on Spark, and declining keeps the whole read on
+  // Delta's CDF relation as before.
   //
   // The table property is not a reliable guard: it controls whether future writes may create DVs,
   // while existing DVs can remain after the property is disabled. Inspect the AddFile/RemoveFile
-  // actions in the requested CDF interval instead. Decline to expand only ranges that actually
-  // contain DVs and let Delta's DeltaCDFRelation apply them correctly. The matching physical-scan
-  // guard in DeltaScanTransformer remains as a backstop.
+  // actions in the requested CDF interval instead.
   private def changesContainDeletionVectors(
       cdfRelation: CDCReader.DeltaCDFRelation): Boolean = {
     cdfRelation.startingVersion.exists {

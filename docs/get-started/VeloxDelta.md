@@ -236,7 +236,7 @@ Offload/Fallback
 | Column mapping, id mode | Offload, matched by physical name. Known ResultMismatch cases: see [Read problems](#read-problems). | Offload, matched by physical name. Known ResultMismatch cases: see [Read problems](#read-problems). |
 | Files with deletion vectors | Fallback | Offload |
 | Change data feed, no deletion vectors in range | Offload. PartialOffload when the table allows deletion vectors and the range has `_change_data` files, because those scans then fall back (from code). | Offload |
-| Change data feed, deletion vectors in range | Fallback, PartialOffload when a file scan inside Delta's change data feed scan reads no files with deletion vectors and no `_change_data` files (from code) | Fallback, PartialOffload when a file scan inside Delta's change data feed scan reads no files with deletion vectors (from code) |
+| Change data feed, deletion vectors in range | Fallback, PartialOffload when a file scan inside Delta's change data feed scan reads no files with deletion vectors and no `_change_data` files (from code) | Offload |
 
 ```sql
 SELECT count(1) AS count, name
@@ -305,7 +305,7 @@ SET spark.gluten.sql.columnar.backend.velox.delta.enableChangeDataFeedScan=false
 SELECT * FROM table_changes('c', 1);
 ```
 
-A read whose version range adds or removes a file with a deletion vector uses Delta's change data feed scan. Insert-only ranges of a table with deletion vectors enabled still run in Velox. With `spark.gluten.sql.columnar.backend.velox.delta.enableChangeDataFeedScan=false`, every batch change data feed read uses Delta's scan. Delta's scan reads the data files in a query of its own that Gluten also plans, and `EXPLAIN` does not show it (from code). That query's file scans can run in Velox, except scans of added or removed files that have deletion vectors and, on Spark 3.4, scans of `_change_data` files when the table allows deletion vectors (from code). Streaming change data feed reads ignore this option. They run as Delta file scans. A scan whose files have deletion vectors falls back, and on Spark 3.4 so does a scan of `_change_data` files when the table allows deletion vectors (from code).
+On Spark 3.4, a read whose version range adds or removes a file with a deletion vector uses Delta's change data feed scan. Insert-only ranges of a table with deletion vectors enabled still run in Velox. On Spark 3.5 and later these ranges run in Velox too, and the native scan applies each file's deletion vector as Delta's change data feed does. With `spark.gluten.sql.columnar.backend.velox.delta.enableChangeDataFeedScan=false`, every batch change data feed read uses Delta's scan. Delta's scan reads the data files in a query of its own that Gluten also plans, and `EXPLAIN` does not show it (from code). That query's file scans can run in Velox, except on Spark 3.4, where scans of added or removed files that have deletion vectors fall back, and so do scans of `_change_data` files when the table allows deletion vectors (from code). Streaming change data feed reads ignore this option. They run as Delta file scans, in Velox on Spark 3.5 and later. On Spark 3.4, a scan whose files have deletion vectors falls back, and so does a scan of `_change_data` files when the table allows deletion vectors (from code).
 
 ### Read metadata
 Offload
@@ -334,7 +334,7 @@ The Read column covers Spark 3.5 to 4.2. It covers Spark 3.4 only where the row 
 | Feature | Read | Native write | Notes |
 |---|---|---|---|
 | Deletion vectors | Offload, Fallback on Spark 3.4 | PartialOffload | Gluten's tests check the results of deletion vector DELETE and MERGE on Spark 3.5 and 4.0 with native write turned on. Delta writes the deletion vector files, and MERGE writes its data files with Delta's writer (see [Write commands](#write-commands)). Both are from code. See [Deletion vectors](#deletion-vectors). |
-| Change data feed | Offload, also on Spark 3.4. Ranges with deletion vectors fall back. On Spark 3.4, scans of `_change_data` files also fall back when the table allows deletion vectors (from code). | Offload | UPDATE and DELETE write the `_change_data` files with Velox (from code). Change data feed reads of their changes are correct (seen on 4.1). See [Change data feed](#change-data-feed). |
+| Change data feed | Offload, also on Spark 3.4. On Spark 3.4, ranges with deletion vectors fall back, and so do scans of `_change_data` files when the table allows deletion vectors (from code). | Offload | UPDATE and DELETE write the `_change_data` files with Velox (from code). Change data feed reads of their changes are correct (seen on 4.1). See [Change data feed](#change-data-feed). |
 | Column mapping, name mode | Offload, also on Spark 3.4 | ResultMismatch on Spark 3.5, Fallback on Spark 4.x | On Spark 3.5, natively written files have no Parquet field IDs. Spark 4.x sends these writes to Delta's writer. Both are from code. See [Write problems](#write-problems). |
 | Column mapping, id mode | Offload, also on Spark 3.4. ResultMismatch when matching by field ID would select no column (seen on 4.1) or a different column (from code). | ResultMismatch on Spark 3.5, Exception when Spark's reader reads the files. Fallback on Spark 4.x. Both are from code. | Gluten matches columns by physical name. See [Known problems](#known-problems). |
 | Identity columns | Offload | Offload | Seen on 4.1. High-water marks are correct. The projection that generates identity values runs on Spark (from code). |
@@ -396,7 +396,7 @@ Delta data files are Parquet, and Gluten reads them with Velox's Parquet reader.
 | Statement | Status | Notes |
 |---|---|---|
 | `SELECT` | Offload | See [Reading](#reading). |
-| `table_changes()` | Offload | Ranges with deletion vectors fall back. See [Change data feed](#change-data-feed). |
+| `table_changes()` | Offload | On Spark 3.4, ranges with deletion vectors fall back. See [Change data feed](#change-data-feed). |
 | `CREATE TABLE ... AS SELECT`, `REPLACE TABLE ... AS SELECT` | Offload | With native write on, Spark 3.5 or 4.x, and a DeltaCatalog target. Seen on 4.1, from code on 3.5, 4.0 and 4.2. See [Creating a table](#creating-a-table). |
 | `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `OPTIMIZE`, `REORG` | | See [Write commands](#write-commands). |
 | `CREATE TABLE` without `AS SELECT`, `DROP TABLE`, `DESCRIBE` | Fallback | They read and write no data files. From code. |
@@ -563,7 +563,7 @@ A blank cell means unknown.
 | --- | --- | --- | --- |
 | versionAsOf | (latest) | Version of the table snapshot to read. Seen on 4.1. | ✅ |
 | timestampAsOf | (latest) | Read the snapshot current at this timestamp. Seen on 4.1. | ✅ |
-| readChangeFeed | false | Read the change data feed. Ranges with deletion vectors fall back. | ⚠️ |
+| readChangeFeed | false | Read the change data feed. On Spark 3.4, ranges with deletion vectors fall back. | ⚠️ |
 | startingVersion, endingVersion | (none) | Change data feed version range. `startingVersion` also applies to streaming reads. | ✅ |
 | startingTimestamp, endingTimestamp | (none) | Change data feed timestamp range. `startingTimestamp` also applies to streaming reads. Seen on 4.1. | ✅ |
 | maxFilesPerTrigger | 1000 | Streaming: files per micro-batch. | 🚫 |
@@ -600,7 +600,7 @@ A blank cell means unknown.
 | Property | Default | Description | Gluten Support |
 | --- | --- | --- | --- |
 | delta.enableDeletionVectors | false | Velox applies deletion vectors in the scan on Spark 3.5 to 4.2. On Spark 3.4, a read falls back when a file it selects has a deletion vector. For other Spark 3.4 scans, see [Deletion vectors](#deletion-vectors). | ✅ Spark 3.5 to 4.1 |
-| delta.enableChangeDataFeed | false | Change data feed reads offload, except ranges with deletion vectors. With native write on, Velox writes the `_change_data` files of UPDATE and DELETE (from code). For MERGE, see [MERGE, UPDATE and DELETE problems](#merge-update-and-delete-problems). | ⚠️ |
+| delta.enableChangeDataFeed | false | Change data feed reads offload, except ranges with deletion vectors on Spark 3.4. With native write on, Velox writes the `_change_data` files of UPDATE and DELETE (from code). For MERGE, see [MERGE, UPDATE and DELETE problems](#merge-update-and-delete-problems). | ⚠️ |
 | delta.columnMapping.mode | none | Reads offload. On Spark 4.x, native writes fall back (from code). For id mode and for Spark 3.5 native writes, see [Known problems](#known-problems). | ⚠️ |
 | delta.enableRowTracking | false | Reads and native writes offload. Seen on 4.1. For `_metadata.base_row_id` filters and for `_metadata.row_id` when older files lack base row IDs, see [Read problems](#read-problems). | ⚠️ |
 | delta.enableTypeWidening | false | Most widenings read natively. Seen on 4.1. For DATE to TIMESTAMP_NTZ and for FLOAT or DOUBLE partition columns, see [Known problems](#known-problems). | ⚠️ |

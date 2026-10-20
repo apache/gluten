@@ -22,10 +22,14 @@ import org.apache.spark.SparkConf
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.delta.DeltaLog
+import org.apache.spark.sql.execution.{FileSourceScanExec, QueryExecution, SparkPlan}
+import org.apache.spark.sql.streaming.StreamingQuery
 import org.apache.spark.sql.types._
 import org.apache.spark.util.SparkVersionUtil
 
 import org.apache.hadoop.fs.Path
+
+import java.io.File
 
 import scala.collection.JavaConverters._
 
@@ -502,17 +506,15 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
                    |""".stripMargin)
 
       // Disabling future DV writes does not remove existing DVs. This range contains the DV-backed
-      // delete, so Gluten keeps the whole CDF read on Spark and lets Delta perform row-level
-      // reconciliation. Still-live rows must not be surfaced as `delete` change rows.
+      // delete, whose rows Delta reads by keeping only the DV-marked rows of the file. Still-live
+      // rows must not be surfaced as `delete` change rows.
       val df = runAndCompare(
         s"""
            |select id, name, _change_type
            |from table_changes('delta_cdf_dv', 0)
            |order by id, name, _change_type
            |""".stripMargin)
-      assert(
-        collect(df.queryExecution.executedPlan) { case d: DeltaScanTransformer => d }.isEmpty,
-        df.queryExecution.executedPlan)
+      checkDeletionVectorCDFScans(df.queryExecution.executedPlan)
       checkAnswer(
         df,
         Seq(
@@ -521,6 +523,140 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
           Row(2, "v2", "insert"),
           Row(3, "v3", "insert")))
     }
+  }
+
+  testWithMinSparkVersion("delta: change data feed read over deletion vector changes", "3.5") {
+    val table = "delta_cdf_dv_changes"
+    withTable(table) {
+      createDeletionVectorCDFTable(table)
+      // Version 2, no DV -> {3}: the remove side keeps only the DV-marked row.
+      spark.sql(s"delete from $table where id = 3")
+      // Version 3, {3} -> {3, 4}: Delta reads the DV differences, {4} on the remove side and an
+      // empty DV on the add side. Keeping only the marked rows of an empty DV must return nothing.
+      spark.sql(s"delete from $table where id = 4")
+      // Version 4, {3, 4} -> {3}: the re-added row is read on the add side.
+      spark.sql(s"restore table $table to version as of 2")
+      // Version 5: a metadata-only DELETE removes the file with DV {3}. Its delete rows are the
+      // rows the DV does not mark.
+      spark.sql(s"delete from $table")
+
+      def changes(startVersion: Long, endVersion: Long, checkScans: Boolean = true): DataFrame = {
+        val df = runAndCompare(
+          s"""
+             |select id, name, _change_type, _commit_version
+             |from table_changes('$table', $startVersion, $endVersion)
+             |order by _commit_version, _change_type, id
+             |""".stripMargin)
+        if (checkScans) {
+          checkDeletionVectorCDFScans(df.queryExecution.executedPlan)
+        }
+        df
+      }
+
+      val version2 = Seq(Row(3, "v3", "delete", 2L))
+      val version3 = Seq(Row(4, "v4", "delete", 3L))
+      val version4 = Seq(Row(4, "v4", "insert", 4L))
+      val version5 = Seq(0, 1, 2, 4, 5, 6, 7, 8, 9).map(id => Row(id, s"v$id", "delete", 5L))
+      val allVersions = version2 ++ version3 ++ version4 ++ version5
+      checkAnswer(changes(2, 2), version2)
+      checkAnswer(changes(3, 3), version3)
+      checkAnswer(changes(4, 4), version4)
+      checkAnswer(changes(5, 5), version5)
+      checkAnswer(changes(2, 5), allVersions)
+
+      // Three-row batches put the DV-marked rows 3 and 4 in the second batch of each file.
+      withSQLConf("spark.gluten.sql.columnar.maxBatchSize" -> "3") {
+        checkAnswer(changes(2, 5), allVersions)
+      }
+      // Without metadata row indexes the DV scans read Delta's generated DV columns and stay on
+      // Spark; the answer must not change.
+      withSQLConf("spark.databricks.delta.deletionVectors.useMetadataRowIndex" -> "false") {
+        checkAnswer(changes(2, 5, checkScans = false), allVersions)
+      }
+    }
+  }
+
+  testWithMinSparkVersion("delta: streaming change data feed read with deletion vectors", "3.5") {
+    val table = "delta_cdf_dv_stream"
+    val vanillaSink = s"${table}_vanilla"
+    val glutenSink = s"${table}_gluten"
+    withTable(table) {
+      withTempView(vanillaSink, glutenSink) {
+        createDeletionVectorCDFTable(table)
+        spark.sql(s"delete from $table where id = 3")
+        spark.sql(s"delete from $table where id = 4")
+
+        def readChanges(checkpointDir: File, sink: String): SparkPlan = {
+          val query = spark.readStream
+            .format("delta")
+            .option("readChangeFeed", "true")
+            .option("startingVersion", "2")
+            .table(table)
+            .selectExpr("id", "name", "_change_type", "_commit_version")
+            .writeStream
+            .format("memory")
+            .queryName(sink)
+            .option("checkpointLocation", checkpointDir.getCanonicalPath)
+            .start()
+          try {
+            query.processAllAvailable()
+            lastMicroBatchPlan(query)
+          } finally {
+            query.stop()
+          }
+        }
+
+        withTempDir {
+          dir =>
+            withSQLConf(vanillaSparkConfs(): _*) {
+              readChanges(new File(dir, "vanilla"), vanillaSink)
+            }
+            checkDeletionVectorCDFScans(readChanges(new File(dir, "gluten"), glutenSink))
+            val expected = Seq(Row(3, "v3", "delete", 2L), Row(4, "v4", "delete", 3L))
+            checkAnswer(spark.table(vanillaSink), expected)
+            checkAnswer(spark.table(glutenSink), expected)
+        }
+      }
+    }
+  }
+
+  // Creates a CDF and DV enabled table whose ten rows are in one data file.
+  private def createDeletionVectorCDFTable(table: String): Unit = {
+    spark.sql(s"""
+                 |create table $table (id int, name string) using delta
+                 |tblproperties (
+                 |  "delta.enableChangeDataFeed" = "true",
+                 |  "delta.enableDeletionVectors" = "true")
+                 |""".stripMargin)
+    spark
+      .range(0, 10, 1, 1)
+      .selectExpr("cast(id as int) as id", "concat('v', id) as name")
+      .write
+      .format("delta")
+      .mode("append")
+      .saveAsTable(table)
+  }
+
+  // On Spark 3.5+ every Delta file scan of a CDF read over deletion vectors runs natively. Spark
+  // 3.4 keeps a CDF read whose range contains a DV on Delta's own CDF relation.
+  private def checkDeletionVectorCDFScans(plan: SparkPlan): Unit = {
+    if (SparkVersionUtil.gteSpark35) {
+      assert(collect(plan) { case scan: FileSourceScanExec => scan }.isEmpty, plan)
+      assert(collect(plan) { case scan: DeltaScanTransformer => scan }.nonEmpty, plan)
+    } else {
+      assert(collect(plan) { case scan: DeltaScanTransformer => scan }.isEmpty, plan)
+    }
+  }
+
+  // StreamingQueryWrapper moved to another package in Spark 4.1, so the last micro-batch plan is
+  // read reflectively rather than through a version-specific import.
+  private def lastMicroBatchPlan(query: StreamingQuery): SparkPlan = {
+    val streamExecution = query.getClass.getMethod("streamingQuery").invoke(query)
+    streamExecution.getClass
+      .getMethod("lastExecution")
+      .invoke(streamExecution)
+      .asInstanceOf[QueryExecution]
+      .executedPlan
   }
 
   private def compareCDFDataFrame(dataframe: () => DataFrame): DataFrame = {
