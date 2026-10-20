@@ -151,6 +151,9 @@ class SubstraitToVeloxPlanValidator {
   /// Validate the round scalar function.
   bool validateRound(const ::substrait::Expression::ScalarFunction& scalarFunction, const RowTypePtr& inputType);
 
+  /// Validate that the BRound implementation is registered for the argument types.
+  bool validateBRound(const std::vector<core::TypedExprPtr>& params);
+
   /// Validate extract function.
   bool validateExtractExpr(const std::vector<core::TypedExprPtr>& params);
 
