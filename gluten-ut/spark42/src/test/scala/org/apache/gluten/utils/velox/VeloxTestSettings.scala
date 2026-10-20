@@ -148,7 +148,6 @@ class VeloxTestSettings extends BackendTestSettings {
     // Excluded in favour of the GlutenCastWithAnsiOffSuite rewrite, which drops the Long.MinValue
     // assertion: collect() -> toJavaTimestamp -> rebaseGregorianToJulianMicros overflows.
     .exclude("cast from timestamp II")
-    .exclude("SPARK-39749: cast Decimal to string")
   enableSuite[GlutenTryCastSuite]
     .exclude(
       "Process Infinity, -Infinity, NaN in case insensitive manner" // +inf not supported in folly.
@@ -873,9 +872,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .excludeByPrefix("bucket coalescing is applied when join expressions match")
   enableSuite[GlutenBucketedWriteWithoutHiveSupportSuite]
   enableSuite[GlutenCreateTableAsSelectSuite]
-    // TODO Gluten can not catch the spark exception in Driver side.
-    .exclude("CREATE TABLE USING AS SELECT based on the file without write permission")
-    .exclude("create a table, drop it and create another one with the same name")
   enableSuite[GlutenDDLSourceLoadSuite]
   disableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuite](
     "GLUTEN-4893: Vanilla UT checks scan operator by exactly matching the class type")
@@ -981,7 +977,6 @@ class VeloxTestSettings extends BackendTestSettings {
     // TODO: Velox parquet writer marks all struct fields as OPTIONAL (nullable),
     //  but Spark's variant type requires REQUIRED fields. Needs Velox-side fix.
     .exclude("SPARK-47546: invalid variant binary")
-    .exclude("SPARK-47546: valid variant binary")
   enableSuite[GlutenVariantWriteShreddingSuite]
   enableSuite[GlutenXmlFunctionsSuite]
   enableSuite[GlutenApproxCountDistinctForIntervalsQuerySuite]
