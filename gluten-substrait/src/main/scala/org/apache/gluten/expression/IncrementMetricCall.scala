@@ -26,6 +26,11 @@ import org.apache.spark.sql.types.DataType
  * unique to one SQL metric within its projection: the backend keys its per-expression statistics by
  * function name, and the metrics updater credits the metric from that entry. Never evaluated on
  * Spark; it only exists in the expression list handed to the backend.
+ *
+ * Gluten maps it by class (`ExpressionNames.INCREMENT_METRIC`, which is also the name to put in the
+ * expression blacklist), and `getTransformer` sends `functionName` to the backend. Its `prettyName`
+ * is the slot name, never `increment_metric`, which is how Gluten recognizes Delta's own
+ * `IncrementMetric` without depending on Delta.
  */
 case class IncrementMetricCall(child: Expression, functionName: String)
   extends UnaryExpression
