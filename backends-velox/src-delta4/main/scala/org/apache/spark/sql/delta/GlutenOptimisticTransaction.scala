@@ -165,13 +165,15 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
         val jobHadoopConf =
           spark.sessionState.newHadoopConfWithOptions(metadata.configuration ++ deltaLog.options)
         // scalastyle:on deltahadoopconfiguration
-        val nativeUnsupportedReason = GlutenDeltaNativeWriteGate.unsupportedWrite(
-          spark.sessionState.conf,
-          jobHadoopConf,
-          options,
-          DataTypeUtils.fromAttributes(output),
-          partitioningColumns,
-          metadata)
+        val nativeUnsupportedReason = GlutenDeltaNativeWriteGate
+          .unsupportedPath(outputPath)
+          .orElse(GlutenDeltaNativeWriteGate.unsupportedWrite(
+            spark.sessionState.conf,
+            jobHadoopConf,
+            options,
+            DataTypeUtils.fromAttributes(output),
+            partitioningColumns,
+            metadata))
         if (nativeUnsupportedReason.isEmpty) {
           GlutenDeltaFileFormatWriter.write(
             sparkSession = spark,

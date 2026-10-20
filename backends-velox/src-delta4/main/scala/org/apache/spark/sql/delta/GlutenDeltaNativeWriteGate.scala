@@ -26,6 +26,7 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
 import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.Path
 import org.apache.parquet.column.ParquetProperties.WriterVersion
 import org.apache.parquet.crypto.EncryptionPropertiesFactory
 import org.apache.parquet.hadoop.ParquetOutputFormat
@@ -61,6 +62,18 @@ object GlutenDeltaNativeWriteGate {
         // The Velox writer annotates TIMESTAMP_NTZ as isAdjustedToUTC=true; Delta requires false.
         "TIMESTAMP_NTZ columns are not supported by the Velox writer"
       })
+  }
+
+  /**
+   * Checked with the table's data path. The Velox writer opens files only for the schemes that
+   * VeloxRuntime::createDataSource maps to a sink, and throws for any other filesystem, such as
+   * viewfs, wasbs or a custom Hadoop FileSystem.
+   */
+  def unsupportedPath(path: Path): Option[String] = {
+    val scheme = Option(path.toUri.getScheme).map(lower)
+    Option.when(!scheme.exists(writableSchemes.contains)) {
+      s"Paths with scheme ${scheme.getOrElse("<none>")} are not written by the Velox writer"
+    }
   }
 
   /**
@@ -115,6 +128,9 @@ object GlutenDeltaNativeWriteGate {
   }
 
   private val writePartitionColumns = DeltaOptions.WRITE_PARTITION_COLUMNS
+  // The schemes VeloxRuntime::createDataSource writes to: local, HDFS, S3, GCS and ABFS.
+  private val writableSchemes =
+    Set("file", "hdfs", "s3", "s3a", "oss", "cos", "cosn", "gs", "abfs", "abfss")
   // SQLConf.VARIANT_INFER_SHREDDING_SCHEMA, which Spark 4.0 does not have.
   private val variantInferShreddingSchema = "spark.sql.variant.inferShreddingSchema"
   // The codecs the Velox writer maps (VeloxWriterUtils); it would write others as SNAPPY.

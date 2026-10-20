@@ -523,11 +523,6 @@ org.apache.spark.sql.delta.rowid.RowIdSuite#missing base row ids and default row
 org.apache.spark.sql.delta.rowid.RowIdSuite#row ids can be read back
 org.apache.spark.sql.delta.rowtracking.RowTrackingReadWriteSuite#write and read table with all-null materialized columns
 org.apache.spark.sql.delta.stats.StatsCollectionSuite#recompute stats multiple columns and files
-org.apache.spark.sql.delta.storage.dv.DeletionVectorWriteDurabilitySuite#a DELETE whose deletion vector was never written does not corrupt the table
-org.apache.spark.sql.delta.storage.dv.DeletionVectorWriteDurabilitySuite#a MERGE whose deletion vector was never written does not corrupt the table
-org.apache.spark.sql.delta.storage.dv.DeletionVectorWriteDurabilitySuite#an UPDATE whose deletion vector was never written does not corrupt the table
-org.apache.spark.sql.delta.storage.dv.DeletionVectorWriteDurabilitySuite#control: an ordinary write whose close fails does not commit
-org.apache.spark.sql.delta.storage.dv.DeletionVectorWriteDurabilitySuite#the kill-switch flag off does not apply the propagate-close fix
 org.apache.spark.sql.delta.test.DeltaV2CDCStreamDeletionVectorSuite#cdc streams with noop merge
 org.apache.spark.sql.delta.test.DeltaV2CDCStreamSuite#cdc streams with noop merge
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening DATE -> TIMESTAMP_NTZ, partitioned=false
