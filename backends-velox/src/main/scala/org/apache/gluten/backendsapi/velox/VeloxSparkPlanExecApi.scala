@@ -314,6 +314,18 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     GenericExpressionTransformer(substraitExprName, children, expr)
   }
 
+  /** Picks checked_get_timestamp from the expression's own failOnError, not session ANSI. */
+  override def genGetTimestampTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      expr: Expression): ExpressionTransformer = {
+    val name = expr match {
+      case g: GetTimestamp if g.failOnError => ExpressionNames.CHECKED_GET_TIMESTAMP
+      case _ => substraitExprName
+    }
+    GenericExpressionTransformer(name, children, expr)
+  }
+
   override def genDateDiffTransformer(
       substraitExprName: String,
       endDate: ExpressionTransformer,

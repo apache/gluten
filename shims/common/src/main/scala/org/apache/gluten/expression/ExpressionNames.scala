@@ -226,6 +226,7 @@ object ExpressionNames {
   final val TRUNC = "trunc"
   final val DATE_TRUNC = "date_trunc"
   final val GET_TIMESTAMP = "get_timestamp" // for function: to_date/to_timestamp
+  final val CHECKED_GET_TIMESTAMP = "checked_get_timestamp"
   final val TIMESTAMP_ADD = "timestampadd"
   final val TIMESTAMP_DIFF = "timestampdiff"
   final val NEXT_DAY = "next_day"

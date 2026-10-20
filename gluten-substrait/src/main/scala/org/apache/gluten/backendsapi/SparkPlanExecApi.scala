@@ -384,6 +384,14 @@ trait SparkPlanExecApi {
     throw new GlutenNotSupportException("make_timestamp is not supported")
   }
 
+  /** Transform get_timestamp to Substrait. */
+  def genGetTimestampTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      expr: Expression): ExpressionTransformer = {
+    GenericExpressionTransformer(substraitExprName, children, expr)
+  }
+
   def genRegexpReplaceTransformer(
       substraitExprName: String,
       children: Seq[ExpressionTransformer],
