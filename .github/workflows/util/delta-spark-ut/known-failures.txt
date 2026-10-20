@@ -117,11 +117,6 @@ org.apache.spark.sql.delta.DeltaSuite#SC-8810: skipping deleted file still throw
 org.apache.spark.sql.delta.DeltaSuite#all operations with special characters in path
 org.apache.spark.sql.delta.DeltaSuite#deleted files cause failure by default
 org.apache.spark.sql.delta.DeltaTableCreationSuite#Default column values: CONVERT TO DELTA keeps EXISTS_DEFAULT
-org.apache.spark.sql.delta.DeltaUpdateCatalogSuite#convert to delta with partitioning change
-# Native DOUBLE partition write fallback: https://github.com/apache/gluten/issues/13138
-org.apache.spark.sql.delta.DeltaUpdateCatalogSuite#creating and replacing a table puts the schema and table properties in the metastore
-org.apache.spark.sql.delta.DeltaUpdateCatalogSuite#partitioned convert to delta with schema change
-org.apache.spark.sql.delta.DeltaUpdateCatalogSuite#partitioned table + add column
 org.apache.spark.sql.delta.DeltaVacuumSuite#vacuum for cdc - delete tombstones
 org.apache.spark.sql.delta.DeltaVacuumSuite#vacuum for cdc - update/merge
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch100Suite#SC-8810: skip deleted file
