@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.substrait.rel;
 
+import org.apache.gluten.substrait.expression.ExpressionBuilder;
 import org.apache.gluten.substrait.extensions.AdvancedExtensionNode;
 
 import io.substrait.proto.FetchRel;
@@ -57,8 +58,8 @@ public class FetchRelNode implements RelNode, Serializable {
     if (input != null) {
       fetchRelBuilder.setInput(input.toProtobuf());
     }
-    fetchRelBuilder.setOffset(offset);
-    fetchRelBuilder.setCount(count);
+    fetchRelBuilder.setOffsetExpr(ExpressionBuilder.makeLongLiteral(offset).toProtobuf());
+    fetchRelBuilder.setCountExpr(ExpressionBuilder.makeLongLiteral(count).toProtobuf());
 
     if (extensionNode != null) {
       fetchRelBuilder.setAdvancedExtension(extensionNode.toProtobuf());

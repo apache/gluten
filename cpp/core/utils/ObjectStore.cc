@@ -46,12 +46,13 @@ std::pair<gluten::ObjectStore*, gluten::ResourceHandle> gluten::ObjectStore::loo
 
 gluten::ObjectStore::~ObjectStore() {
   for (;;) {
-    if (aliveObjects_.empty()) {
-      break;
-    }
     std::shared_ptr<void> tempObj;
     {
       const std::lock_guard<std::mutex> lock(mtx_);
+      // The empty-check and the pop of the last alive object must be atomic under `mtx_`.
+      if (aliveObjects_.empty()) {
+        break;
+      }
       // destructing in reversed order (the last added object destructed first)
       auto itr = aliveObjects_.rbegin();
       const ResourceHandle handle = (*itr).first;

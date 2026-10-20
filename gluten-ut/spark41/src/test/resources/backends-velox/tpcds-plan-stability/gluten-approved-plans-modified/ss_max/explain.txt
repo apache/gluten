@@ -2,7 +2,7 @@
 VeloxColumnarToRow (14)
 +- ^ ProjectExecTransformer (12)
    +- ^ RegularHashAggregateExecTransformer (11)
-      +- ^ RegularHashAggregateExecTransformer (10)
+      +- ^ FlushableHashAggregateExecTransformer (10)
          +- ^ RegularHashAggregateExecTransformer (9)
             +- ^ InputIteratorTransformer (8)
                +- ColumnarExchange (6)
@@ -53,7 +53,7 @@ Functions [11]: [merge_count(1), merge_count(ss_sold_date_sk#9), merge_max(ss_so
 Aggregate Attributes [11]: [count(1)#10, count(ss_sold_date_sk#9)#11, max(ss_sold_date_sk#9)#12, max(ss_sold_time_sk#1)#13, max(ss_item_sk#2)#14, max(ss_customer_sk#3)#15, max(ss_cdemo_sk#4)#16, max(ss_hdemo_sk#5)#17, max(ss_addr_sk#6)#18, max(ss_store_sk#7)#19, max(ss_promo_sk#8)#20]
 Results [12]: [ss_sold_date_sk#9, count#21, count#22, max#23, max#24, max#25, max#26, max#27, max#28, max#29, max#30, max#31]
 
-(10) RegularHashAggregateExecTransformer
+(10) FlushableHashAggregateExecTransformer
 Input [12]: [ss_sold_date_sk#9, count#21, count#22, max#23, max#24, max#25, max#26, max#27, max#28, max#29, max#30, max#31]
 Keys: []
 Functions [12]: [merge_count(1), merge_count(ss_sold_date_sk#9), merge_max(ss_sold_date_sk#9), merge_max(ss_sold_time_sk#1), merge_max(ss_item_sk#2), merge_max(ss_customer_sk#3), merge_max(ss_cdemo_sk#4), merge_max(ss_hdemo_sk#5), merge_max(ss_addr_sk#6), merge_max(ss_store_sk#7), merge_max(ss_promo_sk#8), partial_count(distinct ss_sold_date_sk#9)]

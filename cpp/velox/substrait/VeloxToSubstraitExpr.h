@@ -45,13 +45,14 @@ class VeloxToSubstraitExprConvertor {
   /// Literal Expression.
   /// @param arena Arena to use for allocating Substrait plan objects.
   /// @param constExpr Velox Constant expression needed to be converted.
-  /// @param litValue The Struct that returned literal expression belong to.
+  /// @param litValue The Nested.Struct the converted literals are appended to, each wrapped in an
+  /// Expression. Substrait models struct-valued expressions as Expression.Nested.Struct.
   /// @return A pointer to Substrait Literal expression object allocated on
   /// the arena and representing the input Velox Constant expression.
   const ::substrait::Expression_Literal& toSubstraitExpr(
       google::protobuf::Arena& arena,
       const std::shared_ptr<const core::ConstantTypedExpr>& constExpr,
-      ::substrait::Expression_Literal_Struct* litValue = nullptr);
+      ::substrait::Expression_Nested_Struct* litValue = nullptr);
 
   /// Convert Velox FieldAccessTypedExpr to Substrait FieldReference Expression.
   const ::substrait::Expression_FieldReference& toSubstraitExpr(
@@ -64,11 +65,12 @@ class VeloxToSubstraitExprConvertor {
       const std::shared_ptr<const core::DereferenceTypedExpr>& derefExpr,
       const RowTypePtr& inputType);
 
-  /// Convert Velox vector to Substrait literal.
+  /// Convert Velox vector to Substrait literal. One literal per row is appended to litValue,
+  /// each wrapped in an Expression so it fits Substrait's Expression.Nested.Struct container.
   const ::substrait::Expression_Literal& toSubstraitLiteral(
       google::protobuf::Arena& arena,
       const velox::VectorPtr& vectorValue,
-      ::substrait::Expression_Literal_Struct* litValue);
+      ::substrait::Expression_Nested_Struct* litValue);
 
  private:
   /// Convert Velox Cast Expression to Substrait Cast Expression.

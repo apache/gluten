@@ -37,6 +37,21 @@ namespace local_engine
 {
 using namespace DB;
 
+/// Align the element type of an array with the corresponding lambda argument type and keep the
+/// nullability of the array itself. ClickHouse's function capture requires an appended array
+/// element column to have exactly the same type as the lambda argument, otherwise it throws
+/// "Cannot capture column ... incompatible type". The array element types declared by Spark and by
+/// the CH backend may differ, e.g. `split` returns Array(Nullable(String)) in CH while Spark
+/// infers the lambda argument type as String.
+static const DB::ActionsDAG::Node * alignArrayElementType(
+    DB::ActionsDAG & actions_dag, const DB::ActionsDAG::Node * array_node, const DB::DataTypePtr & element_type, DB::ContextPtr context)
+{
+    DataTypePtr dst_array_type = std::make_shared<DataTypeArray>(element_type);
+    if (array_node->result_type->isNullable())
+        dst_array_type = std::make_shared<DataTypeNullable>(dst_array_type);
+    return ActionsDAGUtil::convertNodeTypeIfNeeded(actions_dag, array_node, dst_array_type, context);
+}
+
 class FunctionParserArrayFilter : public FunctionParser
 {
 public:
@@ -55,9 +70,17 @@ public:
     parse(const substrait::Expression_ScalarFunction & substrait_func, DB::ActionsDAG & actions_dag) const override
     {
         auto ch_func_name = getCHFunctionName(substrait_func);
+        auto lambda_args = collectLambdaArguments(parser_context, substrait_func.arguments()[1].value().scalar_function());
         auto parsed_args = parseFunctionArguments(substrait_func, actions_dag);
         assert(parsed_args.size() == 2);
-        if (collectLambdaArguments(parser_context, substrait_func.arguments()[1].value().scalar_function()).size() == 1)
+
+        /// Convert Array(T) to Array(U) if needed, Array(T) is the type of the first argument of filter,
+        /// U is the first argument type of the lambda function. In some cases Array(T) is not equal to
+        /// Array(U), e.g. CH's split returns Array(Nullable(String)) while the lambda argument type is
+        /// String. The difference of both types will result in runtime exceptions in function capture.
+        parsed_args[0] = alignArrayElementType(actions_dag, parsed_args[0], lambda_args.front().type, getContext());
+
+        if (lambda_args.size() == 1)
             return toFunctionNode(actions_dag, ch_func_name, {parsed_args[1], parsed_args[0]});
 
         /// filter with index argument.
@@ -98,11 +121,7 @@ public:
             /// U is the argument type of lambda function. In some cases Array(T) is not equal to Array(U).
             /// e.g. in the second query of https://github.com/apache/gluten/issues/6561, T is String, and U is Nullable(String)
             /// The difference of both types will result in runtime exceptions in function capture.
-            const auto & src_array_type = parsed_args[0]->result_type;
-            DataTypePtr dst_array_type = std::make_shared<DataTypeArray>(lambda_args.front().type);
-            if (src_array_type->isNullable())
-                dst_array_type = std::make_shared<DataTypeNullable>(dst_array_type);
-            const auto * dst_array_arg = ActionsDAGUtil::convertNodeTypeIfNeeded(actions_dag, parsed_args[0], dst_array_type, getContext());
+            const auto * dst_array_arg = alignArrayElementType(actions_dag, parsed_args[0], lambda_args.front().type, getContext());
             return toFunctionNode(actions_dag, ch_func_name, {parsed_args[1], dst_array_arg});
         }
 
@@ -114,6 +133,10 @@ public:
             actions_dag,
             "range",
             {addColumnToActionsDAG(actions_dag, std::make_shared<DataTypeInt32>(), 0), range_end_node});
+
+        /// Convert the array element type to the lambda argument type as well, see the comment above.
+        parsed_args[0] = alignArrayElementType(actions_dag, parsed_args[0], lambda_args.front().type, getContext());
+
         return toFunctionNode(actions_dag, ch_func_name, {parsed_args[1], parsed_args[0], index_array_node});
     }
 };
@@ -164,17 +187,13 @@ public:
         }
 
         /// Align array element type with merge lambda argument type.
-        const auto & merge_element_type = merge_arg_types.back();
-        const auto & src_array_type = parsed_args[0]->result_type;
-        DataTypePtr dst_array_type = std::make_shared<DataTypeArray>(merge_element_type);
-        if (src_array_type->isNullable())
-            dst_array_type = std::make_shared<DataTypeNullable>(dst_array_type);
-        const auto * array_col_node = ActionsDAGUtil::convertNodeTypeIfNeeded(actions_dag, parsed_args[0], dst_array_type, getContext());
+        const auto * array_col_node = alignArrayElementType(actions_dag, parsed_args[0], merge_arg_types.back(), getContext());
 
         /// arrayFold cannot accept nullable(array)
         if (parsed_args[0]->result_type->isNullable())
         {
-            array_col_node = toFunctionNode(actions_dag, "assumeNotNull", {parsed_args[0]});
+            /// Use the converted node, otherwise the element type alignment above will be lost.
+            array_col_node = toFunctionNode(actions_dag, "assumeNotNull", {array_col_node});
         }
         const auto * func_node = parsed_args.size() == 4
             ? toFunctionNode(actions_dag, ch_func_name, {parsed_args[2], array_col_node, parsed_args[1], parsed_args[3]})
@@ -223,11 +242,7 @@ public:
         /// In case lambda argument types are T, and the array has type Array(Nullable(T)) or Nullable(Array(Nullable(T))).
         /// We need to convert the array type to Array(T) or Nullable(Array(T)) to match the lambda argument types, otherwise it will cause runtime exceptions
         /// in function capture.
-        const auto & src_array_type = parsed_args[0]->result_type;
-        DataTypePtr dst_array_type = std::make_shared<DataTypeArray>(lambda_args.front().type);
-        if (src_array_type->isNullable())
-            dst_array_type = std::make_shared<DataTypeNullable>(dst_array_type);
-        parsed_args[0] = ActionsDAGUtil::convertNodeTypeIfNeeded(actions_dag, parsed_args[0], dst_array_type, getContext());
+        parsed_args[0] = alignArrayElementType(actions_dag, parsed_args[0], lambda_args.front().type, getContext());
 
         return toFunctionNode(actions_dag, ch_func_name, {parsed_args[1], parsed_args[0]});
     }
@@ -254,7 +269,16 @@ public:
         if (lambda_args.size() != 2)
             throw DB::Exception(DB::ErrorCodes::SIZES_OF_COLUMNS_DOESNT_MATCH, "The lambda function in zip_with must have two arguments");
 
-        const auto * array_zip_unaligned = toFunctionNode(actions_dag, "arrayZipUnaligned", {parsed_args[0], parsed_args[1]});
+        /// Convert Array(T) to Array(U) if needed for both array arguments, Array(T) is the element
+        /// type of an array argument of zip_with and U is the type of the corresponding lambda
+        /// argument. The difference of both types will result in runtime exceptions in function capture.
+        auto lambda_arg_it = lambda_args.begin();
+        DB::ActionsDAG::NodeRawConstPtrs arrays;
+        arrays.reserve(2);
+        for (size_t i = 0; i < 2; ++i, ++lambda_arg_it)
+            arrays.emplace_back(alignArrayElementType(actions_dag, parsed_args[i], lambda_arg_it->type, getContext()));
+
+        const auto * array_zip_unaligned = toFunctionNode(actions_dag, "arrayZipUnaligned", arrays);
         const auto * array_map = toFunctionNode(actions_dag, "arrayMap", {parsed_args[2], array_zip_unaligned});
         return convertNodeTypeIfNeeded(substrait_func, array_map, actions_dag);
     }

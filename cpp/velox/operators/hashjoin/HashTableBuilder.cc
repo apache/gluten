@@ -24,47 +24,6 @@
 #include "velox/exec/OperatorUtils.h"
 
 namespace gluten {
-namespace {
-facebook::velox::RowTypePtr hashJoinTableType(
-    const std::vector<facebook::velox::core::FieldAccessTypedExprPtr>& joinKeys,
-    const facebook::velox::RowTypePtr& inputType,
-    bool includeDependents) {
-  const auto numKeys = joinKeys.size();
-
-  std::vector<std::string> names;
-  names.reserve(includeDependents ? inputType->size() : numKeys);
-  std::vector<facebook::velox::TypePtr> types;
-  types.reserve(includeDependents ? inputType->size() : numKeys);
-  std::unordered_set<uint32_t> keyChannelSet;
-  keyChannelSet.reserve(inputType->size());
-
-  for (int i = 0; i < numKeys; ++i) {
-    auto& key = joinKeys[i];
-    auto channel = facebook::velox::exec::exprToChannel(key.get(), inputType);
-    keyChannelSet.insert(channel);
-    names.emplace_back(inputType->nameOf(channel));
-    types.emplace_back(inputType->childAt(channel));
-  }
-
-  if (!includeDependents) {
-    return ROW(std::move(names), std::move(types));
-  }
-
-  for (auto i = 0; i < inputType->size(); ++i) {
-    if (keyChannelSet.find(i) == keyChannelSet.end()) {
-      names.emplace_back(inputType->nameOf(i));
-      types.emplace_back(inputType->childAt(i));
-    }
-  }
-
-  return ROW(std::move(names), std::move(types));
-}
-
-bool isLeftNullAwareJoinWithFilter(facebook::velox::core::JoinType joinType, bool nullAware, bool withFilter) {
-  return (isAntiJoin(joinType) || isLeftSemiProjectJoin(joinType) || isLeftSemiFilterJoin(joinType)) && nullAware &&
-      withFilter;
-}
-} // namespace
 
 HashTableBuilder::HashTableBuilder(
     facebook::velox::core::JoinType joinType,
@@ -124,7 +83,7 @@ HashTableBuilder::HashTableBuilder(
     }
   }
 
-  tableType_ = hashJoinTableType(joinKeys, inputType, !dropDuplicates_);
+  tableType_ = facebook::velox::exec::hashJoinTableType(joinKeys, inputType, dropDuplicates_);
   setupTable();
 
   if (isAntiJoin(joinType_) && withFilter_ && filterPropagatesNulls_) {
@@ -219,7 +178,7 @@ void HashTableBuilder::setupTable() {
     // Right semi join needs to tag build rows that were probed.
     const bool needProbedFlag = isRightSemiFilterJoin(joinType_);
     const bool hasCountFlag = facebook::velox::core::isCountingJoin(joinType_);
-    if (isLeftNullAwareJoinWithFilter(joinType_, nullAware_, withFilter_)) {
+    if (facebook::velox::exec::isLeftNullAwareJoinWithFilter(joinType_, nullAware_, withFilter_)) {
       // We need to check null key rows in build side in case of null-aware anti
       // or left semi project join with filter set.
       uniqueTable_ = facebook::velox::exec::HashTable<false>::createForJoin(
@@ -266,7 +225,7 @@ void HashTableBuilder::addInput(facebook::velox::RowVectorPtr input) {
   }
 
   if (!isRightJoin(joinType_) && !isFullJoin(joinType_) && !isRightSemiProjectJoin(joinType_) &&
-      !isLeftNullAwareJoinWithFilter(joinType_, nullAware_, withFilter_)) {
+      !facebook::velox::exec::isLeftNullAwareJoinWithFilter(joinType_, nullAware_, withFilter_)) {
     deselectRowsWithNulls(hashers, activeRows_);
     if (nullAware_ && !joinHasNullKeys_ && activeRows_.countSelected() < input->size()) {
       joinHasNullKeys_ = true;

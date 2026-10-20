@@ -42,7 +42,7 @@ RUN set -ex; \
         dependency:go-offline -DskipTests || true; \
 
   # Spark 4.0
-    $MVN_CMD -Pjava-17,scala-2.13,spark-4,backends-velox,hadoop-3.3,spark-ut \
+    $MVN_CMD -Pjava-17,scala-2.13,spark-4.0,backends-velox,hadoop-3.3,spark-ut \
         -Piceberg,iceberg-test,delta,paimon \
         dependency:go-offline -DskipTests || true; \
 
@@ -54,11 +54,6 @@ RUN set -ex; \
     # Spark 3.4
     $MVN_CMD -Pjava-17,spark-3.4,backends-velox,hadoop-3.3,spark-ut \
         -Piceberg,iceberg-test,delta,paimon \
-        dependency:go-offline -DskipTests || true; \
-
-    # Spark 3.3
-    $MVN_CMD -Pjava-17,spark-3.3,backends-velox,hadoop-3.3,spark-ut \
-        -Piceberg,delta,paimon \
         dependency:go-offline -DskipTests || true
 
 WORKDIR /work

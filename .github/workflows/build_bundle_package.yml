@@ -27,7 +27,7 @@ on:
   workflow_dispatch:
     inputs:
       spark:
-        description: 'Spark version: spark-3.3, spark-3.4, spark-3.5 or spark-4.0'
+        description: 'Spark version: spark-3.4, spark-3.5, spark-4.0 or spark-4.1'
         required: true
         default: 'spark-3.5'
       hadoop:
@@ -42,57 +42,56 @@ on:
 jobs:
   build-native-lib:
     runs-on: ubuntu-22.04
+    container: apache/gluten:vcpkg-almalinux-8-gcc13
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.ref }}
       - name: Get Ccache
         uses: actions/cache/restore@v3
         with:
           path: '${{ env.CCACHE_DIR }}'
-          key: ccache-centos7-release-default-${{github.sha}}
+          key: ccache-almalinux8-release-default-${{github.sha}}
           restore-keys: |
-            ccache-centos7-release-default
+            ccache-almalinux8-release-default
       - name: Build Gluten velox third party
         run: |
-          docker run -v $GITHUB_WORKSPACE:/work -w /work apache/gluten:vcpkg-centos-7-gcc13 bash -c "
-            df -a
-            cd /work
-            export CCACHE_DIR=/work/.ccache
-            bash dev/ci-velox-buildstatic-centos-7.sh
-            ccache -s
-            mkdir -p /work/.m2/repository/org/apache/arrow/
-            cp -r /root/.m2/repository/org/apache/arrow/* /work/.m2/repository/org/apache/arrow/
-          "
+          yum install bison -y
+          df -a
+          export CCACHE_DIR=${{ env.CCACHE_DIR }}
+          bash dev/ci-velox-buildstatic-centos-8.sh
+          ccache -s
+          mkdir -p ${{ github.workspace }}/.m2/repository/org/apache/arrow/
+          cp -r /root/.m2/repository/org/apache/arrow/* ${{ github.workspace }}/.m2/repository/org/apache/arrow/
       - name: Upload native libs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           path: ./cpp/build/releases/
           name: velox-native-lib-${{github.sha}}
           retention-days: 1
       - name: Upload Artifact Arrow Jar
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           path: ${{ github.workspace }}/.m2/repository/org/apache/arrow/
-          name: velox-arrow-jar-centos-7-${{github.sha}}
+          name: velox-arrow-jar-centos-8-${{github.sha}}
 
   build-bundle-package-centos8:
     needs: build-native-lib
     runs-on: ubuntu-22.04
     container: centos:8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.ref }}
       - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: velox-native-lib-${{github.sha}}
           path: ./cpp/build/releases
       - name: Download All Arrow Jar Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
-          name: velox-arrow-jar-centos-7-${{github.sha}}
+          name: velox-arrow-jar-centos-8-${{github.sha}}
           path: /root/.m2/repository/org/apache/arrow/
       - name: Setup java
         run: |
@@ -104,7 +103,7 @@ jobs:
           cd $GITHUB_WORKSPACE/ && \
           ./build/mvn clean install -P${{ github.event.inputs.spark }} -Dhadoop.version=${{ github.event.inputs.hadoop }} -Pbackends-velox -Pceleborn -Puniffle -DskipTests -Dmaven.source.skip
       - name: Upload bundle package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gluten-velox-bundle-package
           path: package/target/gluten-velox-bundle-*.jar

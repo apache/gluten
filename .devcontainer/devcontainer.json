@@ -1,5 +1,78 @@
+// Default Dev Container for daily Gluten Velox development.
+// See docs/developers/dev-container.md for the rationale behind these settings
+// and for the build commands to run once the container is up.
 {
-    "name": "Gluten Velox Backend (vcpkg-centos-9, static link)",
-    "image": "apache/gluten:vcpkg-centos-9",
-    "postCreateCommand": "./dev/ci-velox-buildstatic-centos-9.sh"
+    "name": "Gluten Velox Backend (centos-9, dynamic link)",
+
+    // Ships Velox's dependencies and Arrow under /usr/local, a pre-warmed Maven
+    // repository, and the Spark distributions gluten-ut needs under /opt/shims.
+    "image": "apache/gluten:centos-9-jdk8",
+
+    // Codespaces only. Storage is the binding constraint: a 32 GB disk cannot
+    // hold the image plus the Velox build tree.
+    "hostRequirements": {
+        "cpus": 4,
+        "memory": "16gb",
+        "storage": "64gb"
+    },
+
+    "containerEnv": {
+        "CCACHE_DIR": "/root/.ccache",
+        "CCACHE_MAXSIZE": "10G",
+        "GLUTEN_DEV_CONTAINER_VARIANT": "velox-dynamic",
+        // folly, gflags and glog are shared libraries in this image; a Velox
+        // dependency build that disagrees fails to link.
+        "VELOX_BUILD_SHARED": "ON"
+    },
+
+    // What /opt/rh/gcc-toolset-12/enable exports. The image's default GCC 11
+    // cannot compile Velox's C++20 sources, and the build scripts do not enable
+    // the toolset themselves. Keep in sync with that script.
+    "remoteEnv": {
+        "PATH": "/opt/rh/gcc-toolset-12/root/usr/bin:${containerEnv:PATH}",
+        "LD_LIBRARY_PATH": "/opt/rh/gcc-toolset-12/root/usr/lib64:/opt/rh/gcc-toolset-12/root/usr/lib",
+        "PKG_CONFIG_PATH": "/opt/rh/gcc-toolset-12/root/usr/lib64/pkgconfig"
+    },
+
+    // Survive "Rebuild Container". Docker seeds a new named volume from the
+    // image, so the Maven repository it ships is kept, not hidden.
+    "mounts": [
+        "source=gluten-ccache,target=/root/.ccache,type=volume",
+        "source=gluten-m2,target=/root/.m2,type=volume"
+    ],
+
+    // Prepares the environment only; see post-create.sh for why it never builds.
+    "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "scalameta.metals",
+                "ms-vscode.cpptools",
+                "ms-python.python"
+            ],
+            "settings": {
+                // A build leaves >10 GB in the workspace; watching it exhausts
+                // inotify handles.
+                "files.watcherExclude": {
+                    "**/target/**": true,
+                    "**/cpp/build/**": true,
+                    "**/ep/_ep/**": true,
+                    "**/ep/build-velox/build/**": true,
+                    "**/dev/vcpkg/.vcpkg/**": true,
+                    "**/dev/vcpkg/vcpkg_installed/**": true
+                },
+                "search.exclude": {
+                    "**/target/**": true,
+                    "**/cpp/build/**": true,
+                    "**/ep/_ep/**": true,
+                    "**/ep/build-velox/build/**": true,
+                    "**/dev/vcpkg/.vcpkg/**": true,
+                    "**/dev/vcpkg/vcpkg_installed/**": true
+                },
+                // Written by the native build (-DCMAKE_EXPORT_COMPILE_COMMANDS=ON).
+                "C_Cpp.default.compileCommands": "${workspaceFolder}/cpp/build/compile_commands.json"
+            }
+        }
+    }
 }

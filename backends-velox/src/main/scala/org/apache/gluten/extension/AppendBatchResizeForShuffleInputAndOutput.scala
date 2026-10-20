@@ -31,7 +31,9 @@ case class AppendBatchResizeForShuffleInputAndOutput(isAdaptiveContext: Boolean)
   extends Rule[SparkPlan] {
   override def apply(plan: SparkPlan): SparkPlan = {
     val resizeBatchesShuffleInputEnabled = VeloxConfig.get.veloxResizeBatchesShuffleInput
-    val resizeBatchesShuffleOutputEnabled = VeloxConfig.get.veloxResizeBatchesShuffleOutput
+    // TODO: Move cudf resize batches into shuffle reader.
+    val resizeBatchesShuffleOutputEnabled =
+      VeloxConfig.get.veloxResizeBatchesShuffleOutput || VeloxConfig.get.enableColumnarCudf
     if (!resizeBatchesShuffleInputEnabled && !resizeBatchesShuffleOutputEnabled) {
       return plan
     }

@@ -25,18 +25,19 @@ jobs:
   build-velox-backend-release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build
         run: |
-          docker pull apache/gluten:vcpkg-centos-7-gcc13
-          docker run -v $GITHUB_WORKSPACE:/workspace -w /work apache/gluten:vcpkg-centos-7-gcc13 bash -c "
+          docker pull apache/gluten:vcpkg-almalinux-8-gcc13
+          docker run -v $GITHUB_WORKSPACE:/workspace -w /workspace apache/gluten:vcpkg-almalinux-8-gcc13 bash -c "
             set -e
+            yum install bison -y
             cd /workspace
             bash dev/release/build-release.sh
           "
       - name: Upload packages
         if: ${{ success() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ github.job }}-packages
           path: ${{ github.workspace }}/package/target/gluten-velox-bundle-*.jar

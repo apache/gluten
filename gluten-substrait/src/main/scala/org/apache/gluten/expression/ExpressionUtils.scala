@@ -16,11 +16,19 @@
  */
 package org.apache.gluten.expression
 
-import org.apache.spark.sql.catalyst.expressions.{Expression, LeafExpression}
+import org.apache.spark.sql.catalyst.expressions.{Add, Attribute, AttributeReference, Cast, Divide, EvalMode, Expression, IntegralDivide, LeafExpression, Multiply, Subtract}
 import org.apache.spark.sql.execution.SparkPlan
-import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType}
+import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructField, StructType}
 
 object ExpressionUtils {
+
+  def structFromAttributes(attrs: Seq[Attribute]): StructType =
+    StructType(attrs.map(a => StructField(a.name, a.dataType, a.nullable, a.metadata)))
+
+  def attributesFromStruct(structType: StructType): Seq[Attribute] =
+    structType.fields.map {
+      field => AttributeReference(field.name, field.dataType, field.nullable, field.metadata)()
+    }
 
   private def getExpressionTreeDepth(expr: Expression): Integer = {
     if (expr.isInstanceOf[LeafExpression]) {
@@ -48,6 +56,29 @@ object ExpressionUtils {
       case ArrayType(elementType, _) => hasUppercaseStructFieldName(elementType)
       case MapType(keyType, valueType, _) =>
         hasUppercaseStructFieldName(keyType) || hasUppercaseStructFieldName(valueType)
+      case _ => false
+    }
+  }
+
+  def withTryEvalMode(expr: Expression): Boolean = {
+    expr match {
+      case a: Add => a.evalMode == EvalMode.TRY
+      case s: Subtract => s.evalMode == EvalMode.TRY
+      case d: Divide => d.evalMode == EvalMode.TRY
+      case m: Multiply => m.evalMode == EvalMode.TRY
+      case c: Cast => c.evalMode == EvalMode.TRY
+      case _ => false
+    }
+  }
+
+  def withAnsiEvalMode(expr: Expression): Boolean = {
+    expr match {
+      case a: Add => a.evalMode == EvalMode.ANSI
+      case s: Subtract => s.evalMode == EvalMode.ANSI
+      case d: Divide => d.evalMode == EvalMode.ANSI
+      case m: Multiply => m.evalMode == EvalMode.ANSI
+      case c: Cast => c.evalMode == EvalMode.ANSI
+      case i: IntegralDivide => i.evalMode == EvalMode.ANSI
       case _ => false
     }
   }

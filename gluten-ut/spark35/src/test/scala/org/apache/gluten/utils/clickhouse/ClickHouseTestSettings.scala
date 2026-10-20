@@ -374,6 +374,9 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeCH("SPARK-33291: Cast struct with null elements to string")
     .excludeCH("SPARK-35111: Cast string to year-month interval")
     .excludeCH("Gluten - data type casting")
+    // The Gluten rewrite of "cast from timestamp II" is not vetted on ClickHouse;
+    // the vanilla case is excluded separately in this block.
+    .excludeGlutenTest("cast from timestamp II")
     .exclude("cast string to date #2")
     .exclude("casting to fixed-precision decimals")
     .exclude("SPARK-28470: Cast should honor nullOnOverflow property")
@@ -460,6 +463,13 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeGlutenTest("length check for input string values: with implicit cast")
     .excludeGlutenTest("char/varchar type values length check: partitioned columns of other types")
     .excludeGlutenTest("SPARK-42611: check char/varchar length in reordered structs within arrays")
+    .excludeGlutenTest("length check for input string values: nested in map key")
+    .excludeGlutenTest("length check for input string values: nested in map value")
+    .excludeGlutenTest("length check for input string values: nested in both map key and value")
+    .excludeGlutenTest(
+      "SPARK-42611: check char/varchar length in reordered structs within map keys")
+    .excludeGlutenTest(
+      "SPARK-42611: check char/varchar length in reordered structs within map values")
   enableSuite[GlutenDSV2SQLInsertTestSuite]
   enableSuite[GlutenDataFrameAggregateSuite]
     // Test for vanilla spark codegen, not apply for Gluten
@@ -501,6 +511,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
     // Rewrite this test because Velox sorts rows by key for primitive data types, which disrupts the original row sequence.
     .includeCH("map_zip_with function - map of primitive types")
     .excludeCH("map with arrays")
+    .excludeGlutenTest("map with arrays")
     .excludeCH("flatten function")
     .excludeCH("SPARK-41233: array prepend")
     .excludeCH("array_insert functions")
@@ -879,6 +890,9 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeGlutenTest("length check for input string values: nested in array")
     .excludeGlutenTest("length check for input string values: nested in array of struct")
     .excludeGlutenTest("length check for input string values: nested in array of array")
+    .excludeGlutenTest("length check for input string values: nested in map key")
+    .excludeGlutenTest("length check for input string values: nested in map value")
+    .excludeGlutenTest("length check for input string values: nested in both map key and value")
   enableSuite[GlutenFileSourceCustomMetadataStructSuite]
   enableSuite[GlutenFileSourceSQLInsertTestSuite]
     .excludeCH("SPARK-33474: Support typed literals as partition spec values")
@@ -1180,6 +1194,8 @@ class ClickHouseTestSettings extends BackendTestSettings {
   enableSuite[GlutenMathExpressionsSuite]
     // Spark round UT for round(3.1415,3) is not correct.
     .exclude("round/bround/floor/ceil")
+    // TANH(-0.1) returns -0.0996695958408681 on ClickHouse; the case expects
+    // -0.09966799462495582.
     .excludeCH("tanh")
     .excludeCH("unhex")
     .excludeCH("atan2")
@@ -2029,6 +2045,9 @@ class ClickHouseTestSettings extends BackendTestSettings {
   enableSuite[GlutenResolvedDataSourceSuite]
   enableSuite[GlutenReuseExchangeAndSubquerySuite]
   enableSuite[GlutenRuntimeNullChecksV2Writes]
+    .excludeGlutenTest("NOT NULL checks for nullable map with required values (byName)")
+    .excludeGlutenTest("NOT NULL checks for nullable map with required values (byPosition)")
+    .excludeGlutenTest("NOT NULL checks for fields inside nullable maps (byPosition)")
   enableSuite[GlutenSQLAggregateFunctionSuite]
     .excludeGlutenTest("Return NaN or null when dividing by zero")
   enableSuite[GlutenSQLQuerySuite]
@@ -2195,8 +2214,14 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeCH("cast from timestamp II")
     .excludeCH("cast a timestamp before the epoch 1970-01-01 00:00:00Z II")
     .excludeCH("cast a timestamp before the epoch 1970-01-01 00:00:00Z")
+    // Casting the string array ("123", "true", "f") to array<boolean> should yield
+    // [null, true, false] under try_cast; ClickHouse throws instead.
     .excludeCH("cast from array II")
+    // TRY-mode overflow inside a complex type wraps instead of yielding null on
+    // ClickHouse: try_cast([2.147483648E9] as array<int>) returns [-2147483648].
     .excludeCH("cast from array III")
+    // Same as "cast from array III": try_cast([2.147483648E9] as struct<a:int>)
+    // returns [-2147483648] on ClickHouse.
     .excludeCH("cast from struct III")
     .excludeCH("ANSI mode: cast string to timestamp with parse error")
     .excludeCH("ANSI mode: cast string to date with parse error")

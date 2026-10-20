@@ -326,8 +326,9 @@ public:
         {
             if (!file_size.has_value())
             {
-                // only for spark3.2 file partition not contained file size
-                // so first compute file size first
+                // Fallback for callers whose Substrait LocalFilesNode was built without a
+                // `fileSizes` input (e.g. some Iceberg producers), so no per-file `fileSize`
+                // property is available. Compute the size by opening the HDFS file first.
                 auto tmp_read_buffer = std::make_unique<DB::ReadBufferFromHDFS>(
                     hdfs_uri,
                     hdfs_file_path,

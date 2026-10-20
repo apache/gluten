@@ -82,7 +82,7 @@ message SimpleExtensionDeclaration {
 message AdvancedExtension {
   // An optimization is helpful information that don't influence semantics. May
   // be ignored by a consumer.
-  google.protobuf.Any optimization = 1;
+  repeated google.protobuf.Any optimization = 1;
 
   // An enhancement alter semantics. Cannot be ignored by a consumer.
   google.protobuf.Any enhancement = 2;

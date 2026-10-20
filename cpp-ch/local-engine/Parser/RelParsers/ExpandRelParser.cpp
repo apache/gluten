@@ -20,6 +20,7 @@
 #include <Columns/ColumnAggregateFunction.h>
 #include <Core/Block.h>
 #include <Core/ColumnWithTypeAndName.h>
+#include <DataTypes/DataTypeNullable.h>
 #include <Operator/AdvancedExpandStep.h>
 #include <Operator/ExpandStep.h>
 #include <Parser/RelParsers/RelParser.h>
@@ -113,6 +114,12 @@ ExpandField ExpandRelParser::buildExpandField(const DB::Block & header, const su
             else if (project_expr.has_literal())
             {
                 auto [type, field] = parseLiteral(project_expr.literal());
+                // A NULL literal is nullable even when the type carried by the
+                // Substrait literal does not explicitly encode nullability.
+                // Keep that information in the Expand output type so the
+                // generated column contains a real null map.
+                if (field.isNull() && type && !type->isNullable())
+                    type = DB::makeNullable(type);
                 kinds.push_back(ExpandFieldKind::EXPAND_FIELD_KIND_LITERAL);
                 fields.push_back(field);
                 updateType(types[i], type);
@@ -168,7 +175,7 @@ DB::QueryPlanPtr ExpandRelParser::lazyAggregateExpandParse(
     auto aggregate_rel = rel.expand().input().aggregate();
     auto aggregate_descriptions = buildAggregations(*input_header, expand_field, aggregate_rel);
 
-    size_t grouping_keys = aggregate_rel.groupings(0).grouping_expressions_size();
+    size_t grouping_keys = aggregate_rel.groupings(0).expression_references_size();
 
     auto expand_step
         = std::make_unique<AdvancedExpandStep>(getContext(), input_header, grouping_keys, aggregate_descriptions, expand_field);

@@ -28,6 +28,7 @@ import org.apache.spark.internal.Logging
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
 
 import scala.collection.mutable
+import scala.util.control.NonFatal
 
 /**
  * The base API to inject user-defined logic to Gluten. To register a component, the implementation
@@ -47,8 +48,21 @@ trait Component {
     if (!isRegistered.compareAndSet(false, true)) {
       return
     }
-    graph.add(this)
+    try {
+      graph.add(this)
+    } catch {
+      // Nothing entered the graph, so Graph#clear will not see this component and cannot reset
+      // its flag. Roll the flag back here to keep it in sync with the graph.
+      case NonFatal(t) =>
+        isRegistered.set(false)
+        throw t
+    }
     dependencies().foreach(req => graph.declareDependency(this, req))
+  }
+
+  // Visible for testing. Paired with Graph#clear so a cleared component can register again.
+  final private[component] def resetRegisteredForTesting(): Unit = {
+    isRegistered.set(false)
   }
 
   /**
@@ -124,6 +138,12 @@ object Component extends Logging {
     graph.sorted()
   }
 
+  // Visible for testing. Internal to component.clearAllForTesting; does not touch the discovery
+  // latch.
+  private[component] def clearForTesting(): Unit = {
+    graph.clear()
+  }
+
   private class Registry {
     private val lookupByUid: mutable.Map[Int, Component] = mutable.Map()
     private val lookupByClass: mutable.Map[Class[_ <: Component], Component] = mutable.Map()
@@ -137,6 +157,12 @@ object Component extends Logging {
         s"Component class $clazz already registered: ${comp.name()}")
       lookupByUid(uid) = comp
       lookupByClass(clazz) = comp
+    }
+
+    def clear(): Unit = synchronized {
+      lookupByUid.values.foreach(_.resetRegisteredForTesting())
+      lookupByUid.clear()
+      lookupByClass.clear()
     }
 
     def isUidRegistered(uid: Int): Boolean = synchronized {
@@ -188,6 +214,12 @@ object Component extends Logging {
         uidAndDependencyPairs += comp.uid -> dependencyCompClass
         sortedComponents = None
       }
+
+    def clear(): Unit = synchronized {
+      registry.clear()
+      uidAndDependencyPairs.clear()
+      sortedComponents = None
+    }
 
     private def newLookup(): Map[Int, Node] = {
       val uidToNodeLookup: mutable.Map[Int, Node] = mutable.Map()

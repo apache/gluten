@@ -21,9 +21,54 @@ import org.apache.gluten.exception.GlutenException
 import org.apache.spark.SparkException
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.{IntegerType, MapType, StringType}
 
 class GlutenDataFrameFunctionsSuite extends DataFrameFunctionsSuite with GlutenSQLTestsTrait {
   import testImplicits._
+
+  testGluten("map with arrays") {
+    val df1 = Seq((Seq(1, 2), Seq("a", "b"))).toDF("k", "v")
+    val expectedType = MapType(IntegerType, StringType, valueContainsNull = true)
+    val row = df1.select(map_from_arrays($"k", $"v")).first()
+    assert(row.schema(0).dataType === expectedType)
+    assert(row.getMap[Int, String](0) === Map(1 -> "a", 2 -> "b"))
+    checkAnswer(df1.select(map_from_arrays($"k", $"v")), Seq(Row(Map(1 -> "a", 2 -> "b"))))
+
+    val df2 = Seq((Seq(1, 2), Seq(null, "b"))).toDF("k", "v")
+    checkAnswer(df2.select(map_from_arrays($"k", $"v")), Seq(Row(Map(1 -> null, 2 -> "b"))))
+
+    val df3 = Seq((null, null)).toDF("k", "v")
+    checkAnswer(df3.select(map_from_arrays($"k", $"v")), Seq(Row(null)))
+
+    val df4 = Seq((1, "a")).toDF("k", "v")
+    checkError(
+      exception = intercept[AnalysisException] {
+        df4.select(map_from_arrays($"k", $"v"))
+      },
+      errorClass = "DATATYPE_MISMATCH.UNEXPECTED_INPUT_TYPE",
+      parameters = Map(
+        "sqlExpr" -> "\"map_from_arrays(k, v)\"",
+        "paramIndex" -> "1",
+        "requiredType" -> "\"ARRAY\"",
+        "inputSql" -> "\"k\"",
+        "inputType" -> "\"INT\""
+      )
+    )
+
+    val df5 = Seq((Seq("a", null), Seq(1, 2))).toDF("k", "v")
+    val e1 = intercept[SparkException] {
+      df5.select(map_from_arrays($"k", $"v")).collect
+    }
+    // Gluten exception differs from Spark
+    assert(e1.getCause.isInstanceOf[GlutenException])
+    assert(e1.getCause.getMessage.contains("Cannot use null as map key"))
+
+    val df6 = Seq((Seq(1, 2), Seq("a"))).toDF("k", "v")
+    val msg2 = intercept[Exception] {
+      df6.select(map_from_arrays($"k", $"v")).collect
+    }.getMessage
+    assert(msg2.contains("The key array and value array of MapData must have the same length"))
+  }
 
   testGluten("map_zip_with function - map of primitive types") {
     val df = Seq(
@@ -109,6 +154,88 @@ class GlutenDataFrameFunctionsSuite extends DataFrameFunctionsSuite with GlutenS
 
     withSQLConf(SQLConf.LEGACY_NEGATIVE_INDEX_IN_ARRAY_INSERT.key -> "true") {
       checkAnswer(df1.selectExpr("array_insert(a, -6, c)"), Seq(Row(Seq(3, null, 3, 2, 5, 1, 2))))
+    }
+  }
+
+  testGluten("flatten function") {
+    // Test cases with a primitive type
+    val intDF = Seq(
+      (Seq(Seq(1, 2, 3), Seq(4, 5), Seq(6))),
+      (Seq(Seq(1, 2))),
+      (Seq(Seq(1), Seq.empty)),
+      (Seq(Seq.empty, Seq(1)))
+    ).toDF("i")
+
+    val intDFResult = Seq(Row(Seq(1, 2, 3, 4, 5, 6)), Row(Seq(1, 2)), Row(Seq(1)), Row(Seq(1)))
+
+    def testInt(): Unit = {
+      checkAnswer(intDF.select(flatten($"i")), intDFResult)
+      checkAnswer(intDF.selectExpr("flatten(i)"), intDFResult)
+    }
+
+    // Test with local relation, the Project will be evaluated without codegen
+    testInt()
+    // Test with cached relation, the Project will be evaluated with codegen
+    intDF.cache()
+    testInt()
+
+    // Test cases with non-primitive types
+    val strDF = Seq(
+      (Seq(Seq("a", "b"), Seq("c"), Seq("d", "e", "f"))),
+      (Seq(Seq("a", "b"))),
+      (Seq(Seq("a", null), Seq(null, "b"), Seq(null, null))),
+      (Seq(Seq("a"), Seq.empty)),
+      (Seq(Seq.empty, Seq("a")))
+    ).toDF("s")
+
+    val strDFResult = Seq(
+      Row(Seq("a", "b", "c", "d", "e", "f")),
+      Row(Seq("a", "b")),
+      Row(Seq("a", null, null, "b", null, null)),
+      Row(Seq("a")),
+      Row(Seq("a")))
+
+    def testString(): Unit = {
+      checkAnswer(strDF.select(flatten($"s")), strDFResult)
+      checkAnswer(strDF.selectExpr("flatten(s)"), strDFResult)
+    }
+
+    // Test with local relation, the Project will be evaluated without codegen
+    testString()
+    // Test with cached relation, the Project will be evaluated with codegen
+    strDF.cache()
+    testString()
+
+    val arrDF = Seq((1, "a", Seq(1, 2, 3))).toDF("i", "s", "arr")
+
+    def testArray(): Unit = {
+      checkAnswer(
+        arrDF.selectExpr("flatten(array(arr, array(null, 5), array(6, null)))"),
+        Seq(Row(Seq(1, 2, 3, null, 5, 6, null))))
+      checkAnswer(
+        arrDF.selectExpr("flatten(array(array(arr, arr), array(arr)))"),
+        Seq(Row(Seq(Seq(1, 2, 3), Seq(1, 2, 3), Seq(1, 2, 3)))))
+    }
+
+    // Test with local relation, the Project will be evaluated without codegen
+    testArray()
+    // Test with cached relation, the Project will be evaluated with codegen
+    arrDF.cache()
+    testArray()
+
+    // Error test cases
+    val oneRowDF = Seq((1, "a", Seq(1, 2, 3))).toDF("i", "s", "arr")
+    intercept[AnalysisException] {
+      oneRowDF.select(flatten($"arr"))
+    }
+    intercept[AnalysisException] {
+      oneRowDF.select(flatten($"i"))
+    }
+    intercept[AnalysisException] {
+      oneRowDF.select(flatten($"s"))
+    }
+    intercept[AnalysisException] {
+      oneRowDF.selectExpr("flatten(null)")
     }
   }
 }

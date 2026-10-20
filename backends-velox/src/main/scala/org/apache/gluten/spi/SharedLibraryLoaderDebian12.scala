@@ -39,7 +39,7 @@ class SharedLibraryLoaderDebian12 extends SharedLibraryLoader {
     loader.loadAndCreateLink("libsasl2.so.2", "libsasl2.so")
     loader.loadAndCreateLink("libbrotlicommon.so.1", "libbrotlicommon.so")
     loader.loadAndCreateLink("libicui18n.so.72", "libicui18n.so")
-    loader.loadAndCreateLink("libgflags.so.2.2", "libgflags.so")
+    loader.loadAndCreateLink("libgflags.so.2.3", "libgflags.so")
     loader.loadAndCreateLink("libunwind.so.8", "libunwind.so")
     loader.loadAndCreateLink("libnghttp2.so.14", "libnghttp2.so")
     loader.loadAndCreateLink("librtmp.so.1", "librtmp.so")

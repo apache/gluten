@@ -39,7 +39,7 @@ jobs:
         workflow_conclusion: completed
         allow_forks: true
     - name: Publish test report
-      uses: scacap/action-surefire-report@a2911bd1a4412ec18dde2d93b1758b3e56d2a880 # pin @v1.8.0
+      uses: scacap/action-surefire-report@c38a2d74b9840ae8950a4387ae02b637421d0f39 # pin @v1.13.0
       with:
         check_name: Report test results
         github_token: ${{ secrets.GITHUB_TOKEN }}

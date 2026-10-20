@@ -35,6 +35,7 @@
 #include <Storages/SubstraitSource/SubstraitFileSourceStep.h>
 #include <google/protobuf/wrappers.pb.h>
 #include <rapidjson/document.h>
+#include <kafka.pb.h>
 #include <Common/BlockTypeUtils.h>
 #include <Common/DebugUtils.h>
 
@@ -122,7 +123,8 @@ bool ReadRelParser::isReadRelFromLocalFile(const substrait::ReadRel & rel)
     if (rel.has_local_files())
         return !isReadRelFromJavaIter(rel);
     else
-        return !rel.has_extension_table() && !isReadRelFromMergeTree(rel) && !isReadRelFromRange(rel) && !isReadFromStreamKafka(rel);
+        /// Kafka reads are identified by an extension table, so !has_extension_table() already excludes them.
+        return !rel.has_extension_table() && !isReadRelFromMergeTree(rel) && !isReadRelFromRange(rel);
 }
 
 bool ReadRelParser::isReadRelFromMergeTree(const substrait::ReadRel & rel)
@@ -131,7 +133,7 @@ bool ReadRelParser::isReadRelFromMergeTree(const substrait::ReadRel & rel)
         return false;
 
     google::protobuf::StringValue optimization;
-    optimization.ParseFromString(rel.advanced_extension().optimization().value());
+    optimization.ParseFromString(firstOptimizationOrDefault(rel.advanced_extension()).value());
     ReadBufferFromString in(optimization.value());
     if (!checkString("isMergeTree=", in))
         return false;
@@ -148,7 +150,7 @@ bool ReadRelParser::isReadRelFromRange(const substrait::ReadRel & rel)
         return false;
 
     google::protobuf::StringValue optimization;
-    optimization.ParseFromString(rel.advanced_extension().optimization().value());
+    optimization.ParseFromString(firstOptimizationOrDefault(rel.advanced_extension()).value());
     ReadBufferFromString in(optimization.value());
     if (!checkString("isRange=", in))
         return false;
@@ -161,7 +163,7 @@ bool ReadRelParser::isReadRelFromRange(const substrait::ReadRel & rel)
 
 bool ReadRelParser::isReadFromStreamKafka(const substrait::ReadRel & rel)
 {
-    return rel.has_stream_kafka() && rel.stream_kafka();
+    return rel.has_extension_table() && rel.extension_table().detail().Is<gluten::StreamKafka>();
 }
 
 DB::QueryPlanStepPtr ReadRelParser::parseReadRelWithJavaIter(const substrait::ReadRel & rel)

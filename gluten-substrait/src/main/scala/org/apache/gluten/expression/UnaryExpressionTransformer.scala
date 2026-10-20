@@ -18,11 +18,10 @@ package org.apache.gluten.expression
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.exception.GlutenNotSupportException
-import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.`type`.ListNode
 import org.apache.gluten.substrait.`type`.MapNode
 import org.apache.gluten.substrait.SubstraitContext
-import org.apache.gluten.substrait.expression.{ExpressionBuilder, ExpressionNode, StructLiteralNode}
+import org.apache.gluten.substrait.expression.{CastNode, ExpressionBuilder, ExpressionNode, StructLiteralNode}
 
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.types._
@@ -45,10 +44,18 @@ case class CastTransformer(substraitExprName: String, child: ExpressionTransform
   extends UnaryExpressionTransformer {
   override def doTransform(context: SubstraitContext): ExpressionNode = {
     val typeNode = ConverterUtils.getTypeNode(dataType, original.nullable)
+    // Store-assignment casts can carry EvalMode.ANSI even when session ANSI is disabled.
+    val castMode = if (ExpressionUtils.withTryEvalMode(original)) {
+      CastNode.CastMode.TRY
+    } else if (ExpressionUtils.withAnsiEvalMode(original)) {
+      CastNode.CastMode.ANSI
+    } else {
+      CastNode.CastMode.LEGACY
+    }
     ExpressionBuilder.makeCast(
       typeNode,
       child.doTransform(context),
-      SparkShimLoader.getSparkShims.withTryEvalMode(original))
+      castMode)
   }
 }
 

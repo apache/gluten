@@ -18,11 +18,12 @@ package org.apache.spark.sql.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.execution.ValidatablePlan
-import org.apache.gluten.extension.columnar.transition.Convention
+import org.apache.gluten.extension.columnar.transition.{Convention, ConventionReq}
 import org.apache.gluten.metrics.GlutenTimeMetric
 import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.{broadcast, SparkException}
+import org.apache.spark.SparkContextUtils
 import org.apache.spark.launcher.SparkLauncher
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
@@ -86,9 +87,7 @@ case class ColumnarBroadcastExchangeExec(mode: BroadcastMode, child: SparkPlan)
         val broadcasted = GlutenTimeMetric.millis(longMetric("broadcastTime")) {
           _ =>
             // Broadcast the relation
-            SparkShimLoader.getSparkShims.broadcastInternal(
-              sparkContext,
-              relation.asInstanceOf[Any])
+            SparkContextUtils.broadcastInternal(sparkContext, relation.asInstanceOf[Any])
         }
 
         // Update driver metrics
@@ -134,6 +133,12 @@ case class ColumnarBroadcastExchangeExec(mode: BroadcastMode, child: SparkPlan)
   override def batchType(): Convention.BatchType = BackendsApiManager.getSettings.primaryBatchType
 
   override def rowType(): Convention.RowType = Convention.RowType.None
+
+  override def requiredChildConvention(): Seq[ConventionReq] = {
+    Seq(
+      ConventionReq.ofBatch(
+        ConventionReq.BatchType.Is(BackendsApiManager.getSettings.primaryBatchType)))
+  }
 
   override def doCanonicalize(): SparkPlan = {
     val canonicalized =

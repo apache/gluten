@@ -536,28 +536,32 @@
                         },
                         "groupings": [
                             {
-                                "grouping_expressions": [
-                                    {
-                                        "selection": {
-                                            "direct_reference": {
-                                                "struct_field": {
-                                                    "field": 0
-                                                }
-                                            },
-                                            "root_reference": {}
+                                "expression_references": [
+                                    0,
+                                    1
+                                ]
+                            }
+                        ],
+                        "grouping_expressions": [
+                            {
+                                "selection": {
+                                    "direct_reference": {
+                                        "struct_field": {
+                                            "field": 0
                                         }
                                     },
-                                    {
-                                        "selection": {
-                                            "direct_reference": {
-                                                "struct_field": {
-                                                    "field": 1
-                                                }
-                                            },
-                                            "root_reference": {}
+                                    "root_reference": {}
+                                }
+                            },
+                            {
+                                "selection": {
+                                    "direct_reference": {
+                                        "struct_field": {
+                                            "field": 1
                                         }
-                                    }
-                                ]
+                                    },
+                                    "root_reference": {}
+                                }
                             }
                         ],
                         "measures": [

@@ -53,7 +53,7 @@ public class CelebornUtils {
   public static final String FAILED_SHUFFLE_CLEANER_NAME =
       "org.apache.celeborn.spark.FailedShuffleCleaner";
   public static final String GET_REDUCER_FILE_GROUP_RESPONSE_NAME =
-      "org.apache.celeborn.common.protocol.message.ControlMessages.GetReducerFileGroupResponse";
+      "org.apache.celeborn.common.protocol.message.ControlMessages$GetReducerFileGroupResponse";
 
   public static boolean unregisterShuffle(
       LifecycleManager lifecycleManager,

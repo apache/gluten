@@ -5,6 +5,15 @@
             "start": "0",
             "length": "3719",
             "uri_file": "/mock_lineitem.dwrf",
+            "other_const_metadata_columns": [
+                {
+                    "key": "__gluten.column_mapping_mode",
+                    "value": {
+                        "@type": "type.googleapis.com/google.protobuf.StringValue",
+                        "value": "NAME"
+                    }
+                }
+            ],
             "dwrf": {}
         }
     ]

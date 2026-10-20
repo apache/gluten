@@ -134,15 +134,14 @@ class GlutenCastWithAnsiOffSuite extends CastWithAnsiOffSuite with GlutenExpress
 
   // Gluten's glutenCheckExpression uses collect(), which triggers
   // toJavaTimestamp -> rebaseGregorianToJulianMicros. Long.MinValue micros (~292000 BC) overflows
-  // during rebase. Velox computes correctly; only the collect path fails. Skip Long.MinValue.
+  // during rebase, so the vanilla case's Long.MinValue assertion is dropped here.
   testGluten("cast from timestamp II") {
     checkEvaluation(cast(Double.NaN, TimestampType), null)
     checkEvaluation(cast(1.0 / 0.0, TimestampType), null)
     checkEvaluation(cast(Float.NaN, TimestampType), null)
     checkEvaluation(cast(1.0f / 0.0f, TimestampType), null)
     checkEvaluation(cast(Literal(Long.MaxValue), TimestampType), Long.MaxValue)
-    // Skip Long.MinValue: Velox result is correct but collect() path overflows in
-    // rebaseGregorianToJulianMicros when converting extreme timestamp to java.sql.Timestamp.
+    // Long.MinValue is not asserted; see the comment above the test.
   }
 
   // Sync session timezone with per-expression timezone and run single-threaded.

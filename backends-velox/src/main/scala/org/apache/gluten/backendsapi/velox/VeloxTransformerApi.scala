@@ -18,10 +18,10 @@ package org.apache.gluten.backendsapi.velox
 
 import org.apache.gluten.backendsapi.{BackendsApiManager, TransformerApi}
 import org.apache.gluten.exception.GlutenException
-import org.apache.gluten.execution.WriteFilesExecTransformer
+import org.apache.gluten.execution.{SubfieldElement, SubfieldPath, WriteFilesExecTransformer}
 import org.apache.gluten.execution.datasource.GlutenFormatFactory
 import org.apache.gluten.expression.ConverterUtils
-import org.apache.gluten.proto.ConfigMap
+import org.apache.gluten.proto.{ConfigMap, IcebergReadExtension, RequiredSubfieldsExtension}
 import org.apache.gluten.runtime.Runtimes
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.expression.{ExpressionBuilder, ExpressionNode}
@@ -123,6 +123,63 @@ class VeloxTransformerApi extends TransformerApi with Logging {
   }
 
   override def packPBMessage(message: Message): Any = Any.pack(message, "")
+
+  override def packIcebergReadExtension(
+      fieldIds: JMap[String, Integer],
+      initialDefaults: JMap[String, String]): Any = {
+    val extensionBuilder = IcebergReadExtension.newBuilder()
+    fieldIds.asScala.toSeq.sortBy(_._1).foreach {
+      case (name, fieldId) =>
+        extensionBuilder.addColumnFieldIds(
+          IcebergReadExtension.ColumnFieldId
+            .newBuilder()
+            .setName(name)
+            .setFieldId(fieldId))
+    }
+    initialDefaults.asScala.toSeq.sortBy(_._1).foreach {
+      case (name, initialDefault) =>
+        val fieldId = fieldIds.get(name)
+        if (fieldId == null) {
+          throw new IllegalArgumentException(s"Missing Iceberg field ID for column $name")
+        }
+        extensionBuilder.addColumnDefaults(
+          IcebergReadExtension.ColumnDefault
+            .newBuilder()
+            .setName(name)
+            .setFieldId(fieldId)
+            .setInitialDefault(initialDefault))
+    }
+    packPBMessage(extensionBuilder.build())
+  }
+
+  override def packRequiredSubfields(subfields: Map[String, Seq[SubfieldPath]]): Any = {
+    val extension = RequiredSubfieldsExtension.newBuilder()
+    subfields.toSeq.sortBy(_._1).foreach {
+      case (column, paths) =>
+        val columnBuilder =
+          RequiredSubfieldsExtension.ColumnSubfields.newBuilder().setColumn(column)
+        paths.foreach {
+          path =>
+            require(
+              path.column == column,
+              s"Subfield path $path declared under column $column")
+            val subfield = RequiredSubfieldsExtension.Subfield.newBuilder()
+            path.elements.foreach {
+              element =>
+                val pe = RequiredSubfieldsExtension.PathElement.newBuilder()
+                element match {
+                  case SubfieldElement.Field(name) => pe.setField(name)
+                  case SubfieldElement.StringKey(key) => pe.setStringKey(key)
+                  case SubfieldElement.LongKey(key) => pe.setLongKey(key)
+                }
+                subfield.addElements(pe)
+            }
+            columnBuilder.addSubfields(subfield)
+        }
+        extension.addColumns(columnBuilder)
+    }
+    packPBMessage(extension.build())
+  }
 
   override def invalidateSQLExecutionResource(executionId: String): Unit = {
     GlutenDriverEndpoint.invalidateResourceRelation(executionId)

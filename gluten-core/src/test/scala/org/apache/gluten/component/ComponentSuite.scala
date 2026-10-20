@@ -27,6 +27,14 @@ import scala.collection.mutable
 class ComponentSuite extends AnyFunSuite with BeforeAndAfterAll {
   import ComponentSuite._
 
+  override protected def afterAll(): Unit = {
+    // The component graph is JVM-global, and these tests register dummy components into it,
+    // including a deliberate dependency cycle. Leaving them behind makes any later suite that
+    // calls Component#sorted fail.
+    clearAllForTesting()
+    super.afterAll()
+  }
+
   test("Load order") {
     val a = new DummyBackend("A") {}
     val b = new DummyBackend("B") {}

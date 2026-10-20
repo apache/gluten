@@ -37,8 +37,7 @@ class GlutenDriverEndpoint extends IsolatedRpcEndpoint with Logging {
 
   protected val totalRegisteredExecutors = new AtomicInteger(0)
 
-  private val driverEndpoint: RpcEndpointRef =
-    rpcEnv.setupEndpoint(GlutenRpcConstants.GLUTEN_DRIVER_ENDPOINT_NAME, this)
+  rpcEnv.setupEndpoint(GlutenRpcConstants.GLUTEN_DRIVER_ENDPOINT_NAME, this)
 
   // TODO(yuan): get thread cnt from spark context
   override def threadCount(): Int = 1
@@ -90,7 +89,7 @@ class GlutenDriverEndpoint extends IsolatedRpcEndpoint with Logging {
   }
 
   override def onStart(): Unit = {
-    logInfo(s"Initialized GlutenDriverEndpoint, address: ${driverEndpoint.address.toString()}.")
+    logInfo(s"Initialized GlutenDriverEndpoint, address: ${self.address}.")
   }
 }
 
@@ -118,7 +117,7 @@ object GlutenDriverEndpoint extends Logging
 
   def collectResources(executionId: String, resourceId: String): Unit = {
     val resources = executionResourceRelation
-      .get(executionId, (_: String) => new util.HashSet[String]())
+      .get(executionId, (_: String) => java.util.concurrent.ConcurrentHashMap.newKeySet[String]())
     resources.add(resourceId)
   }
 

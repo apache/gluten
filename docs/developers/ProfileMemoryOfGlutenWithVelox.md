@@ -113,9 +113,11 @@ spark.files /path/to/jemalloc/libjemalloc.so
 Example of enabling heap profile in spark executor:
 
 ```
-spark.executorEnv.LD_PRELOAD  ./libjemalloc.so
-spark.executorEnv.MALLOC_CONF prof:true,lg_prof_interval:30,prof_prefix:/tmp/gluten_heap_perf
+spark.executorEnv.LD_PRELOAD /path/to/jemalloc/libjemalloc.so
+spark.executorEnv.MALLOC_CONF prof:true,prof_final:true,lg_prof_interval:30,prof_prefix:/tmp/gluten_heap_perf
 ```
+
+Note: `lg_prof_interval:30` only dumps a profile after every 2^30 bytes (1GB) of cumulative allocation activity, so a short-running or low-allocation job may never trigger it. `prof_final:true` ensures a profile is dumped when the process exits, regardless of the interval.
 
 Finally, profiling files prefixed with `/tmp/gluten_heap_perf.${PID}` will be generated for each spark executor.
 

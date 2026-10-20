@@ -22,8 +22,8 @@ import org.apache.spark.unsafe.types.UTF8String;
 import java.nio.ByteBuffer;
 
 /**
- * because spark33 add new function abstract method 'putBooleans(int, byte)' in
- * 'WritableColumnVector' And function getByteBuffer()
+ * A no-op WritableColumnVector that exists only to implement the abstract methods. Their set
+ * differs between Spark versions, hence one copy of this class per shim module.
  */
 public class WritableColumnVectorShim extends WritableColumnVector {
   /**

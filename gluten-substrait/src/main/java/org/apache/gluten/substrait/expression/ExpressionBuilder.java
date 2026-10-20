@@ -242,6 +242,11 @@ public class ExpressionBuilder {
     return new CastNode(typeNode, expressionNode, isTryCast);
   }
 
+  public static CastNode makeCast(
+      TypeNode typeNode, ExpressionNode expressionNode, CastNode.CastMode castMode) {
+    return new CastNode(typeNode, expressionNode, castMode);
+  }
+
   public static StringMapNode makeStringMap(Map<String, String> values) {
     return new StringMapNode(values);
   }

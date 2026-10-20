@@ -207,23 +207,22 @@
                               }]
                             }
                           },
-                          "measures": [{
-                            "measure": {
-                              "upperBound": {
-                                "currentRow": {
-                                }
-                              },
-                              "lowerBound": {
-                                "unboundedPreceding": {
-                                }
-                              },
-                              "outputType": {
-                                "i32": {
-                                  "nullability": "NULLABILITY_REQUIRED"
-                                }
-                              },
-                              "columnName": "rn_510"
-                            }
+                          "windowFunctions": [{
+                            "upperBound": {
+                              "currentRow": {
+                              }
+                            },
+                            "lowerBound": {
+                              "unbounded": {
+                              }
+                            },
+                            "outputType": {
+                              "i32": {
+                                "nullability": "NULLABILITY_REQUIRED"
+                              }
+                            },
+                            "boundsType": "BOUNDS_TYPE_ROWS",
+                            "columnName": "rn_510"
                           }],
                           "partitionExpressions": [{
                             "selection": {
@@ -345,35 +344,34 @@
                       }
                     }
                   },
-                  "measures": [{
-                    "measure": {
-                      "functionReference": 4,
-                      "upperBound": {
-                        "unboundedFollowing": {
-                        }
-                      },
-                      "lowerBound": {
-                        "unboundedPreceding": {
-                        }
-                      },
-                      "outputType": {
-                        "fp64": {
-                          "nullability": "NULLABILITY_NULLABLE"
-                        }
-                      },
-                      "arguments": [{
-                        "value": {
-                          "selection": {
-                            "directReference": {
-                              "structField": {
-                                "field": 7
-                              }
+                  "windowFunctions": [{
+                    "functionReference": 4,
+                    "upperBound": {
+                      "unbounded": {
+                      }
+                    },
+                    "lowerBound": {
+                      "unbounded": {
+                      }
+                    },
+                    "outputType": {
+                      "fp64": {
+                        "nullability": "NULLABILITY_NULLABLE"
+                      }
+                    },
+                    "arguments": [{
+                      "value": {
+                        "selection": {
+                          "directReference": {
+                            "structField": {
+                              "field": 7
                             }
                           }
                         }
-                      }],
-                      "columnName": "avg_monthly_sales_509"
-                    }
+                      }
+                    }],
+                    "boundsType": "BOUNDS_TYPE_ROWS",
+                    "columnName": "avg_monthly_sales_509"
                   }],
                   "partitionExpressions": [{
                     "selection": {

@@ -21,10 +21,11 @@ import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution._
 import org.apache.gluten.execution.GlutenPlan
 
-import org.apache.spark.{SparkConf, SparkException}
+import org.apache.spark.{SparkConf, SparkEnv, SparkException}
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.catalyst.optimizer.{BuildLeft, ConstantFolding, NullPropagation}
 import org.apache.spark.sql.execution.{ColumnarToRowExec, ReusedSubqueryExec, SubqueryExec}
+import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.functions.{col, rand, when}
 import org.apache.spark.sql.internal.SQLConf
 
@@ -553,6 +554,45 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
     compareResultsAgainstVanillaSpark(sql, true, { _ => })
   }
 
+  test("window row_number with same partition and order keys should not use aggregate topk") {
+    val sql =
+      """
+        |WITH ranked AS (
+        | SELECT
+        | l_orderkey,
+        | l_returnflag,
+        | ROW_NUMBER() OVER (
+        | PARTITION BY l_returnflag
+        | ORDER BY l_returnflag DESC
+        | ) AS rn
+        | FROM lineitem
+        | WHERE l_orderkey > 1000
+        |)
+        |
+        |SELECT
+        | l_returnflag,
+        | l_orderkey,
+        | rn
+        |FROM ranked
+        |WHERE rn <= 3
+        |ORDER BY l_returnflag DESC
+        |""".stripMargin
+
+    withSQLConf(
+      ("spark.sql.optimizer.windowGroupLimitThreshold", "-1"),
+      (CHConfig.runtimeSettings("enable_window_group_limit_to_aggregate"), "true"),
+      (CHConfig.runtimeSettings("window.aggregate_topk_high_cardinality_threshold"), "2.0")
+    ) {
+      runQueryAndCompare(sql, compareResult = false) {
+        df =>
+          val aggregateTopK = collectWithSubqueries(df.queryExecution.executedPlan) {
+            case e: CHAggregateGroupLimitExecTransformer => e
+          }
+          assert(aggregateTopK.isEmpty)
+      }
+    }
+  }
+
   test("window sum 1") {
     val sql =
       """
@@ -640,6 +680,29 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
         |order by n_regionkey,n_nationkey,n_name,n_sum
         |""".stripMargin
     compareResultsAgainstVanillaSpark(sql, true, { _ => })
+  }
+
+  test("window range with a non-integral bound falls back") {
+    // Spark casts the bound to the decimal key type, so both arrive as non-integral literals. Check
+    // with and without native validation, which this suite turns off by default.
+    Seq("true", "false").foreach {
+      nativeValidation =>
+        withSQLConf(GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> nativeValidation) {
+          Seq("1.5 preceding", "10 preceding").foreach {
+            bound =>
+              val sql =
+                s"""
+                   |select n_nationkey, n_regionkey,
+                   |  count(*) over (partition by n_regionkey
+                   |    order by cast(n_nationkey as decimal(10, 2))
+                   |    range between $bound and current row) as cnt
+                   |from nation
+                   |order by n_regionkey, n_nationkey
+                   |""".stripMargin
+              runQueryAndCompare(sql, noFallBack = false)(checkSparkPlan[WindowExec])
+          }
+        }
+    }
   }
 
   test("windows") {
@@ -876,6 +939,80 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
         |order by l_shipdate, l_shipmode, cnt
         |""".stripMargin
     compareResultsAgainstVanillaSpark(sql, true, { _ => })
+  }
+
+  test("grouping sets preserves nullable columns across union") {
+    val sql =
+      """
+        |select msg_type, os, count(*) as cnt
+        |from (
+        |  select 'file' as msg_type, 'Android' as os, id from range(10)
+        |  union all
+        |  select 'file' as msg_type, 'iOS' as os, id from range(10)
+        |) t
+        |group by grouping sets ((msg_type), (os))
+        |having msg_type is not null
+        |order by msg_type, os, cnt
+        |""".stripMargin
+    withSparkEnvConf(CHConfig.runtimeConfig("enable_lazy_aggregate_expand"), "false") {
+      compareResultsAgainstVanillaSpark(
+        sql,
+        true,
+        {
+          df =>
+            val expands = collectWithSubqueries(df.queryExecution.executedPlan) {
+              case e: ExpandExecTransformer
+                  if !e.child.isInstanceOf[HashAggregateExecBaseTransformer] =>
+                e
+            }
+            assert(expands.size == 1)
+        }
+      )
+    }
+  }
+
+  test("lazy aggregate expand preserves nullable columns across union") {
+    val sql =
+      """
+        |select msg_type, os, count(*) as cnt
+        |from (
+        |  select 'file' as msg_type, 'Android' as os, id from range(10)
+        |  union all
+        |  select 'file' as msg_type, 'iOS' as os, id from range(10)
+        |) t
+        |group by grouping sets ((msg_type), (os))
+        |having msg_type is not null
+        |order by msg_type, os, cnt
+        |""".stripMargin
+    withSparkEnvConf(CHConfig.runtimeConfig("enable_lazy_aggregate_expand"), "true") {
+      compareResultsAgainstVanillaSpark(
+        sql,
+        true,
+        {
+          df =>
+            val expands = collectWithSubqueries(df.queryExecution.executedPlan) {
+              case e: ExpandExecTransformer
+                  if e.child.isInstanceOf[HashAggregateExecBaseTransformer] =>
+                e
+            }
+            assert(expands.size == 1)
+        }
+      )
+    }
+  }
+
+  private def withSparkEnvConf(key: String, value: String)(f: => Unit): Unit = {
+    val sparkConf = SparkEnv.get.conf
+    val previousValue = sparkConf.getOption(key)
+    sparkConf.set(key, value)
+    try {
+      f
+    } finally {
+      previousValue match {
+        case Some(previous) => sparkConf.set(key, previous)
+        case None => sparkConf.remove(key)
+      }
+    }
   }
 
   test("expand with nullable type not match") {
@@ -1142,7 +1279,8 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
     }
   }
 
-  testSparkVersionLE33("test posexplode issue: https://github.com/oap-project/gluten/issues/1767") {
+  ignoreSpark33OnlyCase(
+    "test posexplode issue: https://github.com/oap-project/gluten/issues/1767") {
     spark.sql("create table test_1767 (id bigint, data map<string, string>) using parquet")
     spark.sql("INSERT INTO test_1767 values(1, map('k', 'v'))")
 

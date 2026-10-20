@@ -19,13 +19,14 @@ package org.apache.gluten.execution
 import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.sql.shims.SparkShimLoader
 
-import org.apache.spark.SparkConf
+import org.apache.spark.{SparkConf, SparkException}
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.expressions.AttributeReference
 import org.apache.spark.sql.execution.{ColumnarBroadcastExchangeExec, ColumnarSubqueryBroadcastExec, InputIteratorTransformer, SerializedHashTableBroadcastRelation}
 import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
 import org.apache.spark.sql.execution.joins.BuildSideRelation
 import org.apache.spark.sql.execution.joins.HashedRelationBroadcastMode
+import org.apache.spark.sql.functions.broadcast
 
 class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
   override protected val resourcePath: String = "/tpch-data-parquet"
@@ -116,10 +117,7 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
       // The computing is combined into one single whole stage transformer.
       val wholeStages = plan.collect { case wst: WholeStageTransformer => wst }
 
-      if (
-        SparkShimLoader.getSparkVersion.startsWith("3.3.") ||
-        SparkShimLoader.getSparkVersion.startsWith("3.4.")
-      ) {
+      if (SparkShimLoader.getSparkVersion.startsWith("3.4.")) {
         assert(wholeStages.length == 3)
       } else {
         assert(wholeStages.length == 5)
@@ -263,6 +261,41 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
 
             assert(metrics.contains("hashProbeDynamicFiltersProduced"))
             assert(metrics("hashProbeDynamicFiltersProduced").value == 1)
+        }
+      }
+    }
+  }
+
+  test("Hash probe uses build-side bloom filter for left outer join misses") {
+    withSQLConf(
+      "spark.sql.autoBroadcastJoinThreshold" -> "-1",
+      "spark.sql.adaptive.enabled" -> "false",
+      GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key -> "true",
+      VeloxConfig.HASH_PROBE_DYNAMIC_FILTER_PUSHDOWN_ENABLED.key -> "true",
+      VeloxConfig.HASH_PROBE_BLOOM_FILTER_PUSHDOWN_MAX_SIZE.key -> "1TB",
+      VeloxConfig.HASH_PROBE_BLOOM_FILTER_BYPASS_MIN_ROWS.key -> "100",
+      VeloxConfig.HASH_PROBE_BLOOM_FILTER_BYPASS_MIN_PCT.key -> "85"
+    ) {
+      val probe = spark.range(200000).selectExpr("id * 1000 + 1 AS probe_key")
+      val build = spark.range(200000).selectExpr("id * 1000 AS build_key")
+
+      withTempView("probe_table", "build_table") {
+        probe.createOrReplaceTempView("probe_table")
+        build.createOrReplaceTempView("build_table")
+
+        runQueryAndCompare(
+          "SELECT probe_key, build_key FROM probe_table " +
+            "LEFT OUTER JOIN build_table ON probe_key = build_key"
+        ) {
+          df =>
+            val join = df.queryExecution.executedPlan.collectFirst {
+              case shj: ShuffledHashJoinExecTransformer => shj
+            }
+            assert(join.isDefined)
+            val metrics = join.get.metrics
+            assert(metrics("hashProbeBloomFilterTestedRows").value == 200000)
+            assert(metrics("hashProbeBloomFilterAcceptedRows").value < 20000)
+            assert(metrics("hashProbeBloomFilterBypassed").value == 0)
         }
       }
     }
@@ -498,6 +531,23 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
+  // The LATERAL VIEW output `key` reaches the build side under a generated alias.
+  private val generatedBuildKeyAliasQuery =
+    """
+      |SELECT /*+ BROADCAST(r) */ l.l_orderkey, l.l_partkey, r.key
+      |FROM lineitem l
+      |LEFT JOIN (
+      |  SELECT p_partkey, key
+      |  FROM (
+      |    SELECT p_partkey, concat('{"Key":"', CAST(p_partkey AS STRING), '"}') AS json_field
+      |    FROM part
+      |  ) p
+      |  LATERAL VIEW json_tuple(json_field, 'Key') b AS key
+      |) r
+      |ON l.l_partkey = r.p_partkey
+      | AND CAST(l.l_partkey AS STRING) = r.key
+      |""".stripMargin
+
   test("Broadcast build once with generated build key alias") {
     withSQLConf(
       ("spark.sql.autoBroadcastJoinThreshold", "10MB"),
@@ -505,29 +555,39 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
       (VeloxConfig.VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR.key, "true")
     ) {
       createTPCHNotNullTables()
-      val query =
-        """
-          |SELECT /*+ BROADCAST(r) */ l.l_orderkey, l.l_partkey, r.key
-          |FROM lineitem l
-          |LEFT JOIN (
-          |  SELECT p_partkey, key
-          |  FROM (
-          |    SELECT p_partkey, concat('{"Key":"', CAST(p_partkey AS STRING), '"}') AS json_field
-          |    FROM part
-          |  ) p
-          |  LATERAL VIEW json_tuple(json_field, 'Key') b AS key
-          |) r
-          |ON l.l_partkey = r.p_partkey
-          | AND CAST(l.l_partkey AS STRING) = r.key
-          |""".stripMargin
-
-      runQueryAndCompare(query) {
+      runQueryAndCompare(generatedBuildKeyAliasQuery) {
         df =>
           val plan = df.queryExecution.executedPlan
           val broadcastJoins = plan.collect { case bhj: BroadcastHashJoinExecTransformer => bhj }
           assert(broadcastJoins.nonEmpty, "Should use broadcast hash join")
       }
     }
+  }
+
+  Seq(false, true).foreach {
+    offHeap =>
+      test(s"Driver-side build with generated build key alias, off-heap relation: $offHeap") {
+        withSQLConf(
+          ("spark.sql.autoBroadcastJoinThreshold", "10MB"),
+          ("spark.sql.adaptive.enabled", "false"),
+          (VeloxConfig.VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD.key, "true"),
+          (VeloxConfig.VELOX_BROADCAST_BUILD_RELATION_USE_OFFHEAP.key, offHeap.toString)
+        ) {
+          createTPCHNotNullTables()
+          runQueryAndCompare(generatedBuildKeyAliasQuery) {
+            df =>
+              val relations = collectBroadcastRelations(df)
+              assert(relations.nonEmpty, "Should use a columnar broadcast")
+              // A failed driver-side build falls back to the executor-side relation.
+              relations.foreach {
+                relation =>
+                  assert(
+                    relation.isInstanceOf[SerializedHashTableBroadcastRelation],
+                    s"Driver-side build fell back, got ${relation.getClass.getName}")
+              }
+          }
+        }
+      }
   }
 
   test("Reuse broadcast exchange with different hash table") {
@@ -655,4 +715,13 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
         })
   }
 
+  test("Broadcast over maxBroadcastTableSize fails with Spark's error condition") {
+    withSQLConf("spark.sql.maxBroadcastTableSize" -> "100") {
+      val df = spark.range(1000).toDF()
+      val ex = intercept[SparkException] {
+        df.join(broadcast(df), "id").collect()
+      }
+      assert(ex.getErrorClass == "_LEGACY_ERROR_TEMP_2249")
+    }
+  }
 }

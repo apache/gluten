@@ -22,6 +22,10 @@ class VeloxDeltaConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   import VeloxDeltaConfig._
 
   def enableNativeWrite: Boolean = getConf(ENABLE_NATIVE_WRITE)
+
+  def enableNativeDmlRowIndexScan: Boolean = getConf(ENABLE_NATIVE_DML_ROW_INDEX_SCAN)
+
+  def enableChangeDataFeedScan: Boolean = getConf(ENABLE_CHANGE_DATA_FEED_SCAN)
 }
 
 object VeloxDeltaConfig extends ConfigRegistry {
@@ -40,4 +44,21 @@ object VeloxDeltaConfig extends ConfigRegistry {
       .doc("Enable native Delta Lake write for Velox backend.")
       .booleanConf
       .createWithDefault(false)
+
+  val ENABLE_NATIVE_DML_ROW_INDEX_SCAN: ConfigEntry[Boolean] =
+    buildConf("spark.gluten.sql.columnar.backend.velox.delta.enableNativeDmlRowIndexScan")
+      .experimental()
+      .doc(
+        "Enable the native Delta DELETE/UPDATE/MERGE target row-index scan for Velox. When " +
+          "disabled, the DML target scan that produces file paths and row indexes for " +
+          "deletion-vector writes stays on Spark; other scans are unaffected.")
+      .booleanConf
+      .createWithDefault(true)
+
+  val ENABLE_CHANGE_DATA_FEED_SCAN: ConfigEntry[Boolean] =
+    buildConf("spark.gluten.sql.columnar.backend.velox.delta.enableChangeDataFeedScan")
+      .experimental()
+      .doc("Enable Delta Lake change data feed scan offload for Velox backend.")
+      .booleanConf
+      .createWithDefault(true)
 }

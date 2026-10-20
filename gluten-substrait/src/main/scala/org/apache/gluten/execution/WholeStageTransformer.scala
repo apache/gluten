@@ -70,12 +70,12 @@ trait TransformSupport extends ValidatablePlan {
       s"${this.getClass.getSimpleName} doesn't support doExecute")
   }
 
-  def isCudf: Boolean = getTagValue[Boolean](CudfTag.CudfTag).getOrElse(false)
+  def offloadCuda: Boolean = getTagValue[Boolean](CudfTag.CudfValidationTag).getOrElse(false)
 
   // Use super.nodeName will cause exception scala 213 Super calls can only target methods
   // for FileSourceScan.
   override def nodeName: String =
-    if (isCudf) {
+    if (offloadCuda) {
       "Cudf" + getClass.getSimpleName.replaceAll("Exec$", "")
     } else getClass.getSimpleName
 
@@ -261,7 +261,7 @@ case class WholeStageTransformer(child: SparkPlan, materializeInput: Boolean = f
     WholeStageTransformContext(
       planNode,
       substraitContext,
-      isCudf,
+      offloadCuda,
       !hasNonDeterministicExprInJoinProbe(child))
   }
 
@@ -520,5 +520,6 @@ class ColumnarInputRDDsWrapper(columnarInputRDDs: Seq[RDD[ColumnarBatch]]) exten
 }
 
 object CudfTag {
-  val CudfTag = TreeNodeTag[Boolean]("org.apache.gluten.CudfTag")
+  val CudfValidationTag = TreeNodeTag[Boolean]("org.apache.gluten.CudfTag.CudfValidationTag")
+  val CudfTestingTag = TreeNodeTag[Boolean]("org.apache.gluten.CudfTag.CudfTestingTag")
 }

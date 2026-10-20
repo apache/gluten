@@ -107,7 +107,9 @@ SchemaPtr SerializedSchemaBuilder::build()
         else if (type == "Timestamp")
         {
             auto * t = type_struct->mutable_types()->Add();
-            t->mutable_timestamp_tz()->set_nullability(
+            // CH DateTime64(6) is microsecond precision.
+            t->mutable_precision_timestamp_tz()->set_precision(6);
+            t->mutable_precision_timestamp_tz()->set_nullability(
                 this->nullability_map[name] ? substrait::Type_Nullability_NULLABILITY_NULLABLE
                                             : substrait::Type_Nullability_NULLABILITY_REQUIRED);
         }
@@ -256,7 +258,9 @@ std::shared_ptr<substrait::Type> SerializedPlanBuilder::buildType(const DB::Data
         const auto * ch_type_datetime64 = checkAndGetDataType<DataTypeDateTime64>(ch_type_without_nullable.get());
         if (ch_type_datetime64->getScale() != 6)
             throw Exception(ErrorCodes::UNKNOWN_TYPE, "Spark doesn't support converting from {}", ch_type->getName());
-        res->mutable_timestamp_tz()->set_nullability(type_nullability);
+        // CH DateTime64(6) is microsecond precision.
+        res->mutable_precision_timestamp_tz()->set_precision(6);
+        res->mutable_precision_timestamp_tz()->set_nullability(type_nullability);
     }
     else if (which.isDate32())
         res->mutable_date()->set_nullability(type_nullability);

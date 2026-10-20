@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.extension
 
-import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.config.{GlutenConfig, GlutenIcebergConfig}
 import org.apache.gluten.execution._
 import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
 import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
@@ -29,42 +29,67 @@ import org.apache.spark.sql.execution.datasources.v2._
 import org.apache.iceberg.spark.source.IcebergWriteUtil.supportsWrite
 
 case class OffloadIcebergAppend() extends OffloadSingleNode {
-  override def offload(plan: SparkPlan): SparkPlan = plan match {
-    case a: AppendDataExec if supportsWrite(a.write) =>
-      VeloxIcebergAppendDataExec(a)
-    case other => other
+  override def offload(plan: SparkPlan): SparkPlan = {
+    if (!GlutenIcebergConfig.get.enableNativeWrite) {
+      return plan
+    }
+    plan match {
+      case a: AppendDataExec if supportsWrite(a.write) =>
+        VeloxIcebergAppendDataExec(a)
+      case other => other
+    }
   }
 }
 
 case class OffloadIcebergReplaceData() extends OffloadSingleNode {
-  override def offload(plan: SparkPlan): SparkPlan = plan match {
-    case r: ReplaceDataExec if supportsWrite(r.write) =>
-      VeloxIcebergReplaceDataExec(r)
-    case other => other
+  override def offload(plan: SparkPlan): SparkPlan = {
+    if (!GlutenIcebergConfig.get.enableNativeWrite) {
+      return plan
+    }
+    plan match {
+      case r: ReplaceDataExec if supportsWrite(r.write) =>
+        VeloxIcebergReplaceDataExec(r)
+      case other => other
+    }
   }
 }
 
 case class OffloadIcebergOverwrite() extends OffloadSingleNode {
-  override def offload(plan: SparkPlan): SparkPlan = plan match {
-    case r: OverwriteByExpressionExec if supportsWrite(r.write) =>
-      VeloxIcebergOverwriteByExpressionExec(r)
-    case other => other
+  override def offload(plan: SparkPlan): SparkPlan = {
+    if (!GlutenIcebergConfig.get.enableNativeWrite) {
+      return plan
+    }
+    plan match {
+      case r: OverwriteByExpressionExec if supportsWrite(r.write) =>
+        VeloxIcebergOverwriteByExpressionExec(r)
+      case other => other
+    }
   }
 }
 
 case class OffloadIcebergOverwritePartitionsDynamic() extends OffloadSingleNode {
-  override def offload(plan: SparkPlan): SparkPlan = plan match {
-    case r: OverwritePartitionsDynamicExec if supportsWrite(r.write) =>
-      VeloxIcebergOverwritePartitionsDynamicExec(r)
-    case other => other
+  override def offload(plan: SparkPlan): SparkPlan = {
+    if (!GlutenIcebergConfig.get.enableNativeWrite) {
+      return plan
+    }
+    plan match {
+      case r: OverwritePartitionsDynamicExec if supportsWrite(r.write) =>
+        VeloxIcebergOverwritePartitionsDynamicExec(r)
+      case other => other
+    }
   }
 }
 
 case class OffloadIcebergWriteToDataSourceV2() extends OffloadSingleNode {
-  override def offload(plan: SparkPlan): SparkPlan = plan match {
-    case r: WriteToDataSourceV2Exec =>
-      VeloxIcebergWriteToDataSourceV2Exec(r).getOrElse(r)
-    case other => other
+  override def offload(plan: SparkPlan): SparkPlan = {
+    if (!GlutenIcebergConfig.get.enableNativeWrite) {
+      return plan
+    }
+    plan match {
+      case r: WriteToDataSourceV2Exec =>
+        VeloxIcebergWriteToDataSourceV2Exec(r).getOrElse(r)
+      case other => other
+    }
   }
 }
 

@@ -119,7 +119,7 @@ class VeloxStringFunctionsSuite extends VeloxWholeStageTransformerSuite {
         s"from $LINEITEM_TABLE limit $LENGTH")(checkGlutenPlan[ProjectExecTransformer])
   }
 
-  ignore("weekday") { // todo: result mismatched
+  test("weekday") {
     runQueryAndCompare(
       s"select l_orderkey, l_shipdate, weekday(l_shipdate) " +
         s"from $LINEITEM_TABLE limit $LENGTH")(checkGlutenPlan[ProjectExecTransformer])

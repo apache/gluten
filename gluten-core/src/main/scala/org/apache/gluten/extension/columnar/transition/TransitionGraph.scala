@@ -96,7 +96,7 @@ object TransitionGraph {
     }
   }
 
-  /** Reuse RAS cost to represent transition cost. */
+  /** Reuse Gluten cost to represent transition cost. */
   private case class TransitionCost(value: GlutenCost, nodeNames: Seq[String])
     extends FloydWarshallGraph.Cost
 
@@ -130,8 +130,13 @@ object TransitionGraph {
             if (diff != 0) {
               diff
             } else {
-              // To make the output order stable.
-              nodeNames1.mkString.hashCode - nodeNames2.mkString.hashCode
+              // Break the tie on the node names, so that as long as the names distinguish the two
+              // paths the same one wins on every JVM run. Integer.compare rather than a
+              // subtraction: hash codes far enough apart overflow Int, and a wrapped sign hands the
+              // tie to the other path of the same cost. Two distinct name sequences can still share
+              // a hash code, and mkString joins without a separator, so a tie remains possible; the
+              // winner then comes down to map iteration order, as it did before.
+              Integer.compare(nodeNames1.mkString.hashCode, nodeNames2.mkString.hashCode)
             }
         }
     }
@@ -144,13 +149,13 @@ object TransitionGraph {
        * The calculation considers C2C's cost as half of C2R / R2C's cost. So query planner prefers
        * C2C than C2R / R2C.
        */
-      def rasCostOfPlan(plan: SparkPlan): GlutenCost = base.costOf(plan)
+      def costOfPlan(plan: SparkPlan): GlutenCost = base.costOf(plan)
       def nodeNamesOfPlan(plan: SparkPlan): Seq[String] = {
         plan.map(_.nodeName).reverse
       }
 
-      val leafCost = rasCostOfPlan(leaf)
-      val accumulatedCost = rasCostOfPlan(transited)
+      val leafCost = costOfPlan(leaf)
+      val accumulatedCost = costOfPlan(transited)
       val costDiff = base.diff(accumulatedCost, leafCost)
 
       val leafNodeNames = nodeNamesOfPlan(leaf)

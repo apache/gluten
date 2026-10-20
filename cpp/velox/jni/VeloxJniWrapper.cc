@@ -1131,9 +1131,9 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
     return gluten::getHashTableObjStore()->save(builder);
   }
 
-  // Use thread pool (executor) instead of creating threads directly.
-  // FIXME: This reuses the io executor which is supposed to only serve async IO tasks.
-  auto executor = VeloxBackend::get()->ioExecutor();
+  // Use a dedicated CPU thread pool for the parallel hash-table build. The build is CPU-bound,
+  // so it must not run on the io executor which is reserved for async IO tasks.
+  auto executor = VeloxBackend::get()->broadcastHashTableBuildExecutor();
 
   std::vector<std::shared_ptr<gluten::HashTableBuilder>> hashTableBuilders(numThreads);
   std::vector<std::unique_ptr<facebook::velox::exec::BaseHashTable>> otherTables(numThreads);
@@ -1175,7 +1175,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
           threadMemoryPool);
 
       hashTableBuilders[t] = std::move(builder);
-      otherTables[t] = std::move(hashTableBuilders[t]->uniqueTable());
+      otherTables[t] = hashTableBuilders[t]->uniqueTable();
     });
 
     futures.push_back(std::move(future));
@@ -1204,7 +1204,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
       facebook::velox::exec::BaseHashTable::kNoSpillInputStartPartitionBit,
       hashTableBuilders[0]->joinBuildVectorHasherMaxNumDistinct(),
       hashTableBuilders[0]->dropDuplicates(),
-      allowParallelJoinBuild ? VeloxBackend::get()->ioExecutor() : nullptr);
+      allowParallelJoinBuild ? VeloxBackend::get()->broadcastHashTableBuildExecutor() : nullptr);
 
   for (int i = 1; i < numThreads; ++i) {
     if (hashTableBuilders[i]->joinHasNullKeys()) {

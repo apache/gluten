@@ -38,6 +38,17 @@ const int32_t kGzipWindowBits4k = 12;
 const int32_t kZSTDDefaultCompressionLevel = 3;
 } // namespace
 
+std::shared_ptr<dwio::common::FormatSpecificOptions> GlutenParquetWriterFactory::createFormatOptions(
+    const config::ConfigBase& connectorConfig,
+    const config::ConfigBase& session) const {
+  auto options = ParquetWriterFactory::createFormatOptions(connectorConfig, session);
+  if (auto level = session.get<int32_t>("writer_compression_level")) {
+    auto parquetOptions = std::static_pointer_cast<ParquetWriterOptions>(options);
+    parquetOptions->codecOptions = std::make_shared<parquet::arrow::util::CodecOptions>(*level);
+  }
+  return options;
+}
+
 std::shared_ptr<facebook::velox::dwio::common::WriterOptions> makeParquetWriteOption(
     const std::unordered_map<std::string, std::string>& sparkConfs) {
   int64_t maxRowGroupBytes = 134217728; // 128MB
@@ -129,6 +140,14 @@ std::shared_ptr<facebook::velox::dwio::common::WriterOptions> makeParquetWriteOp
       parquetOptions->enableDictionary = false;
     }
   }
+  // Write the Parquet page index (column index + offset index) by default to match
+  // Spark/parquet-mr (SPARK-26345); Velox's writer leaves it opt-in. Disable with
+  // parquet.enable.page.index=false.
+  bool enableWritePageIndex = true;
+  if (auto it = sparkConfs.find(kParquetEnablePageIndex); it != sparkConfs.end()) {
+    enableWritePageIndex = boost::iequals(it->second, "true");
+  }
+  parquetOptions->enableWritePageIndex = enableWritePageIndex;
   writeOption->formatSpecificOptions = std::move(parquetOptions);
   return writeOption;
 }

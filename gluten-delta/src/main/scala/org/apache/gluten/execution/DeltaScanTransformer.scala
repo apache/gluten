@@ -16,9 +16,10 @@
  */
 package org.apache.gluten.execution
 
-import org.apache.gluten.delta.DeltaDeletionVectorScanInfo
+import org.apache.gluten.delta.{DeletionVectorReadMetrics, DeltaDeletionVectorScanInfo}
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.rel.{DeltaLocalFilesBuilder, LocalFilesNode, SplitInfo}
+import org.apache.gluten.substrait.rel.LocalFilesNode.ColumnMappingMode
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.Partition
@@ -26,9 +27,12 @@ import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Expression}
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.connector.read.streaming.SparkDataStream
-import org.apache.spark.sql.delta.{DeltaParquetFileFormat, NoMapping}
+import org.apache.spark.sql.delta.{DeltaParquetFileFormat, NameMapping, NoMapping}
+import org.apache.spark.sql.delta.files.{CdcAddFileIndex, TahoeFileIndex, TahoeRemoveFileIndex}
+import org.apache.spark.sql.delta.stats.PreparedDeltaFileIndex
 import org.apache.spark.sql.execution.FileSourceScanExec
 import org.apache.spark.sql.execution.datasources.{FilePartition, HadoopFsRelation}
+import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.collection.BitSet
 
@@ -45,7 +49,8 @@ case class DeltaScanTransformer(
     override val dataFilters: Seq[Expression],
     override val tableIdentifier: Option[TableIdentifier],
     override val disableBucketedScan: Boolean = false,
-    override val pushDownFilters: Option[Seq[Expression]] = None)
+    override val pushDownFilters: Option[Seq[Expression]] = None,
+    override val requiredMapSubfields: Map[String, Seq[SubfieldPath]] = Map.empty)
   extends FileSourceScanExecTransformerBase(
     relation,
     stream,
@@ -60,6 +65,48 @@ case class DeltaScanTransformer(
   ) {
 
   override lazy val fileFormat: ReadFileFormat = ReadFileFormat.ParquetReadFormat
+
+  override protected def additionalScanMetrics: Map[String, SQLMetric] = Map(
+    "dvDescriptorPreparationTime" ->
+      SQLMetrics.createNanoTimingMetric(
+        sparkContext,
+        "Delta deletion vector descriptor preparation time"),
+    "dvDescriptorCount" ->
+      SQLMetrics.createMetric(sparkContext, "Delta deletion vector descriptor count"),
+    "dvPayloadReadTime" ->
+      SQLMetrics.createNanoTimingMetric(sparkContext, "Delta deletion vector payload read time"),
+    "dvPayloadReadBytes" ->
+      SQLMetrics.createSizeMetric(sparkContext, "Delta deletion vector payload bytes read"),
+    "dvPayloadReadAttempts" ->
+      SQLMetrics.createMetric(sparkContext, "Delta deletion vector payload read attempts")
+  )
+
+  @transient private lazy val deletionVectorReadMetrics =
+    DeletionVectorReadMetrics(
+      metrics("dvPayloadReadTime"),
+      metrics("dvPayloadReadBytes"),
+      metrics("dvPayloadReadAttempts"))
+
+  // Delta CDF over a deletion-vector-enabled table needs DV-aware, row-level reconciliation that
+  // the native scan path does not do yet: it would surface rows that are still live (not covered
+  // by the DV) as CDF `delete` change rows. Fall back to Spark for both CDF scan sides -- the add
+  // side (`CdcAddFileIndex`) and the remove side (`TahoeRemoveFileIndex`) -- whenever the touched
+  // files carry DVs. Normal (non-CDF) DV scans are unaffected: those apply the DV natively through
+  // the per-file split-info handoff and never reach this guard.
+  override protected def doValidateInternal(): ValidationResult = {
+    if (cdfFilesHaveDeletionVectors) {
+      return ValidationResult.failed(DeltaScanTransformer.DELETION_VECTOR_UNSUPPORTED)
+    }
+    super.doValidateInternal()
+  }
+
+  private def cdfFilesHaveDeletionVectors: Boolean = relation.location match {
+    case index: TahoeRemoveFileIndex =>
+      index.filesByVersion.exists(_.actions.exists(_.deletionVector != null))
+    case index: CdcAddFileIndex =>
+      index.addFiles.exists(_.deletionVector != null)
+    case _ => false
+  }
 
   // For Delta column-mapping tables, `dataFilters` on the scan node are LOGICAL-named so Delta's
   // file index (`PreparedDeltaFileIndex.matchingFiles`, `Snapshot.filesForScan`) can do partition
@@ -98,21 +145,103 @@ case class DeltaScanTransformer(
   override def getSplitInfosFromPartitions(
       partitions: Seq[(Partition, ReadFileFormat)]): Seq[SplitInfo] = {
     val splitInfos = super.getSplitInfosFromPartitions(partitions)
-    val partitionColumnCount = getPartitionSchema.fields.length
-    splitInfos.zip(partitions).map {
-      case (localFiles: LocalFilesNode, (filePartition: FilePartition, _)) =>
-        DeltaDeletionVectorScanInfo
-          .normalize(partitionColumnCount, filePartition.files.toSeq)
-          .map {
-            case (otherMetadataColumns, deltaReadOptions) =>
-              DeltaLocalFilesBuilder.makeDeltaLocalFiles(
-                localFiles,
-                otherMetadataColumns.asJava,
-                deltaReadOptions.asJava): SplitInfo
-          }
-          .getOrElse(localFiles)
-      case (splitInfo, _) => splitInfo
+    // Keep Delta's split decoration narrow. The generic Parquet path has already attached the
+    // session-derived split mapping mode and only attaches file schema when position mapping
+    // needs it. Delta name column mapping is the one case that must force name mapping regardless
+    // of the generic Parquet setting because Gluten rewrites the scan schema to physical names.
+    splitInfos.foreach {
+      case localFiles: LocalFilesNode =>
+        deltaColumnMappingMode.foreach {
+          mode =>
+            localFiles.clearFileSchema()
+            localFiles.setColumnMappingMode(mode)
+        }
+      case _ =>
     }
+    // PreparedDeltaFileIndex contains the exact AddFiles selected for this scan. Use these as the
+    // source of truth because PartitionedFile metadata can retain an older DV descriptor after
+    // repeated DML updates the same data file.
+    relation.location match {
+      case prepared: PreparedDeltaFileIndex =>
+        val tableRootPath = prepared.path
+        val lookupStartedAt = System.nanoTime()
+        val addFileLookup =
+          try {
+            DeltaDeletionVectorScanInfo
+              .buildAddFileLookup(tableRootPath, prepared.preparedScan.files)
+          } finally {
+            metrics("dvDescriptorPreparationTime").add(System.nanoTime() - lookupStartedAt)
+          }
+        splitInfos.zip(partitions).map {
+          case (localFiles: LocalFilesNode, (filePartition: FilePartition, _)) =>
+            val startedAt = System.nanoTime()
+            val normalized =
+              try {
+                DeltaDeletionVectorScanInfo
+                  .normalizeFromAddFiles(
+                    filePartition.files.toSeq,
+                    tableRootPath,
+                    addFileLookup,
+                    Some(deletionVectorReadMetrics))
+              } finally {
+                metrics("dvDescriptorPreparationTime").add(System.nanoTime() - startedAt)
+              }
+            normalized
+              .map {
+                case (otherMetadataColumns, deltaReadOptions) =>
+                  metrics("dvDescriptorCount")
+                    .add(deltaReadOptions.count(_.hasDeletionVector()).toLong)
+                  DeltaLocalFilesBuilder.makeDeltaLocalFiles(
+                    localFiles,
+                    otherMetadataColumns.asJava,
+                    deltaReadOptions.asJava): SplitInfo
+              }
+              .getOrElse(localFiles)
+          case (splitInfo, _) => splitInfo
+        }
+      // Other Tahoe indexes, such as CDF indexes, encode the row-index filter type and DV
+      // descriptor in PartitionedFile metadata. Keep using that metadata for these specialized
+      // scans because their semantics are not necessarily IF_CONTAINED.
+      case tahoe: TahoeFileIndex =>
+        val tableRootPath = tahoe.path
+        splitInfos.zip(partitions).map {
+          case (localFiles: LocalFilesNode, (filePartition: FilePartition, _)) =>
+            val startedAt = System.nanoTime()
+            val normalized =
+              try {
+                DeltaDeletionVectorScanInfo.normalize(
+                  filePartition.files.toSeq,
+                  tableRootPath,
+                  Some(deletionVectorReadMetrics))
+              } finally {
+                metrics("dvDescriptorPreparationTime").add(System.nanoTime() - startedAt)
+              }
+            normalized
+              .map {
+                case (otherMetadataColumns, deltaReadOptions) =>
+                  metrics("dvDescriptorCount")
+                    .add(deltaReadOptions.count(_.hasDeletionVector()).toLong)
+                  DeltaLocalFilesBuilder.makeDeltaLocalFiles(
+                    localFiles,
+                    otherMetadataColumns.asJava,
+                    deltaReadOptions.asJava): SplitInfo
+              }
+              .getOrElse(localFiles)
+          case (splitInfo, _) => splitInfo
+        }
+      case _ =>
+        splitInfos
+    }
+  }
+
+  private def deltaColumnMappingMode: Option[ColumnMappingMode] = relation.fileFormat match {
+    case d: DeltaParquetFileFormat =>
+      d.columnMappingMode match {
+        case NameMapping => Some(ColumnMappingMode.NAME)
+        // Preserves the previous Spark fallback behavior for IdMapping.
+        case _ => None
+      }
+    case _ => None
   }
 
   override def doCanonicalize(): DeltaScanTransformer = {
@@ -129,15 +258,31 @@ case class DeltaScanTransformer(
       QueryPlan.normalizePredicates(dataFilters, output),
       None,
       disableBucketedScan,
-      pushDownFilters.map(QueryPlan.normalizePredicates(_, output))
+      pushDownFilters.map(QueryPlan.normalizePredicates(_, output)),
+      requiredMapSubfields
     )
   }
 
   override def withNewPushdownFilters(filters: Seq[Expression]): BasicScanExecTransformer =
     copy(pushDownFilters = Some(filters))
+
+  // Under name or id column mapping the scan reads physical `col-<uuid>` names, which the rule
+  // renders from the logical schema; the paths would not match the file. Only a Delta Parquet
+  // format without column mapping prunes; any other format cannot be checked and is not pruned.
+  override def supportsMapKeyPruning: Boolean = relation.fileFormat match {
+    case d: DeltaParquetFileFormat => d.columnMappingMode == NoMapping
+    case _ => false
+  }
+
+  override def withRequiredMapSubfields(
+      subfields: Map[String, Seq[SubfieldPath]]): BasicScanExecTransformer =
+    copy(requiredMapSubfields = subfields)
 }
 
 object DeltaScanTransformer {
+
+  val DELETION_VECTOR_UNSUPPORTED = "Deletion vector is not supported in native."
+
   def apply(scanExec: FileSourceScanExec): DeltaScanTransformer = {
     new DeltaScanTransformer(
       scanExec.relation,

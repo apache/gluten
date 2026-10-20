@@ -122,25 +122,21 @@ object ExpressionConverter extends SQLConfHelper with Logging {
       expr)
   }
 
-  private def genRescaleDecimalTransformer(
+  private def genDecimalArithmeticTransformer(
       substraitName: String,
       b: BinaryArithmetic,
       attributeSeq: Seq[Attribute],
       expressionsMap: Map[Class[_], String]): DecimalArithmeticExpressionTransformer = {
-    val rescaleBinary = DecimalArithmeticUtil.rescaleLiteral(b)
-    val (left, right) = DecimalArithmeticUtil.rescaleCastForDecimal(
-      DecimalArithmeticUtil.removeCastForDecimal(rescaleBinary.left),
-      DecimalArithmeticUtil.removeCastForDecimal(rescaleBinary.right))
     val resultType = DecimalArithmeticUtil.getResultType(
       b,
-      left.dataType.asInstanceOf[DecimalType],
-      right.dataType.asInstanceOf[DecimalType]
+      b.left.dataType.asInstanceOf[DecimalType],
+      b.right.dataType.asInstanceOf[DecimalType]
     )
 
     val leftChild =
-      replaceWithExpressionTransformer0(left, attributeSeq, expressionsMap)
+      replaceWithExpressionTransformer0(b.left, attributeSeq, expressionsMap)
     val rightChild =
-      replaceWithExpressionTransformer0(right, attributeSeq, expressionsMap)
+      replaceWithExpressionTransformer0(b.right, attributeSeq, expressionsMap)
     DecimalArithmeticExpressionTransformer(substraitName, leftChild, rightChild, resultType, b)
   }
 
@@ -323,6 +319,13 @@ object ExpressionConverter extends SQLConfHelper with Logging {
         val children =
           c.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap))
         CreateMapTransformer(substraitExprName, children, c)
+      case ea: ElementAt =>
+        BackendsApiManager.getSparkPlanExecApiInstance.genElementAtTransformer(
+          substraitExprName,
+          replaceWithExpressionTransformer0(ea.left, attributeSeq, expressionsMap),
+          replaceWithExpressionTransformer0(ea.right, attributeSeq, expressionsMap),
+          ea
+        )
       case g: GetMapValue =>
         BackendsApiManager.getSparkPlanExecApiInstance.genGetMapValueTransformer(
           substraitExprName,
@@ -570,6 +573,18 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           ),
           r
         )
+      case instr: RegExpInStr =>
+        // Spark's RegExpInStr carries a third `idx` child but ignores it during
+        // evaluation (it always returns the start position of the whole match).
+        // Velox's regexp_instr only takes (subject, regexp), so drop the idx child.
+        GenericExpressionTransformer(
+          substraitExprName,
+          Seq(
+            replaceWithExpressionTransformer0(instr.subject, attributeSeq, expressionsMap),
+            replaceWithExpressionTransformer0(instr.regexp, attributeSeq, expressionsMap)
+          ),
+          instr
+        )
       case size: Size =>
         // Covers Spark ArraySize which is replaced by Size(child, false).
         val child =
@@ -622,18 +637,14 @@ object ExpressionConverter extends SQLConfHelper with Logging {
             LiteralTransformer(m.nullOnOverflow)),
           m
         )
-      case PromotePrecision(_ @Cast(child, _: DecimalType, _, _))
-          if child.dataType
-            .isInstanceOf[DecimalType] && !BackendsApiManager.getSettings.transformCheckOverflow =>
-        replaceWithExpressionTransformer0(child, attributeSeq, expressionsMap)
-      case _: NormalizeNaNAndZero | _: PromotePrecision | _: TaggingExpression |
-          _: DynamicPruningExpression =>
+      case _: NormalizeNaNAndZero | _: TaggingExpression | _: DynamicPruningExpression =>
         ChildTransformer(
           substraitExprName,
           replaceWithExpressionTransformer0(expr.children.head, attributeSeq, expressionsMap),
           expr
         )
-      case _: GetDateField | _: GetTimeField =>
+      case e @ (_: GetDateField | _: GetTimeField)
+          if DateTimeExpressionsTransformer.EXTRACT_DATE_FIELD_MAPPING.contains(e.getClass) =>
         ExtractDateTransformer(
           substraitExprName,
           replaceWithExpressionTransformer0(expr.children.head, attributeSeq, expressionsMap),
@@ -643,18 +654,11 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           substraitExprName,
           expr.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
           expr)
-      case CheckOverflow(b: BinaryArithmetic, decimalType, _)
-          if !BackendsApiManager.getSettings.transformCheckOverflow &&
-            DecimalArithmeticUtil.isDecimalArithmetic(b) =>
-        val arithmeticExprName =
-          BackendsApiManager.getSparkPlanExecApiInstance.getDecimalArithmeticExprName(
-            getAndCheckSubstraitName(b, expressionsMap),
-            SparkShimLoader.getSparkShims.decimalAllowPrecisionLoss(b))
-        val left =
-          replaceWithExpressionTransformer0(b.left, attributeSeq, expressionsMap)
-        val right =
-          replaceWithExpressionTransformer0(b.right, attributeSeq, expressionsMap)
-        DecimalArithmeticExpressionTransformer(arithmeticExprName, left, right, decimalType, b)
+      case _: FormatNumber =>
+        BackendsApiManager.getSparkPlanExecApiInstance.genFormatNumberTransformer(
+          substraitExprName,
+          expr.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
+          expr)
       case c: CheckOverflow =>
         CheckOverflowTransformer(
           substraitExprName,
@@ -667,6 +671,7 @@ object ExpressionConverter extends SQLConfHelper with Logging {
       case b: BinaryArithmetic if DecimalArithmeticUtil.isDecimalArithmetic(b) =>
         val exprName = BackendsApiManager.getSparkPlanExecApiInstance.getDecimalArithmeticExprName(
           substraitExprName,
+          b,
           SparkShimLoader.getSparkShims.decimalAllowPrecisionLoss(b))
         if (!BackendsApiManager.getSettings.transformCheckOverflow) {
           GenericExpressionTransformer(
@@ -675,9 +680,7 @@ object ExpressionConverter extends SQLConfHelper with Logging {
             expr
           )
         } else {
-          // Without the rescale and remove cast, result is right for high version Spark,
-          // but performance regression in velox
-          genRescaleDecimalTransformer(exprName, b, attributeSeq, expressionsMap)
+          genDecimalArithmeticTransformer(exprName, b, attributeSeq, expressionsMap)
         }
       case n: NaNvl =>
         BackendsApiManager.getSparkPlanExecApiInstance.genNaNvlTransformer(
@@ -693,8 +696,17 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           a
         )
       case m: MakeTimestamp =>
+        // The 4 make_timestamp* builtins share this class; resolve the name from
+        // dataType/failOnError since the static expressionsMap can't.
+        val isNtz = m.dataType.typeName == "timestamp_ntz"
+        val makeTimestampExprName = (isNtz, m.failOnError) match {
+          case (true, true) => ExpressionNames.MAKE_TIMESTAMP_NTZ
+          case (true, false) => ExpressionNames.TRY_MAKE_TIMESTAMP_NTZ
+          case (false, true) => ExpressionNames.MAKE_TIMESTAMP
+          case (false, false) => ExpressionNames.TRY_MAKE_TIMESTAMP
+        }
         BackendsApiManager.getSparkPlanExecApiInstance.genMakeTimestampTransformer(
-          substraitExprName,
+          makeTimestampExprName,
           m.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
           m)
       case tsAdd: BinaryExpression if tsAdd.getClass.getSimpleName.equals("TimestampAdd") =>
@@ -831,9 +843,12 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           replaceWithExpressionTransformer0(a.function, attributeSeq, expressionsMap),
           a
         )
-      case arrayInsert if arrayInsert.getClass.getSimpleName.equals("ArrayInsert") =>
-        // Since spark 3.4.0
-        val children = SparkShimLoader.getSparkShims.extractExpressionArrayInsert(arrayInsert)
+      case arrayInsert: ArrayInsert =>
+        val children = Seq(
+          arrayInsert.srcArrayExpr,
+          arrayInsert.posExpr,
+          arrayInsert.itemExpr,
+          Literal(arrayInsert.legacyNegativeIndex))
         BackendsApiManager.getSparkPlanExecApiInstance.genArrayInsertTransformer(
           substraitExprName,
           children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
@@ -965,8 +980,6 @@ object ExpressionConverter extends SQLConfHelper with Logging {
   private def bindGetStructField(
       structField: GetStructField,
       input: AttributeSeq): BoundReference = {
-    // get the new ordinal base input
-    var newOrdinal: Int = -1
     val names = new ArrayBuffer[String]
     var root: Expression = structField
     while (root.isInstanceOf[GetStructField]) {
@@ -979,31 +992,34 @@ object ExpressionConverter extends SQLConfHelper with Logging {
     if (!root.isInstanceOf[AttributeReference]) {
       return BoundReference(structField.ordinal, structField.dataType, structField.nullable)
     }
-    names += root.asInstanceOf[AttributeReference].name
-    input.attrs.foreach(
-      attribute => {
-        var level = names.size - 1
-        if (names(level) == attribute.name) {
-          var candidateFields: Array[StructField] = null
-          var dtType = attribute.dataType
-          while (dtType.isInstanceOf[StructType] && level >= 1) {
-            candidateFields = dtType.asInstanceOf[StructType].fields
-            level -= 1
-            val curName = names(level)
-            for (i <- 0 until candidateFields.length) {
-              if (candidateFields(i).name == curName) {
-                dtType = candidateFields(i).dataType
-                newOrdinal = i
-              }
-            }
-          }
-        }
-      })
-    if (newOrdinal == -1) {
+    def cannotBind(reason: String): Nothing =
       throw new IllegalStateException(
-        s"Couldn't find $structField in ${input.attrs.mkString("[", ",", "]")}")
-    } else {
-      BoundReference(newOrdinal, structField.dataType, structField.nullable)
+        s"Couldn't bind $structField ($reason) in ${input.attrs.mkString("[", ",", "]")}")
+    // Bind the root by exprId like BindReferences: the input can hold several same-named struct
+    // attributes with different layouts, e.g. a struct column of the same name on both join sides.
+    val rootAttr = root.asInstanceOf[AttributeReference]
+    val rootIndex = input.indexOf(rootAttr.exprId)
+    if (rootIndex < 0) {
+      cannotBind(s"no input attribute with the exprId of ${rootAttr.name}")
     }
+    val attribute = input.attrs(rootIndex)
+    // Same layout as the one the expression was resolved against, so its own ordinal is right.
+    // It is also the only right answer when the struct has duplicate field names.
+    if (attribute.dataType == rootAttr.dataType) {
+      return BoundReference(structField.ordinal, structField.dataType, structField.nullable)
+    }
+    // The input struct type differs (e.g. nested nullability merged by a union): look each level
+    // up by name from the root down, and fall back instead of guessing on a duplicate name.
+    val (_, ordinal) = names.reverseIterator.foldLeft[(DataType, Int)]((attribute.dataType, -1)) {
+      case ((struct: StructType, _), name) =>
+        struct.fields.indexWhere(_.name == name) match {
+          case -1 => cannotBind(s"no field $name")
+          case idx if struct.fields.lastIndexWhere(_.name == name) != idx =>
+            cannotBind(s"ambiguous field $name")
+          case idx => (struct.fields(idx).dataType, idx)
+        }
+      case ((other, _), name) => cannotBind(s"field $name looked up in non-struct $other")
+    }
+    BoundReference(ordinal, structField.dataType, structField.nullable)
   }
 }

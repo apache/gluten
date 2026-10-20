@@ -186,11 +186,12 @@ object PullOutGenerateProjectHelper extends PullOutProjectHelper {
             // NOTE: DO NOT use eliminateProjectList to create the project list because
             // newGeneratorChild can be a duplicated Attribute in generate.child.output. The native
             // side identifies the last field of projection as generator's input.
-            val newGeneratorChildren = Seq(expressionMap.values.head)
+            val aliasExpr = expressionMap.values.head
             generate.copy(
-              generator =
-                generate.generator.withNewChildren(newGeneratorChildren).asInstanceOf[Generator],
-              child = ProjectExec(generate.child.output ++ newGeneratorChildren, generate.child)
+              generator = generate.generator
+                .withNewChildren(Seq(aliasExpr.toAttribute))
+                .asInstanceOf[Generator],
+              child = ProjectExec(generate.child.output ++ Seq(aliasExpr), generate.child)
             )
           } else {
             // generator.child is Attribute, no need to introduce a Project.
@@ -333,10 +334,13 @@ object PullOutGenerateProjectHelper extends PullOutProjectHelper {
             }
             ProjectExec(generate.requiredChildOutput ++ newOutput, newGenerate)
           }
-        case Explode(_) if generate.outer =>
-          // Drop the last column of generatorOutput, which is the boolean representing whether
-          // the null value is unnested from the input array/map (e.g. array(1, null)), or the
-          // array/map itself is null or empty (e.g. array(), map(), null).
+        case (_: Explode | _: Stack) if generate.outer =>
+          // Drop the last column of generatorOutput, which is the boolean marker Velox's Unnest
+          // appends for an OUTER generator (true when the row is a real unnested value, false for
+          // the synthetic padding row of an empty/null input). Explode and Stack share this
+          // layout -- value columns followed by the trailing marker, with no ordinality column --
+          // so the same handling applies to both. Wrap each output column in a CaseWhen on the
+          // marker so the padding row projects NULLs.
           val isPresent =
             AttributeReference(generatePostAliasName, BooleanType, nullable = true)()
           val newGenerate =

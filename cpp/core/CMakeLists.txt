@@ -87,7 +87,8 @@ set(PROTO_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/proto")
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/proto)
 
 # List Substrait Proto compiled files
-file(GLOB SUBSTRAIT_PROTO_FILES ${SUBSTRAIT_PROTO_SRC_DIR}/substrait/*.proto
+file(GLOB SUBSTRAIT_PROTO_FILES CONFIGURE_DEPENDS
+     ${SUBSTRAIT_PROTO_SRC_DIR}/substrait/*.proto
      ${SUBSTRAIT_PROTO_SRC_DIR}/substrait/extensions/*.proto)
 foreach(PROTO ${SUBSTRAIT_PROTO_FILES})
   file(RELATIVE_PATH REL_PROTO ${SUBSTRAIT_PROTO_SRC_DIR} ${PROTO})
@@ -99,11 +100,9 @@ set(SUBSTRAIT_PROTO_OUTPUT_FILES ${SUBSTRAIT_PROTO_HDRS}
                                  ${SUBSTRAIT_PROTO_SRCS})
 set_source_files_properties(${SUBSTRAIT_PROTO_OUTPUT_FILES} PROPERTIES GENERATED
                                                                        TRUE)
-get_filename_component(SUBSTRAIT_PROTO_DIR ${SUBSTRAIT_PROTO_SRC_DIR}/
-                       DIRECTORY)
 
 # List Gluten Proto compiled files
-file(GLOB GLUTEN_PROTO_FILES ${GLUTEN_PROTO_SRC_DIR}/*.proto)
+file(GLOB GLUTEN_PROTO_FILES CONFIGURE_DEPENDS ${GLUTEN_PROTO_SRC_DIR}/*.proto)
 foreach(PROTO ${GLUTEN_PROTO_FILES})
   file(RELATIVE_PATH REL_PROTO ${GLUTEN_PROTO_SRC_DIR} ${PROTO})
   string(REGEX REPLACE "\\.proto" "" PROTO_NAME ${REL_PROTO})
@@ -113,7 +112,6 @@ endforeach()
 set(GLUTEN_PROTO_OUTPUT_FILES ${GLUTEN_PROTO_HDRS} ${GLUTEN_PROTO_SRCS})
 set_source_files_properties(${GLUTEN_PROTO_OUTPUT_FILES} PROPERTIES GENERATED
                                                                     TRUE)
-get_filename_component(GLUTEN_PROTO_DIR ${GLUTEN_PROTO_SRC_DIR}/ DIRECTORY)
 
 set(SPARK_COLUMNAR_PLUGIN_SRCS
     ${SUBSTRAIT_PROTO_SRCS}
@@ -122,7 +120,6 @@ set(SPARK_COLUMNAR_PLUGIN_SRCS
     compute/ProtobufUtils.cc
     compute/ResultIterator.cc
     config/GlutenConfig.cc
-    jni/JniWrapper.cc
     memory/AllocationListener.cc
     memory/MemoryAllocator.cc
     memory/MemoryManager.cc
@@ -154,8 +151,11 @@ set(SPARK_COLUMNAR_PLUGIN_SRCS
     jni/TaskContextJniWrapper.cc)
 
 file(MAKE_DIRECTORY ${root_directory}/releases)
-add_library(gluten SHARED ${SPARK_COLUMNAR_PLUGIN_SRCS})
-add_dependencies(gluten jni_proto)
+add_library(gluten_core_impl OBJECT ${SPARK_COLUMNAR_PLUGIN_SRCS})
+set_target_properties(gluten_core_impl PROPERTIES POSITION_INDEPENDENT_CODE ON)
+add_dependencies(gluten_core_impl jni_proto)
+add_library(gluten SHARED jni/JniWrapper.cc)
+target_link_libraries(gluten PRIVATE gluten_core_impl)
 
 # Hide symbols of some static dependencies. Otherwise, if such dependencies are
 # already statically linked to libvelox.so, a runtime error will be reported:
@@ -194,34 +194,36 @@ if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9.0)
     OUTPUT_STRIP_TRAILING_WHITESPACE)
   if(LIBSTDCXXFS_STATIC_RESULT EQUAL 0 AND EXISTS "${LIBSTDCXXFS_STATIC_PATH}")
     message(STATUS "libstdc++fs.a found at: ${LIBSTDCXXFS_STATIC_PATH}")
-    target_link_libraries(gluten PRIVATE ${LIBSTDCXXFS_STATIC_PATH})
+    target_link_libraries(gluten_core_impl PRIVATE ${LIBSTDCXXFS_STATIC_PATH})
   else()
     find_library(LIBSTDCXXFS stdc++fs REQUIRED)
-    target_link_libraries(gluten PUBLIC ${LIBSTDCXXFS})
+    target_link_libraries(gluten_core_impl PUBLIC ${LIBSTDCXXFS})
   endif()
 endif()
 
-find_arrow_lib(${ARROW_LIB_NAME})
-find_arrow_lib(${ARROW_BUNDLED_DEPS})
+if(NOT ENABLE_GLUTEN_VCPKG)
+  find_arrow_lib(${ARROW_LIB_NAME})
+  find_arrow_lib(${ARROW_BUNDLED_DEPS})
+endif()
 
 if(ENABLE_QAT)
   include(BuildQATzip)
   include(BuildQATZstd)
-  target_sources(gluten PRIVATE utils/qat/QatCodec.cc)
-  target_include_directories(gluten PUBLIC ${QATZIP_INCLUDE_DIR}
-                                           ${QATZSTD_INCLUDE_DIR})
-  target_link_libraries(gluten PUBLIC qatzip::qatzip qatzstd::qatzstd)
+  target_sources(gluten_core_impl PRIVATE utils/qat/QatCodec.cc)
+  target_include_directories(gluten_core_impl PUBLIC ${QATZIP_INCLUDE_DIR}
+                                                     ${QATZSTD_INCLUDE_DIR})
+  target_link_libraries(gluten_core_impl PUBLIC qatzip::qatzip qatzstd::qatzstd)
 endif()
 
 find_protobuf()
 message(STATUS "Found Protobuf: ${PROTOBUF_LIBRARY}")
-target_link_libraries(gluten LINK_PUBLIC ${PROTOBUF_LIBRARY})
+target_link_libraries(gluten_core_impl LINK_PUBLIC ${PROTOBUF_LIBRARY})
 
 add_custom_command(
   OUTPUT ${SUBSTRAIT_PROTO_OUTPUT_FILES}
   COMMAND ${PROTOC_BIN} --proto_path ${SUBSTRAIT_PROTO_SRC_DIR}/ --cpp_out
           ${PROTO_OUTPUT_DIR} ${SUBSTRAIT_PROTO_FILES}
-  DEPENDS ${SUBSTRAIT_PROTO_DIR}
+  DEPENDS ${SUBSTRAIT_PROTO_FILES}
   COMMENT "Running Substrait PROTO compiler"
   VERBATIM)
 
@@ -229,7 +231,7 @@ add_custom_command(
   OUTPUT ${GLUTEN_PROTO_OUTPUT_FILES}
   COMMAND ${PROTOC_BIN} --proto_path ${GLUTEN_PROTO_SRC_DIR}/ --cpp_out
           ${PROTO_OUTPUT_DIR} ${GLUTEN_PROTO_FILES}
-  DEPENDS ${GLUTEN_PROTO_DIR}
+  DEPENDS ${GLUTEN_PROTO_FILES}
   COMMENT "Running Gluten PROTO compiler"
   VERBATIM)
 
@@ -238,11 +240,12 @@ add_custom_target(jni_proto ALL DEPENDS ${SUBSTRAIT_PROTO_OUTPUT_FILES}
 add_dependencies(jni_proto protobuf::libprotobuf)
 
 target_include_directories(
-  gluten
+  gluten_core_impl
   PUBLIC ${CMAKE_SYSTEM_INCLUDE_PATH} ${JNI_INCLUDE_DIRS}
          ${CMAKE_CURRENT_SOURCE_DIR} ${PROTO_OUTPUT_DIR} ${PROTOBUF_INCLUDE})
 if(GLUTEN_PREFIX_INCLUDE_DIRS)
-  target_include_directories(gluten BEFORE PUBLIC ${GLUTEN_PREFIX_INCLUDE_DIRS})
+  target_include_directories(gluten_core_impl BEFORE
+                             PUBLIC ${GLUTEN_PREFIX_INCLUDE_DIRS})
 endif()
 set_target_properties(gluten PROPERTIES LIBRARY_OUTPUT_DIRECTORY
                                         ${root_directory}/releases)
@@ -251,9 +254,12 @@ if(BUILD_TESTS)
   add_subdirectory(tests)
 endif()
 
-target_link_libraries(gluten PUBLIC Arrow::arrow
-                                    Arrow::arrow_bundled_dependencies)
-target_link_libraries(gluten PRIVATE google::glog)
+target_link_libraries(gluten_core_impl PUBLIC Arrow::arrow)
+if(NOT ENABLE_GLUTEN_VCPKG)
+  target_link_libraries(gluten_core_impl
+                        PUBLIC Arrow::arrow_bundled_dependencies)
+endif()
+target_link_libraries(gluten_core_impl PRIVATE glog::glog)
 
 install(TARGETS gluten DESTINATION ${CMAKE_INSTALL_LIBDIR})
 

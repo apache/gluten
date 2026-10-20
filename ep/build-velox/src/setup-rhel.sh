@@ -203,8 +203,12 @@ function install_c-ares {
 function install_s3 {
   install_aws_deps
 
-  local MINIO_OS="linux"
-  install_minio ${MINIO_OS}
+  # Velox renamed install_minio to install_silo; support both.
+  if declare -F install_silo > /dev/null; then
+    install_silo linux
+  else
+    install_minio linux
+  fi
 }
 
 function install_gcs {

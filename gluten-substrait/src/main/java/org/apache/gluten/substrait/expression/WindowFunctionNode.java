@@ -17,14 +17,15 @@
 package org.apache.gluten.substrait.expression;
 
 import org.apache.gluten.exception.GlutenException;
+import org.apache.gluten.exception.GlutenNotSupportException;
 import org.apache.gluten.expression.ExpressionConverter;
 import org.apache.gluten.substrait.SubstraitContext;
 import org.apache.gluten.substrait.type.TypeNode;
 
+import io.substrait.proto.ConsistentPartitionWindowRel;
 import io.substrait.proto.Expression;
 import io.substrait.proto.FunctionArgument;
 import io.substrait.proto.FunctionOption;
-import io.substrait.proto.WindowType;
 import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.PreComputeRangeFrameBound;
 
@@ -72,6 +73,23 @@ public class WindowFunctionNode implements Serializable {
     this.originalInputAttributes = originalInputAttributes;
   }
 
+  // A bound that does not parse as a long, such as the -1.50 of RANGE BETWEEN 1.5 PRECEDING on a
+  // decimal key, throws GlutenNotSupportException so the window falls back; a
+  // NumberFormatException would fail the query instead.
+  private static Long parseOffset(org.apache.spark.sql.catalyst.expressions.Expression boundType) {
+    String raw = String.valueOf(boundType.eval(null));
+    try {
+      return Long.parseLong(raw);
+    } catch (NumberFormatException e) {
+      throw new GlutenNotSupportException(
+          "Window frame bound is not a long offset: "
+              + raw
+              + " ("
+              + boundType.dataType().simpleString()
+              + ")");
+    }
+  }
+
   private Expression.WindowFunction.Bound.Builder setBound(
       Expression.WindowFunction.Bound.Builder builder,
       org.apache.spark.sql.catalyst.expressions.Expression boundType) {
@@ -82,14 +100,11 @@ public class WindowFunctionNode implements Serializable {
         builder.setCurrentRow(currentRowBuilder.build());
         break;
       case ("UNBOUNDED PRECEDING"):
-        Expression.WindowFunction.Bound.Unbounded_Preceding.Builder precedingBuilder =
-            Expression.WindowFunction.Bound.Unbounded_Preceding.newBuilder();
-        builder.setUnboundedPreceding(precedingBuilder.build());
-        break;
       case ("UNBOUNDED FOLLOWING"):
-        Expression.WindowFunction.Bound.Unbounded_Following.Builder followingBuilder =
-            Expression.WindowFunction.Bound.Unbounded_Following.newBuilder();
-        builder.setUnboundedFollowing(followingBuilder.build());
+        // Substrait 0.98 collapses the two unbounded bounds into a single `unbounded`; the
+        // direction is inferred from position (lower bound = start of the partition, upper
+        // bound = end of the partition).
+        builder.setUnbounded(Expression.WindowFunction.Bound.Unbounded.newBuilder().build());
         break;
       default:
         if (boundType instanceof PreComputeRangeFrameBound) {
@@ -105,7 +120,7 @@ public class WindowFunctionNode implements Serializable {
                           .asScala()
                           .toSeq())
                   .doTransform(new SubstraitContext());
-          Long offset = Long.valueOf(boundType.eval(null).toString());
+          Long offset = parseOffset(boundType);
           if (offset < 0) {
             Expression.WindowFunction.Bound.Preceding.Builder refPrecedingBuilder =
                 Expression.WindowFunction.Bound.Preceding.newBuilder();
@@ -121,7 +136,7 @@ public class WindowFunctionNode implements Serializable {
           // Used when
           // 1. Velox backend and frame type is ROW
           // 2. Clickhouse backend
-          Long offset = Long.valueOf(boundType.eval(null).toString());
+          Long offset = parseOffset(boundType);
           if (offset < 0) {
             Expression.WindowFunction.Bound.Preceding.Builder offsetPrecedingBuilder =
                 Expression.WindowFunction.Bound.Preceding.newBuilder();
@@ -141,23 +156,24 @@ public class WindowFunctionNode implements Serializable {
     return builder;
   }
 
-  private WindowType getWindowType(String type) {
-    WindowType windowType;
+  private Expression.WindowFunction.BoundsType getBoundsType(String type) {
+    Expression.WindowFunction.BoundsType boundsType;
     switch (type) {
       case ("ROWS"):
-        windowType = WindowType.forNumber(0);
+        boundsType = Expression.WindowFunction.BoundsType.BOUNDS_TYPE_ROWS;
         break;
       case ("RANGE"):
-        windowType = WindowType.forNumber(1);
+        boundsType = Expression.WindowFunction.BoundsType.BOUNDS_TYPE_RANGE;
         break;
       default:
         throw new UnsupportedOperationException("Only support ROWS and RANGE Frame type.");
     }
-    return windowType;
+    return boundsType;
   }
 
-  public Expression.WindowFunction toProtobuf() {
-    Expression.WindowFunction.Builder windowBuilder = Expression.WindowFunction.newBuilder();
+  public ConsistentPartitionWindowRel.WindowRelFunction toProtobuf() {
+    ConsistentPartitionWindowRel.WindowRelFunction.Builder windowBuilder =
+        ConsistentPartitionWindowRel.WindowRelFunction.newBuilder();
     windowBuilder.setFunctionReference(functionId);
     if (ignoreNulls) {
       FunctionOption option = FunctionOption.newBuilder().setName("ignoreNulls").build();
@@ -179,7 +195,7 @@ public class WindowFunctionNode implements Serializable {
         Expression.WindowFunction.Bound.newBuilder();
     windowBuilder.setLowerBound(setBound(lowerBoundBuilder, lowerBound).build());
     windowBuilder.setUpperBound(setBound(upperBoundBuilder, upperBound).build());
-    windowBuilder.setWindowType(getWindowType(frameType));
+    windowBuilder.setBoundsType(getBoundsType(frameType));
     return windowBuilder.build();
   }
 }

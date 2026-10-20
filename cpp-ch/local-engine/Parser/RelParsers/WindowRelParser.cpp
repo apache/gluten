@@ -64,9 +64,8 @@ WindowRelParser::parse(DB::QueryPlanPtr current_plan_, const substrait::Rel & re
 
     // The output header is : original columns ++ window columns
     output_header = *current_plan->getCurrentHeader();
-    for (const auto & measure : win_rel_pb.measures())
+    for (const auto & win_function : win_rel_pb.window_functions())
     {
-        const auto & win_function = measure.measure();
         ColumnWithTypeAndName named_col;
         named_col.name = win_function.column_name();
         named_col.type = TypeParser::parseType(win_function.output_type());
@@ -120,8 +119,7 @@ std::unordered_map<String, WindowDescription> WindowRelParser::parseWindowDescri
     for (size_t i = 0; i < win_infos.size(); ++i)
     {
         auto & win_info = win_infos[i];
-        const auto & measure = *win_info.measure;
-        const auto & win_function = measure.measure();
+        const auto & win_function = *win_info.window_function;
         auto win_description = parseWindowDescription(win_info);
 
         /// Check whether there is already a window description with the same name
@@ -148,7 +146,7 @@ DB::WindowFrame WindowRelParser::parseWindowFrame(const WindowInfo & win_info)
 {
     DB::WindowFrame win_frame;
     const auto & signature_function_name = win_info.signature_function_name;
-    const auto & window_function = win_info.measure->measure();
+    const auto & window_function = *win_info.window_function;
     win_frame.type = parseWindowFrameType(signature_function_name, window_function);
     parseBoundType(window_function.lower_bound(), true, win_frame.begin_type, win_frame.begin_offset, win_frame.begin_preceding);
     parseBoundType(window_function.upper_bound(), false, win_frame.end_type, win_frame.end_offset, win_frame.end_preceding);
@@ -162,25 +160,27 @@ DB::WindowFrame WindowRelParser::parseWindowFrame(const WindowInfo & win_info)
     return win_frame;
 }
 
-DB::WindowFrame::FrameType
-WindowRelParser::parseWindowFrameType(const std::string & function_name, const substrait::Expression::WindowFunction & window_function)
+DB::WindowFrame::FrameType WindowRelParser::parseWindowFrameType(
+    const std::string & function_name, const substrait::ConsistentPartitionWindowRel::WindowRelFunction & window_function)
 {
     // It's weird! The frame type only could be rows in spark for rank(). But in clickhouse
     // it's should be range. If run rank() over rows frame, the result is different. The rank number
     // is different for the same values.
-    static const std::unordered_map<std::string, substrait::WindowType> special_function_frame_type
-        = {{"rank", substrait::RANGE}, {"dense_rank", substrait::RANGE}, {"percent_rank", substrait::RANGE}};
+    static const std::unordered_map<std::string, substrait::Expression_WindowFunction_BoundsType> special_function_frame_type
+        = {{"rank", substrait::Expression_WindowFunction_BoundsType_BOUNDS_TYPE_RANGE},
+           {"dense_rank", substrait::Expression_WindowFunction_BoundsType_BOUNDS_TYPE_RANGE},
+           {"percent_rank", substrait::Expression_WindowFunction_BoundsType_BOUNDS_TYPE_RANGE}};
 
-    substrait::WindowType frame_type;
+    substrait::Expression_WindowFunction_BoundsType frame_type;
     auto iter = special_function_frame_type.find(function_name);
     if (iter != special_function_frame_type.end())
         frame_type = iter->second;
     else
-        frame_type = window_function.window_type();
+        frame_type = window_function.bounds_type();
 
-    if (frame_type == substrait::ROWS)
+    if (frame_type == substrait::Expression_WindowFunction_BoundsType_BOUNDS_TYPE_ROWS)
         return DB::WindowFrame::FrameType::ROWS;
-    else if (frame_type == substrait::RANGE)
+    else if (frame_type == substrait::Expression_WindowFunction_BoundsType_BOUNDS_TYPE_RANGE)
         return DB::WindowFrame::FrameType::RANGE;
     else
         throw DB::Exception(DB::ErrorCodes::UNKNOWN_TYPE, "Unknow window frame type:{}", frame_type);
@@ -222,17 +222,13 @@ void WindowRelParser::parseBoundType(
         offset = 0;
         preceding_direction = is_begin_or_end;
     }
-    else if (bound.has_unbounded_preceding())
+    else if (bound.has_unbounded())
     {
+        // Substrait 0.98 collapses unbounded_preceding/unbounded_following into a single `unbounded`;
+        // the direction is inferred from position (begin bound = preceding, end bound = following).
         bound_type = DB::WindowFrame::BoundaryType::Unbounded;
         offset = 0;
-        preceding_direction = true;
-    }
-    else if (bound.has_unbounded_following())
-    {
-        bound_type = DB::WindowFrame::BoundaryType::Unbounded;
-        offset = 0;
-        preceding_direction = false;
+        preceding_direction = is_begin_or_end;
     }
     else
     {
@@ -242,7 +238,7 @@ void WindowRelParser::parseBoundType(
 
 WindowFunctionDescription WindowRelParser::parseWindowFunctionDescription(
     const String & ch_function_name,
-    const substrait::Expression::WindowFunction & window_function,
+    const substrait::ConsistentPartitionWindowRel::WindowRelFunction & window_function,
     const DB::Names & arg_names,
     const DB::DataTypes & arg_types,
     const DB::Array & params)
@@ -259,16 +255,16 @@ WindowFunctionDescription WindowRelParser::parseWindowFunctionDescription(
     return description;
 }
 
-void WindowRelParser::initWindowsInfos(const substrait::WindowRel & win_rel)
+void WindowRelParser::initWindowsInfos(const substrait::ConsistentPartitionWindowRel & win_rel)
 {
-    win_infos.reserve(win_rel.measures_size());
-    for (const auto & measure : win_rel.measures())
+    win_infos.reserve(win_rel.window_functions_size());
+    for (const auto & win_function : win_rel.window_functions())
     {
         WindowInfo win_info;
-        win_info.result_column_name = measure.measure().column_name();
-        win_info.measure = &measure;
-        win_info.signature_function_name = *parseSignatureFunctionName(measure.measure().function_reference());
-        win_info.parser_func_info = AggregateFunctionParser::CommonFunctionInfo(measure);
+        win_info.result_column_name = win_function.column_name();
+        win_info.window_function = &win_function;
+        win_info.signature_function_name = *parseSignatureFunctionName(win_function.function_reference());
+        win_info.parser_func_info = AggregateFunctionParser::CommonFunctionInfo(win_function);
         win_info.function_parser = AggregateFunctionParserFactory::instance().get(win_info.signature_function_name, parser_context);
         win_info.function_name = win_info.function_parser->getCHFunctionName(win_info.parser_func_info);
         win_info.partition_exprs = win_rel.partition_expressions();

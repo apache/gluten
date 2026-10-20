@@ -17,14 +17,24 @@
 
 #pragma once
 
+#include <optional>
+#include <string>
+#include <unordered_map>
+
 #include "substrait/SubstraitToVeloxPlan.h"
 #include "velox/connectors/hive/iceberg/IcebergDeleteFile.h"
 
 using namespace facebook::velox::connector::hive::iceberg;
 
 namespace gluten {
+struct IcebergColumnInfo {
+  int32_t fieldId;
+  std::optional<std::string> initialDefault;
+};
+
 struct IcebergSplitInfo : SplitInfo {
   std::vector<std::vector<IcebergDeleteFile>> deleteFilesVec;
+  std::unordered_map<std::string, IcebergColumnInfo> columns;
 
   IcebergSplitInfo(const SplitInfo& splitInfo) : SplitInfo(splitInfo) {
     // Reserve the actual size of the deleteFilesVec.
@@ -36,6 +46,7 @@ class IcebergPlanConverter {
  public:
   static std::shared_ptr<IcebergSplitInfo> parseIcebergSplitInfo(
       substrait::ReadRel_LocalFiles_FileOrFiles file,
+      const substrait::extensions::AdvancedExtension& extension,
       std::shared_ptr<SplitInfo> splitInfo);
 };
 

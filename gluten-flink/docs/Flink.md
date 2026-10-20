@@ -8,7 +8,7 @@ nav_order: 1
 
 | Type  | Version                      |
 |-------|------------------------------|
-| Flink | 1.19.2                       |
+| Flink | 1.19.3                       |
 | OS    | Ubuntu20.04/22.04, Centos7/8 |
 | jdk   | openjdk11/jdk17              |
 | scala | 2.12                         |
@@ -17,7 +17,7 @@ nav_order: 1
 
 Currently, with static build Gluten+Flink+Velox backend supports all the Linux OSes, but is only tested on **Ubuntu20.04**. With dynamic build, Gluten+Velox backend support **Ubuntu20.04/Ubuntu22.04/Centos7/Centos8** and their variants.
 
-Currently, the officially supported Flink version is 1.19.2.
+Currently, the officially supported Flink version is 1.19.3.
 
 We need to set up the `JAVA_HOME` env. Currently, Gluten supports **java 11** and **java 17**.
 
@@ -46,9 +46,9 @@ As some features have not been committed to upstream, you have to use the follow
 
 ```bash
 ## fetch velox4j code
-git clone -b gluten-0530 https://github.com/bigo-sg/velox4j.git
+git clone -b gluten-20260829 https://github.com/bigo-sg/velox4j.git
 cd velox4j
-git reset --hard feb921eabe637bff88eda0fc753d36bbe422fe87
+git reset --hard 26c7715278e6f6795084f6334998cb2ce382f7aa
 mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
 ```
 **Get gluten**

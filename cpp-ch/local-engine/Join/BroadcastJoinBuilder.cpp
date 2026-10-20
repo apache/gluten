@@ -173,7 +173,7 @@ std::shared_ptr<StorageJoinFromReadBuffer> buildJoin(
     if (is_bhj)
         std::tie(kind, strictness) = JoinUtil::getJoinKindAndStrictness(static_cast<substrait::JoinRel_JoinType>(join_type), is_existence_join);
     else
-        std::tie(kind, strictness) = JoinUtil::getCrossJoinKindAndStrictness(static_cast<substrait::CrossRel_JoinType>(join_type));
+        std::tie(kind, strictness) = JoinUtil::getCrossJoinKindAndStrictness(static_cast<substrait::NestedLoopJoinRel_JoinType>(join_type));
 
     substrait::NamedStruct substrait_struct;
     substrait_struct.ParseFromString(named_struct);

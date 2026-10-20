@@ -31,6 +31,14 @@ const ::substrait::Type& VeloxToSubstraitTypeConvertor::toSubstraitType(
     substraitType->set_allocated_date(substraitDate);
     return *substraitType;
   }
+  if (type->equivalent(*velox::TIMESTAMP_UTC())) {
+    auto substraitPrecisionTimestamp =
+        google::protobuf::Arena::CreateMessage<::substrait::Type_PrecisionTimestamp>(&arena);
+    substraitPrecisionTimestamp->set_precision(6);
+    substraitPrecisionTimestamp->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+    substraitType->set_allocated_precision_timestamp(substraitPrecisionTimestamp);
+    return *substraitType;
+  }
 
   switch (type->kind()) {
     case velox::TypeKind::BOOLEAN: {
@@ -88,9 +96,12 @@ const ::substrait::Type& VeloxToSubstraitTypeConvertor::toSubstraitType(
       break;
     }
     case velox::TypeKind::TIMESTAMP: {
-      auto substraitTimestampTZ = google::protobuf::Arena::CreateMessage<::substrait::Type_TimestampTZ>(&arena);
+      auto substraitTimestampTZ =
+          google::protobuf::Arena::CreateMessage<::substrait::Type_PrecisionTimestampTZ>(&arena);
+      // Velox TIMESTAMP is microsecond precision.
+      substraitTimestampTZ->set_precision(6);
       substraitTimestampTZ->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
-      substraitType->set_allocated_timestamp_tz(substraitTimestampTZ);
+      substraitType->set_allocated_precision_timestamp_tz(substraitTimestampTZ);
       break;
     }
     case velox::TypeKind::ARRAY: {
@@ -111,9 +122,10 @@ const ::substrait::Type& VeloxToSubstraitTypeConvertor::toSubstraitType(
     case velox::TypeKind::ROW: {
       ::substrait::Type_Struct* substraitStruct =
           google::protobuf::Arena::CreateMessage<::substrait::Type_Struct>(&arena);
-      for (const auto& child : type->asRow().children()) {
-        substraitStruct->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
-        substraitStruct->add_types()->MergeFrom(toSubstraitType(arena, child));
+      const auto& rowType = type->asRow();
+      for (uint32_t i = 0; i < rowType.size(); ++i) {
+        substraitStruct->add_types()->MergeFrom(toSubstraitType(arena, rowType.childAt(i)));
+        substraitStruct->add_names(rowType.nameOf(i));
       }
       substraitStruct->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
       substraitType->set_allocated_struct_(substraitStruct);

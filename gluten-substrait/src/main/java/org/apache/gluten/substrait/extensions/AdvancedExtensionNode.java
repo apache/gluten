@@ -51,7 +51,7 @@ public class AdvancedExtensionNode implements Serializable {
   public AdvancedExtension toProtobuf() {
     AdvancedExtension.Builder extensionBuilder = AdvancedExtension.newBuilder();
     if (optimization != null) {
-      extensionBuilder.setOptimization(optimization);
+      extensionBuilder.addOptimization(optimization);
     }
     if (enhancement != null) {
       extensionBuilder.setEnhancement(enhancement);

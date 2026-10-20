@@ -18,6 +18,8 @@ package org.apache.gluten.spi
 
 import org.apache.gluten.jni.JniLibLoader
 
+import java.util.Locale
+
 class SharedLibraryLoaderCentos8 extends SharedLibraryLoader {
 
   override def accepts(osName: String, osVersion: String): Boolean = {
@@ -26,7 +28,7 @@ class SharedLibraryLoaderCentos8 extends SharedLibraryLoader {
     (osName.contains("Anolis") && osVersion.startsWith("8")) ||
     (osName.contains("Red Hat") && osVersion.startsWith("8")) ||
     (osName.contains("Alibaba Cloud Linux") && osVersion.startsWith("3")) ||
-    (osName.contains("tencentos") && osVersion.contains("3.2"))
+    (osName.toLowerCase(Locale.ROOT).contains("tencentos") && osVersion.contains("3.2"))
   }
 
   override def loadLib(loader: JniLibLoader): Unit = {
@@ -42,7 +44,7 @@ class SharedLibraryLoaderCentos8 extends SharedLibraryLoader {
     loader.loadAndCreateLink("libboost_context.so.1.84.0", "libboost_context.so")
     loader.loadAndCreateLink("libdouble-conversion.so.3", "libdouble-conversion.so")
     loader.loadAndCreateLink("libevent-2.1.so.6", "libevent-2.1.so")
-    loader.loadAndCreateLink("libgflags.so.2.2", "libgflags.so")
+    loader.loadAndCreateLink("libgflags.so.2.3", "libgflags.so")
     loader.loadAndCreateLink("libglog.so.1", "libglog.so")
     loader.loadAndCreateLink("libdwarf.so.1", "libdwarf.so")
     loader.loadAndCreateLink("libre2.so.0", "libre2.so")

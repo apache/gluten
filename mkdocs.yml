@@ -58,6 +58,7 @@ nav:
   - Substrait Modifications: developers/SubstraitModifications.md
   - Micro Benchmarks: developers/MicroBenchmarks.md
   - Velox UDF and UDAF: developers/VeloxUDF.md
+  - Updating the Function Support Docs: developers/UpdateFunctionSupportDocs.md
   - Velox Function Development: developers/velox-function-development-guide.md
   - Velox Backend CI: developers/velox-backend-CI.md
   - Build in Docker: developers/velox-backend-build-in-docker.md
@@ -66,6 +67,7 @@ nav:
   - Memory Profiling: developers/ProfileMemoryOfGlutenWithVelox.md
   - Dynamic Off-Heap Sizing: developers/VeloxDynamicSizingOffheap.md
   - Partial Project: developers/PartialProject.md
+  - Arrow Columnar Conversion: developers/ArrowColumnarConversion.md
   - Bloop Integration: developers/bloop-integration.md
   - Debug CH Backend: developers/clickhouse-backend-debug.md
   - Jemalloc with CH: developers/UsingJemallocWithCH.md

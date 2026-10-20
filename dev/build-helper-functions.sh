@@ -212,6 +212,23 @@ function cmake_install {
   ${SUDO} cmake --install "${BINARY_DIR}"
 }
 
+function install_librdkafka() (
+  local version="v2.13.0"
+  source "${GLUTEN_DIR}/dev/build-helper-functions.sh"
+  # Reuse the Kafka build directory on repeat installs.
+  prompt() { return 1; }
+  local dependency_dir="${DEPENDENCY_DIR:-${GLUTEN_DIR}/ep/_ep}"
+  mkdir -p "${dependency_dir}"
+  cd "${dependency_dir}"
+  wget_and_untar "https://github.com/confluentinc/librdkafka/archive/refs/tags/${version}.tar.gz" librdkafka
+  cd librdkafka
+  cmake_install -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}" -DCMAKE_INSTALL_LIBDIR=lib \
+    -DRDKAFKA_BUILD_STATIC=ON -DRDKAFKA_BUILD_TESTS=OFF -DRDKAFKA_BUILD_EXAMPLES=OFF \
+    -DENABLE_LZ4_EXT=OFF -DWITH_SSL=ON -DWITH_ZLIB=ON -DWITH_ZSTD=ON \
+    -DWITH_SASL=OFF -DWITH_CURL=OFF \
+    -DWITH_SASL_SCRAM=ON -DWITH_SASL_OAUTHBEARER=ON
+)
+
 function setup_macos {
   sed -i '' '/run_and_time install_arrow/d' scripts/setup-macos.sh
   if [ $ARCH == 'x86_64' ]; then
@@ -232,18 +249,13 @@ function setup_linux {
   export SIMDJSON_SKIPUTF8VALIDATION=ON
 
   if [[ "$LINUX_DISTRIBUTION" == "ubuntu" || "$LINUX_DISTRIBUTION" == "debian" || "$LINUX_DISTRIBUTION" == "pop" ]]; then
+    source scripts/setup-ubuntu.sh
     scripts/setup-ubuntu.sh
   elif [[ "$LINUX_DISTRIBUTION" == "centos" ]]; then
+    source scripts/setup-centos-adapters.sh 
     case "$LINUX_VERSION_ID" in
     9) scripts/setup-centos9.sh ;;
     8) $GLUTEN_VELOX_SCRIPT_HOME/setup-centos8.sh ;;
-    7)
-      $GLUTEN_VELOX_SCRIPT_HOME/setup-centos7.sh
-      set +u
-      export PKG_CONFIG_PATH=/usr/local/lib64/pkgconfig:/usr/local/lib/pkgconfig:/usr/lib64/pkgconfig:/usr/lib/pkgconfig:$PKG_CONFIG_PATH
-      source /opt/rh/devtoolset-11/enable
-      set -u
-      ;;
     *)
       echo "Unsupported centos version: $LINUX_VERSION_ID"
       exit 1
@@ -252,6 +264,7 @@ function setup_linux {
   elif [[ "$LINUX_DISTRIBUTION" == "openEuler" ]]; then
     case "$LINUX_VERSION_ID" in
       24.03)
+        source $GLUTEN_VELOX_SCRIPT_HOME/setup-openeuler24.sh
         $GLUTEN_VELOX_SCRIPT_HOME/setup-openeuler24.sh ;;
       *)
         echo "Unsupported openEuler version: $LINUX_VERSION_ID"
@@ -260,13 +273,6 @@ function setup_linux {
     esac
   elif [[ "$LINUX_DISTRIBUTION" == "alinux" ]]; then
     case "${LINUX_VERSION_ID:0:1}" in
-    2)
-      $GLUTEN_VELOX_SCRIPT_HOME/setup-centos7.sh
-      set +u
-      export PKG_CONFIG_PATH=/usr/local/lib64/pkgconfig:/usr/local/lib/pkgconfig:/usr/lib64/pkgconfig:/usr/lib/pkgconfig:$PKG_CONFIG_PATH
-      source /opt/rh/devtoolset-11/enable
-      set -u
-      ;;
     3) $GLUTEN_VELOX_SCRIPT_HOME/setup-centos8.sh ;;
     *)
       echo "Unsupported alinux version: $LINUX_VERSION_ID"
@@ -275,13 +281,6 @@ function setup_linux {
     esac
   elif [[ "$LINUX_DISTRIBUTION" == "tencentos" ]]; then
     case "$LINUX_VERSION_ID" in
-    2.4)
-        $GLUTEN_VELOX_SCRIPT_HOME/setup-centos7.sh
-        set +u
-        export PKG_CONFIG_PATH=/usr/local/lib64/pkgconfig:/usr/local/lib/pkgconfig:/usr/lib64/pkgconfig:/usr/lib/pkgconfig:$PKG_CONFIG_PATH
-        source /opt/rh/devtoolset-11/enable
-        set -u
-        ;;
     3.2) $GLUTEN_VELOX_SCRIPT_HOME/setup-centos8.sh ;;
     *)
       echo "Unsupported tencentos version: $LINUX_VERSION_ID"
@@ -292,6 +291,7 @@ function setup_linux {
     "$LINUX_DISTRIBUTION" == "almalinux" ]]; then
     case "${LINUX_VERSION_ID%%.*}" in
     9)
+      source $GLUTEN_VELOX_SCRIPT_HOME/setup-rhel.sh
       $GLUTEN_VELOX_SCRIPT_HOME/setup-rhel.sh ;;
     *)
       echo "Unsupported ${LINUX_DISTRIBUTION} version: $LINUX_VERSION_ID"

@@ -33,7 +33,7 @@ function detect_os_version() {
 }
 detect_os_version
 
-DEFAULT_SPARK_PROFILE="spark-3.3"
+DEFAULT_SPARK_PROFILE="spark-3.5"
 function get_project_version() {
   cd "${GLUTEN_SOURCE}"
   # use mvn command to get project version
@@ -48,9 +48,7 @@ OS_ARCH=$(uname -m)
 PACKAGE_NAME=gluten-${BUILD_VERSION}-${OS_VERSION}-${OS_ARCH}
 PACKAGE_DIR_PATH="${GLUTEN_SOURCE}"/dist/"${PACKAGE_NAME}"
 
-# spark_scala_versions=("3.3_2.12" "3.5_2.13")
-# TODO: support spark 3.5 later
-spark_scala_versions=("3.3_2.12")
+spark_scala_versions=("3.5_2.12")
 
 # cleanup working directory
 [[ -d "${GLUTEN_SOURCE}"/dist/"${PACKAGE_NAME}" ]] && rm -rf "${GLUTEN_SOURCE}"/dist/"${PACKAGE_NAME}"

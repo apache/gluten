@@ -107,6 +107,7 @@ object ExpressionMappings {
     Sig[UnBase64](UNBASE64),
     Sig[Base64](BASE64),
     Sig[FormatString](FORMAT_STRING),
+    Sig[FormatNumber](FORMAT_NUMBER),
 
     // URL functions
     Sig[ParseUrl](PARSE_URL),
@@ -155,6 +156,7 @@ object ExpressionMappings {
     Sig[Remainder](REMAINDER),
     Sig[Factorial](FACTORIAL),
     Sig[Rand](RAND),
+    Sig[Randn](RANDN),
     Sig[Rint](RINT),
     // PrestoSQL Math functions
     Sig[Acos](ACOS),
@@ -289,7 +291,6 @@ object ExpressionMappings {
     Sig[DynamicPruningExpression](DYNAMIC_PRUNING_EXPRESSION),
     Sig[CheckOverflow](CHECK_OVERFLOW),
     Sig[MakeDecimal](MAKE_DECIMAL),
-    Sig[PromotePrecision](PROMOTE_PRECISION),
     Sig[SparkPartitionID](SPARK_PARTITION_ID),
     Sig[AtLeastNNonNulls](AT_LEAST_N_NON_NULLS),
     Sig[WidthBucket](WIDTH_BUCKET),
@@ -306,6 +307,7 @@ object ExpressionMappings {
     Sig[KnownNullable](KNOWN_NULLABLE),
     Sig[TimestampAdd](TIMESTAMP_ADD),
     Sig[TimestampDiff](TIMESTAMP_DIFF),
+    Sig[ConvertTimezone](CONVERT_TIMEZONE),
     Sig[RoundFloor](FLOOR),
     Sig[RoundCeil](CEIL)
   ) ++ SparkShimLoader.getSparkShims.scalarExpressionMappings

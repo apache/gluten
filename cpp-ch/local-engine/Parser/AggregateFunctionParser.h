@@ -53,13 +53,14 @@ public:
 
         CommonFunctionInfo() { function_ref = -1; }
 
-        CommonFunctionInfo(const substrait::WindowRel::Measure & win_measure)
-            : function_ref(win_measure.measure().function_reference())
-            , arguments(win_measure.measure().arguments())
-            , output_type(win_measure.measure().output_type())
-            , phase(win_measure.measure().phase())
-            , sort_fields(win_measure.measure().sorts())
+        CommonFunctionInfo(const substrait::ConsistentPartitionWindowRel::WindowRelFunction & win_function)
+            : function_ref(win_function.function_reference())
+            , arguments(win_function.arguments())
+            , output_type(win_function.output_type())
+            , phase(win_function.phase())
         {
+            // Substrait 0.98's WindowRelFunction has no per-function sorts (they are hoisted to the rel);
+            // Gluten always left them empty, so sort_fields stays default-constructed.
             is_in_window = true;
             is_aggregate_function = true;
         }
