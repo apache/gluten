@@ -1,6 +1,6 @@
 ---
 layout: page
-title: Stage-Level Resource Adjustment in Velox Backend
+title: Stage-Level Resource Adjustment in Bolt Backend
 nav_order: 3
 parent: Getting-Started
 ---
@@ -20,11 +20,7 @@ To address this issue, Apache Gluten introduces a stage-level resource auto-adju
    ```properties  
    spark.dynamicAllocation.enabled=true  
    ```  
-3. ** Enable Off-Heap Memory**:
-   ```properties  
-   spark.memory.offHeap.enabled=true
-   ```
-4. **Resource Scheduler Compatibility**:  
+3. **Resource Scheduler Compatibility**:  
    Ensure the underlying cluster resource manager (e.g., YARN, Kubernetes) supports dynamic resource allocation.
 
 ### **Key Configurations**
@@ -39,7 +35,7 @@ Add the following configurations to your Spark application:
 
 #### **1. Enable Auto-Adjustment**
 ```properties  
-spark.gluten.auto.adjustStageResource.enabled=true  
+spark.gluten.auto.AdjustStageResource.enabled=true  
 ```
 ### **How It Works**
 The framework analyzes each stage during query planning and adjusts resource profiles in following scenarios:
@@ -58,7 +54,7 @@ If a stage all operator fallback to vanilla Spark operator or  fallback operator
 2. **Check SparkUI SQL Tab**  
 
 There will be a ApplyResourceProfile node in the Query details.
-![SQL_DETAIL](../image/velox_apply_stage_resource.png)
+![SQL_DETAIL](../../../image/bolt_stage_resource.png)
 And the execution plan will like following with ApplyResourceProfile node inserted.
 ```
 +- *(3) HashAggregate(keys=[_nondeterministic#37], functions=[count(1)], output=[java_method(java.lang.Integer, signum, c1)#35, count(1)#36L])
@@ -76,4 +72,4 @@ And the execution plan will like following with ApplyResourceProfile node insert
 • Tested with YARN/Kubernetes; other resource managers may need validation.
 
 
-For issues or feedback, refer to [GLUTEN-8018](https://github.com/apache/gluten/issues/8018).
+For issues or feedback, refer to [GLUTEN-8018](https://github.com/apache/incubator-gluten/issues/8018).

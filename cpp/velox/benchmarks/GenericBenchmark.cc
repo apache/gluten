@@ -694,7 +694,8 @@ int main(int argc, char** argv) {
 
     if (!errorMsg.empty()) {
       LOG(ERROR) << "Incorrect usage: " << errorMsg << std::endl
-                 << "*** Please check docs/developers/MicroBenchmarks.md for the full usage. ***";
+                 << "*** Please check docs/backends/velox/developers/MicroBenchmarks.md"
+                 << " for the full usage. ***";
       ::benchmark::Shutdown();
       std::exit(EXIT_FAILURE);
     }
