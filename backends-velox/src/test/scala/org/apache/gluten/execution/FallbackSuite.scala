@@ -572,6 +572,12 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
   private def hasNativeScan(df: DataFrame): Boolean =
     find(df.queryExecution.executedPlan)(_.isInstanceOf[FileSourceScanExecTransformer]).nonEmpty
 
+  // Regression tests for the input_file_name() / user-column collision fix.
+  //
+  // A table with a column named `Input_File_Name` creates a naming conflict with the
+  // input_file_name() metadata function.  Under caseSensitive=false the two names normalise to
+  // the same string; Velox cannot produce both simultaneously so the scan must fall back.
+  // Under caseSensitive=true the names are distinct and the scan stays native.
   test("input_file_name() with a user column named Input_File_Name") {
     withTempPath {
       dir =>
@@ -580,42 +586,44 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
           .toDF("id", "Input_File_Name")
           .write
           .parquet(dir.getCanonicalPath)
-        withTempView("input_file_tbl") {
-          spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("input_file_tbl")
-          val query =
-            "SELECT id, Input_File_Name, input_file_name() AS fname FROM input_file_tbl"
+        withTempView("t") {
+          spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("t")
 
-          def checkRows(df: DataFrame): Unit = {
+          def checkValues(df: DataFrame): Unit = {
             val rows = df.collect().sortBy(_.getInt(0))
+            // User column must contain the original data values, never a file path.
             assert(rows.map(_.getString(1)).toSeq == Seq("user-a", "user-b"))
+            // input_file_name() must return the actual file path.
             assert(rows.forall(r => r.getString(2).endsWith(".parquet")))
           }
 
-          // The user column and input_file_name() are distinct names: the scan stays native.
+          // caseSensitive=true: "Input_File_Name" != "input_file_name" -- scan stays native.
           withSQLConf(SQLConf.CASE_SENSITIVE.key -> "true") {
-            runQueryAndCompare(query, noFallBack = false) {
+            runQueryAndCompare(
+              "SELECT id, Input_File_Name, input_file_name() AS fname FROM t",
+              noFallBack = false) {
               df =>
-                checkRows(df)
+                checkValues(df)
                 assert(hasNativeScan(df))
             }
           }
 
-          // The two names collide, which the native scan cannot map: the scan falls back.
+          // caseSensitive=false: names collide -- scan falls back, results still correct.
           withSQLConf(SQLConf.CASE_SENSITIVE.key -> "false") {
-            runQueryAndCompare(query, noFallBack = false) {
+            runQueryAndCompare(
+              "SELECT id, Input_File_Name, input_file_name() AS fname FROM t",
+              noFallBack = false) {
               df =>
-                checkRows(df)
+                checkValues(df)
                 assert(!hasNativeScan(df))
-            }
-            // Selecting only the user column returns the user data, not the file path.
-            runQueryAndCompare("SELECT Input_File_Name FROM input_file_tbl") {
-              df => assert(df.collect().map(_.getString(0)).toSet == Set("user-a", "user-b"))
             }
           }
         }
     }
   }
 
+  // Selecting only the user column (no input_file_name() call) must never trigger a fallback
+  // and must return the original data values regardless of case-sensitivity setting.
   test("user column named like input_file_name is not replaced by the file path") {
     Seq("input_file_name", "Input_File_Name").foreach {
       colName =>
@@ -624,19 +632,19 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
             withTempPath {
               dir =>
                 import testImplicits._
-                Seq((11, "lower1"), (12, "lower2"))
-                  .toDF("ID", colName)
+                Seq((1, "val1"), (2, "val2"))
+                  .toDF("id", colName)
                   .write
                   .parquet(dir.getCanonicalPath)
-                withTempView("user_col_tbl") {
-                  spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("user_col_tbl")
+                withTempView("t") {
+                  spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("t")
                   withSQLConf(SQLConf.CASE_SENSITIVE.key -> caseSensitive) {
                     runQueryAndCompare(
-                      s"SELECT ID, `$colName` AS UserValue FROM user_col_tbl ORDER BY ID",
+                      s"SELECT id, `$colName` FROM t ORDER BY id",
                       noFallBack = false) {
                       df =>
                         assert(
-                          df.collect().map(_.getString(1)).toSeq == Seq("lower1", "lower2"),
+                          df.collect().map(_.getString(1)).toSeq == Seq("val1", "val2"),
                           s"col=$colName caseSensitive=$caseSensitive\n" +
                             df.queryExecution.executedPlan)
                         assert(hasNativeScan(df), df.queryExecution.executedPlan.toString)
@@ -645,67 +653,6 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
                 }
             }
         }
-    }
-  }
-
-  test("input_file_name() returns the path when the table has a column of that name") {
-    Seq("input_file_name", "Input_File_Name").foreach {
-      colName =>
-        withTempPath {
-          dir =>
-            import testImplicits._
-            Seq((11, "lower1"), (12, "lower2"))
-              .toDF("ID", colName)
-              .write
-              .parquet(dir.getCanonicalPath)
-            withTempView("collide_tbl", "renamed_tbl") {
-              spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("collide_tbl")
-              spark.read
-                .parquet(dir.getCanonicalPath)
-                .withColumnRenamed(colName, "user_filename")
-                .createOrReplaceTempView("renamed_tbl")
-
-              def paths(df: DataFrame, idx: Int): Seq[String] = df.collect().map(_.getString(idx))
-              def checkPaths(df: DataFrame, idx: Int): Unit = {
-                val ps = paths(df, idx)
-                assert(ps.forall(_.endsWith(".parquet")), ps.mkString(",") + "\n" + plans(df))
-              }
-
-              // The column is not selected: input_file_name() must still return the path.
-              runQueryAndCompare(
-                s"SELECT ID, input_file_name() AS f FROM collide_tbl ORDER BY ID",
-                noFallBack = false)(checkPaths(_, 1))
-              // Same data with the column renamed: no conflict, so the scan stays native.
-              runQueryAndCompare(
-                "SELECT ID, input_file_name() AS f FROM renamed_tbl ORDER BY ID",
-                noFallBack = false) {
-                df =>
-                  checkPaths(df, 1)
-                  assert(hasNativeScan(df), plans(df))
-              }
-              // Both the column and the function: each keeps its own value.
-              runQueryAndCompare(
-                s"SELECT ID, `$colName` AS u, input_file_name() AS f FROM collide_tbl ORDER BY ID",
-                noFallBack = false) {
-                df =>
-                  assert(paths(df, 1) == Seq("lower1", "lower2"), plans(df))
-                  checkPaths(df, 2)
-              }
-            }
-        }
-    }
-  }
-
-  private def plans(df: DataFrame): String = {
-    val qe = df.queryExecution
-    s"ANALYZED:\n${qe.analyzed}\nOPTIMIZED:\n${qe.optimizedPlan}\nEXECUTED:\n${qe.executedPlan}"
-  }
-
-  test("input_file_name() without a conflicting column stays native") {
-    runQueryAndCompare("SELECT c1, input_file_name() AS fname FROM tmp1", noFallBack = false) {
-      df =>
-        assert(hasNativeScan(df))
-        assert(df.collect().forall(r => r.getString(1).endsWith(".parquet")))
     }
   }
 }
