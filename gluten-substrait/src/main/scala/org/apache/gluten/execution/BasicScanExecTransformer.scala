@@ -115,6 +115,9 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
 
   def getInputStats: Option[InputStats] = Option.empty
 
+  /** Names of the real columns this scan reads from the source, as opposed to injected ones. */
+  protected def readColumnNames: Set[String] = Set.empty
+
   override def getSplitInfos: Seq[SplitInfo] = {
     getSplitInfosFromPartitions(getPartitionWithReadFileFormats)
   }
@@ -140,12 +143,11 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
       InputFileBlockStart().prettyName,
       InputFileBlockLength().prettyName)
 
-    // An output named like an input file function is only the injected attribute if the table has
-    // no real column of that name. Otherwise it is user data and must not be filled with the path.
-    val tableColumnNames = (getDataSchema.fieldNames ++ getPartitionSchema.fieldNames).toSet
+    // An output named like an input file function is the injected attribute unless the scan reads
+    // a real column of that name, in which case it is user data and must not get the file path.
     val neededInputFileRelatedMetadataKeys =
       inputFileRelatedMetadataKeys.filter(
-        k => output.exists(_.name == k) && !tableColumnNames.contains(k))
+        k => output.exists(_.name == k) && !readColumnNames.contains(k))
 
     val metadataColumnNames = (metadataFromSpark ++ neededInputFileRelatedMetadataKeys).distinct
 

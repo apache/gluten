@@ -648,6 +648,32 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
     }
   }
 
+  test("input_file_name() returns the path when the table has an unselected column of that name") {
+    Seq("input_file_name", "Input_File_Name").foreach {
+      colName =>
+        withTempPath {
+          dir =>
+            import testImplicits._
+            Seq((11, "lower1"), (12, "lower2"))
+              .toDF("ID", colName)
+              .write
+              .parquet(dir.getCanonicalPath)
+            withTempView("unselected_col_tbl") {
+              spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("unselected_col_tbl")
+              runQueryAndCompare(
+                "SELECT ID, input_file_name() AS fname FROM unselected_col_tbl ORDER BY ID",
+                noFallBack = false) {
+                df =>
+                  val fnames = df.collect().map(_.getString(1))
+                  assert(
+                    fnames.forall(_.endsWith(".parquet")),
+                    s"col=$colName: ${fnames.mkString(",")}\n" + df.queryExecution.executedPlan)
+              }
+            }
+        }
+    }
+  }
+
   test("input_file_name() without a conflicting column stays native") {
     runQueryAndCompare("SELECT c1, input_file_name() AS fname FROM tmp1", noFallBack = false) {
       df =>

@@ -145,6 +145,8 @@ abstract class FileSourceScanExecTransformerBase(
 
   override def getMetadataColumns(): Seq[AttributeReference] = metadataColumns
 
+  override protected def readColumnNames: Set[String] = requiredSchema.fieldNames.toSet
+
   override def getPartitions: Seq[Partition] = {
     if (SparkVersionUtil.gteSpark40) {
       getPartitionsSeq()
