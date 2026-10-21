@@ -528,10 +528,14 @@ class VeloxMetricsApi extends MetricsApi with Logging {
 
   def genBatchWriteMetrics(sparkContext: SparkContext): Map[String, SQLMetric] =
     Map(
-      "numWrittenBytes" -> SQLMetrics.createSizeMetric(sparkContext, "number of written bytes"),
-      "writeIOTimeNs" -> SQLMetrics.createNanoTimingMetric(sparkContext, "time of write IO"),
-      "writeWallNs" -> SQLMetrics.createNanoTimingMetric(sparkContext, "time of write"),
-      "numWrittenFiles" -> SQLMetrics.createMetric(sparkContext, "number of written files")
+      BatchWriteMetrics.NUM_WRITTEN_BYTES ->
+        SQLMetrics.createSizeMetric(sparkContext, "number of written bytes"),
+      BatchWriteMetrics.WRITE_IO_TIME_NS ->
+        SQLMetrics.createNanoTimingMetric(sparkContext, "time of write IO"),
+      BatchWriteMetrics.WRITE_WALL_NS ->
+        SQLMetrics.createNanoTimingMetric(sparkContext, "time of write"),
+      BatchWriteMetrics.NUM_WRITTEN_FILES ->
+        SQLMetrics.createMetric(sparkContext, "number of written files")
     )
 
   override def genSortTransformerMetrics(sparkContext: SparkContext): Map[String, SQLMetric] =

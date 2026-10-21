@@ -17,15 +17,15 @@
 package org.apache.gluten.component
 
 import org.apache.gluten.backendsapi.velox.VeloxBackend
-import org.apache.gluten.extension.OffloadLanceScan
+import org.apache.gluten.extension.{OffloadLanceScan, OffloadLanceWrite}
 import org.apache.gluten.extension.injector.Injector
 
 import org.apache.spark.util.SparkReflectionUtil
 
 /**
- * Registers the Lance-over-Velox scan offload. Inert unless lance-spark is on the runtime
- * classpath, so the default Velox bundle carries this component without requiring Lance for other
- * workloads.
+ * Registers the Lance-over-Velox scan and write offloads. Inert unless lance-spark is on the
+ * runtime classpath, so the default Velox bundle carries this component without requiring Lance for
+ * other workloads.
  */
 class VeloxLanceComponent extends Component {
   override def name(): String = "velox-lance"
@@ -37,5 +37,9 @@ class VeloxLanceComponent extends Component {
 
   override def injectRules(injector: Injector): Unit = {
     OffloadLanceScan.inject(injector)
+    // Writes need the fragment write spec, which older lance-spark releases lack.
+    if (SparkReflectionUtil.isClassPresent("org.lance.spark.write.FragmentWriteSpec")) {
+      OffloadLanceWrite.inject(injector)
+    }
   }
 }

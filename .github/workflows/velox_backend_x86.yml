@@ -1595,7 +1595,7 @@ jobs:
           TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest"
           if [ "${{ matrix.group }}" = "1" ]; then
             # Group 1: streaming + gluten utils + top-level spark tests (~55 classes)
-            $PARALLEL_UT $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta -Plance -Plance-test \
             -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
             -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
           elif [ "${{ matrix.group }}" = "2" ]; then
@@ -1731,7 +1731,7 @@ jobs:
           $MVN_CMD clean install -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta -DskipTests
           if [ "${{ matrix.group }}" = "1" ]; then
             # Group 1: streaming + gluten utils + top-level spark tests (~55 classes)
-            $PARALLEL_UT $MVN_CMD clean test -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta -Plance -Plance-test \
             -DargLine="-Dspark.test.home=/opt/shims/spark42/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
             -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
           elif [ "${{ matrix.group }}" = "2" ]; then

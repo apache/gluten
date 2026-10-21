@@ -21,6 +21,12 @@ import org.apache.spark.sql.connector.metric.CustomTaskMetric;
 import java.util.ArrayList;
 
 public class BatchWriteMetrics {
+  // The names of the metrics of a write node that the tasks of a native batch write fill.
+  public static final String NUM_WRITTEN_BYTES = "numWrittenBytes";
+  public static final String NUM_WRITTEN_FILES = "numWrittenFiles";
+  public static final String WRITE_IO_TIME_NS = "writeIOTimeNs";
+  public static final String WRITE_WALL_NS = "writeWallNs";
+
   private final long numWrittenBytes;
   private final int numWrittenFiles;
   private final long writeIOTimeNs;
@@ -36,10 +42,10 @@ public class BatchWriteMetrics {
 
   public CustomTaskMetric[] toCustomTaskMetrics() {
     ArrayList<CustomTaskMetric> customTaskMetrics = new ArrayList<>();
-    customTaskMetrics.add(customTaskMetric("numWrittenBytes", numWrittenBytes));
-    customTaskMetrics.add(customTaskMetric("numWrittenFiles", numWrittenFiles));
-    customTaskMetrics.add(customTaskMetric("writeIOTimeNs", writeIOTimeNs));
-    customTaskMetrics.add(customTaskMetric("writeWallNs", writeWallNs));
+    customTaskMetrics.add(customTaskMetric(NUM_WRITTEN_BYTES, numWrittenBytes));
+    customTaskMetrics.add(customTaskMetric(NUM_WRITTEN_FILES, numWrittenFiles));
+    customTaskMetrics.add(customTaskMetric(WRITE_IO_TIME_NS, writeIOTimeNs));
+    customTaskMetrics.add(customTaskMetric(WRITE_WALL_NS, writeWallNs));
     return customTaskMetrics.toArray(new CustomTaskMetric[0]);
   }
 
