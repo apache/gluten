@@ -260,7 +260,6 @@ VeloxRuntime::VeloxRuntime(
   connectorIds_ = makeScopedConnectorIds(runtimeId++);
 
   initializeExecutors();
-  registerConnectors();
 }
 
 VeloxRuntime::~VeloxRuntime() {
@@ -284,6 +283,12 @@ void VeloxRuntime::initializeExecutors() {
 }
 
 void VeloxRuntime::registerConnectors() {
+  // Connectors are registered lazily when the first stage of this runtime starts, so that stage-level
+  // information is available when creating them. They stay registered until the runtime is destroyed.
+  if (connectorsRegistered_) {
+    return;
+  }
+  connectorsRegistered_ = true;
   auto* backend = VeloxBackend::get();
   connectorIds_.hiveRegistered =
       velox::connector::registerConnector(backend->createHiveConnector(connectorIds_.hive, ioExecutor_.get()));
@@ -478,6 +483,8 @@ std::shared_ptr<ResultIterator> VeloxRuntime::createResultIterator(
 
   // Separate the scan ids and stream ids, and get the scan infos.
   getInfoAndIds(veloxPlanConverter.splitInfos(), veloxPlan_->leafPlanNodeIds(), scanInfos, scanIds, streamIds);
+
+  registerConnectors();
 
   auto wholeStageIter = std::make_unique<WholeStageResultIterator>(
       memoryManager(),
