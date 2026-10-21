@@ -37,8 +37,7 @@ trait IteratorApi {
       dataSchema: StructType,
       fileFormat: ReadFileFormat,
       metadataColumnNames: Seq[String],
-      properties: Map[String, String],
-      injectedFileColAliases: Map[String, String] = Map.empty): SplitInfo
+      properties: Map[String, String]): SplitInfo
 
   /** Generate native row partition. */
   def genPartitions(

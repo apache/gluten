@@ -102,8 +102,7 @@ class VeloxIteratorApi extends IteratorApi with Logging {
       dataSchema: StructType,
       fileFormat: ReadFileFormat,
       metadataColumnNames: Seq[String],
-      properties: Map[String, String],
-      injectedFileColAliases: Map[String, String] = Map.empty): SplitInfo = {
+      properties: Map[String, String]): SplitInfo = {
     val filePartitions: Seq[FilePartition] = partitions.map {
       case p: FilePartition => p
       case o =>
@@ -130,9 +129,7 @@ class VeloxIteratorApi extends IteratorApi with Logging {
         partitionFiles
           .map(
             f =>
-              FileMetadataUtil
-                .generateMetadataColumns(f, metadataColumnNames, injectedFileColAliases)
-                .asJava)
+              FileMetadataUtil.generateMetadataColumns(f, metadataColumnNames).asJava)
           .asJava
       } else {
         java.util.Collections.nCopies(partitionFiles.size, emptyMetadataColumn)

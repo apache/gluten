@@ -101,8 +101,7 @@ class BoltIteratorApi extends IteratorApi with Logging {
       dataSchema: StructType,
       fileFormat: ReadFileFormat,
       metadataColumnNames: Seq[String],
-      properties: Map[String, String],
-      injectedFileColAliases: Map[String, String] = Map.empty): SplitInfo = {
+      properties: Map[String, String]): SplitInfo = {
     val filePartitions: Seq[FilePartition] = partitions.map {
       case f: FilePartition => f
       case o =>
@@ -116,11 +115,7 @@ class BoltIteratorApi extends IteratorApi with Logging {
     val (fileSizes, modificationTimes) = getFileInfo(partitionFiles).unzip
     val partitionColumns = getPartitionColumns(partitionSchema, partitionFiles)
     val metadataColumns = partitionFiles
-      .map(
-        f =>
-          FileMetadataUtil
-            .generateMetadataColumns(f, metadataColumnNames, injectedFileColAliases)
-            .asJava)
+      .map(f => FileMetadataUtil.generateMetadataColumns(f, metadataColumnNames).asJava)
     val otherMetadataColumns = partitionFiles
       .map(f => SparkShimLoader.getSparkShims.getOtherConstantMetadataColumnValues(f))
     setFileSchemaForLocalFiles(
