@@ -25,7 +25,7 @@ object ScanTransformerFactory {
 
   def createFileSourceScanTransformer(
       scanExec: FileSourceScanExec): FileSourceScanExecTransformerBase = {
-    FileSourceScanExecTransformer(
+    val transformer = FileSourceScanExecTransformer(
       scanExec.relation,
       SparkShimLoader.getSparkShims.getFileSourceScanStream(scanExec),
       scanExec.output,
@@ -37,6 +37,8 @@ object ScanTransformerFactory {
       scanExec.tableIdentifier,
       scanExec.disableBucketedScan
     )
+    transformer.copyTagsFrom(scanExec)
+    transformer
   }
 
   def createBatchScanTransformer(batchScanExec: BatchScanExec): BatchScanExecTransformerBase = {

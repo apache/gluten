@@ -648,7 +648,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
     }
   }
 
-  test("input_file_name() returns the path when the table has an unselected column of that name") {
+  test("input_file_name() returns the path when the table has a column of that name") {
     Seq("input_file_name", "Input_File_Name").foreach {
       colName =>
         withTempPath {
@@ -658,20 +658,47 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
               .toDF("ID", colName)
               .write
               .parquet(dir.getCanonicalPath)
-            withTempView("unselected_col_tbl") {
-              spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("unselected_col_tbl")
+            withTempView("collide_tbl", "renamed_tbl") {
+              spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("collide_tbl")
+              spark.read
+                .parquet(dir.getCanonicalPath)
+                .withColumnRenamed(colName, "user_filename")
+                .createOrReplaceTempView("renamed_tbl")
+
+              def paths(df: DataFrame, idx: Int): Seq[String] = df.collect().map(_.getString(idx))
+              def checkPaths(df: DataFrame, idx: Int): Unit = {
+                val ps = paths(df, idx)
+                assert(ps.forall(_.endsWith(".parquet")), ps.mkString(",") + "\n" + plans(df))
+              }
+
+              // The column is not selected: input_file_name() must still return the path.
               runQueryAndCompare(
-                "SELECT ID, input_file_name() AS fname FROM unselected_col_tbl ORDER BY ID",
+                s"SELECT ID, input_file_name() AS f FROM collide_tbl ORDER BY ID",
+                noFallBack = false)(checkPaths(_, 1))
+              // Same data with the column renamed: no conflict, so the scan stays native.
+              runQueryAndCompare(
+                "SELECT ID, input_file_name() AS f FROM renamed_tbl ORDER BY ID",
                 noFallBack = false) {
                 df =>
-                  val fnames = df.collect().map(_.getString(1))
-                  assert(
-                    fnames.forall(_.endsWith(".parquet")),
-                    s"col=$colName: ${fnames.mkString(",")}\n" + df.queryExecution.executedPlan)
+                  checkPaths(df, 1)
+                  assert(hasNativeScan(df), plans(df))
+              }
+              // Both the column and the function: each keeps its own value.
+              runQueryAndCompare(
+                s"SELECT ID, `$colName` AS u, input_file_name() AS f FROM collide_tbl ORDER BY ID",
+                noFallBack = false) {
+                df =>
+                  assert(paths(df, 1) == Seq("lower1", "lower2"), plans(df))
+                  checkPaths(df, 2)
               }
             }
         }
     }
+  }
+
+  private def plans(df: DataFrame): String = {
+    val qe = df.queryExecution
+    s"ANALYZED:\n${qe.analyzed}\nOPTIMIZED:\n${qe.optimizedPlan}\nEXECUTED:\n${qe.executedPlan}"
   }
 
   test("input_file_name() without a conflicting column stays native") {
