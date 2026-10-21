@@ -24,7 +24,7 @@ import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.util.PlanNodeIdGenerator;
 
 import io.github.zhztheplayer.velox4j.plan.EmptyNode;
-import io.github.zhztheplayer.velox4j.plan.HashPartitionFunctionSpec;
+import io.github.zhztheplayer.velox4j.plan.KeyGroupPartitionFunctionSpec;
 import io.github.zhztheplayer.velox4j.plan.LocalPartitionNode;
 import io.github.zhztheplayer.velox4j.plan.PartitionFunctionSpec;
 import io.github.zhztheplayer.velox4j.plan.PlanNode;
@@ -153,8 +153,12 @@ public class StreamExecExchange extends CommonExecExchange implements StreamExec
                   LogicalTypeConverter.toVLType(getOutputType());
           String id = PlanNodeIdGenerator.newId();
           List<Integer> keyIndexes = Arrays.stream(keys).boxed().collect(Collectors.toList());
+          // Keyed shuffle routes by key group (the same value the state
+          // backend derives key groups with), so each subtask receives
+          // exactly the key groups its state owns.
           PartitionFunctionSpec partitionFunctionSpec =
-              new HashPartitionFunctionSpec(glutenInputType, keyIndexes);
+              new KeyGroupPartitionFunctionSpec(
+                  glutenInputType, keyIndexes, DEFAULT_LOWER_BOUND_MAX_PARALLELISM);
           PlanNode localPartition =
               new LocalPartitionNode(
                   id,
