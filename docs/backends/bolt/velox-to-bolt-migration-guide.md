@@ -30,7 +30,7 @@ Prior to adjusting Spark and Gluten configurations, you must ensure the Bolt bac
 
 ### Prerequisites
 
-- For detailed environment requirements, see: [Bolt Backend README](../README.md#bolt-backend)
+- For detailed environment requirements, see: [Bolt Backend README](../../../README.md#bolt-backend)
 
 ### Build and Package
 
@@ -136,9 +136,9 @@ Most performance-tuning configurations are shared between Bolt and Velox; you on
 
 For a more detailed list of configurations, please refer to the official documentation:
 - [Bolt Backend Configuration](./bolt-configuration.md)
-- [Velox Backend Configuration](./velox-configuration.md)
+- [Velox Backend Configuration](../velox/velox-configuration.md)
 - [Bolt Spark Configuration](./bolt-spark-configuration.md)
-- [Velox Spark Configuration](./velox-spark-configuration.md)
+- [Velox Spark Configuration](../velox/velox-spark-configuration.md)
 
 ## 3. Rollback and Downgrade Strategy
 

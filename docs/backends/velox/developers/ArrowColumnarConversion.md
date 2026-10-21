@@ -19,7 +19,7 @@ outputs. Gluten never asks a node to convert its output itself. Instead, each ty
 transitions to and from other types, and the planner inserts the transition operators between a
 child and a parent whose conventions don't match.
 
-![Gluten batch type transition graph](../image/GlutenConversionImages.png)
+![Gluten batch type transition graph](../../../image/GlutenConversionImages.png)
 
 
 | Concept | Code | Meaning |
@@ -72,7 +72,7 @@ batches apart, and holds the reference counts of both: `IndicatorVector` for lig
 
 ### Transition graph
 
-![Gluten batch type transition graph](../image/GlutenBatchTypeTransition.png)
+![Gluten batch type transition graph](../../../image/GlutenBatchTypeTransition.png)
 
 - **`ArrowJavaBatchType` → `VanillaBatchType` is empty** because `ArrowWritableColumnVector` is a
   Spark `ColumnVector`. A vanilla consumer such as `ColumnarToRowExec` reads Gluten's Java Arrow
@@ -131,7 +131,7 @@ This follows one fixed-width column, a `BIGINT` column `x`, through
 ArrowColumnarToVeloxColumnarExec → Velox op`, for a query such as `SELECT x, f(x)` with a pandas or
 Arrow UDF `f`. .
 
-![A Velox column through an Arrow UDF](../image/VeloxColumnArrowUdfLifecycle.png)
+![A Velox column through an Arrow UDF](../../../image/VeloxColumnArrowUdfLifecycle.png)
 
 Three counts are involved, and none of them crosses JNI:
 
@@ -253,7 +253,7 @@ struct ArrowArray {
 In both cases the allocator then calls `listener.onRelease(size)`, and Gluten's
 `ManagedAllocationListener` returns the memory to Spark.
 
-![How an ArrowBuf is released](../image/ArrowBufReleaseDispatch.png)
+![How an ArrowBuf is released](../../../image/ArrowBufReleaseDispatch.png)
 
 <details>
 <summary>PlantUML source: release</summary>

@@ -52,7 +52,7 @@ git clone https://github.com/apache/gluten.git
 # Build Gluten with Velox Backend
 
 It's recommended to use buildbundle-veloxbe.sh to build gluten in one script.
-[Gluten build guide](./build-guide.md) listed the parameters and their default value of build command for your reference.
+[Gluten build guide](../../../get-started/build-guide.md) listed the parameters and their default value of build command for your reference.
 
 **For x86_64 build**
 
@@ -506,19 +506,19 @@ Please check the [VeloxNativeUDF.md](../developers/VeloxUDF.md) for more detaile
 
 # Test TPC-H or TPC-DS on Gluten with Velox backend
 
-All TPC-H and TPC-DS queries are supported in Gluten Velox backend. You may refer to the [notebook](../../tools/workload/benchmark_velox) we used to do the performance test.
+All TPC-H and TPC-DS queries are supported in Gluten Velox backend. You may refer to the [notebook](../../../../tools/workload/benchmark_velox) we used to do the performance test.
 
 ## Data preparation
 
-The data generation scripts are [TPC-H dategen script](../../tools/workload/tpch/gen_data/parquet_dataset/tpch-datagen-parquet.sh) and
-[TPC-DS dategen script](../../tools/workload/tpcds/gen_data/parquet_dataset/tpcds-datagen-parquet.sh).
+The data generation scripts are [TPC-H dategen script](../../../../tools/workload/tpch/gen_data/parquet_dataset/tpch-datagen-parquet.sh) and
+[TPC-DS dategen script](../../../../tools/workload/tpcds/gen_data/parquet_dataset/tpcds-datagen-parquet.sh).
 
-The used TPC-H and TPC-DS queries are the original ones, and can be accessed from [TPC-DS queries](../../tools/gluten-it/common/src/main/resources/tpcds-queries)
-and [TPC-H queries](../../tools/gluten-it/common/src/main/resources/tpch-queries).
+The used TPC-H and TPC-DS queries are the original ones, and can be accessed from [TPC-DS queries](../../../../tools/gluten-it/common/src/main/resources/tpcds-queries)
+and [TPC-H queries](../../../../tools/gluten-it/common/src/main/resources/tpch-queries).
 
 ## Submit the Spark SQL job
 
-Submit test script from spark-shell. You can find the scala code to [Run TPC-H](../../tools/workload/tpch/run_tpch/tpch_parquet.scala) as an example. Please remember to modify
+Submit test script from spark-shell. You can find the scala code to [Run TPC-H](../../../../tools/workload/tpch/run_tpch/tpch_parquet.scala) as an example. Please remember to modify
 the location of TPC-H files as well as TPC-H queries before you run the testing.
 
 ```
@@ -547,13 +547,13 @@ cat tpch_parquet.scala | spark-shell --name tpch_powertest_velox \
   --conf spark.driver.maxResultSize=32g
 ```
 
-Refer to [Gluten configuration](../Configuration.md) for more details.
+Refer to [Gluten configuration](../../../Configuration.md) for more details.
 
 ## Result
 
 *wholestagetransformer* indicates that the offloading works.
 
-![TPC-H Q6](../image/TPC-H_Q6_DAG.png)
+![TPC-H Q6](../../../image/TPC-H_Q6_DAG.png)
 
 ## Performance
 
@@ -566,7 +566,7 @@ The table below shows TPC-H Q1 and Q6 performance for Velox and vanilla Spark in
 
 # Gluten UI
 
-Please refer [Gluten UI](GlutenUI.md)
+Please refer [Gluten UI](../../../get-started/GlutenUI.md)
 
 # Gluten Native Plan Summary
 
@@ -638,8 +638,3 @@ To enable this feature, you can set the following Spark configuration:
 This feature has been tested through a series of tests, and we are collecting more feedback from users. If you have memory problem on broadcast build relations, please try this feature and give more feedbacks.
 
 **Note**: This feature will become the default behavior once stabilized. Stay tuned for updates!
-
-
-# Accelerators
-
-Please refer [QAT](VeloxQAT.md) for details

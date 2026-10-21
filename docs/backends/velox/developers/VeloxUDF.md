@@ -21,7 +21,7 @@ Registered UDAFs can be used both as regular aggregate functions and as aggregat
 The following steps demonstrate how to set up a UDF library project:
 
 - **Include the UDF Interface Header:**
-  First, include the UDF interface header file [Udf.h](../../cpp/velox/udf/Udf.h) in the project file.
+  First, include the UDF interface header file [Udf.h](../../../../cpp/velox/udf/Udf.h) in the project file.
   The header file defines the `UdfEntry` struct, along with the macros for declaring the necessary functions to integrate the UDF into Gluten and Velox.
 
 - **Implement the UDF:**
@@ -41,7 +41,7 @@ The following steps demonstrate how to set up a UDF library project:
       This function is called to register the UDF to Velox function registry.
       This is where users should register functions by calling `facebook::velox::exec::registerVectorFunction` or other Velox APIs.
 
-    - The interface functions are mapped to marcos in [Udf.h](../../cpp/velox/udf/Udf.h).
+    - The interface functions are mapped to marcos in [Udf.h](../../../../cpp/velox/udf/Udf.h).
   
   Assuming there is an existing Hive UDF `org.apache.gluten.sql.hive.MyUDF`, its native UDF can be implemented as follows.
 
@@ -102,14 +102,14 @@ target_link_libraries(myudf PRIVATE ${VELOX_LIBRARY})
 ```
 
 The steps for creating and building a UDAF library are quite similar to those for a UDF library.
-The major difference lies in including and defining specific functions within the UDAF header file [Udaf.h](../../cpp/velox/udf/Udaf.h)
+The major difference lies in including and defining specific functions within the UDAF header file [Udaf.h](../../../../cpp/velox/udf/Udaf.h)
 
 - `getNumUdaf()`
 - `getUdafEntries(gluten::UdafEntry* udafEntries)`
 - `registerUdaf()`
 
 `gluten::UdafEntry` requires an additional field `intermediateType`, to specify the output type from partial aggregation.
-For detailed implementation, you can refer to the example code in [MyUDAF.cc](../../cpp/velox/udf/examples/MyUDAF.cc)
+For detailed implementation, you can refer to the example code in [MyUDAF.cc](../../../../cpp/velox/udf/examples/MyUDAF.cc)
 
 ## Using UDF/UDAF in Gluten
 
@@ -146,7 +146,7 @@ You can also specify the local or HDFS URIs to the UDF libraries or archives. Lo
 
 ## Try the example
 
-We provided Velox UDF examples in file [MyUDF.cc](../../cpp/velox/udf/examples/MyUDF.cc) and UDAF examples in file [MyUDAF.cc](../../cpp/velox/udf/examples/MyUDAF.cc).
+We provided Velox UDF examples in file [MyUDF.cc](../../../../cpp/velox/udf/examples/MyUDF.cc) and UDAF examples in file [MyUDAF.cc](../../../../cpp/velox/udf/examples/MyUDAF.cc).
 You need to build the gluten project with `--build_example=ON` to get the example libraries.
 
 ```shell

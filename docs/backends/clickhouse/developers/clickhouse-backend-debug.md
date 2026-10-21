@@ -23,12 +23,12 @@ parent: /developer-overview/
    
 3. Set Maven Profiles in IntelliJ IDEA
 
-   ![gluten-debug-profile-settings.png](../image/ClickHouse/gluten-debug-profile-settings.png)
+   ![gluten-debug-profile-settings.png](../../../image/ClickHouse/gluten-debug-profile-settings.png)
 
 4. Set Debug Configuration in IntelliJ IDEA
 
    For example, debug GlutenMathExpressionsSuite.
-   ![gluten-debug-idea-config.png](../image/ClickHouse/gluten-debug-idea-config.png)
+   ![gluten-debug-idea-config.png](../../../image/ClickHouse/gluten-debug-idea-config.png)
 
    VM Options: 
    `-Dgluten.test.data.path=/data -Dspark.gluten.sql.columnar.libpath=/path/to/gluten/cpp-ch/build/utils/extern-local-engine/libch.so -Dspark.test.home=/tmp/spark35`
@@ -42,25 +42,25 @@ parent: /developer-overview/
 
 1. Toolchains Settings
 
-   ![gluten-debug-clion-toolchains](../image/ClickHouse/gluten-debug-clion-toolchains.png)
+   ![gluten-debug-clion-toolchains](../../../image/ClickHouse/gluten-debug-clion-toolchains.png)
    > Some Clion versions have not supported lldb-18, you can manually set refer to [CLion Custom LLDB](https://youtrack.jetbrains.com/issue/CPP-3589/Support-using-custom-LLDB). Or you can use gdb as default.
 
 2. CMake Debug Configuration
 
-   ![gluten-debug-clion-debug](../image/ClickHouse/gluten-debug-clion-debug.png)
+   ![gluten-debug-clion-debug](../../../image/ClickHouse/gluten-debug-clion-debug.png)
 
    CMake Options: 
    `-DENABLE_PROTOBUF=ON -DENABLE_TESTS=OFF -DENABLE_BENCHMARKS=ON -DENABLE_JEMALLOC=ON -DENABLE_MULTITARGET_CODE=ON -DENABLE_EXTERN_LOCAL_ENGINE=ON -DENABLE_ODBC=OFF -DENABLE_CAPNP=OFF -DENABLE_ROCKSDB=OFF -DENABLE_GRPC=OFF -DENABLE_RUST=OFF -DENABLE_H3=OFF -DENABLE_AMQPCPP=OFF -DENABLE_CASSANDRA=OFF -DENABLE_KAFKA=ON -DENABLE_NATS=OFF -DENABLE_LIBPQXX=OFF -DENABLE_NURAFT=OFF -DENABLE_DATASKETCHES=OFF -DENABLE_SQLITE=OFF -DENABLE_S2_GEOMETRY=OFF -DENABLE_ANNOY=OFF -DENABLE_ULID=OFF -DENABLE_MYSQL=OFF -DENABLE_BCRYPT=OFF -DENABLE_LDAP=OFF -DENABLE_MSGPACK=OFF -DUSE_REPLXX=OFF -DENABLE_CLICKHOUSE_ALL=OFF -DCOMPILER_FLAGS="-fvisibility=hidden -fvisibility-inlines-hidden" -DENABLE_BUILD_PATH_MAPPING=OFF -DDEBUG_O_LEVEL="0"`
 
 3. Reload CMake Project
 
-   ![gluten-debug-cmake-reload](../image/ClickHouse/gluten-debug-cmake-reload.png)
+   ![gluten-debug-cmake-reload](../../../image/ClickHouse/gluten-debug-cmake-reload.png)
 
    After reload cmake projects, you can find target `libch` in run configurations.
 
 4. Build `libchd.so` with Debug Mode
 
-   ![gluten-debug-build-libch](../image/ClickHouse/gluten-debug-build-libch.png)
+   ![gluten-debug-build-libch](../../../image/ClickHouse/gluten-debug-build-libch.png)
 
    `libchd.so` will be generated in `cmake-build-debug/utils/extern-local-engine/libchd.so`.
 
@@ -88,11 +88,11 @@ parent: /developer-overview/
    
 6. Debug Application
 
-   ![gluten-debug-cmake-debug.png](../image/ClickHouse/gluten-debug-cmake-debug.png)
+   ![gluten-debug-cmake-debug.png](../../../image/ClickHouse/gluten-debug-cmake-debug.png)
 
    Executable: `/path/to/java`
 
    Program Arguments: Copy from IntelliJ IDEA debug command line and remove `-javaagent`
-   ![gluten-debug-program-args.png](../image/ClickHouse/gluten-debug-program-args.png)
+   ![gluten-debug-program-args.png](../../../image/ClickHouse/gluten-debug-program-args.png)
 
 
