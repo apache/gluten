@@ -23,6 +23,8 @@ class VeloxDeltaConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def enableNativeWrite: Boolean = getConf(ENABLE_NATIVE_WRITE)
 
+  def enableNativeMergeWrite: Boolean = getConf(ENABLE_NATIVE_MERGE_WRITE)
+
   def enableNativeDmlRowIndexScan: Boolean = getConf(ENABLE_NATIVE_DML_ROW_INDEX_SCAN)
 
   def enableChangeDataFeedScan: Boolean = getConf(ENABLE_CHANGE_DATA_FEED_SCAN)
@@ -44,6 +46,17 @@ object VeloxDeltaConfig extends ConfigRegistry {
       .doc("Enable native Delta Lake write for Velox backend.")
       .booleanConf
       .createWithDefault(false)
+
+  val ENABLE_NATIVE_MERGE_WRITE: ConfigEntry[Boolean] =
+    buildConf("spark.gluten.sql.columnar.backend.velox.delta.enableNativeMergeWrite")
+      .experimental()
+      .doc(
+        "Write the data files of Delta MERGE natively. Takes effect only when " +
+          "spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite is enabled. MERGE " +
+          "keeps Delta's writer for tables the native writer does not support yet, such as " +
+          "tables with column mapping, IcebergCompat or FLOAT/DOUBLE partition columns.")
+      .booleanConf
+      .createWithDefault(true)
 
   val ENABLE_NATIVE_DML_ROW_INDEX_SCAN: ConfigEntry[Boolean] =
     buildConf("spark.gluten.sql.columnar.backend.velox.delta.enableNativeDmlRowIndexScan")

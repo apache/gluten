@@ -62,10 +62,20 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
       writeOptions: Option[DeltaOptions],
       isOptimize: Boolean,
       additionalConstraints: Seq[Constraint]): Seq[FileAction] = {
-    // GLUTEN-SPLICE-BEGIN: schemas the native write path cannot handle use Delta's writeFiles.
+    // GLUTEN-SPLICE-BEGIN: schemas the native write path cannot handle, and MERGEs that
+    // GlutenDeltaMergeWriteGate rejects, use Delta's writeFiles.
     GlutenDeltaNativeWriteGate.unsupportedSchema(inputData.schema).foreach { reason =>
       logInfo(s"$reason; falling back to the vanilla Delta write path.")
       return super.writeFiles(inputData, writeOptions, isOptimize, additionalConstraints)
+    }
+    if (GlutenDeltaMergeWriteGate.inMergeScope) {
+      // The table may have changed since MERGE was planned; check again against this transaction.
+      val conf = inputData.sparkSession.sessionState.conf
+      GlutenDeltaMergeWriteGate.fallbackReason(metadata, protocol, inputData.schema, conf)
+        .foreach { reason =>
+          logInfo(s"MERGE keeps Delta's writer: $reason.")
+          return super.writeFiles(inputData, writeOptions, isOptimize, additionalConstraints)
+        }
     }
     // GLUTEN-SPLICE-END
     hasWritten = true

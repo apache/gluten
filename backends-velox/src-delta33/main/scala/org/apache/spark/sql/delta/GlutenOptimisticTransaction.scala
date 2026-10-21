@@ -16,7 +16,7 @@
  */
 package org.apache.spark.sql.delta
 
-import org.apache.gluten.backendsapi.velox.VeloxBatchType
+import org.apache.gluten.backendsapi.velox.{VeloxBatchType, VeloxValidatorApi}
 import org.apache.gluten.extension.columnar.transition.Transitions
 
 import org.apache.spark.sql.{AnalysisException, Dataset}
@@ -48,6 +48,31 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
       writeOptions: Option[DeltaOptions],
       isOptimize: Boolean,
       additionalConstraints: Seq[Constraint]): Seq[FileAction] = {
+    if (GlutenDeltaMergeWriteGate.inMergeScope) {
+      // The table may have changed since MERGE was planned; check again against this transaction.
+      val reason = GlutenDeltaMergeWriteGate.fallbackReason(
+        metadata,
+        protocol,
+        inputData.schema,
+        inputData.sparkSession.sessionState.conf)
+      if (reason.isDefined) {
+        logInfo(s"MERGE keeps Delta's writer: ${reason.get}.")
+        return super.writeFiles(inputData, writeOptions, isOptimize, additionalConstraints)
+      }
+    }
+    // Velox cannot write every Spark type: the native write path inserts a RowToVeloxColumnarExec
+    // transition whose SparkArrowUtil.toArrowSchema call throws (e.g. `Unsupported data type:
+    // variant`) for any type it has no Arrow mapping for. Reuse the backend's schema validator so
+    // such writes fall back to the vanilla Delta write path instead of failing at runtime.
+    val unsupportedReason = VeloxValidatorApi.validateSchema(inputData.schema)
+    unsupportedReason match {
+      case Some(reason) =>
+        logInfo(
+          s"Schema is not supported by Velox ($reason); falling back to the " +
+            "vanilla Delta write path.")
+        return super.writeFiles(inputData, writeOptions, isOptimize, additionalConstraints)
+      case None =>
+    }
     hasWritten = true
 
     val spark = inputData.sparkSession
