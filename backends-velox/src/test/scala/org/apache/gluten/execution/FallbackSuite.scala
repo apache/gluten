@@ -616,6 +616,38 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
     }
   }
 
+  test("user column named like input_file_name is not replaced by the file path") {
+    Seq("input_file_name", "Input_File_Name").foreach {
+      colName =>
+        Seq("true", "false").foreach {
+          caseSensitive =>
+            withTempPath {
+              dir =>
+                import testImplicits._
+                Seq((11, "lower1"), (12, "lower2"))
+                  .toDF("ID", colName)
+                  .write
+                  .parquet(dir.getCanonicalPath)
+                withTempView("user_col_tbl") {
+                  spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("user_col_tbl")
+                  withSQLConf(SQLConf.CASE_SENSITIVE.key -> caseSensitive) {
+                    runQueryAndCompare(
+                      s"SELECT ID, `$colName` AS UserValue FROM user_col_tbl ORDER BY ID",
+                      noFallBack = false) {
+                      df =>
+                        assert(
+                          df.collect().map(_.getString(1)).toSeq == Seq("lower1", "lower2"),
+                          s"col=$colName caseSensitive=$caseSensitive\n" +
+                            df.queryExecution.executedPlan)
+                        assert(hasNativeScan(df), df.queryExecution.executedPlan.toString)
+                    }
+                  }
+                }
+            }
+        }
+    }
+  }
+
   test("input_file_name() without a conflicting column stays native") {
     runQueryAndCompare("SELECT c1, input_file_name() AS fname FROM tmp1", noFallBack = false) {
       df =>

@@ -140,8 +140,12 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
       InputFileBlockStart().prettyName,
       InputFileBlockLength().prettyName)
 
+    // An output named like an input file function is only the injected attribute if the table has
+    // no real column of that name. Otherwise it is user data and must not be filled with the path.
+    val tableColumnNames = (getDataSchema.fieldNames ++ getPartitionSchema.fieldNames).toSet
     val neededInputFileRelatedMetadataKeys =
-      inputFileRelatedMetadataKeys.filter(k => output.exists(_.name == k))
+      inputFileRelatedMetadataKeys.filter(
+        k => output.exists(_.name == k) && !tableColumnNames.contains(k))
 
     val metadataColumnNames = (metadataFromSpark ++ neededInputFileRelatedMetadataKeys).distinct
 
