@@ -19,6 +19,7 @@
 #include "compute/VeloxBackend.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "memory/VeloxMemoryManager.h"
+#include "operators/reader/FileReaderIterator.h"
 #include "velox/vector/tests/utils/VectorTestBase.h"
 
 #include <fmt/format.h>
@@ -136,9 +137,7 @@ TEST_F(VeloxWholeStageDumperTest, dumpedBatchesOutliveReaderIterator) {
 }
 
 // An input iterator that yields nothing used to leave the parquet writer uninitialized, since the
-// writer takes its schema from the first batch, and closing it dereferenced a null writer. The
-// build side of a broadcast hash join is exactly such an iterator: its hash table is handed to the
-// native operator through a process local cache rather than streamed.
+// writer takes its schema from the first batch, and closing it dereferenced a null writer.
 // See https://github.com/apache/gluten/issues/12504.
 TEST_F(VeloxWholeStageDumperTest, dumpEmptyInputIterator) {
   const SparkTaskInfo taskInfo{/*stageId=*/1, /*partitionId=*/2, /*taskId=*/3, /*vId=*/4};
@@ -152,11 +151,18 @@ TEST_F(VeloxWholeStageDumperTest, dumpEmptyInputIterator) {
   ASSERT_NE(dumped, nullptr);
   ASSERT_EQ(dumped->next(), nullptr);
 
-  // No parquet file can be written without a schema, so the gap is recorded explicitly. --data
-  // binds files to iterator indexes by position, so an unrecorded gap would silently shift every
-  // later iterator onto the wrong input.
+  // No parquet file can be written without a schema, so a marker takes its place.
+  const auto marker = saveDir_ / "data_1_2_4_0.parquet.empty";
   ASSERT_FALSE(std::filesystem::exists(saveDir_ / "data_1_2_4_0.parquet"));
-  ASSERT_TRUE(std::filesystem::exists(saveDir_ / "data_1_2_4_0.parquet.empty"));
+  ASSERT_TRUE(std::filesystem::exists(marker));
+
+  // The benchmark replays the marker passed to --data as an empty input iterator.
+  for (const auto readerType : {FileReaderType::kStream, FileReaderType::kBuffered}) {
+    auto replayed = FileReaderIterator::getInputIteratorFromFileReader(
+        readerType, marker.string(), 4096, vmm_->getLeafMemoryPool());
+    ASSERT_NE(replayed, nullptr);
+    ASSERT_FALSE(replayed->hasNext());
+  }
 }
 
 } // namespace gluten

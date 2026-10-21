@@ -768,6 +768,16 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         // IdentityBroadcastMode
         Seq.empty
     }
+    if (
+      mode.isInstanceOf[HashedRelationBroadcastMode] &&
+      VeloxConfig.get.benchmarkDumpRequested &&
+      VeloxConfig.get.getConf(VeloxConfig.VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR)
+    ) {
+      logWarning(
+        s"${VeloxConfig.VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR.key} is ignored " +
+          "while whole stage dumping is requested: the broadcast hash table is built per task " +
+          "so that the micro benchmark can replay the dumped build side.")
+    }
     var offload = true
     val (newChild, newOutput, newBuildKeys) =
       if (VeloxConfig.get.enableBroadcastBuildOncePerExecutor) {

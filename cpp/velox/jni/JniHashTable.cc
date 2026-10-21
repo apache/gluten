@@ -56,6 +56,7 @@ std::optional<jlong> JniHashTableContext::callJavaGet(const std::string& id) con
   }
 
   const jstring s = env->NewStringUTF(id.c_str());
+  checkException(env);
   auto result = env->CallStaticLongMethod(jniVeloxBroadcastBuildSideCache_, jniGet_, s);
   env->DeleteLocalRef(s);
   checkException(env);
@@ -173,9 +174,7 @@ long getJoin(const std::string& hashTableId) {
     // e.g. in the standalone micro benchmark. Report a miss, the same way that cache reports one,
     // and let the caller build the hash table from the join's build side input instead.
     LOG(WARNING) << "No JVM is attached to this process, cannot look up the pre-built hash table for cache key: "
-                 << hashTableId
-                 << ". A new hash table will be built from the build side input, which is empty unless the stage was "
-                    "dumped with spark.gluten.velox.buildHashTableOncePerExecutor.enabled=false.";
+                 << hashTableId << ". A new hash table will be built from the build side input.";
     return 0;
   }
   return handle.value();
