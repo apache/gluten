@@ -9,7 +9,7 @@ must fall back to vanilla spark, etc.
 ### Override of Spark classes
 Gluten avoids modifying Spark's existing code and prefers Spark APIs when possible. However, some APIs are not exposed by vanilla Spark, so we have to copy the Spark file and apply hardcoded changes. The list of overridden classes can be found as `ignoreClasses` in `package/pom.xml`. If you use a customized Spark, check whether these files are modified in your Spark distribution, otherwise your changes will be overridden.
 
-So you need to ensure preferentially load the Gluten jar to overwrite the jar of vanilla spark. Refer to [How to prioritize loading Gluten jars in Spark](https://github.com/apache/gluten/blob/main/docs/velox-backend-troubleshooting.md#incompatible-class-error-when-using-native-writer).
+So you need to ensure preferentially load the Gluten jar to overwrite the jar of vanilla spark. Refer to [How to prioritize loading Gluten jars in Spark](https://github.com/apache/gluten/blob/main/docs/backends/velox/velox-backend-troubleshooting.md#incompatible-class-error-when-using-native-writer).
 
 If an unofficially supported Spark version is used, NoSuchMethodError can be thrown at runtime. More details see [issue-4514](https://github.com/apache/gluten/issues/4514).
 

@@ -122,6 +122,6 @@ Once inside the `spark-shell`, run the following Scala code. It creates a small 
 3.  **Verify Bolt is Active**:
 
     The key is to inspect Spark UI(ip:4040) `SQL/DataFrame` tab. If you see *Transformer, like `FilterExecTransformer`,`ProjectExecTransformer`, it confirms that Gluten has offloaded the computation to the Bolt backend.
-    ![Boltbe_sqlframe](./image/boltbe_sqlframe.png)
+    ![Boltbe_sqlframe](../../image/boltbe_sqlframe.png)
 
 ---

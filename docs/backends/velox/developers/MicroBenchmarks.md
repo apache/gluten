@@ -301,14 +301,7 @@ General configurations for shuffle write:
                     The partitioning type should match the command in step 2.
 - `--shuffle-partitions`: Specify number of shuffle partitions.
 - `--compression`: By default, the compression codec for shuffle outputs is lz4. You can switch to other compression codecs
-  or use hardware accelerators Valid options are: lz4, zstd, qat-gzip, qat-zstd and iaa-gzip. The compression levels are fixed (use default compression level 1).
-
-  Note using QAT or IAA codec requires Gluten cpp is built with these features.
-  Please check the corresponding section in [Velox document](../get-started/Velox.md) first for how to
-  setup, build and enable these features in Gluten. For QAT support, please
-  check [Intel® QuickAssist Technology (QAT) support](../get-started/Velox.md#intel-quickassist-technology-qat-support).
-  For IAA support, please
-  check [Intel® In-memory Analytics Accelerator (IAA/IAX) support](../get-started/Velox.md#intel-in-memory-analytics-accelerator-iaaiax-support)
+  Valid options are: lz4 and zstd. The compression levels are fixed (use default compression level 1).
 
 ```shell
 cd /path/to/gluten/cpp/build/velox/benchmarks
@@ -426,17 +419,17 @@ done
 
 ### Run Examples
 
-We also provide some example inputs in [cpp/velox/benchmarks/data](../../cpp/velox/benchmarks/data).
-E.g. Files under [generic_q5](../../cpp/velox/benchmarks/data/generic_q5) simulates a first-stage in
+We also provide some example inputs in [cpp/velox/benchmarks/data](../../../../cpp/velox/benchmarks/data).
+E.g. Files under [generic_q5](../../../../cpp/velox/benchmarks/data/generic_q5) simulates a first-stage in
 TPCH Q5, which has a heavy table scan. You can follow below steps to run this example.
 
 1.
 
-Open [generic_q5/q5_first_stage_0_split.json](../../cpp/velox/benchmarks/data/generic_q5/q5_first_stage_0_split.json)
+Open [generic_q5/q5_first_stage_0_split.json](../../../../cpp/velox/benchmarks/data/generic_q5/q5_first_stage_0_split.json)
 with file editor. Search for `"uriFile": "LINEITEM"` and replace `LINEITEM` with the URI to one
 partition file in lineitem. In the next line, replace the number in `"length": "..."` with the
 actual file length. Suppose you are using the provided small TPCH table
-in [cpp/velox/benchmarks/data/tpch_sf10m](../../cpp/velox/benchmarks/data/tpch_sf10m), the replaced
+in [cpp/velox/benchmarks/data/tpch_sf10m](../../../../cpp/velox/benchmarks/data/tpch_sf10m), the replaced
 JSON should be like:
 
 ```
@@ -477,4 +470,4 @@ Benchmark                                                        Time           
 SkipInput/iterations:1/process_time/real_time/threads:8 1317255379 ns   10061941861 ns            8 collect_batch_time=0 elapsed_time=10.7563G shuffle_compress_time=4.19964G shuffle_spill_time=0 shuffle_split_time=0 shuffle_write_time=1.91651G
 ```
 
-![TPCH-Q5-first-stage](../image/TPCH-q5-first-stage.png)
+![TPCH-Q5-first-stage](../../../image/TPCH-q5-first-stage.png)

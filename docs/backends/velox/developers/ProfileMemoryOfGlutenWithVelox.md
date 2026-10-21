@@ -69,7 +69,7 @@ pprof --show_bytes --gif --lib_prefix=/path/to/gluten_lib_prefix /usr/bin/java /
 
 Result like:
 
-<img src="../image/velox_profile_memory_gif.gif" width="200" />
+<img src="../../../image/velox_profile_memory_gif.gif" width="200" />
 
 Or display analysis result in TEXT:
 
@@ -79,7 +79,7 @@ pprof --text --lib_prefix=/path/to/gluten_lib_prefix /usr/bin/java /path/to/glut
 
 Result like:
 
-<img src="../image/velox_profile_memory_text.png" width="400" />
+<img src="../../../image/velox_profile_memory_text.png" width="400" />
 
 **\*\*** Get more help from https://github.com/gperftools/gperftools/wiki#documentation.
 

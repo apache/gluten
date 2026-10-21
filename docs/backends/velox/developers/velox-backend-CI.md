@@ -107,7 +107,7 @@ Parameter/setup randomness is seeded.
 - Missing artifacts, duplicate results, incompatible report schemas, invalid execution evidence,
   unverified failure attribution and failed infrastructure checks fail the gate.
 
-Tests listed by `class,method` in [flaky-tests.csv](../../.github/workflows/util/iceberg-upstream/flaky-tests.csv) still run and appear in reports, but do not affect the gate.
+Tests listed by `class,method` in [flaky-tests.csv](../../../../.github/workflows/util/iceberg-upstream/flaky-tests.csv) still run and appear in reports, but do not affect the gate.
 
 `iceberg-upstream-spark3.5-reports` contains base/head coverage JSON and CSVs, head raw logs,
 comparison validation details and a changes-only CSV. Separate CSVs show native, fallback,
