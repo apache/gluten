@@ -280,46 +280,12 @@ inline void decodeRt(const uint64_t* in, uint64_t* out, uint64_t base, size_t n,
   detail::kDecodeTable[bw](in, out, base, n);
 }
 
-// AVX2 has no unsigned 64-bit min/max -- vpminuq and vpmaxuq need AVX-512 -- so at the build
-// baseline gcc emulates each comparison with a sign-bit bias, a signed compare and a variable blend,
-// and the blend lands on the loop-carried accumulator chain.  target_clones has the compiler emit one
-// version of this loop per target, plus an ifunc resolver that picks between them once at load time:
-// the default clone keeps that emulation, the x86-64-v4 clone collapses it to one instruction per
-// accumulator.  Results are identical either way; this is the same unsigned min/max.
-//
-// It is its own function because that is what target_clones can clone; where the attribute expands to
-// nothing gcc is free to inline it back into analyze(), which is what the previous code did.
-//
-// Multiversioning is on from GCC 12, the first release that can resolve the level at runtime: GCC 11
-// accepts -march=x86-64-v4 but has no __builtin_cpu_supports for the level, so it rejects the
-// attribute outright instead of ignoring it.  Clang is excluded because the psABI level names only
-// reach its multiversioning table in LLVM 18 and that combination is untested here, and the dispatch
-// itself needs an ifunc, hence ELF.  Those builds, and non-x86-64 targets, compile a plain baseline
-// function.
-#ifndef GLUTEN_ENABLE_MULTITARGET_CODE
-#define GLUTEN_ENABLE_MULTITARGET_CODE 1
-#endif
-#if GLUTEN_ENABLE_MULTITARGET_CODE && defined(__x86_64__) && defined(__ELF__) && defined(__GNUC__) && \
-    !defined(__clang__) && __GNUC__ >= 12
-#define GLUTEN_FFOR_MULTIVERSION __attribute__((target_clones("arch=x86-64-v4", "default")))
-#else
-#define GLUTEN_FFOR_MULTIVERSION
-#endif
-
-GLUTEN_FFOR_MULTIVERSION inline void minMaxScan(const uint64_t* data, size_t n, uint64_t& mn, uint64_t& mx) {
-  uint64_t low = data[0];
-  uint64_t high = data[0];
-  for (size_t i = 1; i < n; ++i) {
-    if (data[i] < low) {
-      low = data[i];
-    }
-    if (data[i] > high) {
-      high = data[i];
-    }
-  }
-  mn = low;
-  mx = high;
-}
+namespace detail {
+// Minimum and maximum of data[0, n); requires n > 0.  Defined in FForCodec.cc, where it is
+// multiversioned for x86-64-v4 (AVX2 has no unsigned 64-bit min/max).  Callers of analyze() must
+// therefore link FForCodec.cc (part of libgluten).
+void minMaxScan(const uint64_t* data, size_t n, uint64_t& mn, uint64_t& mx);
+} // namespace detail
 
 // Compute base (min) and bitwidth for a vector of values.
 inline void analyze(const uint64_t* data, size_t n, uint64_t& base, unsigned& bw) {
@@ -330,7 +296,7 @@ inline void analyze(const uint64_t* data, size_t n, uint64_t& base, unsigned& bw
   }
   uint64_t mn = 0;
   uint64_t mx = 0;
-  minMaxScan(data, n, mn, mx);
+  detail::minMaxScan(data, n, mn, mx);
   base = mn;
   uint64_t range = mx - mn;
   bw = 0;

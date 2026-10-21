@@ -262,6 +262,40 @@ TEST(FForTest, AnalyzeStraddlesTwoPow32) {
   }
 }
 
+// Where AVX2 has no unsigned 64-bit min/max, a baseline build compares with the sign bit flipped, so the
+// values that matter are the ones either side of 2^63 and the extremes 0 and 2^64 - 1.  Each shape is
+// checked as a 4-value block and inside a 256-value block, so the vectorised body runs and not only its
+// scalar tail; the extremes are placed away from the ends.
+TEST(FForTest, AnalyzeAroundTwoPow63) {
+  constexpr uint64_t kSign = uint64_t(1) << 63;
+  struct Shape {
+    std::vector<uint64_t> values;
+    uint64_t base;
+    unsigned bw;
+  };
+  const std::vector<Shape> shapes = {
+      {{kSign - 2, kSign - 1, kSign, kSign + 1}, kSign - 2, 2},
+      {{kSign - 1, kSign}, kSign - 1, 1},
+      {{0, kSign - 1, kSign, ~uint64_t(0)}, 0, 64},
+      {{kSign, ~uint64_t(0)}, kSign, 63},
+  };
+
+  for (const auto& shape : shapes) {
+    for (size_t n : {size_t(shape.values.size()), size_t(256)}) {
+      std::vector<uint64_t> data(n, shape.values[0]);
+      for (size_t i = 0; i < shape.values.size(); ++i) {
+        data[n == shape.values.size() ? i : 5 + 61 * i] = shape.values[i];
+      }
+      uint64_t base = 0;
+      unsigned bw = 0;
+      analyze(data.data(), data.size(), base, bw);
+      ASSERT_EQ(base, shape.base) << "n=" << n;
+      ASSERT_EQ(bw, shape.bw) << "n=" << n;
+      compressRoundtrip(data.data(), data.size());
+    }
+  }
+}
+
 // Exercise full blocks and short trailing values across the boundary through the public compression
 // entry point.
 TEST(FForTest, Compress64StraddlesTwoPow32) {

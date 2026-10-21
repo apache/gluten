@@ -19,6 +19,37 @@
 #include "utils/tac/ffor.hpp"
 
 namespace gluten {
+namespace ffor {
+namespace detail {
+
+// AVX2 has no unsigned 64-bit min/max (vpminuq/vpmaxuq need AVX-512), so GCC's AVX2 vectorization of
+// this loop emulates them with a bias, a signed compare and a blend on the loop-carried chain.  The
+// source is a plain scalar loop; target_clones adds an x86-64-v4 version and an ifunc that picks
+// one at load time, and the result is identical.
+// Defined here so the clones and the resolver are emitted once, not once per including TU.
+// GCC 11 rejects the attribute (no runtime x86-64-v4 level check) and clang's support is untested,
+// so those builds, non-ELF/non-x86-64 targets and GLUTEN_ENABLE_MULTITARGET_CODE=0 get a plain function.
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 12 && defined(__x86_64__) && defined(__ELF__) && \
+    (!defined(GLUTEN_ENABLE_MULTITARGET_CODE) || GLUTEN_ENABLE_MULTITARGET_CODE)
+__attribute__((target_clones("arch=x86-64-v4", "default")))
+#endif
+void minMaxScan(const uint64_t* data, size_t n, uint64_t& mn, uint64_t& mx) {
+  uint64_t low = data[0];
+  uint64_t high = data[0];
+  for (size_t i = 1; i < n; ++i) {
+    if (data[i] < low) {
+      low = data[i];
+    }
+    if (data[i] > high) {
+      high = data[i];
+    }
+  }
+  mn = low;
+  mx = high;
+}
+
+} // namespace detail
+} // namespace ffor
 
 int64_t FForCodec::maxCompressedLength(int64_t inputSize) {
   size_t numValues = inputSize / sizeof(uint64_t);
