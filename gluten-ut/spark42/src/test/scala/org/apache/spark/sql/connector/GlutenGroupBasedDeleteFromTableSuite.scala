@@ -16,12 +16,27 @@
  */
 package org.apache.spark.sql.connector
 
+import org.apache.spark.SparkConf
 import org.apache.spark.sql.GlutenSQLTestsBaseTrait
 
 class GlutenGroupBasedDeleteFromTableSuite
   extends GroupBasedDeleteFromTableSuite
-  with GlutenSQLTestsBaseTrait {}
+  with GlutenSQLTestsBaseTrait {
+  // Spark's own tests use 5 shuffle partitions. With 1, the write's clustering by _partition is a
+  // SinglePartition shuffle, so AQE may replace the input of ReplaceDataExec with an EmptyRelation
+  // when no rows are copied. That hides the scan used to compute numDeletedRows, which becomes -1.
+  override def sparkConf: SparkConf = {
+    super.sparkConf.set("spark.sql.shuffle.partitions", "5")
+  }
+}
 
 class GlutenDeleteFromTableSuite
   extends GroupBasedDeleteFromTableSuite
-  with GlutenSQLTestsBaseTrait {}
+  with GlutenSQLTestsBaseTrait {
+  // Spark's own tests use 5 shuffle partitions. With 1, the write's clustering by _partition is a
+  // SinglePartition shuffle, so AQE may replace the input of ReplaceDataExec with an EmptyRelation
+  // when no rows are copied. That hides the scan used to compute numDeletedRows, which becomes -1.
+  override def sparkConf: SparkConf = {
+    super.sparkConf.set("spark.sql.shuffle.partitions", "5")
+  }
+}

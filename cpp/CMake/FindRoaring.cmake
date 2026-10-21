@@ -13,6 +13,15 @@
 # License for the specific language governing permissions and limitations under
 # the License.
 
+if(ENABLE_GLUTEN_VCPKG)
+  find_package(roaring CONFIG REQUIRED)
+  if(NOT TARGET roaring)
+    add_library(roaring ALIAS roaring::roaring)
+  endif()
+  set(Roaring_FOUND TRUE)
+  return()
+endif()
+
 set(_roaring_pkgconfig_hints "")
 set(_roaring_include_hints "")
 set(_roaring_library_hints "")

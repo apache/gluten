@@ -20,16 +20,18 @@ import org.apache.gluten.GlutenColumnarWriteTestSupport
 import org.apache.gluten.execution.GlutenPlan
 import org.apache.gluten.execution.SortExecTransformer
 
-import org.apache.spark.SparkConf
+import org.apache.spark.{SparkConf, SparkException}
 import org.apache.spark.executor.OutputMetrics
 import org.apache.spark.scheduler.{SparkListener, SparkListenerTaskEnd}
 import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.TableIdentifier
+import org.apache.spark.sql.catalyst.catalog.{CatalogStorageFormat, CatalogTable, CatalogTableType}
 import org.apache.spark.sql.execution.{CommandResultExec, GlutenImplicits, QueryExecution, SparkPlan}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.execution.command.DataWritingCommandExec
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.{ArrayType, IntegerType, MapType, StringType, StructType}
 import org.apache.spark.sql.util.QueryExecutionListener
 
 import org.apache.hadoop.fs.{Path, RawLocalFileSystem}
@@ -588,6 +590,184 @@ class GlutenInsertSuite
           assert(intercept[AnalysisException] {
             sql("alter table t add column s map<boolean, string> default map(42, 56)")
           }.getMessage.contains(incompatibleDefault))
+        }
+    }
+  }
+
+  // Spark's SPARK-55716 tests expect a SparkRuntimeException(NOT_NULL_ASSERT_VIOLATION).
+  // Velox assert_not_null throws a VeloxUserError instead, which fails the query with a
+  // SparkException.
+  private def assertNotNullViolation(f: => Unit): Unit = {
+    val exception = intercept[SparkException](f)
+    val messages = Iterator
+      .iterate[Throwable](exception)(_.getCause)
+      .takeWhile(_ != null)
+      .flatMap(e => Option(e.getMessage))
+
+    assert(messages.exists(_.contains("Null value appeared in non-nullable field")))
+  }
+
+  testGluten("SPARK-55716: V1 INSERT rejects null into NOT NULL column for file sources") {
+    Seq("parquet", "orc", "json").foreach {
+      format =>
+        withSQLConf(SQLConf.FILE_SOURCE_INSERT_ENFORCE_NOT_NULL.key -> "true") {
+          withTable("t") {
+            sql(s"CREATE TABLE t(i INT NOT NULL, s STRING NOT NULL) USING $format")
+            assertNotNullViolation {
+              sql("INSERT INTO t VALUES(null, 'a')")
+            }
+            assertNotNullViolation {
+              sql("INSERT INTO t VALUES(1, null)")
+            }
+            sql("INSERT INTO t VALUES(1, 'a')")
+            checkAnswer(spark.table("t"), Seq(Row(1, "a")))
+          }
+        }
+    }
+  }
+
+  testGluten("SPARK-55716: V1 INSERT NOT NULL enforcement respects storeAssignmentPolicy") {
+    Seq("parquet", "orc").foreach {
+      format =>
+        // ANSI mode (default): rejects null
+        withSQLConf(
+          SQLConf.FILE_SOURCE_INSERT_ENFORCE_NOT_NULL.key -> "true",
+          SQLConf.STORE_ASSIGNMENT_POLICY.key -> SQLConf.StoreAssignmentPolicy.ANSI.toString) {
+          withTable("t") {
+            sql(s"CREATE TABLE t(i INT NOT NULL) USING $format")
+            assertNotNullViolation {
+              sql("INSERT INTO t VALUES(null)")
+            }
+          }
+        }
+        // STRICT mode: also rejects null (fails at analysis with type mismatch)
+        withSQLConf(
+          SQLConf.FILE_SOURCE_INSERT_ENFORCE_NOT_NULL.key -> "true",
+          SQLConf.STORE_ASSIGNMENT_POLICY.key -> SQLConf.StoreAssignmentPolicy.STRICT.toString) {
+          withTable("t") {
+            sql(s"CREATE TABLE t(i INT NOT NULL) USING $format")
+            intercept[AnalysisException] {
+              sql("INSERT INTO t VALUES(null)")
+            }
+          }
+        }
+        // LEGACY mode: allows null (no AssertNotNull injected)
+        withSQLConf(
+          SQLConf.FILE_SOURCE_INSERT_ENFORCE_NOT_NULL.key -> "true",
+          SQLConf.STORE_ASSIGNMENT_POLICY.key -> SQLConf.StoreAssignmentPolicy.LEGACY.toString) {
+          withTable("t") {
+            sql(s"CREATE TABLE t(i INT NOT NULL) USING $format")
+            sql("INSERT INTO t VALUES(null)")
+            checkAnswer(spark.table("t"), Seq(Row(null)))
+          }
+        }
+        // Legacy config: allows null even in ANSI mode
+        withSQLConf(
+          SQLConf.FILE_SOURCE_INSERT_ENFORCE_NOT_NULL.key -> "false",
+          SQLConf.STORE_ASSIGNMENT_POLICY.key -> SQLConf.StoreAssignmentPolicy.ANSI.toString) {
+          withTable("t") {
+            sql(s"CREATE TABLE t(i INT NOT NULL) USING $format")
+            sql("INSERT INTO t VALUES(null)")
+            checkAnswer(spark.table("t"), Seq(Row(null)))
+          }
+        }
+    }
+  }
+
+  testGluten("SPARK-55716: V1 INSERT rejects null with V2 file source path") {
+    Seq("parquet", "orc").foreach {
+      format =>
+        withSQLConf(
+          SQLConf.FILE_SOURCE_INSERT_ENFORCE_NOT_NULL.key -> "true",
+          SQLConf.USE_V1_SOURCE_LIST.key -> "") {
+          withTable("t") {
+            sql(s"CREATE TABLE t(i INT NOT NULL, s STRING NOT NULL) USING $format")
+            assertNotNullViolation {
+              sql("INSERT INTO t VALUES(null, 'a')")
+            }
+          }
+        }
+    }
+  }
+
+  testGluten("SPARK-55716: V1 INSERT rejects null array element for NOT NULL element type") {
+    Seq("parquet", "orc").foreach {
+      format =>
+        withSQLConf(SQLConf.FILE_SOURCE_INSERT_ENFORCE_NOT_NULL.key -> "true") {
+          withTable("t") {
+            val schema = new StructType()
+              .add("a", ArrayType(IntegerType, containsNull = false))
+            spark.sessionState.catalog.createTable(
+              CatalogTable(
+                identifier = TableIdentifier("t"),
+                tableType = CatalogTableType.MANAGED,
+                storage = CatalogStorageFormat.empty,
+                schema = schema,
+                provider = Some(format)),
+              ignoreIfExists = false
+            )
+            assertNotNullViolation {
+              sql("INSERT INTO t SELECT array(1, null, 3)")
+            }
+            sql("INSERT INTO t SELECT array(1, 2, 3)")
+            checkAnswer(spark.table("t"), Seq(Row(Seq(1, 2, 3))))
+          }
+        }
+    }
+  }
+
+  testGluten("SPARK-55716: V1 INSERT rejects null struct field for NOT NULL field") {
+    Seq("parquet", "orc").foreach {
+      format =>
+        withSQLConf(SQLConf.FILE_SOURCE_INSERT_ENFORCE_NOT_NULL.key -> "true") {
+          withTable("t") {
+            val schema = new StructType()
+              .add(
+                "s",
+                new StructType()
+                  .add("x", IntegerType, nullable = false)
+                  .add("y", StringType, nullable = false))
+            spark.sessionState.catalog.createTable(
+              CatalogTable(
+                identifier = TableIdentifier("t"),
+                tableType = CatalogTableType.MANAGED,
+                storage = CatalogStorageFormat.empty,
+                schema = schema,
+                provider = Some(format)),
+              ignoreIfExists = false
+            )
+            assertNotNullViolation {
+              sql("INSERT INTO t SELECT named_struct('x', null, 'y', 'hello')")
+            }
+            sql("INSERT INTO t SELECT named_struct('x', 1, 'y', 'hello')")
+            checkAnswer(spark.table("t"), Seq(Row(Row(1, "hello"))))
+          }
+        }
+    }
+  }
+
+  testGluten("SPARK-55716: V1 INSERT rejects null map value for NOT NULL value type") {
+    Seq("parquet", "orc").foreach {
+      format =>
+        withSQLConf(SQLConf.FILE_SOURCE_INSERT_ENFORCE_NOT_NULL.key -> "true") {
+          withTable("t") {
+            val schema = new StructType()
+              .add("m", MapType(StringType, IntegerType, valueContainsNull = false))
+            spark.sessionState.catalog.createTable(
+              CatalogTable(
+                identifier = TableIdentifier("t"),
+                tableType = CatalogTableType.MANAGED,
+                storage = CatalogStorageFormat.empty,
+                schema = schema,
+                provider = Some(format)),
+              ignoreIfExists = false
+            )
+            assertNotNullViolation {
+              sql("INSERT INTO t SELECT map('a', 1, 'b', null)")
+            }
+            sql("INSERT INTO t SELECT map('a', 1, 'b', 2)")
+            checkAnswer(spark.table("t"), Seq(Row(Map("a" -> 1, "b" -> 2))))
+          }
         }
     }
   }

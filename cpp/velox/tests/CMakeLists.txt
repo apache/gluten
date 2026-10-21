@@ -31,8 +31,14 @@ function(add_velox_test TEST_EXEC)
   target_compile_definitions(
     ${TEST_EXEC}
     PRIVATE GLUTEN_VELOX_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
-  target_link_libraries(${TEST_EXEC} velox ${GLUTEN_ROARING_LINK_LIBRARY}
-                        GTest::gtest GTest::gtest_main)
+  target_link_libraries(
+    ${TEST_EXEC}
+    gluten_velox_impl
+    gluten_core_impl
+    ${GLUTEN_VELOX_TEST_LIBRARIES}
+    ${GLUTEN_ROARING_LINK_LIBRARY}
+    GTest::gtest
+    GTest::gtest_main)
   if(ENABLE_GPU)
     target_link_libraries(${TEST_EXEC} velox_curl)
   endif()
@@ -82,8 +88,15 @@ if(ENABLE_GPU)
              facebook::velox::velox_cudf_vector
              facebook::velox::velox_cudf_hive_connector)
     target_link_libraries(
-      ${TEST_EXEC} PRIVATE velox ${GLUTEN_ROARING_LINK_LIBRARY} cudf::cudf
-                           velox_curl GTest::gtest GTest::gtest_main)
+      ${TEST_EXEC}
+      PRIVATE gluten_velox_impl
+              gluten_core_impl
+              ${GLUTEN_VELOX_TEST_LIBRARIES}
+              ${GLUTEN_ROARING_LINK_LIBRARY}
+              cudf::cudf
+              velox_curl
+              GTest::gtest
+              GTest::gtest_main)
     gtest_discover_tests(
       ${TEST_EXEC} DISCOVERY_MODE PRE_TEST
       PROPERTIES LABELS "cuda_driver"
@@ -140,6 +153,7 @@ add_velox_test(
 add_velox_test(spark_functions_test SOURCES SparkFunctionTest.cc
                FunctionTest.cc)
 add_velox_test(runtime_test SOURCES RuntimeTest.cc)
+add_velox_test(velox_backend_test SOURCES VeloxBackendTest.cc)
 add_velox_test(velox_memory_test SOURCES MemoryManagerTest.cc)
 add_velox_test(buffer_outputstream_test SOURCES BufferOutputStreamTest.cc)
 add_velox_test(velox_whole_stage_dumper_test SOURCES
@@ -151,8 +165,18 @@ add_velox_test(scoped_timer_test SOURCES ScopedTimerTest.cc)
 add_velox_test(row_based_checksum_test SOURCES RowBasedChecksumTest.cc)
 if(BUILD_EXAMPLES)
   add_velox_test(my_udf_test SOURCES MyUdfTest.cc)
+  # UDF loading exercises the production shared library, so use the same
+  # runtime.
+  set_property(
+    TARGET my_udf_test
+    PROPERTY LINK_LIBRARIES velox ${GLUTEN_VELOX_TEST_LIBRARIES} GTest::gtest
+             GTest::gtest_main)
 endif()
 
 if(ENABLE_ENHANCED_FEATURES)
   add_velox_test(velox_iceberg_test SOURCES iceberg/IcebergWriteTest.cc)
+endif()
+
+if(ENABLE_KAFKA)
+  add_velox_test(velox_kafka_connector_test SOURCES KafkaConnectorTest.cc)
 endif()
