@@ -80,8 +80,9 @@
     <!-- One Delta release serves every Spark 4.x profile: Delta publishes delta-spark_<spark>
          for each Spark 4.x line from the same release, and the src-delta4 sources track it. -->
     <delta4.version>4.4.1</delta4.version>
-    <!-- First lance-spark release with the Arrow C stream export (lance-spark#778). -->
-    <lance.version>0.8.0</lance.version>
+    <!-- Reads need 0.8.0, the first release with the Arrow C stream export (lance-spark#778).
+         Writes need 0.9.0-beta.2, the first with the fragment write spec (lance-spark#892). -->
+    <lance.version>0.9.0-beta.2</lance.version>
     <aws-java-sdk-dynamodb.version>1.12.797</aws-java-sdk-dynamodb.version>
     <celeborn.version>0.6.3</celeborn.version>
     <uniffle.version>0.10.0</uniffle.version>
