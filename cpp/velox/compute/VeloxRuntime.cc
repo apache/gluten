@@ -230,6 +230,7 @@ VeloxConnectorIds makeScopedConnectorIds(uint64_t runtimeId) {
       .iceberg = makeScopedConnectorId(kIcebergConnectorId, runtimeId),
       .delta = makeScopedConnectorId(delta::DeltaConnectorFactory::kDeltaConnectorName, runtimeId),
       .iterator = makeScopedConnectorId(kIteratorConnectorId, runtimeId),
+      .kafka = makeScopedConnectorId(kKafkaConnectorId, runtimeId),
       .cudfHive = makeScopedConnectorId(kCudfHiveConnectorId, runtimeId)};
 }
 
@@ -316,6 +317,15 @@ void VeloxRuntime::registerConnectors() {
       velox::connector::hasConnector(connectorIds_.iterator),
       "Scoped iterator connector not found after registration: " + connectorIds_.iterator);
 
+#ifdef ENABLE_KAFKA
+  connectorIds_.kafkaRegistered =
+      velox::connector::registerConnector(backend->createKafkaConnector(connectorIds_.kafka));
+  GLUTEN_CHECK(connectorIds_.kafkaRegistered, "Failed to register scoped Kafka connector: " + connectorIds_.kafka);
+  GLUTEN_CHECK(
+      velox::connector::hasConnector(connectorIds_.kafka),
+      "Scoped Kafka connector not found after registration: " + connectorIds_.kafka);
+#endif
+
 #ifdef GLUTEN_ENABLE_GPU
   if (veloxCfg_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault) &&
       veloxCfg_->get<bool>(kCudfEnabled, kCudfEnabledDefault)) {
@@ -335,6 +345,12 @@ void VeloxRuntime::unregisterConnectors() {
   if (connectorIds_.cudfHiveRegistered) {
     velox::connector::unregisterConnector(connectorIds_.cudfHive);
     connectorIds_.cudfHiveRegistered = false;
+  }
+#endif
+#ifdef ENABLE_KAFKA
+  if (connectorIds_.kafkaRegistered) {
+    velox::connector::unregisterConnector(connectorIds_.kafka);
+    connectorIds_.kafkaRegistered = false;
   }
 #endif
   if (connectorIds_.iteratorRegistered) {

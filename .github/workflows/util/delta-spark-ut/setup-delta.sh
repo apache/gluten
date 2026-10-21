@@ -23,11 +23,11 @@
 #   setup-delta.sh <delta_ref> <delta_dir> <gluten_bundle_jar> <gluten_repo_root>
 #
 # Arguments:
-#   delta_ref           - git ref (tag/branch/sha) to check out (e.g. v4.2.0)
+#   delta_ref           - git ref (tag/branch/sha) to check out (e.g. v4.4.1)
 #   delta_dir           - destination directory for the Delta clone
 #   gluten_bundle_jar   - path to the gluten-velox-bundle fat jar
 #   gluten_repo_root    - path to the Gluten repository root (used to locate
-#                         backends-velox/src-delta40/.../DeltaSQLCommandTest.scala)
+#                         backends-velox/src-delta4/.../DeltaSQLCommandTest.scala)
 #
 
 set -euo pipefail
@@ -52,7 +52,7 @@ fi
 # unified `spark` project's Test scope, which has the Gluten bundle on its
 # classpath (via spark-unified/lib/), so the typed GlutenConfig / VeloxDeltaConfig
 # imports resolve correctly.
-PATCH_SOURCE="$GLUTEN_ROOT/backends-velox/src-delta40/test/scala/org/apache/spark/sql/delta/test/DeltaSQLCommandTest.scala"
+PATCH_SOURCE="$GLUTEN_ROOT/backends-velox/src-delta4/test/scala/org/apache/spark/sql/delta/test/DeltaSQLCommandTest.scala"
 if [ ! -f "$PATCH_SOURCE" ]; then
   echo "Gluten DeltaSQLCommandTest not found: $PATCH_SOURCE" >&2
   exit 1
@@ -90,7 +90,7 @@ echo "::group::Injecting Gluten bundle jar onto the spark project's TEST classpa
 # with `reference to expression is ambiguous`.
 #
 # sbt auto-scans `<baseDirectory>/lib` via `unmanagedBase`. Two relevant
-# projects in Delta v4.2.0 have a `lib/` baseDirectory:
+# projects in Delta v4.4.1 have a `lib/` baseDirectory:
 #   - sparkV1: `project in file("spark")`     -> spark/lib
 #   - spark  : `project in file("spark-unified")` -> spark-unified/lib
 # unmanagedJars are project-scoped (NOT inherited by dependents), so dropping

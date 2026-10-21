@@ -26,8 +26,7 @@
 #include <arrow/type.h>
 
 namespace gluten {
-ColumnarBatch::ColumnarBatch(int32_t numColumns, int32_t numRows)
-    : numColumns_(numColumns), numRows_(numRows), exportNanos_(0) {}
+ColumnarBatch::ColumnarBatch(int32_t numColumns, int32_t numRows) : numColumns_(numColumns), numRows_(numRows) {}
 
 int32_t ColumnarBatch::numColumns() const {
   return numColumns_;
@@ -35,10 +34,6 @@ int32_t ColumnarBatch::numColumns() const {
 
 int32_t ColumnarBatch::numRows() const {
   return numRows_;
-}
-
-int64_t ColumnarBatch::getExportNanos() const {
-  return exportNanos_;
 }
 
 std::vector<char> ColumnarBatch::toUnsafeRow(int32_t rowId) const {

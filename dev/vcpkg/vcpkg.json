@@ -20,6 +20,7 @@
         "curl",
         "lzo",
         "re2",
+        "roaring",
         "gflags",
         "glog",
 		"s2geometry",
@@ -105,6 +106,15 @@
         "azure-identity-cpp"
       ]
     },
+    "velox-kafka": {
+      "description": "Velox Kafka Support",
+      "dependencies": [
+        {
+          "name": "librdkafka",
+          "features": ["ssl", "zlib", "zstd"]
+        }
+      ]
+    },
     "duckdb": {
       "description": "DUCKDB",
       "dependencies": [
@@ -122,6 +132,7 @@
     }
   },
   "overrides": [
+    { "name": "roaring", "version": "4.3.11" },
     { "name": "fmt", "version": "11.2.0" },
     { "name": "liblzma", "version": "5.6.2" },
     { "name": "xsimd", "version": "10.0.0" },

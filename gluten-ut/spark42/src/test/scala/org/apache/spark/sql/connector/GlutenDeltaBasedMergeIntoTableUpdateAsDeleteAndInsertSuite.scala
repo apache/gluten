@@ -16,9 +16,17 @@
  */
 package org.apache.spark.sql.connector
 
+import org.apache.spark.SparkConf
 import org.apache.spark.sql.GlutenSQLTestsBaseTrait
 
 class GlutenDeltaBasedMergeIntoTableUpdateAsDeleteAndInsertSuite
   extends DeltaBasedMergeIntoTableUpdateAsDeleteAndInsertSuite
   with GlutenSQLTestsBaseTrait
-  with GlutenMergeIntoTableSuiteBase {}
+  with GlutenMergeIntoTableSuiteBase {
+  // Spark's own tests use 5 shuffle partitions. With 1, the write's clustering by _partition is a
+  // SinglePartition shuffle, so AQE may replace the write's input with an EmptyRelation when the
+  // MERGE writes no rows. That drops MergeRowsExec, so the commit has no MERGE summary.
+  override def sparkConf: SparkConf = {
+    super.sparkConf.set("spark.sql.shuffle.partitions", "5")
+  }
+}

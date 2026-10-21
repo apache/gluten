@@ -92,6 +92,8 @@ Both use the AlmaLinux 8 / GCC 13 vcpkg builder; Delta's downstream bundle and
 test jobs run on CentOS 9. The Delta workflow retains native dependency logs as
 an artifact if its build fails. That is the price of decoupling the two pipelines.
 
+- **Bumping Delta** — the suite tests the Delta release in `pom.xml` (`delta4.version`), but
+  `pom.xml` is not in the `paths:` filter, so comment **`/delta-test`** on a PR that bumps it.
 - **Per PR** — the workflow's own `paths:` filter runs the suite only when the PR
   touches a **high-signal Delta path**: the Delta integration code
   (`backends-velox/src-delta*`), the `gluten-delta` module, or this pipeline's
@@ -246,7 +248,7 @@ the flags reach the sbt launcher and the forked test JVM:
 ```bash
 # from the Delta clone prepared by setup-delta.sh (which has the Gluten bundle):
 source <gluten>/.github/workflows/util/delta-spark-ut/java-test-args.sh
-./build/sbt "++ 2.13.16" spark/test        # or a single suite via testOnly
+./build/sbt -DsparkVersion=4.1 "++ 2.13.17" spark/test   # or a single suite via testOnly
 ```
 
 `run-delta-tests.sh` sources the same file, so CI and local runs use identical

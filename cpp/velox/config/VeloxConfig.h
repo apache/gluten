@@ -38,8 +38,8 @@ const std::string kMaxSpillFileSize = "spark.gluten.sql.columnar.backend.velox.m
 const std::string kSpillNumMaxMergeFiles = "spark.gluten.sql.columnar.backend.velox.spillNumMaxMergeFiles";
 const std::string kSpillStartPartitionBit = "spark.gluten.sql.columnar.backend.velox.spillStartPartitionBit";
 const std::string kSpillPartitionBits = "spark.gluten.sql.columnar.backend.velox.spillPartitionBits";
-const std::string kMaxSpillRunRows = "spark.gluten.sql.columnar.backend.velox.MaxSpillRunRows";
-const std::string kMaxSpillBytes = "spark.gluten.sql.columnar.backend.velox.MaxSpillBytes";
+const std::string kMaxSpillRunRows = "spark.gluten.sql.columnar.backend.velox.maxSpillRunRows";
+const std::string kMaxSpillBytes = "spark.gluten.sql.columnar.backend.velox.maxSpillBytes";
 const std::string kSpillReadBufferSize = "spark.unsafe.sorter.spill.reader.buffer.size";
 const uint64_t kMaxSpillFileSizeDefault = 1L * 1024 * 1024 * 1024;
 
@@ -134,6 +134,7 @@ const uint64_t kVeloxMemReclaimMaxWaitMsDefault = 3600000; // 60min
 
 const std::string kHiveConnectorId = "test-hive";
 const std::string kIcebergConnectorId = "test-iceberg";
+const std::string kKafkaConnectorId = "kafka-stream";
 
 const std::string kVeloxCacheEnabled = "spark.gluten.sql.columnar.backend.velox.cacheEnabled";
 
@@ -168,6 +169,13 @@ const std::string kVeloxIOThreads = "spark.gluten.sql.columnar.backend.velox.IOT
 const std::string kVeloxAsyncTimeoutOnTaskStopping =
     "spark.gluten.sql.columnar.backend.velox.asyncTimeoutOnTaskStopping";
 const int32_t kVeloxAsyncTimeoutOnTaskStoppingDefault = 30000; // 30s
+
+// By default, executors use the number of task slots per executor, with a
+// minimum of one thread. When driver-side broadcast hash-table build is enabled
+// and Spark is not running in local mode, Scala-side logic in VeloxListenerApi
+// overrides the driver default to use spark.driver.cores instead.
+const std::string kBroadcastHashTableBuildThreads =
+    "spark.gluten.sql.columnar.backend.velox.broadcastHashTableBuildThreads";
 
 // udf
 const std::string kVeloxUdfLibraryPaths = "spark.gluten.sql.columnar.backend.velox.internal.udfLibraryPaths";
