@@ -77,32 +77,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("partitioning reporting")
     .exclude("ordering and partitioning reporting")
   enableSuite[GlutenDeleteFromTableSuite]
-    .exclude("delete from empty tables") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "delete from table with table constraints"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude("delete with EXISTS subquery") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "delete with NOT EXISTS subquery"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude("delete with NOT IN predicates") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude("delete with NOT IN subqueries") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "delete with NULL condition on non-null column"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "delete with NULL equality on VOID column"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude("delete with aliases") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "delete with conditions on nested columns"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "delete with literal false condition"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "delete with unsupported predicates cannot be converted into delete with filters"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenFileDataSourceV2FallBackSuite]
     // Rewritten
     .exclude("Fallback Parquet V2 to V1")
@@ -129,18 +103,12 @@ class VeloxTestSettings extends BackendTestSettings {
       "SPARK-56241: GroupPartitionsExec coalescing derives ordering from key expressions, " +
         "no pre-join SortExec needed before SortMergeJoin")
     .exclude("SPARK-44641: duplicated records when SPJ is not triggered")
-    .exclude(
-      "SPARK-55715: Custom metrics of sorted-merge coalesced partitions"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-55715: preserve outputOrdering when coalescing partitions with sorted merge"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-55715: preserve outputOrdering when coalescing transform-partitioned splits"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-56549: k-way merge enabled only when parent requires ordering"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
+    // Rewritten: the sorted merge needs the GroupPartitionsExec child to stay vanilla, and the
+    // tests check vanilla SortMergeJoinExec / ShuffledHashJoinExec nodes.
+    .exclude("SPARK-55715: Custom metrics of sorted-merge coalesced partitions")
+    .exclude("SPARK-55715: preserve outputOrdering when coalescing partitions with sorted merge")
+    .exclude("SPARK-55715: preserve outputOrdering when coalescing transform-partitioned splits")
+    .exclude("SPARK-56549: k-way merge enabled only when parent requires ordering")
   enableSuite[GlutenLocalScanSuite]
   enableSuite[GlutenMetadataColumnSuite]
   enableSuite[GlutenSupportsCatalogOptionsSuite]
@@ -336,9 +304,9 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenGroupBasedUpdateTableSuite]
     // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
     .exclude("update with NOT NULL checks")
-    .exclude(
-      "update with constraint violation and transactional checks"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
+    // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException.
+    // Rewritten in GlutenUpdateTableSuiteBase.
+    .exclude("update with constraint violation and transactional checks")
   enableSuite[GlutenMergeIntoDataFrameSuite]
   enableSuite[GlutenProcedureSuite]
   enableSuite[GlutenPushablePredicateSuite]
@@ -625,9 +593,10 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-35640: int as long should throw schema incompatible error")
     // TODO: fix in Spark-4.0
     .exclude("explode nested lists crossing a rowgroup boundary")
-    // TODO: fix on Spark-4.1
-    .excludeByPrefix("SPARK-53535") // see https://issues.apache.org/jira/browse/SPARK-53535
-    .excludeByPrefix("vectorized reader: missing all struct fields")
+    // These run the scan node alone with VerifyNoAdditionalScanOutputExec, which does not work
+    // for Gluten's scan node. Rewritten in GlutenParquetIOSuite.
+    .exclude(
+      "SPARK-53535: vectorized reader: missing all struct fields, struct with complex fields")
     .exclude("SPARK-54220: vectorized reader: missing all struct fields, struct with NullType only")
     .exclude("SPARK-54220: NullType") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenParquetV1PartitionDiscoverySuite]
@@ -940,24 +909,14 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-39557 INSERT INTO statements with tables with array defaults")
     .exclude("SPARK-39557 INSERT INTO statements with tables with struct defaults")
     .exclude("SPARK-39557 INSERT INTO statements with tables with map defaults")
-    .exclude(
-      "SPARK-55716: V1 INSERT NOT NULL enforcement respects storeAssignmentPolicy"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-55716: V1 INSERT rejects null array element for NOT NULL element type"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-55716: V1 INSERT rejects null into NOT NULL column for file sources"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-55716: V1 INSERT rejects null map value for NOT NULL value type"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-55716: V1 INSERT rejects null struct field for NOT NULL field"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-55716: V1 INSERT rejects null with V2 file source path"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
+    // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException.
+    // Rewritten in GlutenInsertSuite.
+    .exclude("SPARK-55716: V1 INSERT rejects null into NOT NULL column for file sources")
+    .exclude("SPARK-55716: V1 INSERT NOT NULL enforcement respects storeAssignmentPolicy")
+    .exclude("SPARK-55716: V1 INSERT rejects null with V2 file source path")
+    .exclude("SPARK-55716: V1 INSERT rejects null array element for NOT NULL element type")
+    .exclude("SPARK-55716: V1 INSERT rejects null struct field for NOT NULL field")
+    .exclude("SPARK-55716: V1 INSERT rejects null map value for NOT NULL value type")
   enableSuite[GlutenPartitionedWriteSuite]
   enableSuite[GlutenPathOptionSuite]
   enableSuite[GlutenPrunedScanSuite]
@@ -996,60 +955,15 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("Tags set from session are prefixed with session UUID")
   enableSuite[GlutenTPCDSCollationQueryTestSuite]
   enableSuite[GlutenTPCDSModifiedPlanStabilitySuite]
-    .exclude(
-      "check simplified (tpcds-modifiedQueries/ss_max)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenTPCDSModifiedPlanStabilityWithStatsSuite]
-    .exclude(
-      "check simplified sf100 (tpcds-modifiedQueries/ss_max)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenTPCDSQueryANSISuite]
   enableSuite[GlutenTPCDSQuerySuite]
   enableSuite[GlutenTPCDSQueryTestSuite]
   enableSuite[GlutenTPCDSQueryWithStatsSuite]
   enableSuite[GlutenTPCDSV1_4_PlanStabilitySuite]
-    .exclude(
-      "check simplified (tpcds-v1.4/q16)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "check simplified (tpcds-v1.4/q28)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "check simplified (tpcds-v1.4/q94)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "check simplified (tpcds-v1.4/q95)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenTPCDSV1_4_PlanStabilityWithStatsSuite]
-    .exclude(
-      "check simplified sf100 (tpcds-v1.4/q16)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "check simplified sf100 (tpcds-v1.4/q28)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "check simplified sf100 (tpcds-v1.4/q5)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "check simplified sf100 (tpcds-v1.4/q54)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "check simplified sf100 (tpcds-v1.4/q94)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "check simplified sf100 (tpcds-v1.4/q95)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenTPCDSV2_7_PlanStabilitySuite]
-    .exclude(
-      "check simplified (tpcds-v2.7.0/q77a)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenTPCDSV2_7_PlanStabilityWithStatsSuite]
-    .exclude(
-      "check simplified sf100 (tpcds-v2.7.0/q5a)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "check simplified sf100 (tpcds-v2.7.0/q77a)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenTPCHPlanStabilitySuite]
   enableSuite[GlutenTPCHQuerySuite]
   enableSuite[GlutenUDFSuite]
@@ -1396,32 +1310,6 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenSparkSessionExtensionSuite]
     .includeGlutenTest("customColumnarOp")
   enableSuite[GlutenGroupBasedDeleteFromTableSuite]
-    .exclude("delete from empty tables") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "delete from table with table constraints"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude("delete with EXISTS subquery") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "delete with NOT EXISTS subquery"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude("delete with NOT IN predicates") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude("delete with NOT IN subqueries") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "delete with NULL condition on non-null column"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "delete with NULL equality on VOID column"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude("delete with aliases") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "delete with conditions on nested columns"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "delete with literal false condition"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "delete with unsupported predicates cannot be converted into delete with filters"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenDeltaBasedDeleteFromTableSuite]
   enableSuite[GlutenDataFrameToSchemaSuite]
   enableSuite[GlutenDatasetUnpivotSuite]
@@ -1461,23 +1349,11 @@ class VeloxTestSettings extends BackendTestSettings {
     .excludeByPrefix("merge cardinality check with")
     // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
     .exclude("merge with NOT NULL checks")
-    .exclude(
-      "merge with literal false ON condition"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "merge with statically empty source and only MATCHED clauses"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenDeltaBasedMergeIntoTableUpdateAsDeleteAndInsertSuite]
     // Replaced by Gluten versions that handle wrapped exceptions
     .excludeByPrefix("merge cardinality check with")
     // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
     .exclude("merge with NOT NULL checks")
-    .exclude(
-      "merge with literal false ON condition"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "merge with statically empty source and only MATCHED clauses"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenDeltaBasedUpdateAsDeleteAndInsertTableSuite]
     // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
     .exclude("update with NOT NULL checks")
@@ -1495,12 +1371,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .excludeByPrefix("merge cardinality check with")
     // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
     .exclude("merge with NOT NULL checks")
-    .exclude(
-      "merge with literal false ON condition"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "merge with statically empty source and only MATCHED clauses"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenFileSourceCustomMetadataStructSuite]
   enableSuite[GlutenParquetFileMetadataStructRowIndexSuite]
   enableSuite[GlutenTableLocationSuite]
