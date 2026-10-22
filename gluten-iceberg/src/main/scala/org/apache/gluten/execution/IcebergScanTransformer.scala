@@ -367,7 +367,7 @@ object IcebergScanTransformer {
     Set("input_file_name", "input_file_block_start", "input_file_block_length")
 
   def apply(batchScan: BatchScanExec): IcebergScanTransformer = {
-    val transformer = new IcebergScanTransformer(
+    new IcebergScanTransformer(
       batchScan.output.map(a => a.withName(AvroSchemaUtil.makeCompatibleName(a.name))),
       batchScan.scan,
       batchScan.runtimeFilters,
@@ -375,10 +375,6 @@ object IcebergScanTransformer {
       keyGroupedPartitioning = batchScan.keyGroupedPartitioning,
       commonPartitionValues = SparkShimLoader.getSparkShims.getCommonPartitionValues(batchScan)
     )
-    // Carry over tags (e.g. PushDownInputFileExpression.INPUT_FILE_NAME_COLLISION_TAG) so
-    // that validation sees them, as ScanTransformerFactory does for the other scans.
-    transformer.copyTagsFrom(batchScan)
-    transformer
   }
 
   def supportsBatchScan(scan: Scan): Boolean = {
