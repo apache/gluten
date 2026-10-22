@@ -40,10 +40,18 @@ case class InSetTransformer(
     original: InSet)
   extends UnaryExpressionTransformer {
   override def doTransform(context: SubstraitContext): ExpressionNode = {
-    InExpressionTransformer.toTransformer(
-      child.doTransform(context),
-      original.hset,
-      original.child.dataType)
+    val leftNode = child.doTransform(context)
+    val values = original.hset
+    val valueType = original.child.dataType
+
+    // Keep raw literal values and defer building LiteralNode objects until toProtobuf().
+    val rawValues = new java.util.ArrayList[Object](
+      values.toSeq
+        // Sort elements for deterministic behaviours.
+        .sortBy(Literal(_, valueType).toString())
+        .map(_.asInstanceOf[Object])
+        .asJava)
+    ExpressionBuilder.makeSingularOrListNode(leftNode, rawValues, valueType)
   }
 }
 
