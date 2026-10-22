@@ -43,6 +43,7 @@ import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.execution.datasources.FileFormatWriter._
+import org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.DataType
@@ -130,6 +131,18 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
         dataColumns ++ partitionColumns
       } else dataColumns
 
+    // The Velox writer writes no Parquet footer when it gets no rows, so Spark's Parquet writer
+    // writes the file that carries the schema of an empty job, as in VeloxColumnarWriteFilesExec.
+    // It prepares the job first and the Delta settings go on top, as in Delta's own file format,
+    // so that file comes out as Delta's writer writes it.
+    val emptyFileWriterFactory =
+      new ParquetFileFormat().prepareWrite(
+        sparkSession,
+        job,
+        caseInsensitiveOptions,
+        outputDataColumns.toStructType
+      )
+
     // Note: prepareWrite has side effect. It sets "job".
     val outputWriterFactory =
       fileFormat.prepareWrite(
@@ -163,6 +176,21 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
         .get(DateTimeUtils.TIMEZONE_OPTION)
         .getOrElse(sparkSession.sessionState.conf.sessionLocalTimeZone),
       statsTrackers = maybeWrappedStatsTrackers
+    )
+    // The same job, written with Spark's Parquet writer.
+    val emptyFileDescription = new WriteJobDescription(
+      uuid = description.uuid,
+      serializableHadoopConf = description.serializableHadoopConf,
+      outputWriterFactory = emptyFileWriterFactory,
+      allColumns = description.allColumns,
+      dataColumns = description.dataColumns,
+      partitionColumns = description.partitionColumns,
+      bucketSpec = description.bucketSpec,
+      path = description.path,
+      customPartitionLocations = description.customPartitionLocations,
+      maxRecordsPerFile = description.maxRecordsPerFile,
+      timeZoneId = description.timeZoneId,
+      statsTrackers = description.statsTrackers
     )
 
     // We should first sort by dynamic partition columns, then bucket id, and finally sorting
@@ -221,6 +249,7 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
         plan,
         job,
         description,
+        emptyFileDescription,
         committer,
         outputSpec,
         requiredOrdering,
@@ -238,6 +267,7 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
       plan: SparkPlan,
       job: Job,
       description: WriteJobDescription,
+      emptyFileDescription: WriteJobDescription,
       committer: FileCommitProtocol,
       outputSpec: OutputSpec,
       requiredOrdering: Seq[Expression],
@@ -313,6 +343,7 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
         (taskContext: TaskContext, iter: Iterator[InternalRow]) => {
           executeTask(
             description = description,
+            emptyFileDescription = emptyFileDescription,
             jobTrackerID = jobTrackerID,
             sparkStageId = taskContext.stageId(),
             sparkPartitionId = taskContext.partitionId(),
@@ -428,6 +459,7 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
   /** Writes data out in a single Spark task. */
   private def executeTask(
       description: WriteJobDescription,
+      emptyFileDescription: WriteJobDescription,
       jobTrackerID: String,
       sparkStageId: Int,
       sparkPartitionId: Int,
@@ -464,13 +496,14 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
     committer.setupTask(taskAttemptContext)
 
     val dataWriter =
-      if (!iterator.hasNext) {
-        // Spark leaves the first task of an empty job to write a file that carries the schema.
-        // The Velox writer writes no Parquet footer when it gets no rows, so that file would be
-        // zero bytes long and unreadable. Delta keeps the schema in its log, so write no file.
+      if (sparkPartitionId != 0 && !iterator.hasNext) {
+        // In case of empty job, leave first partition to save meta for file format like parquet.
         new EmptyDirectoryDataWriter(description, taskAttemptContext, committer)
       } else if (description.partitionColumns.isEmpty && description.bucketSpec.isEmpty) {
-        new SingleDirectoryDataWriter(description, taskAttemptContext, committer)
+        // Velox writes no Parquet footer without rows, so the first partition writes that file
+        // with Spark's Parquet writer.
+        val writerDescription = if (iterator.hasNext) description else emptyFileDescription
+        new SingleDirectoryDataWriter(writerDescription, taskAttemptContext, committer)
       } else {
         concurrentOutputWriterSpec match {
           case Some(spec) =>

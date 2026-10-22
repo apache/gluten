@@ -26,7 +26,7 @@ class VeloxDeltaEmptyWriteSuite extends QueryTest with DeltaSQLCommandTest {
 
   Seq(true, false).foreach {
     collectStats =>
-      test(s"a native write task without rows writes no file, collectStats=$collectStats") {
+      test(s"an empty native write writes a readable file, collectStats=$collectStats") {
         withSQLConf(DeltaSQLConf.DELTA_COLLECT_STATS.key -> collectStats.toString) {
           withTempDir {
             dir =>
@@ -44,12 +44,16 @@ class VeloxDeltaEmptyWriteSuite extends QueryTest with DeltaSQLCommandTest {
                 .save(path)
               spark.range(0, 10, 1, 2).toDF("id").write.format("delta").mode("append").save(path)
 
+              // As in Spark, the first task of each empty write writes a file that carries the
+              // schema: two such files and two data files.
               val parquetFiles = dir.listFiles().filter(_.getName.endsWith(".parquet")).toSeq
               assert(
-                parquetFiles.nonEmpty && parquetFiles.forall(_.length > 0),
+                parquetFiles.size == 4 && parquetFiles.forall(_.length > 0),
                 parquetFiles.map(f => f.getName -> f.length))
+              // As in Delta, the log keeps the empty files only without statistics to tell that
+              // they hold no rows.
               val tableFiles = DeltaLog.forTable(spark, path).update().allFiles.collect()
-              assert(tableFiles.forall(_.size > 0), tableFiles.toSeq)
+              assert(tableFiles.length == (if (collectStats) 2 else 4), tableFiles.toSeq)
               checkAnswer(spark.read.format("delta").load(path), (0 until 10).map(Row(_)))
               // Every Parquet file in the table directory can be read, not only those in the log.
               checkAnswer(spark.read.parquet(path), (0 until 10).map(Row(_)))
