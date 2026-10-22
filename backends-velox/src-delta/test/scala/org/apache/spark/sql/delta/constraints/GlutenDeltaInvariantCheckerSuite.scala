@@ -17,11 +17,15 @@
 package org.apache.spark.sql.delta.constraints
 
 import org.apache.spark.SparkFunSuite
+import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Literal}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Literal}
 import org.apache.spark.sql.delta.constraints.Constraints.{Check, NotNull}
 import org.apache.spark.sql.delta.schema.DeltaInvariantViolationException
-import org.apache.spark.sql.types.LongType
+import org.apache.spark.sql.delta.sources.DeltaSQLConf
+import org.apache.spark.sql.execution.LeafExecNode
+import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.{LongType, StringType}
 
 /** Checks of GlutenDeltaInvariantChecker that need no native library: the plan and row paths. */
 class GlutenDeltaInvariantCheckerSuite extends SparkFunSuite {
@@ -41,6 +45,20 @@ class GlutenDeltaInvariantCheckerSuite extends SparkFunSuite {
     assert(GlutenDeltaInvariantChecker.create(output, Seq(NotNull(Seq("missing")))).isEmpty)
   }
 
+  test("Delta's row checker is kept when it would see empty partition strings") {
+    val part = AttributeReference("part", StringType)()
+    val plan = LeafPlan(output :+ part)
+    val constraints = Seq(NotNull(Seq("part")))
+    val conf = new SQLConf
+    assert(GlutenDeltaInvariantChecker.forWrite(plan, Seq(part), constraints, conf).isDefined)
+
+    // Delta then checks the empty strings, which the writer turns into nulls only after the check.
+    conf.setConf(DeltaSQLConf.CONVERT_EMPTY_TO_NULL_FOR_STRING_PARTITION_COL, false)
+    assert(GlutenDeltaInvariantChecker.forWrite(plan, Seq(part), constraints, conf).isEmpty)
+    assert(
+      GlutenDeltaInvariantChecker.forWrite(plan, Seq(output.head), constraints, conf).isDefined)
+  }
+
   test("row path checks every constraint") {
     val checker =
       GlutenDeltaInvariantChecker.create(output, Seq(NotNull(Seq("a")), NotNull(Seq("c")))).get
@@ -52,4 +70,8 @@ class GlutenDeltaInvariantCheckerSuite extends SparkFunSuite {
     }
     assert(e.getMessage.contains("NOT NULL constraint violated for column: c"))
   }
+}
+
+private case class LeafPlan(output: Seq[Attribute]) extends LeafExecNode {
+  override protected def doExecute(): RDD[InternalRow] = throw new UnsupportedOperationException
 }

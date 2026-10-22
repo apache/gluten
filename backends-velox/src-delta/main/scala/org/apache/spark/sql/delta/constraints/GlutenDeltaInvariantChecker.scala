@@ -23,6 +23,11 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.delta.constraints.Constraints.NotNull
 import org.apache.spark.sql.delta.schema.{DeltaInvariantViolationException, SchemaUtils}
+import org.apache.spark.sql.delta.sources.DeltaSQLConf
+import org.apache.spark.sql.execution.SparkPlan
+import org.apache.spark.sql.execution.datasources.V1WritesUtils
+import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.StringType
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 /**
@@ -82,6 +87,33 @@ private[delta] class GlutenDeltaInvariantChecker private (
 }
 
 private[delta] object GlutenDeltaInvariantChecker {
+
+  /**
+   * Returns the checker GlutenDeltaFileFormatWriter applies to the write of `plan`, or None if the
+   * write must keep Delta's row-based DeltaInvariantCheckerExec.
+   *
+   * @param plan
+   *   the plan to write, after Delta's own conversion of empty partition strings to nulls
+   */
+  def forWrite(
+      plan: SparkPlan,
+      partitionColumns: Seq[Attribute],
+      constraints: Seq[Constraint],
+      conf: SQLConf): Option[GlutenDeltaInvariantChecker] = {
+    // The checker runs in the writer's own tasks, which a WriteFilesExec plan does not use.
+    if (V1WritesUtils.getWriteFilesOpt(plan).isDefined) {
+      return None
+    }
+    // The checker sees the rows after the writer has turned empty partition strings into nulls.
+    // Delta checks them before that, and converts them itself first only when this conf is on.
+    if (
+      !conf.getConf(DeltaSQLConf.CONVERT_EMPTY_TO_NULL_FOR_STRING_PARTITION_COL) &&
+      partitionColumns.exists(_.dataType == StringType)
+    ) {
+      return None
+    }
+    create(plan.output, constraints)
+  }
 
   /**
    * Returns a checker for `constraints` if all of them are top-level NOT NULL constraints on

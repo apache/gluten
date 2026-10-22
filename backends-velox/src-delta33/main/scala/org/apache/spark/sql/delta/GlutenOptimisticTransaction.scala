@@ -29,7 +29,7 @@ import org.apache.spark.sql.delta.schema.InnerInvariantViolationException
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.execution.{SparkPlan, SQLExecution}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
-import org.apache.spark.sql.execution.datasources.{BasicWriteJobStatsTracker, FileFormatWriter, V1WritesUtils, WriteJobStatsTracker}
+import org.apache.spark.sql.execution.datasources.{BasicWriteJobStatsTracker, FileFormatWriter, WriteJobStatsTracker}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.util.ScalaExtensions.OptionExt
 import org.apache.spark.util.SerializableConfiguration
@@ -99,11 +99,11 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
       } else {
         DeltaInvariantCheckerExec(empty2NullPlan, constraints)
       }
-      val nativeInvariantChecker = if (V1WritesUtils.getWriteFilesOpt(empty2NullPlan).isEmpty) {
-        GlutenDeltaInvariantChecker.create(empty2NullPlan.output, constraints)
-      } else {
-        None
-      }
+      val nativeInvariantChecker = GlutenDeltaInvariantChecker.forWrite(
+        empty2NullPlan,
+        partitioningColumns,
+        constraints,
+        spark.sessionState.conf)
       val nativeInvariantPlan = nativeInvariantChecker.map(_ => empty2NullPlan).getOrElse(
         rowInvariantPlan)
       def toVeloxPlan(plan: SparkPlan): SparkPlan = plan match {

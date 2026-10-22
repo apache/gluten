@@ -20,6 +20,7 @@ import org.apache.gluten.backendsapi.velox.VeloxBatchType
 import org.apache.gluten.extension.columnar.transition.Transitions
 
 import org.apache.spark.sql.{AnalysisException, Dataset, SparkSession}
+import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.catalyst.types.DataTypeUtils
 import org.apache.spark.sql.delta.actions.{AddFile, FileAction}
 import org.apache.spark.sql.delta.constraints.{Constraint, Constraints, DeltaInvariantCheckerExec, GlutenDeltaInvariantChecker}
@@ -32,7 +33,7 @@ import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.util.TableParquetVersionOption
 import org.apache.spark.sql.execution.{SparkPlan, SQLExecution}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
-import org.apache.spark.sql.execution.datasources.{BasicWriteJobStatsTracker, FileFormatWriter, V1WritesUtils, WriteJobStatsTracker}
+import org.apache.spark.sql.execution.datasources.{BasicWriteJobStatsTracker, FileFormatWriter, WriteJobStatsTracker}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.util.ScalaExtensions.OptionExt
 import org.apache.spark.util.SerializableConfiguration
@@ -174,7 +175,8 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
           metadata)
         if (nativeUnsupportedReason.isEmpty) {
           val (glutenPlan, nativeInvariantChecker) =
-            glutenPhysicalPlan(spark, empty2NullPlan, constraints, isOptimize, writeOptions)
+            glutenPhysicalPlan(
+              spark, empty2NullPlan, partitioningColumns, constraints, isOptimize, writeOptions)
           GlutenDeltaFileFormatWriter.write(
             sparkSession = spark,
             plan = glutenPlan,
@@ -279,6 +281,7 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
   private def glutenPhysicalPlan(
       spark: SparkSession,
       empty2NullPlan: SparkPlan,
+      partitioningColumns: Seq[Attribute],
       constraints: Seq[Constraint],
       isOptimize: Boolean,
       writeOptions: Option[DeltaOptions]): (SparkPlan, Option[GlutenDeltaInvariantChecker]) = {
@@ -287,11 +290,11 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
     } else {
       DeltaInvariantCheckerExec(spark, empty2NullPlan, constraints)
     }
-    val nativeInvariantChecker = if (V1WritesUtils.getWriteFilesOpt(empty2NullPlan).isEmpty) {
-      GlutenDeltaInvariantChecker.create(empty2NullPlan.output, constraints)
-    } else {
-      None
-    }
+    val nativeInvariantChecker = GlutenDeltaInvariantChecker.forWrite(
+      empty2NullPlan,
+      partitioningColumns,
+      constraints,
+      spark.sessionState.conf)
     val nativeInvariantPlan =
       nativeInvariantChecker.map(_ => empty2NullPlan).getOrElse(rowInvariantPlan)
     def toVeloxPlan(plan: SparkPlan): SparkPlan = plan match {
