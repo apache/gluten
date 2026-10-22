@@ -24,7 +24,7 @@ import org.apache.spark.sql.{Column, DataFrame, Row}
 import org.apache.spark.sql.GlutenSQLTestsBaseTrait
 import org.apache.spark.sql.execution.FileSourceScanExec
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{IntegerType, LongType, StringType, StructField, StructType}
+import org.apache.spark.sql.types.{DataType, IntegerType, LongType, StringType, StructField, StructType}
 import org.apache.spark.util.Utils
 
 import org.apache.hadoop.fs.Path
@@ -66,11 +66,20 @@ class GlutenFileMetadataStructSuite extends FileMetadataStructSuite with GlutenS
     METADATA_FILE_BLOCK_START,
     METADATA_FILE_BLOCK_LENGTH)
 
-  private val schemaWithMetadataCollisions = StructType(
-    metadataColumns.zipWithIndex.map {
-      case (name, index) =>
-        StructField(name.stripPrefix("_metadata."), if (index < 2) LongType else StringType)
-    }).add("id", LongType)
+  private val schemaWithMetadataCollisions = {
+    val collisionTypes = Map[String, DataType](
+      METADATA_FILE_PATH -> LongType,
+      METADATA_FILE_NAME -> LongType,
+      METADATA_FILE_SIZE -> StringType,
+      METADATA_FILE_MODIFICATION_TIME -> StringType,
+      METADATA_FILE_BLOCK_START -> StringType,
+      METADATA_FILE_BLOCK_LENGTH -> StringType
+    )
+    StructType(
+      metadataColumns.map {
+        name => StructField(name.stripPrefix("_metadata."), collisionTypes(name))
+      }).add("id", LongType)
+  }
 
   private val collisionRows0 = Seq(
     Row(10L, 20L, "size0", "time0", "start0", "length0", 0L),
