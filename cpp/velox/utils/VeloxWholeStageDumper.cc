@@ -138,7 +138,7 @@ std::shared_ptr<ColumnarBatchIterator> VeloxWholeStageDumper::dumpInputIterator(
         fmt::format("Input iterator {} of {} produced no batches.\n", iteratorIndex, taskInfo_.toString()));
     LOG(INFO) << "Input iterator " << iteratorIndex << " of " << taskInfo_ << " produced no batches, dumped as "
               << markerName << ".";
-    return std::make_shared<EmptyInputMarkerIterator>(dumpPath.string() + std::string(kEmptyInputMarkerSuffix));
+    return std::make_shared<EmptyInputMarkerIterator>();
   }
 
   // Velox parquet reader requires leaf memory pool. Do not create a dedicated child pool here: the reader

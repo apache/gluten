@@ -53,11 +53,10 @@ class FileReaderIterator : public ColumnarBatchIterator {
   std::string path_;
 };
 
-// Replays an empty input marker as an input iterator that yields no batches.
-class EmptyInputMarkerIterator final : public FileReaderIterator {
+// Replays an empty input marker as an input iterator that yields no batches. It reads no file, so it
+// is not a FileReaderIterator.
+class EmptyInputMarkerIterator final : public ColumnarBatchIterator {
  public:
-  explicit EmptyInputMarkerIterator(const std::string& path) : FileReaderIterator(path) {}
-
   std::shared_ptr<ColumnarBatch> next() override {
     return nullptr;
   }
