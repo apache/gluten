@@ -70,6 +70,13 @@ object SparkShimDescriptor {
   val DESCRIPTOR: SparkShimDescriptor = SparkShimDescriptor(SPARK_COMPILE_VERSION)
 }
 
+case class KeyGroupedShuffleInfo(
+    partitioning: Partitioning,
+    expressions: Seq[Expression],
+    partitionValues: Seq[InternalRow]) {
+  require(partitioning.numPartitions == partitionValues.size)
+}
+
 trait SparkShims {
 
   def scalarExpressionMappings: Seq[Sig]
@@ -101,6 +108,36 @@ trait SparkShims {
    * shimmed per version.
    */
   def isKeyGroupedPartitioning(partitioning: Partitioning): Boolean
+
+  /**
+   * Returns key-grouped shuffle metadata when native execution is safe.
+   *
+   * Spark 3.4 through 4.1 return the input partitioning only when it already has one distinct
+   * partition value per partition. Spark 4.2 returns `KeyedPartitioning.toGrouped`. `None` means
+   * the caller must retain the vanilla shuffle. Every returned value satisfies
+   * `partitioning.numPartitions == partitionValues.size`.
+   */
+  def getKeyGroupedShuffleInfo(partitioning: Partitioning): Option[KeyGroupedShuffleInfo]
+
+  /**
+   * Whether the runtime Spark's key-grouped partitioner hashes unknown keys using the comparable
+   * row wrapper introduced by SPARK-59054 instead of the legacy evaluated-value sequence.
+   */
+  lazy val keyGroupedUnknownKeyUsesComparableHash: Boolean = {
+    try {
+      classOf[org.apache.spark.Partitioner]
+        .getClassLoader
+        .loadClass("org.apache.spark.KeyGroupedPartitioner")
+        .getDeclaredConstructors
+        .exists {
+          constructor =>
+            constructor.getParameterTypes.headOption.exists(
+              _.getName == "scala.collection.immutable.Map")
+        }
+    } catch {
+      case _: ClassNotFoundException => false
+    }
+  }
 
   def getWindowGroupLimitExecShim(plan: SparkPlan): WindowGroupLimitExecShim = null
 
