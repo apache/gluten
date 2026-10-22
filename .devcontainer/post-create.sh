@@ -143,7 +143,7 @@ HELPER
 chmod +x /usr/local/bin/gluten-num-threads
 
 # Export it so a plain "./dev/buildbundle-veloxbe.sh", as documented in
-# docs/get-started/Velox.md, is memory-safe too and not just the command printed
+# docs/backends/velox/get-started/Velox.md, is memory-safe too and not just the command printed
 # below.
 if ! grep -qF "$NUM_THREADS_MARKER" "$HOME/.bashrc" 2>/dev/null; then
     cat >>"$HOME/.bashrc" <<EOF

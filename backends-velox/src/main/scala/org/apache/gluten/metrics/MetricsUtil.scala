@@ -395,7 +395,6 @@ object MetricsUtil extends Logging {
       relMap: JMap[JLong, JList[JLong]],
       operatorIdx: JLong,
       nativeMetrics: JList[OperatorMetrics],
-      singleMetrics: Metrics.SingleMetric,
       metricsIdx: Int,
       joinParamsMap: JMap[JLong, JoinParams],
       aggParamsMap: JMap[JLong, AggregationParams]): (JLong, Int) = {
@@ -419,7 +418,7 @@ object MetricsUtil extends Logging {
           p.postProjectionNeeded = false
           p
         }
-        smj.updateJoinMetrics(operatorMetrics, singleMetrics, joinParams)
+        smj.updateJoinMetrics(operatorMetrics, joinParams)
       case ju: JoinMetricsUpdaterBase =>
         // JoinRel and NestedLoopJoinRel output two suites of metrics respectively for build and
         // probe.
@@ -431,7 +430,7 @@ object MetricsUtil extends Logging {
           p.postProjectionNeeded = false
           p
         }
-        ju.updateJoinMetrics(operatorMetrics, singleMetrics, joinParams)
+        ju.updateJoinMetrics(operatorMetrics, joinParams)
       case u: UnionMetricsUpdater =>
         // Union outputs two suites of metrics respectively.
         // Therefore, fetch one more suite of metrics here.
@@ -472,7 +471,6 @@ object MetricsUtil extends Logging {
           relMap,
           newOperatorIdx,
           nativeMetrics,
-          singleMetrics,
           newMetricsIdx,
           joinParamsMap,
           aggParamsMap)
@@ -521,7 +519,6 @@ object MetricsUtil extends Logging {
           relMap,
           operatorIdx,
           nativeMetrics,
-          metrics.getSingleMetrics,
           numNativeMetrics - 1,
           joinParamsMap,
           aggParamsMap)

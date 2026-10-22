@@ -89,9 +89,9 @@ class VeloxRuntime final : public Runtime {
       const std::shared_ptr<PartitionWriter>& partitionWriter,
       const std::shared_ptr<ShuffleWriterOptions>& options) override;
 
-  Metrics* getMetrics(ColumnarBatchIterator* rawIter, int64_t exportNanos) override {
+  Metrics* getMetrics(ColumnarBatchIterator* rawIter) override {
     auto iter = static_cast<WholeStageResultIterator*>(rawIter);
-    return iter->getMetrics(exportNanos);
+    return iter->getMetrics();
   }
 
   std::shared_ptr<ShuffleReader> createShuffleReader(

@@ -1,18 +1,18 @@
 VeloxColumnarToRow
   TakeOrderedAndProjectExecTransformer [channel,id,sales,returns,profit]
-    WholeStageCodegenTransformer (90)
+    WholeStageCodegenTransformer (105)
       RegularHashAggregateExecTransformer [channel,id,sales,returns,profit]
         InputIteratorTransformer
           InputAdapter
             ColumnarExchange [channel,id,sales,returns,profit] #1
               VeloxResizeBatches
-                WholeStageCodegenTransformer (89)
+                WholeStageCodegenTransformer (104)
                   ProjectExecTransformer [channel,id,sales,returns,profit]
                     FlushableHashAggregateExecTransformer [channel,id,sales,returns,profit]
                       InputIteratorTransformer
                         InputAdapter
                           ColumnarUnion
-                            WholeStageCodegenTransformer (29)
+                            WholeStageCodegenTransformer (34)
                               ProjectExecTransformer [channel,id,sum(sales),sum(returns),sum(profit)]
                                 RegularHashAggregateExecTransformer [channel,id,sales,returns,profit] [sum(sales),sum(returns),sum(profit),sum,isEmpty,sum,isEmpty,sum,isEmpty]
                                   InputIteratorTransformer
@@ -77,7 +77,7 @@ VeloxColumnarToRow
                                                                             InputIteratorTransformer
                                                                               InputAdapter
                                                                                 ReusedExchange [s_store_sk] #4
-                                        WholeStageCodegenTransformer (18)
+                                        WholeStageCodegenTransformer (23)
                                           ProjectExecTransformer [cs_call_center_sk,sales,returns,profit,profit_loss]
                                             VeloxBroadcastNestedLoopJoinExecTransformer
                                               ProjectExecTransformer [cs_call_center_sk,sum(UnscaledValue(cs_ext_sales_price)),sum(UnscaledValue(cs_net_profit))]
@@ -99,23 +99,33 @@ VeloxColumnarToRow
                                               InputIteratorTransformer
                                                 InputAdapter
                                                   ColumnarBroadcastExchange #8
-                                                    WholeStageCodegenTransformer (17)
-                                                      ProjectExecTransformer [sum(UnscaledValue(cr_return_amount)),sum(UnscaledValue(cr_net_loss))]
-                                                        RegularHashAggregateExecTransformer [sum,sum] [sum(UnscaledValue(cr_return_amount)),sum(UnscaledValue(cr_net_loss)),sum,sum]
-                                                          InputIteratorTransformer
-                                                            InputAdapter
-                                                              ColumnarExchange #9
-                                                                VeloxResizeBatches
-                                                                  WholeStageCodegenTransformer (16)
-                                                                    FlushableHashAggregateExecTransformer [_pre_x,_pre_x] [sum,sum,sum,sum,sum,sum]
-                                                                      ProjectExecTransformer [cr_return_amount,cr_net_loss]
-                                                                        BroadcastHashJoinExecTransformer [cr_returned_date_sk,d_date_sk]
-                                                                          FileSourceScanExecTransformer parquet spark_catalog.default.catalog_returns [cr_return_amount,cr_net_loss,cr_returned_date_sk]
-                                                                            ReusedSubquery [d_date_sk] #1
-                                                                          InputIteratorTransformer
-                                                                            InputAdapter
-                                                                              ReusedExchange [d_date_sk] #3
-                                        WholeStageCodegenTransformer (28)
+                                                    WholeStageCodegenTransformer (22)
+                                                      ProjectExecTransformer
+                                                        Subquery #2
+                                                          VeloxColumnarToRow
+                                                            WholeStageCodegenTransformer (17)
+                                                              ProjectExecTransformer [sum(UnscaledValue(cr_return_amount)),sum(UnscaledValue(cr_net_loss))]
+                                                                RegularHashAggregateExecTransformer [sum,sum] [sum(UnscaledValue(cr_return_amount)),sum(UnscaledValue(cr_net_loss)),sum,sum]
+                                                                  InputIteratorTransformer
+                                                                    InputAdapter
+                                                                      ColumnarExchange #9
+                                                                        VeloxResizeBatches
+                                                                          WholeStageCodegenTransformer (16)
+                                                                            FlushableHashAggregateExecTransformer [_pre_x,_pre_x] [sum,sum,sum,sum,sum,sum]
+                                                                              ProjectExecTransformer [cr_return_amount,cr_net_loss]
+                                                                                BroadcastHashJoinExecTransformer [cr_returned_date_sk,d_date_sk]
+                                                                                  FileSourceScanExecTransformer parquet spark_catalog.default.catalog_returns [cr_return_amount,cr_net_loss,cr_returned_date_sk]
+                                                                                    ReusedSubquery [d_date_sk] #1
+                                                                                  InputIteratorTransformer
+                                                                                    InputAdapter
+                                                                                      ReusedExchange [d_date_sk] #3
+                                                        ReusedSubquery [mergedValue] #2
+                                                        InputIteratorTransformer
+                                                          InputAdapter
+                                                            RowToVeloxColumnar
+                                                              WholeStageCodegen (1)
+                                                                Scan OneRowRelation
+                                        WholeStageCodegenTransformer (33)
                                           ProjectExecTransformer [wp_web_page_sk,sales,returns,profit,profit_loss]
                                             BroadcastHashJoinExecTransformer [wp_web_page_sk,wp_web_page_sk]
                                               ProjectExecTransformer [wp_web_page_sk,sum(UnscaledValue(ws_ext_sales_price)),sum(UnscaledValue(ws_net_profit))]
@@ -124,7 +134,7 @@ VeloxColumnarToRow
                                                     InputAdapter
                                                       ColumnarExchange [wp_web_page_sk,sum,sum] #10
                                                         VeloxResizeBatches
-                                                          WholeStageCodegenTransformer (22)
+                                                          WholeStageCodegenTransformer (27)
                                                             ProjectExecTransformer [wp_web_page_sk,sum,sum]
                                                               FlushableHashAggregateExecTransformer [wp_web_page_sk,_pre_x,_pre_x] [sum,sum,sum,sum,sum,sum]
                                                                 ProjectExecTransformer [wp_web_page_sk,ws_ext_sales_price,ws_net_profit]
@@ -140,20 +150,20 @@ VeloxColumnarToRow
                                                                     InputIteratorTransformer
                                                                       InputAdapter
                                                                         ColumnarBroadcastExchange #11
-                                                                          WholeStageCodegenTransformer (21)
+                                                                          WholeStageCodegenTransformer (26)
                                                                             FilterExecTransformer [wp_web_page_sk]
                                                                               FileSourceScanExecTransformer parquet spark_catalog.default.web_page [wp_web_page_sk]
                                               InputIteratorTransformer
                                                 InputAdapter
                                                   ColumnarBroadcastExchange #12
-                                                    WholeStageCodegenTransformer (27)
+                                                    WholeStageCodegenTransformer (32)
                                                       ProjectExecTransformer [wp_web_page_sk,sum(UnscaledValue(wr_return_amt)),sum(UnscaledValue(wr_net_loss))]
                                                         RegularHashAggregateExecTransformer [wp_web_page_sk,sum,sum] [sum(UnscaledValue(wr_return_amt)),sum(UnscaledValue(wr_net_loss)),sum,sum]
                                                           InputIteratorTransformer
                                                             InputAdapter
                                                               ColumnarExchange [wp_web_page_sk,sum,sum] #13
                                                                 VeloxResizeBatches
-                                                                  WholeStageCodegenTransformer (26)
+                                                                  WholeStageCodegenTransformer (31)
                                                                     ProjectExecTransformer [wp_web_page_sk,sum,sum]
                                                                       FlushableHashAggregateExecTransformer [wp_web_page_sk,_pre_x,_pre_x] [sum,sum,sum,sum,sum,sum]
                                                                         ProjectExecTransformer [wp_web_page_sk,wr_return_amt,wr_net_loss]
@@ -169,14 +179,14 @@ VeloxColumnarToRow
                                                                             InputIteratorTransformer
                                                                               InputAdapter
                                                                                 ReusedExchange [wp_web_page_sk] #11
-                            WholeStageCodegenTransformer (59)
+                            WholeStageCodegenTransformer (69)
                               ProjectExecTransformer [channel,sum(sales),sum(returns),sum(profit)]
                                 RegularHashAggregateExecTransformer [channel,sum,isEmpty,sum,isEmpty,sum,isEmpty] [sum(sales),sum(returns),sum(profit),sum,isEmpty,sum,isEmpty,sum,isEmpty]
                                   InputIteratorTransformer
                                     InputAdapter
                                       ColumnarExchange [channel,sum,isEmpty,sum,isEmpty,sum,isEmpty] #14
                                         VeloxResizeBatches
-                                          WholeStageCodegenTransformer (58)
+                                          WholeStageCodegenTransformer (68)
                                             ProjectExecTransformer [channel,sum,isEmpty,sum,isEmpty,sum,isEmpty]
                                               FlushableHashAggregateExecTransformer [channel,sales,returns,profit] [sum,isEmpty,sum,isEmpty,sum,isEmpty,sum,isEmpty,sum,isEmpty,sum,isEmpty]
                                                 ProjectExecTransformer [channel,sum(sales),sum(returns),sum(profit)]
@@ -184,7 +194,7 @@ VeloxColumnarToRow
                                                     InputIteratorTransformer
                                                       InputAdapter
                                                         ColumnarUnion [id]
-                                                          WholeStageCodegenTransformer (39)
+                                                          WholeStageCodegenTransformer (44)
                                                             ProjectExecTransformer [s_store_sk,sales,returns,profit,profit_loss]
                                                               BroadcastHashJoinExecTransformer [s_store_sk,s_store_sk]
                                                                 ProjectExecTransformer [s_store_sk,sum(UnscaledValue(ss_ext_sales_price)),sum(UnscaledValue(ss_net_profit))]
@@ -195,7 +205,7 @@ VeloxColumnarToRow
                                                                 InputIteratorTransformer
                                                                   InputAdapter
                                                                     ReusedExchange [s_store_sk,returns,profit_loss] #5
-                                                          WholeStageCodegenTransformer (47)
+                                                          WholeStageCodegenTransformer (57)
                                                             ProjectExecTransformer [cs_call_center_sk,sales,returns,profit,profit_loss]
                                                               VeloxBroadcastNestedLoopJoinExecTransformer
                                                                 ProjectExecTransformer [cs_call_center_sk,sum(UnscaledValue(cs_ext_sales_price)),sum(UnscaledValue(cs_net_profit))]
@@ -206,7 +216,7 @@ VeloxColumnarToRow
                                                                 InputIteratorTransformer
                                                                   InputAdapter
                                                                     ReusedExchange [returns,profit_loss] #8
-                                                          WholeStageCodegenTransformer (57)
+                                                          WholeStageCodegenTransformer (67)
                                                             ProjectExecTransformer [wp_web_page_sk,sales,returns,profit,profit_loss]
                                                               BroadcastHashJoinExecTransformer [wp_web_page_sk,wp_web_page_sk]
                                                                 ProjectExecTransformer [wp_web_page_sk,sum(UnscaledValue(ws_ext_sales_price)),sum(UnscaledValue(ws_net_profit))]
@@ -217,7 +227,7 @@ VeloxColumnarToRow
                                                                 InputIteratorTransformer
                                                                   InputAdapter
                                                                     ReusedExchange [wp_web_page_sk,returns,profit_loss] #12
-                            WholeStageCodegenTransformer (88)
+                            WholeStageCodegenTransformer (103)
                               ProjectExecTransformer [sum(sales),sum(returns),sum(profit)]
                                 RegularHashAggregateExecTransformer [sales,returns,profit] [sum(sales),sum(returns),sum(profit),sum,isEmpty,sum,isEmpty,sum,isEmpty]
                                   ProjectExecTransformer [sum(sales),sum(returns),sum(profit)]
@@ -225,7 +235,7 @@ VeloxColumnarToRow
                                       InputIteratorTransformer
                                         InputAdapter
                                           ColumnarUnion [id]
-                                            WholeStageCodegenTransformer (69)
+                                            WholeStageCodegenTransformer (79)
                                               ProjectExecTransformer [s_store_sk,sales,returns,profit,profit_loss]
                                                 BroadcastHashJoinExecTransformer [s_store_sk,s_store_sk]
                                                   ProjectExecTransformer [s_store_sk,sum(UnscaledValue(ss_ext_sales_price)),sum(UnscaledValue(ss_net_profit))]
@@ -236,7 +246,7 @@ VeloxColumnarToRow
                                                   InputIteratorTransformer
                                                     InputAdapter
                                                       ReusedExchange [s_store_sk,returns,profit_loss] #5
-                                            WholeStageCodegenTransformer (77)
+                                            WholeStageCodegenTransformer (92)
                                               ProjectExecTransformer [cs_call_center_sk,sales,returns,profit,profit_loss]
                                                 VeloxBroadcastNestedLoopJoinExecTransformer
                                                   ProjectExecTransformer [cs_call_center_sk,sum(UnscaledValue(cs_ext_sales_price)),sum(UnscaledValue(cs_net_profit))]
@@ -247,7 +257,7 @@ VeloxColumnarToRow
                                                   InputIteratorTransformer
                                                     InputAdapter
                                                       ReusedExchange [returns,profit_loss] #8
-                                            WholeStageCodegenTransformer (87)
+                                            WholeStageCodegenTransformer (102)
                                               ProjectExecTransformer [wp_web_page_sk,sales,returns,profit,profit_loss]
                                                 BroadcastHashJoinExecTransformer [wp_web_page_sk,wp_web_page_sk]
                                                   ProjectExecTransformer [wp_web_page_sk,sum(UnscaledValue(ws_ext_sales_price)),sum(UnscaledValue(ws_net_profit))]
