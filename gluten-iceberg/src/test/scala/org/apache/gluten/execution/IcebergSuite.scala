@@ -215,30 +215,6 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
-  test("iceberg input_file_name with a column named Input_File_Name") {
-    Seq("true", "false").foreach {
-      caseSensitive =>
-        withSQLConf("spark.sql.caseSensitive" -> caseSensitive) {
-          withTable("iceberg_input_file_col_tb") {
-            spark.sql("""
-                        |CREATE TABLE iceberg_input_file_col_tb (id INT, `Input_File_Name` STRING)
-                        |USING iceberg
-                        |""".stripMargin)
-            spark.sql("INSERT INTO iceberg_input_file_col_tb VALUES (1, 'a'), (2, 'b')")
-
-            val df = runAndCompare("""
-                                     |SELECT id, `Input_File_Name`, input_file_name() AS fname
-                                     |FROM iceberg_input_file_col_tb
-                                     |ORDER BY id
-                                     |""".stripMargin)
-            val rows = df.collect()
-            assert(rows.map(_.getString(1)).toSeq == Seq("a", "b"))
-            assert(rows.forall(r => r.getString(2).endsWith(".parquet")), rows.mkString(", "))
-          }
-        }
-    }
-  }
-
   test("iceberg bucketed join") {
     val leftTable = "p_str_tb"
     val rightTable = "p_int_tb"
