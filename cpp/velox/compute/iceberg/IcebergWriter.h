@@ -60,7 +60,8 @@ class IcebergWriter {
 
  private:
   facebook::velox::RowTypePtr rowType_;
-  const facebook::velox::parquet::ParquetFieldId field_;
+  // One per column of rowType_, checked against it at construction.
+  const std::vector<facebook::velox::parquet::ParquetFieldId> fieldIds_;
   int32_t partitionId_;
   int64_t taskId_;
   std::string operationId_;
