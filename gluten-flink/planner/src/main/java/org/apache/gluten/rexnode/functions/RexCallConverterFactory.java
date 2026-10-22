@@ -72,6 +72,7 @@ public class RexCallConverterFactory {
           Map.entry(
               "-",
               Arrays.asList(
+                  () -> new UnaryMinusRexCallConverter("negate"),
                   () -> new SubtractRexCallConverter(),
                   () -> new DecimalArithmeticOperatorRexCallConverters("subtract"))),
           Map.entry(
@@ -119,6 +120,14 @@ public class RexCallConverterFactory {
           // substring returns an empty string. Start semantics (0 counts as 1,
           // negative counts from the end) already match Flink.
           Map.entry("SUBSTRING", Arrays.asList(() -> new SubstringRexCallConverter())),
+          // Offload targets implemented in velox's flinksql namespace. ABS/
+          // FLOOR/CEIL/ROUND arrive upper-cased from the operator table;
+          // unary minus arrives as a one-operand "-" (see above).
+          Map.entry("ABS", Arrays.asList(() -> new DefaultRexCallConverter("abs"))),
+          Map.entry("FLOOR", Arrays.asList(() -> new DefaultRexCallConverter("floor"))),
+          Map.entry("CEIL", Arrays.asList(() -> new DefaultRexCallConverter("ceil"))),
+          Map.entry("CEILING", Arrays.asList(() -> new DefaultRexCallConverter("ceil"))),
+          Map.entry("ROUND", Arrays.asList(() -> new DecimalPostCastRexCallConverter("round"))),
           Map.entry("COALESCE", Arrays.asList(() -> new DefaultRexCallConverter("coalesce"))));
 
   public static RexCallConverter getConverter(RexCall callNode, RexConversionContext context) {
