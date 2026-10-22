@@ -54,6 +54,9 @@ git clone https://github.com/apache/gluten.git
 It's recommended to use buildbundle-veloxbe.sh to build gluten in one script.
 [Gluten build guide](../../../get-started/build-guide.md) listed the parameters and their default value of build command for your reference.
 
+For experimental Kafka micro-batch reads, see [Kafka with Gluten and Velox](../../../get-started/VeloxKafka.md)
+for required build profiles and a streaming example.
+
 **For x86_64 build**
 
 First time build for all supported spark versions.
