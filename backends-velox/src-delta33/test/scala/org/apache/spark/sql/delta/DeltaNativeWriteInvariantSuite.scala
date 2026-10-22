@@ -281,4 +281,60 @@ class DeltaNativeWriteInvariantSuite extends DeltaSQLCommandTest {
       }
     }
   }
+
+  test("native delta write reports NOT NULL violations on a partitioned table") {
+    withNativeWriteOffloadConf {
+      withTable("delta_native_write_not_null_partitioned") {
+        withTempDir {
+          dir =>
+            val path = dir.getCanonicalPath
+            sql(
+              s"CREATE TABLE delta_native_write_not_null_partitioned " +
+                s"(id BIGINT NOT NULL, part STRING NOT NULL) USING delta " +
+                s"PARTITIONED BY (part) LOCATION '$path'")
+
+            Seq((1L, "a"), (2L, "b"))
+              .toDF("id", "part")
+              .write
+              .format("delta")
+              .mode("append")
+              .save(path)
+
+            // The rows are sorted natively before they are written. The check runs after the
+            // sort, so the violation is still Delta's own exception.
+            GlutenDeltaFileFormatWriter.clearExecutedPlanForTesting()
+            val dataColumnViolation = intercept[InvariantViolationException] {
+              Seq[(java.lang.Long, String)]((3L, "a"), (null, "b"))
+                .toDF("id", "part")
+                .write
+                .format("delta")
+                .mode("append")
+                .save(path)
+            }
+            assert(
+              dataColumnViolation.getMessage.contains(
+                "NOT NULL constraint violated for column: id"))
+            val writerPlan = GlutenDeltaFileFormatWriter.getExecutedPlanForTesting
+              .getOrElse(fail("Expected GlutenDeltaFileFormatWriter to record the executed plan"))
+            assert(
+              !writerPlan.treeString.contains("DeltaInvariantChecker"),
+              s"Expected native invariant checker to avoid DeltaInvariantCheckerExec, but got:\n" +
+                writerPlan.treeString
+            )
+
+            // Delta turns an empty string partition value into a null before checking it.
+            val partitionColumnViolation = intercept[InvariantViolationException] {
+              Seq((4L, "")).toDF("id", "part").write.format("delta").mode("append").save(path)
+            }
+            assert(
+              partitionColumnViolation.getMessage.contains(
+                "NOT NULL constraint violated for column: part"))
+
+            assert(
+              spark.read.format("delta").load(path).collect().toSet ==
+                Set(Row(1L, "a"), Row(2L, "b")))
+        }
+      }
+    }
+  }
 }
