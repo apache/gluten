@@ -16,6 +16,7 @@
  */
 
 #include "utils/tac/FForCodec.h"
+#include "utils/Exception.h"
 #include "utils/tac/ffor.hpp"
 
 namespace gluten {
@@ -34,6 +35,7 @@ namespace detail {
 __attribute__((target_clones("arch=x86-64-v4", "default")))
 #endif
 void minMaxScan(const uint64_t* data, size_t n, uint64_t& mn, uint64_t& mx) {
+  GLUTEN_DCHECK(n > 0, "minMaxScan requires at least one value");
   uint64_t low = data[0];
   uint64_t high = data[0];
   for (size_t i = 1; i < n; ++i) {

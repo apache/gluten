@@ -283,8 +283,9 @@ inline void decodeRt(const uint64_t* in, uint64_t* out, uint64_t base, size_t n,
 namespace detail {
 // Minimum and maximum of data[0, n); requires n > 0.  Defined in FForCodec.cc, where it is
 // multiversioned for x86-64-v4 (AVX2 has no unsigned 64-bit min/max).  Callers of analyze() must
-// therefore link FForCodec.cc (part of libgluten).
-void minMaxScan(const uint64_t* data, size_t n, uint64_t& mn, uint64_t& mx);
+// therefore link FForCodec.cc (part of libgluten).  Default visibility keeps the symbol exported
+// from libgluten under -fvisibility=hidden when target_clones is compiled out (plain function).
+__attribute__((visibility("default"))) void minMaxScan(const uint64_t* data, size_t n, uint64_t& mn, uint64_t& mx);
 } // namespace detail
 
 // Compute base (min) and bitwidth for a vector of values.
