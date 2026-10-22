@@ -19,10 +19,12 @@ package org.apache.spark.sql.delta
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.config.VeloxDeltaConfig
 
-import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.delta.actions.AddFile
 import org.apache.spark.sql.delta.commands.optimize.OptimizeMetrics
+import org.apache.spark.sql.delta.files.GlutenDeltaFileFormatWriter
+import org.apache.spark.sql.delta.schema.InvariantViolationException
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.test.DeltaSQLCommandTest
 import org.apache.spark.sql.execution.SparkPlan
@@ -281,6 +283,79 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
 
           val result = spark.read.format("delta").load(path)
           assert(result.collect().map(_.getLong(0)).toSet == (0L until 20L).toSet)
+      }
+    }
+  }
+
+  private def appendRows(path: String, rows: (java.lang.Long, String)*): Unit = {
+    rows.toDF("id", "s").write.format("delta").mode("append").save(path)
+  }
+
+  /** The plan of the last write by the Velox writer. */
+  private def writerPlan: String = GlutenDeltaFileFormatWriter.getExecutedPlanForTesting
+    .getOrElse(fail("Expected a write by the Velox writer"))
+    .treeString
+
+  test("native delta write checks top-level NOT NULL constraints natively") {
+    for (optimizeWrite <- Seq(false, true)) {
+      withNativeWriteOffloadConf {
+        withSQLConf(DeltaSQLConf.DELTA_OPTIMIZE_WRITE_ENABLED.key -> optimizeWrite.toString) {
+          withTempDir {
+            dir =>
+              val path = dir.getCanonicalPath
+              sql(s"CREATE TABLE delta.`$path` (id BIGINT NOT NULL, s STRING) USING delta")
+              GlutenDeltaFileFormatWriter.clearExecutedPlanForTesting()
+              appendRows(path, (1L, "a"))
+              assert(!writerPlan.contains("DeltaInvariantChecker"), writerPlan)
+              assert(!writerPlan.contains("ColumnarToRow"), writerPlan)
+
+              val e = intercept[InvariantViolationException] {
+                appendRows(path, (2L, "b"), (null, "c"))
+              }
+              assert(e.getMessage.contains("NOT NULL constraint violated for column: id"))
+              assert(spark.read.format("delta").load(path).collect().toSeq == Seq(Row(1L, "a")))
+          }
+        }
+      }
+    }
+  }
+
+  test("native delta write keeps DeltaInvariantCheckerExec for CHECK constraints") {
+    withNativeWriteOffloadConf {
+      withTempDir {
+        dir =>
+          val path = dir.getCanonicalPath
+          sql(
+            s"CREATE TABLE delta.`$path` (id BIGINT NOT NULL, s STRING) USING delta " +
+              "TBLPROPERTIES ('delta.constraints.positive' = 'id > 0')")
+          GlutenDeltaFileFormatWriter.clearExecutedPlanForTesting()
+          appendRows(path, (1L, "a"))
+          assert(writerPlan.contains("DeltaInvariantChecker"), writerPlan)
+      }
+    }
+  }
+
+  test("native delta write checks NOT NULL constraints on a partitioned table") {
+    withNativeWriteOffloadConf {
+      withTempDir {
+        dir =>
+          val path = dir.getCanonicalPath
+          sql(
+            s"CREATE TABLE delta.`$path` (id BIGINT NOT NULL, s STRING NOT NULL) USING delta " +
+              "PARTITIONED BY (s)")
+          appendRows(path, (1L, "a"))
+          // The rows are sorted natively before the check, which still throws Delta's exception.
+          val dataViolation = intercept[InvariantViolationException] {
+            appendRows(path, (2L, "a"), (null, "b"))
+          }
+          assert(dataViolation.getMessage.contains("NOT NULL constraint violated for column: id"))
+          // Delta turns an empty partition string into a null before checking it.
+          val partitionViolation = intercept[InvariantViolationException] {
+            appendRows(path, (3L, ""))
+          }
+          assert(
+            partitionViolation.getMessage.contains("NOT NULL constraint violated for column: s"))
+          assert(spark.read.format("delta").load(path).collect().toSeq == Seq(Row(1L, "a")))
       }
     }
   }

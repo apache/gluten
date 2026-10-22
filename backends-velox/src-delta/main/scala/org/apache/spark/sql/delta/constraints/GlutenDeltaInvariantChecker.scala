@@ -31,18 +31,10 @@ import org.apache.spark.sql.types.StringType
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 /**
- * Native write-time invariant checker for constraints that can be validated without converting
- * Velox batches back to Spark rows.
- *
- * Violations are detected natively, by scanning the nulls of the constrained columns of each Velox
- * batch (no per-row expression evaluation, no extra operator in the write plan), but thrown on the
- * JVM side, preserving Delta's typed [[DeltaInvariantViolationException]] error contract.
- * Offloading Delta's CheckDeltaInvariant expression to Velox instead would lose that contract:
- * exceptions raised inside Velox surface only as GlutenException with a message string. CHECK
- * constraints and nested NOT NULL constraints fall back to Delta's row-based
- * DeltaInvariantCheckerExec.
- *
- * Shared by every Delta version, so that they all enforce the constraints the same way.
+ * Checks top-level NOT NULL constraints on the batches the Velox writer writes, in place of Delta's
+ * row-based DeltaInvariantCheckerExec. Nulls are found natively, but a violation is thrown here, on
+ * the JVM, as Delta's own [[DeltaInvariantViolationException]]: an exception raised inside Velox
+ * would reach Spark only as a GlutenException.
  *
  * @param columnOrdinals
  *   the ordinal in the write plan's output of the column each constraint checks
