@@ -28,6 +28,7 @@ import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.UnsafeRow
 import org.apache.spark.sql.catalyst.plans.physical.{BroadcastMode, BroadcastPartitioning, IdentityBroadcastMode, Partitioning}
+import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.execution.joins.{BuildSideRelation, EmptyHashedRelation, HashedRelation, HashedRelationBroadcastMode, LongHashedRelation}
 import org.apache.spark.sql.execution.unsafe.UnsafeColumnarBuildSideRelation
 import org.apache.spark.sql.types.StructType
@@ -138,6 +139,18 @@ object BroadcastUtils {
         context.broadcast(toRelation).asInstanceOf[Broadcast[T]]
       case _ => throw new IllegalStateException("Unexpected broadcast mode: " + mode)
     }
+  }
+
+  /**
+   * Returns the error vanilla Spark's BroadcastExchangeExec throws when the broadcast table is too
+   * large, so that it has the same error condition.
+   */
+  def cannotBroadcastTableOverMaxTableBytesError(
+      maxBroadcastTableBytes: Long,
+      dataSize: Long): Throwable = {
+    QueryExecutionErrors.cannotBroadcastTableOverMaxTableBytesError(
+      maxBroadcastTableBytes,
+      dataSize)
   }
 
   def getBroadcastMode(partitioning: Partitioning): BroadcastMode = {

@@ -462,6 +462,7 @@ object BoltBackendSettings extends BackendSettingsApi {
                             "Only integral type & date type are" +
                               " supported for sort key when literal bound type is used!")
                       })
+                  WindowFunctionsBuilder.checkRangeFrameLiteralBound(e)
                 case _ =>
               }
             }
