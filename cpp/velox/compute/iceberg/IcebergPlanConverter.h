@@ -23,6 +23,7 @@
 
 #include "substrait/SubstraitToVeloxPlan.h"
 #include "velox/connectors/hive/iceberg/IcebergDeleteFile.h"
+#include "velox/dwio/common/ParquetFieldId.h"
 
 using namespace facebook::velox::connector::hive::iceberg;
 
@@ -35,6 +36,9 @@ struct IcebergColumnInfo {
 struct IcebergSplitInfo : SplitInfo {
   std::vector<std::vector<IcebergDeleteFile>> deleteFilesVec;
   std::unordered_map<std::string, IcebergColumnInfo> columns;
+  std::vector<facebook::velox::dwio::common::ParquetFieldId> fieldIds;
+  std::vector<int64_t> dataSequenceNumbers;
+  std::vector<std::unordered_map<int32_t, std::optional<std::string>>> identityPartitionKeys;
 
   IcebergSplitInfo(const SplitInfo& splitInfo) : SplitInfo(splitInfo) {
     // Reserve the actual size of the deleteFilesVec.
