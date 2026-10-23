@@ -305,6 +305,23 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     GenericExpressionTransformer(substraitExprName, children, expr)
   }
 
+  /**
+   * Picks checked_get_timestamp from the Spark expression's own frozen failOnError, not the
+   * session's current ANSI setting -- so to_timestamp and try_to_timestamp keep their own behavior
+   * even in the same query. Not conditioned on dataType: checked_get_timestamp has no TIMESTAMP_NTZ
+   * registration either, so an NTZ expression falls back the same way regardless.
+   */
+  override def genGetTimestampTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      expr: Expression): ExpressionTransformer = {
+    val name = expr match {
+      case g: GetTimestamp if g.failOnError => ExpressionNames.CHECKED_GET_TIMESTAMP
+      case _ => substraitExprName
+    }
+    GenericExpressionTransformer(name, children, expr)
+  }
+
   override def genDateDiffTransformer(
       substraitExprName: String,
       endDate: ExpressionTransformer,
