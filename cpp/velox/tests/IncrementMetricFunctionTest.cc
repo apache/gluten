@@ -42,6 +42,15 @@ TEST_F(IncrementMetricFunctionTest, slotNames) {
   ASSERT_TRUE(isIncrementMetricFunction("increment_metric_7"));
   ASSERT_FALSE(isIncrementMetricFunction("plus"));
   ASSERT_FALSE(isIncrementMetricFunction("my_increment_metric_7"));
+  ASSERT_TRUE(isIncrementMetricFunction("increment_metric_0"));
+  ASSERT_TRUE(isIncrementMetricFunction(incrementMetricFunctionName(kIncrementMetricFunctionSlots - 1)));
+  // Only the registered slots count.
+  ASSERT_FALSE(isIncrementMetricFunction("increment_metric_"));
+  ASSERT_FALSE(isIncrementMetricFunction(incrementMetricFunctionName(kIncrementMetricFunctionSlots)));
+  ASSERT_FALSE(isIncrementMetricFunction("increment_metric_-1"));
+  ASSERT_FALSE(isIncrementMetricFunction("increment_metric_07"));
+  ASSERT_FALSE(isIncrementMetricFunction("increment_metric_7x"));
+  ASSERT_FALSE(isIncrementMetricFunction("increment_metric_foo"));
 }
 
 TEST_F(IncrementMetricFunctionTest, passesInputThroughIncludingNulls) {
