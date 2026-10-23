@@ -15,28 +15,23 @@
  * limitations under the License.
  */
 
+#include <gtest/gtest.h>
 #include <vector>
 #include "bolt/expression/SimpleFunctionRegistry.h"
-#include "bolt/functions/prestosql/tests/utils/FunctionBaseTest.h"
-#include "bolt/parse/TypeResolver.h"
 #include "udf/UdfLoader.h"
 
-using namespace bytedance::bolt::functions::test;
 using namespace bytedance::bolt;
 
-class MyUdfTest : public FunctionBaseTest {
+class MyUdfTest : public ::testing::Test {
  protected:
   static void SetUpTestCase() {
-    parse::registerTypeResolver();
     auto udfLoader = gluten::UdfLoader::getInstance();
     udfLoader->loadUdfLibraries("../udf/examples/libmyudf.so");
     udfLoader->registerUdf();
-    memory::MemoryManager::testingSetInstance(memory::MemoryManager::Options{});
   }
 };
 
 TEST_F(MyUdfTest, hivestringstring) {
   const std::string name = "org.apache.spark.sql.hive.execution.UDFStringString";
-  const core::QueryConfig config({});
   EXPECT_EQ(TypeKind::VARCHAR, exec::simpleFunctions().resolveFunction(name, {VARCHAR(), VARCHAR()})->type()->kind());
 }

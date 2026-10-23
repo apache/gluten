@@ -73,7 +73,25 @@ add_bolt_test(bolt_memory_test SOURCES MemoryManagerTest.cc)
 add_bolt_test(buffer_outputstream_test SOURCES BufferOutputStreamTest.cc)
 
 if(BUILD_EXAMPLES)
-  add_bolt_test(my_udf_test SOURCES MyUdfTest.cc)
+  # The UDF plugin and its test must share one engine, including its function
+  # and protobuf registries. Avoid the static engine in add_bolt_test().
+  add_executable(my_udf_test MyUdfTest.cc)
+  add_dependencies(my_udf_test ${PROJECT_NAME})
+  target_include_directories(
+    my_udf_test
+    PRIVATE "$<TARGET_PROPERTY:${PROJECT_NAME},INCLUDE_DIRECTORIES>")
+  # Copying the backend include list loses the imported target's system status.
+  # Keep Folly's third-party C++20 diagnostics out of this test's -Werror policy.
+  target_include_directories(
+    my_udf_test SYSTEM PRIVATE
+                "$<TARGET_PROPERTY:folly::folly,INTERFACE_INCLUDE_DIRECTORIES>")
+  target_compile_definitions(
+    my_udf_test
+    PRIVATE "$<TARGET_PROPERTY:${PROJECT_NAME},COMPILE_DEFINITIONS>")
+  target_link_libraries(
+    my_udf_test PRIVATE "$<TARGET_FILE:${PROJECT_NAME}>"
+                        "$<TARGET_FILE:gluten>" GTest::gtest GTest::gtest_main)
+  gtest_discover_tests(my_udf_test DISCOVERY_MODE PRE_TEST)
 endif()
 
 if(ENABLE_ENHANCED_FEATURES)

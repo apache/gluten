@@ -18,7 +18,11 @@
 #include "bolt/common/base/tests/GTestUtils.h"
 #include "compute/BoltBackend.h"
 #include "config/BoltConfig.h"
+#include "memory/BoltGlutenMemoryManager.h"
 #include "memory/BoltMemoryManager.h"
+
+#include <chrono>
+#include <thread>
 
 namespace gluten {
 
@@ -42,16 +46,24 @@ class MockAllocationListener : public gluten::AllocationListener {
 
 namespace {
 static const uint64_t kMB = 1 << 20;
-} // namespace
 
-class MemoryManagerTest : public ::testing::Test {
- protected:
-  static void SetUpTestCase() {
+void initializeMemoryManagerTestBackend() {
+  static const bool initialized = []() {
     std::unordered_map<std::string, std::string> conf = {
         {kMemoryReservationBlockSize, std::to_string(kMemoryReservationBlockSizeDefault)},
         {kBoltMemInitCapacity, std::to_string(kBoltMemInitCapacityDefault)},
         {kSparkOffHeapMemory, "7516192768"}};
     gluten::BoltBackend::create(AllocationListener::noop(), conf);
+    return true;
+  }();
+  (void)initialized;
+}
+} // namespace
+
+class MemoryManagerTest : public ::testing::Test {
+ protected:
+  static void SetUpTestCase() {
+    initializeMemoryManagerTestBackend();
   }
 
   void SetUp() override {
@@ -332,11 +344,7 @@ void assertCapacitiesMatch(MockSparkTaskMemoryManager& tmm, std::vector<std::uni
 class MultiMemoryManagerTest : public ::testing::Test {
  protected:
   static void SetUpTestCase() {
-    std::unordered_map<std::string, std::string> conf = {
-        {kMemoryReservationBlockSize, std::to_string(kMemoryReservationBlockSizeDefault)},
-        {kBoltMemInitCapacity, std::to_string(kBoltMemInitCapacityDefault)},
-        {kSparkOffHeapMemory, "7516192768"}};
-    gluten::BoltBackend::create(AllocationListener::noop(), conf);
+    initializeMemoryManagerTestBackend();
   }
 
   std::unique_ptr<BoltMemoryManager> newBoltMemoryManager(std::unique_ptr<AllocationListener> listener) {
@@ -403,6 +411,108 @@ TEST_F(MultiMemoryManagerTest, spill) {
   }
 
   ASSERT_EQ(tmm.currentBytes(), 0);
+}
+
+class BoltMemoryManagerHolderTest : public MemoryManagerTest {
+ protected:
+  static void SetUpTestCase() {
+    MemoryManagerTest::SetUpTestCase();
+    BoltGlutenMemoryManager::init(BoltBackend::get()->getBackendConf()->rawConfigs());
+  }
+
+  std::unique_ptr<BoltMemoryManager> newManager(int64_t taskId) {
+    auto manager = std::make_unique<BoltMemoryManager>(
+        kBoltBackendKind, AllocationListener::noop(), *BoltBackend::get()->getBackendConf());
+    manager->setTaskAttemptId(taskId);
+    auto holder = BoltGlutenMemoryManager::getMemoryManagerHolder(taskId, reinterpret_cast<int64_t>(manager.get()));
+    auto pool = holder->getManager()->getLeafMemoryPool();
+    auto data = pool->allocate(kMB);
+    pool->free(data, kMB);
+    return manager;
+  }
+
+  bool waitForDestruction(const std::weak_ptr<bytedance::bolt::memory::sparksql::BoltMemoryManager>& manager) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!manager.expired() && std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::yield();
+    }
+    return manager.expired();
+  }
+
+  std::shared_ptr<bytedance::bolt::memory::sparksql::ExecutionMemoryPool> executionPool() {
+    return bytedance::bolt::memory::sparksql::ExecutionMemoryPool::instance();
+  }
+};
+
+TEST_F(BoltMemoryManagerHolderTest, releasesDriverContexts) {
+  for (int i = 0; i < 16; ++i) {
+    auto manager = newManager(-1);
+    ASSERT_GT(executionPool()->getMemoryUsageForTask(-1), 0);
+    manager.reset();
+    ASSERT_EQ(executionPool()->getMemoryUsageForTask(-1), 0);
+  }
+}
+
+TEST_F(BoltMemoryManagerHolderTest, releasePreservesOtherManagers) {
+  auto first = newManager(-1);
+  auto second = newManager(-1);
+  auto task = newManager(7);
+  const auto before = executionPool()->getMemoryUsageForTask(-1);
+  const auto taskBefore = executionPool()->getMemoryUsageForTask(7);
+  const auto handle = reinterpret_cast<int64_t>(first.get());
+  first.reset();
+  const auto after = executionPool()->getMemoryUsageForTask(-1);
+  EXPECT_GT(after, 0);
+  EXPECT_LT(after, before);
+  EXPECT_EQ(executionPool()->getMemoryUsageForTask(7), taskBefore);
+  BoltGlutenMemoryManager::destroy(-1, handle);
+  EXPECT_EQ(executionPool()->getMemoryUsageForTask(-1), after);
+  task.reset();
+  EXPECT_EQ(executionPool()->getMemoryUsageForTask(7), 0);
+  EXPECT_EQ(executionPool()->getMemoryUsageForTask(-1), after);
+  second.reset();
+  EXPECT_EQ(executionPool()->getMemoryUsageForTask(-1), 0);
+}
+
+TEST_F(BoltMemoryManagerHolderTest, preservesDriverRegisteredDuringDestruction) {
+  auto first = newManager(-1);
+  auto holder = BoltGlutenMemoryManager::getMemoryManagerHolder(-1, reinterpret_cast<int64_t>(first.get()));
+  auto nativeManager = holder->getManager();
+  std::weak_ptr<bytedance::bolt::memory::sparksql::BoltMemoryManager> weak = nativeManager;
+  auto pool = nativeManager->getLeafMemoryPool();
+  auto data = pool->allocate(kMB);
+  nativeManager.reset();
+  // The outstanding allocation holds destruction open after the holder is removed from the registry.
+  std::thread deleting([manager = std::move(first)]() mutable { manager.reset(); });
+  const bool destructionStarted = waitForDestruction(weak);
+  auto second = destructionStarted ? newManager(-1) : nullptr;
+  pool->free(data, kMB);
+  pool.reset();
+  deleting.join();
+  ASSERT_TRUE(destructionStarted);
+  EXPECT_GT(executionPool()->getMemoryUsageForTask(-1), 0);
+  second.reset();
+  EXPECT_EQ(executionPool()->getMemoryUsageForTask(-1), 0);
+}
+
+TEST_F(BoltMemoryManagerHolderTest, waitsForAllConcurrentDestructions) {
+  auto first = newManager(-1);
+  auto second = newManager(-1);
+  auto holder = BoltGlutenMemoryManager::getMemoryManagerHolder(-1, reinterpret_cast<int64_t>(first.get()));
+  auto nativeManager = holder->getManager();
+  std::weak_ptr<bytedance::bolt::memory::sparksql::BoltMemoryManager> weak = nativeManager;
+  auto pool = nativeManager->getLeafMemoryPool();
+  auto data = pool->allocate(kMB);
+  nativeManager.reset();
+  std::thread deleting([manager = std::move(first)]() mutable { manager.reset(); });
+  const bool destructionStarted = waitForDestruction(weak);
+  second.reset();
+  EXPECT_GT(executionPool()->getMemoryUsageForTask(-1), 0);
+  pool->free(data, kMB);
+  pool.reset();
+  deleting.join();
+  ASSERT_TRUE(destructionStarted);
+  EXPECT_EQ(executionPool()->getMemoryUsageForTask(-1), 0);
 }
 
 } // namespace gluten
