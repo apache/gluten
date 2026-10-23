@@ -55,6 +55,13 @@ class DecimalArithmeticOperatorRexCallConverters extends BaseRexCallConverter {
 
   @Override
   public ValidationResult isSuitable(RexCall callNode, RexConversionContext context) {
+    // Binary arithmetic: a one-operand "-" is the unary minus handled by
+    // UnaryMinusRexCallConverter.
+    if (callNode.getOperands().size() != 2) {
+      return ValidationResult.failure(
+          "Decimal arithmetic requires exactly two operands, but found: "
+              + getFunctionProtoTypeName(callNode));
+    }
     Type resultType = getResultType(callNode);
     List<Type> operandsType =
         callNode.getOperands().stream()
