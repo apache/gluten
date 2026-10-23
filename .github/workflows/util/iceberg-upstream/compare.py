@@ -372,13 +372,14 @@ def main():
         )
     for title, rows in (
         ("Regressions", result["regressions"]),
+        ("Improvements", result["improvements"]),
         ("Other changes (informational)", result["highlights"]),
         ("Whitelisted changes (ignored)", result["ignored_changes"]),
     ):
         if not rows:
             continue
         lines.extend(["", f"### {title}: {len(rows)}", ""])
-        for row in rows[:20]:
+        for row in rows:
             detail = row["reason"]
             if row.get("lost_native"):
                 detail += "; native nodes lost: " + ", ".join(row["lost_native"])
@@ -387,8 +388,6 @@ def main():
             lines.append(
                 f"- `{row['class']}#{row['name']}`: {row['before']} → {row['after']} ({detail})"
             )
-        if len(rows) > 20:
-            lines.append("See the comparison artifact for the remaining changes.")
     text = "\n".join(lines) + "\n"
     print(text)
     if os.environ.get("GITHUB_STEP_SUMMARY"):

@@ -305,6 +305,57 @@ class ComparisonTest(unittest.TestCase):
                     diagnostic = json.loads((root / "diff.json").read_text())
                     self.assertTrue(diagnostic["validation_errors"])
 
+    def test_gate_prints_every_change_in_logs_and_summary(self):
+        base, current = report("PASSED_NATIVE"), report("PASSED_NATIVE")
+        expected = []
+        for method, before, after, reason in (
+            ("regression", "PASSED_FALLBACK", "FAILED", "STATUS_REGRESSION"),
+            ("improvement", "PASSED_FALLBACK", "PASSED_NATIVE", "STATUS_CHANGE"),
+            ("informational", "PASSED_FALLBACK", "PASSED_FALLBACK", "EVIDENCE_CHANGE"),
+            ("ignored", "PASSED_FALLBACK", "FAILED", "STATUS_REGRESSION"),
+        ):
+            for invocation in range(1, 22):
+                name = f"{method}()[{invocation}]"
+                base["tests"].extend(report(before, name)["tests"])
+                current["tests"].extend(report(after, name)["tests"])
+                if method == "informational":
+                    current["tests"][-1]["fallback"] = ["IcebergScanTransformer"]
+                expected.append(
+                    f"- `org.apache.iceberg.TestScan#{name}`: {before} → {after} ({reason})"
+                )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "base.json").write_text(json.dumps(base))
+            (root / "head.json").write_text(json.dumps(current))
+            config = root / "flaky.csv"
+            config.write_text("class,method\norg.apache.iceberg.TestScan,ignored\n")
+            summary = root / "summary.md"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    str(root / "base.json"),
+                    str(root / "head.json"),
+                    "--output",
+                    str(root / "diff.json"),
+                    "--flaky-tests",
+                    str(config),
+                ],
+                capture_output=True,
+                text=True,
+                env=dict(os.environ, GITHUB_STEP_SUMMARY=str(summary)),
+            )
+            self.assertEqual(1, result.returncode, result.stderr + result.stdout)
+            for output in (result.stdout, summary.read_text()):
+                self.assertIn("21 regressions, 21 improvements", output)
+                self.assertIn("### Improvements: 21", output)
+                self.assertEqual(
+                    sorted(expected),
+                    sorted(
+                        line for line in output.splitlines() if line.startswith("- ")
+                    ),
+                )
+
     def test_new_tests_cannot_add_failures(self):
         current = report("PASSED_NATIVE")
         current["tests"].extend(report("FAILED", "new")["tests"])

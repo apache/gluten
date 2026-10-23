@@ -74,11 +74,8 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
 
   int64_t spillFixedSize(int64_t size) override;
 
-  Metrics* getMetrics(int64_t exportNanos) {
+  Metrics* getMetrics() {
     collectMetrics();
-    if (metrics_) {
-      metrics_->veloxToArrow = exportNanos;
-    }
     return metrics_.get();
   }
 
