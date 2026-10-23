@@ -16,11 +16,15 @@
  */
 package org.apache.gluten.substrait.rel;
 
+import com.google.protobuf.ByteString;
+import io.substrait.proto.ReadRel;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 public class PaimonLocalFilesNode extends LocalFilesNode {
+  private final List<byte[]> serializedSplits;
 
   public PaimonLocalFilesNode(
       Integer index,
@@ -44,5 +48,35 @@ public class PaimonLocalFilesNode extends LocalFilesNode {
         preferredLocations,
         properties,
         new ArrayList<>());
+    this.serializedSplits = null;
+  }
+
+  public PaimonLocalFilesNode(
+      Integer index, String tablePath, List<byte[]> splits, List<String> preferredLocations) {
+    super(
+        index,
+        java.util.Collections.nCopies(splits.size(), tablePath),
+        java.util.Collections.nCopies(splits.size(), 0L),
+        java.util.Collections.nCopies(splits.size(), 1L),
+        new ArrayList<>(),
+        new ArrayList<>(),
+        java.util.Collections.nCopies(splits.size(), java.util.Collections.emptyMap()),
+        new ArrayList<>(),
+        ReadFileFormat.UnknownFormat,
+        preferredLocations,
+        java.util.Collections.emptyMap(),
+        new ArrayList<>());
+    this.serializedSplits = splits;
+  }
+
+  @Override
+  protected void processFileBuilder(ReadRel.LocalFiles.FileOrFiles.Builder fileBuilder, int index) {
+    if (serializedSplits != null) {
+      fileBuilder.setPaimon(
+          ReadRel.LocalFiles.FileOrFiles.PaimonReadOptions.newBuilder()
+              .setTablePath(getPaths().get(index))
+              .setSerializedSplit(ByteString.copyFrom(serializedSplits.get(index)))
+              .build());
+    }
   }
 }

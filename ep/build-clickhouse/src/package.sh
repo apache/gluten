@@ -36,7 +36,6 @@ detect_os_version
 DEFAULT_SPARK_PROFILE="spark-3.5"
 function get_project_version() {
   cd "${GLUTEN_SOURCE}"
-  # use mvn command to get project version
   PROJECT_VERSION=$(mvn -q -P${DEFAULT_SPARK_PROFILE} -Dexec.executable="echo" -Dexec.args='${project.version}' --non-recursive exec:exec)
   export PROJECT_VERSION=${PROJECT_VERSION}
 }
@@ -90,7 +89,7 @@ function build_gluten_by_spark_version() {
   sv=$(echo "$spark_profile" | tr -d '.')
   echo "build gluten with spark ${spark_profile}, scala ${scala_version}"
 
-  mvn clean install -Pbackends-clickhouse -Pspark-"${spark_profile}" -Pscala-"${scala_version}" -Pceleborn -Piceberg -Pdelta -DskipTests -Dcheckstyle.skip
+  mvn clean install -Pbackends-clickhouse -Pspark-"${spark_profile}" -Pscala-"${scala_version}" -Pceleborn -Piceberg -Pdelta -Ppaimon -DskipTests -Dcheckstyle.skip
   cp "${GLUTEN_SOURCE}"/backends-clickhouse/target/gluten-*-spark-"${spark_profile}"-jar-with-dependencies.jar "${PACKAGE_DIR_PATH}"/jars/spark"${sv}"/gluten.jar
   delta_version=$(mvn -q -Dexec.executable="echo" -Dexec.args='${delta.version}' -Pspark-"${spark_profile}" --non-recursive exec:exec)
   delta_package_name=$(mvn -q -Dexec.executable="echo" -Dexec.args='${delta.package.name}' -Pspark-"${spark_profile}" --non-recursive exec:exec)
@@ -100,16 +99,18 @@ function build_gluten_by_spark_version() {
   wget https://repo1.maven.org/maven2/org/apache/celeborn/celeborn-client-spark-3-shaded_${scala_version}/${celeborn_version}/celeborn-client-spark-3-shaded_${scala_version}-${celeborn_version}.jar -P "${PACKAGE_DIR_PATH}"/jars/spark"${sv}"
 }
 
+# build libch.so
+bash "${GLUTEN_SOURCE}"/ep/build-clickhouse/src/build-clickhouse.sh
+LIBCH_DIR="$GLUTEN_SOURCE/cpp-ch/build/utils/extern-local-engine"
+cp "${LIBCH_DIR}"/libch.so "${PACKAGE_DIR_PATH}"/libs/libch.so
+cp "${LIBCH_DIR}/libpaimon.so" "${PACKAGE_DIR_PATH}"/libs/
+
 for ssv in "${spark_scala_versions[@]}"
 do
     spark_profile="${ssv%_*}"
     scala_version="${ssv#*_}"
     build_gluten_by_spark_version "$spark_profile" "$scala_version"
 done
-
-# build libch.so
-bash "${GLUTEN_SOURCE}"/ep/build-clickhouse/src/build-clickhouse.sh
-cp "$GLUTEN_SOURCE"/cpp-ch/build/utils/extern-local-engine/libch.so "${PACKAGE_DIR_PATH}"/libs/libch.so
 
 # copy bin and conf
 cp "${GLUTEN_SOURCE}"/ep/build-clickhouse/src/resources/bin/* "${GLUTEN_SOURCE}"/dist/"${PACKAGE_NAME}"/bin
