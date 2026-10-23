@@ -159,12 +159,6 @@ jobs:
     runs-on: ubuntu-22.04
     container: apache/gluten:vcpkg-almalinux-8-gcc13
     steps:
-      - name: Install CI tools (temporary - until image is rebuilt with gh/jq/bison/python3.9)
-        run: |
-          dnf install -y jq bison tzdata
-          dnf module -y install python39 && alternatives --set python3 /usr/bin/python3.9
-          dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
-          dnf install -y gh --setopt=gpgcheck=0
       - uses: actions/checkout@v7
       - name: Get Ccache from Apache Stash
         id: ccache-stash
@@ -211,7 +205,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ "ubuntu:22.04" ]
+        os: [ "apache/gluten:ubuntu-22.04-runtime" ]
         spark: [ "spark-3.4", "spark-3.5", "spark-4.0", "spark-4.1"  ]
         # PR runs test the primary JDK per Spark line (8 for 3.x, 17 for 4.x --
         # after the static excludes below that is 4 combos instead of 8). The
@@ -257,30 +251,8 @@ jobs:
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
-      - name: Setup tzdata
-        run: |
-          sed -i 's|http://archive|http://eu.archive|g' /etc/apt/sources.list
-          if [ "${{ matrix.os }}" = "ubuntu:22.04" ]; then
-            apt-get update
-            TZ="Etc/GMT" DEBIAN_FRONTEND=noninteractive apt-get install -y tzdata
-          fi
-      - name: Setup java
-        run: |
-          if [ "${{ matrix.java }}" = "java-17" ]; then
-            apt-get update && apt-get install -y openjdk-17-jdk wget
-            apt remove openjdk-11* -y
-          elif [ "${{ matrix.java }}" = "java-25" ]; then
-            apt-get update && apt-get install -y openjdk-25-jdk wget
-          elif [ "${{ matrix.java }}" = "java-21" ]; then
-            apt-get update && apt-get install -y openjdk-21-jdk wget
-          elif [ "${{ matrix.java }}" = "java-11" ]; then
-            apt-get update && apt-get install -y openjdk-11-jdk wget
-          else
-            apt-get update && apt-get install -y openjdk-8-jdk wget
-            apt remove openjdk-11* -y
-          fi
       - name: Install Hadoop & Setup HDFS
-        if: matrix.os == 'ubuntu:22.04' && matrix.spark == 'spark-3.5' && matrix.java == 'java-8'
+        if: matrix.os == 'apache/gluten:ubuntu-22.04-runtime' && matrix.spark == 'spark-3.5' && matrix.java == 'java-8'
         shell: bash
         run: |
           export JAVA_HOME=/usr/lib/jvm/${{ matrix.java }}-openjdk-amd64
@@ -288,7 +260,7 @@ jobs:
           install_hadoop
           setup_hdfs
       - name: Install MinIO
-        if: matrix.os == 'ubuntu:22.04' && matrix.spark == 'spark-3.5' && matrix.java == 'java-8'
+        if: matrix.os == 'apache/gluten:ubuntu-22.04-runtime' && matrix.spark == 'spark-3.5' && matrix.java == 'java-8'
         shell: bash
         run: |
           export JAVA_HOME=/usr/lib/jvm/${{ matrix.java }}-openjdk-amd64
@@ -311,7 +283,7 @@ jobs:
           cd $GITHUB_WORKSPACE/tools/gluten-it
           $GITHUB_WORKSPACE/$MVN_CMD clean install -P${{ matrix.spark }} -P${{ matrix.java }}
           # Setup S3 JARs after gluten-it build 
-          if [ "${{ matrix.os }}" = "ubuntu:22.04" ] && \
+          if [ "${{ matrix.os }}" = "apache/gluten:ubuntu-22.04-runtime" ] && \
             [ "${{ matrix.spark }}" = "spark-3.5" ] && \
             [ "${{ matrix.java }}" = "java-8" ]; then
             source $GITHUB_WORKSPACE/.github/workflows/util/install-spark-deps.sh
@@ -322,7 +294,7 @@ jobs:
             --local --preset=velox --benchmark-type=h --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1 \
           && GLUTEN_IT_JVM_ARGS=-Xmx6G sbin/gluten-it.sh queries-compare \
             --local --preset=velox --benchmark-type=ds --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1
-          if [ "${{ matrix.os }}" = "ubuntu:22.04" ] && \
+          if [ "${{ matrix.os }}" = "apache/gluten:ubuntu-22.04-runtime" ] && \
             [ "${{ matrix.spark }}" = "spark-3.5" ] && \
             [ "${{ matrix.java }}" = "java-8" ]; then
             GLUTEN_IT_JVM_ARGS=-Xmx6G sbin/gluten-it.sh queries-compare \
@@ -352,7 +324,7 @@ jobs:
       # = 2 jobs after the excludes below) and the nightly full_run restores
       # the whole 5-combo fan-out.
       matrix:
-        os: [ "centos:8" ]
+        os: [ "apache/gluten:centos-8-runtime" ]
         spark: >-
           ${{ fromJSON(needs.detect-changes.outputs.full_run == 'true'
           && '["spark-3.4", "spark-3.5", "spark-4.0", "spark-4.1"]'
@@ -387,21 +359,6 @@ jobs:
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
-      - name: Update mirror list
-        run: |
-          if [ "${{ matrix.os }}" = "centos:8" ]; then
-            sed -i -e "s|mirrorlist=|#mirrorlist=|g" /etc/yum.repos.d/CentOS-* || true
-            sed -i -e "s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-* || true
-          fi
-      - name: Setup java
-        run: |
-          if [ "${{ matrix.java }}" = "java-17" ]; then
-            yum update -y && yum install -y java-17-openjdk-devel wget
-          elif [ "${{ matrix.java }}" = "java-11" ]; then
-            yum update -y && yum install -y java-11-openjdk-devel wget
-          else
-            yum update -y && yum install -y java-1.8.0-openjdk-devel wget
-          fi
       - name: Set environment variables
         run: |
           if [ "${{ matrix.java }}" = "java-17" ]; then
@@ -467,13 +424,9 @@ jobs:
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
-      - name: Setup java
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y openjdk-8-jdk wget
       - name: Set environment variables
         run: |
-          echo "JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64" >> $GITHUB_ENV
+          echo "JAVA_HOME=$JAVA_HOME_8_X64" >> $GITHUB_ENV
       - name: Build for Spark ${{ matrix.spark }}
         run: |
           cd $GITHUB_WORKSPACE/ 
@@ -585,13 +538,9 @@ jobs:
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
-      - name: Setup java
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y openjdk-8-jdk wget
       - name: Set environment variables
         run: |
-          echo "JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64" >> $GITHUB_ENV
+          echo "JAVA_HOME=$JAVA_HOME_8_X64" >> $GITHUB_ENV
       - name: Build for Spark ${{ matrix.spark }}
         run: |
           cd $GITHUB_WORKSPACE/
@@ -676,7 +625,7 @@ jobs:
           || '["celeborn-0.6.3"]') }}
         writer: ["sort", "hash"]
     runs-on: ubuntu-22.04
-    container: centos:8
+    container: apache/gluten:centos-8-runtime
     steps:
       - uses: actions/checkout@v7
       - name: Download All Native Artifacts
@@ -684,13 +633,6 @@ jobs:
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
-      - name: Update mirror list
-        run: |
-          sed -i -e "s|mirrorlist=|#mirrorlist=|g" /etc/yum.repos.d/CentOS-* || true
-          sed -i -e "s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-* || true
-      - name: Setup java and maven
-        run: |
-          yum update -y && yum install -y java-1.8.0-openjdk-devel wget
       - name: Set environment variables
         run: |
           echo "JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk" >> $GITHUB_ENV
@@ -759,18 +701,13 @@ jobs:
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
-      - name: Prepare spark.test.home for Spark 3.4.4 (other tests)
-        run: |
-          dnf module -y install python39 && \
-          alternatives --set python3 /usr/bin/python3.9 && \
-          pip3 install setuptools==77.0.3 && \
-          pip3 install pyspark==3.4.4 cython && \
-          pip3 install pandas==2.2.3 pyarrow==20.0.0
+      - name: Select PySpark 3.4.4
+        # The image ships one virtualenv per PySpark version; see dev/docker/install-ci-tools.sh.
+        run: echo "/opt/pyspark/3.4.4/bin" >> $GITHUB_PATH
       - name: Build and Run unit test for Spark 3.4.4 (other tests, group ${{ matrix.group }})
         run: |
           cd $GITHUB_WORKSPACE/
           export SPARK_SCALA_VERSION=2.12
-          yum install -y java-17-openjdk-devel
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
@@ -833,7 +770,6 @@ jobs:
       - name: Build and Run unit test for Spark 3.4.4 (slow tests, ${{ matrix.suite }})
         run: |
           cd $GITHUB_WORKSPACE/
-          yum install -y java-17-openjdk-devel
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
@@ -884,18 +820,13 @@ jobs:
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
-      - name: Prepare
-        run: |
-          dnf module -y install python39 && \
-          alternatives --set python3 /usr/bin/python3.9 && \
-          pip3 install setuptools==77.0.3 && \
-          pip3 install pyspark==3.5.5 cython && \
-          pip3 install pandas==2.2.3 pyarrow==20.0.0
+      - name: Select PySpark 3.5.5
+        # The image ships one virtualenv per PySpark version; see dev/docker/install-ci-tools.sh.
+        run: echo "/opt/pyspark/3.5.5/bin" >> $GITHUB_PATH
       - name: Build and Run unit test for Spark 3.5.5 (other tests, group ${{ matrix.group }})
         run: |
           cd $GITHUB_WORKSPACE/
           export SPARK_SCALA_VERSION=2.12
-          yum install -y java-17-openjdk-devel
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
@@ -957,18 +888,13 @@ jobs:
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
-      - name: Prepare
-        run: |
-          dnf module -y install python39 && \
-          alternatives --set python3 /usr/bin/python3.9 && \
-          pip3 install setuptools==77.0.3 && \
-          pip3 install pyspark==3.5.5 cython && \
-          pip3 install pandas==2.2.3 pyarrow==20.0.0
+      - name: Select PySpark 3.5.5
+        # The image ships one virtualenv per PySpark version; see dev/docker/install-ci-tools.sh.
+        run: echo "/opt/pyspark/3.5.5/bin" >> $GITHUB_PATH
       - name: Build and Run unit test for Spark 3.5.5 with scala-2.13 (other tests, group ${{ matrix.group }})
         run: |
           cd $GITHUB_WORKSPACE/
           export SPARK_SCALA_VERSION=2.13
-          yum install -y java-17-openjdk-devel
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
@@ -1026,7 +952,6 @@ jobs:
       - name: Build and Run unit test for Spark 3.5.5 (slow tests, ${{ matrix.suite }})
         run: |
           cd $GITHUB_WORKSPACE/
-          yum install -y java-17-openjdk-devel
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
@@ -1066,18 +991,6 @@ jobs:
           # 'check.py tidy commit' diffs HEAD^..HEAD, which a depth-1 clone lacks: the
           # diff comes back empty and the check passes without inspecting anything.
           fetch-depth: 2
-      - name: Install Stash restore dependencies # the stash action needs gh and jq, absent from this container
-        run: |
-          case "$(uname -m)" in
-            x86_64) ARCH=amd64 ;;
-            aarch64) ARCH=arm64 ;;
-            *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
-          esac
-          curl -fsSL "https://github.com/cli/cli/releases/download/v2.63.2/gh_2.63.2_linux_${ARCH}.tar.gz" \
-            | tar -xz -C /usr/local --strip-components=1 "gh_2.63.2_linux_${ARCH}/bin/gh"
-          curl -fsSL -o /usr/local/bin/jq "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-${ARCH}"
-          chmod +x /usr/local/bin/jq
-          gh --version && jq --version
       - name: Get Ccache from Apache Stash
         id: ccache-stash
         uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
@@ -1123,8 +1036,6 @@ jobs:
             echo "No C++ changes in this pull request; skipping clang-tidy."
             exit 0
           fi
-          dnf install -y clang-tools-extra # TODO remove after image update
-          pip3 install regex
           clang-tidy --version # log the version so finding changes trace to a clang bump
           python3 dev/check.py tidy commit
       - name: Run CPP unit test
@@ -1141,7 +1052,6 @@ jobs:
           --data $(realpath backends-velox/generated-native-benchmark/data_12_0_*_0.parquet),$(realpath backends-velox/generated-native-benchmark/data_12_0_*_1.parquet)
       - name: Run UDF test
         run: |
-          yum install -y java-17-openjdk-devel
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
@@ -1152,7 +1062,6 @@ jobs:
       - name: Run CPP benchmark test for Spark 4.0
         run: |
           export SPARK_SCALA_VERSION=2.13
-          yum install -y java-17-openjdk-devel
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           $MVN_CMD clean test -Pspark-4.0 -Pjava-17 -Pscala-2.13 -Pbackends-velox -pl backends-velox -am \
@@ -1291,18 +1200,13 @@ jobs:
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
-      - name: Prepare
-        run: |
-          dnf module -y install python39 && \
-          alternatives --set python3 /usr/bin/python3.9 && \
-          pip3 install setuptools==77.0.3 && \
-          pip3 install pyspark==3.5.5 cython && \
-          pip3 install pandas==2.2.3 pyarrow==20.0.0
+      - name: Select PySpark 3.5.5
+        # The image ships one virtualenv per PySpark version; see dev/docker/install-ci-tools.sh.
+        run: echo "/opt/pyspark/3.5.5/bin" >> $GITHUB_PATH
       - name: Build and Run unit test for Spark 4.0.0 with scala-2.13 (other tests, group ${{ matrix.group }})
         run: |
           cd $GITHUB_WORKSPACE/
           export SPARK_SCALA_VERSION=2.13
-          yum install -y java-17-openjdk-devel
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
@@ -1360,7 +1264,6 @@ jobs:
       - name: Build and Run unit test for Spark 4.0 (slow tests, ${{ matrix.suite }})
         run: |
           cd $GITHUB_WORKSPACE/
-          yum install -y java-17-openjdk-devel
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
@@ -1414,20 +1317,13 @@ jobs:
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
-      - name: Prepare
-        run: |
-          dnf install -y python3.11 python3.11-pip python3.11-devel && \
-          ls -la /usr/bin/python3.11 && \
-          alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 && \
-          alternatives --set python3 /usr/bin/python3.11 && \
-          pip3 install setuptools==77.0.3 && \
-          pip3 install pyspark==3.5.5 cython && \
-          pip3 install pandas==2.2.3 pyarrow==20.0.0
+      - name: Select PySpark 3.5.5
+        # The image ships one virtualenv per PySpark version; see dev/docker/install-ci-tools.sh.
+        run: echo "/opt/pyspark/3.5.5/bin" >> $GITHUB_PATH
       - name: Build and Run unit test for Spark 4.1.0 with scala-2.13 (other tests, group ${{ matrix.group }})
         run: |
           cd $GITHUB_WORKSPACE/
           export SPARK_SCALA_VERSION=2.13
-          yum install -y java-17-openjdk-devel
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
@@ -1489,7 +1385,6 @@ jobs:
       - name: Build and Run unit test for Spark 4.1 (slow tests, ${{ matrix.suite }})
         run: |
           cd $GITHUB_WORKSPACE/
-          yum install -y java-17-openjdk-devel
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
@@ -1543,20 +1438,13 @@ jobs:
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
-      - name: Prepare
-        run: |
-          dnf install -y python3.11 python3.11-pip python3.11-devel && \
-          ls -la /usr/bin/python3.11 && \
-          alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 && \
-          alternatives --set python3 /usr/bin/python3.11 && \
-          pip3 install setuptools==77.0.3 && \
-          pip3 install pyspark==3.5.5 cython && \
-          pip3 install pandas==2.2.3 pyarrow==20.0.0
+      - name: Select PySpark 3.5.5
+        # The image ships one virtualenv per PySpark version; see dev/docker/install-ci-tools.sh.
+        run: echo "/opt/pyspark/3.5.5/bin" >> $GITHUB_PATH
       - name: Build and Run unit test for Spark 4.2.0 with scala-2.13 (other tests, group ${{ matrix.group }})
         run: |
           cd $GITHUB_WORKSPACE/
           export SPARK_SCALA_VERSION=2.13
-          yum install -y java-17-openjdk-devel
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
@@ -1621,7 +1509,6 @@ jobs:
       - name: Build and Run unit test for Spark 4.2 (slow tests, ${{ matrix.suite }})
         run: |
           cd $GITHUB_WORKSPACE/
-          yum install -y java-17-openjdk-devel
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version

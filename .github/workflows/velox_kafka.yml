@@ -51,13 +51,6 @@ jobs:
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v7
-      - name: Install build tools
-        run: |
-          dnf install -y jq bison tzdata
-          dnf module -y install python39
-          alternatives --set python3 /usr/bin/python3.9
-          dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
-          dnf install -y gh --setopt=gpgcheck=0
       - name: Get Ccache from Apache Stash
         id: ccache-stash
         uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
@@ -126,11 +119,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Setup java
+        # ubuntu-22.04 runners ship JDK 17; see JAVA_HOME_17_X64 in the runner image.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y openjdk-17-jdk
-          echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
-          echo "/usr/lib/jvm/java-17-openjdk-amd64/bin" >> $GITHUB_PATH
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> $GITHUB_ENV
+          echo "$JAVA_HOME_17_X64/bin" >> $GITHUB_PATH
       - uses: actions/download-artifact@v8
         with:
           name: velox-kafka-native-${{ github.sha }}

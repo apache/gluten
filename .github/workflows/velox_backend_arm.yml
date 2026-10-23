@@ -82,18 +82,6 @@ jobs:
     container: apache/gluten:vcpkg-centos-9
     steps:
       - uses: actions/checkout@v7
-      - name: Install Stash restore dependencies # the stash action needs gh and jq, absent from this container
-        run: |
-          case "$(uname -m)" in
-            x86_64) ARCH=amd64 ;;
-            aarch64) ARCH=arm64 ;;
-            *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
-          esac
-          curl -fsSL "https://github.com/cli/cli/releases/download/v2.63.2/gh_2.63.2_linux_${ARCH}.tar.gz" \
-            | tar -xz -C /usr/local --strip-components=1 "gh_2.63.2_linux_${ARCH}/bin/gh"
-          curl -fsSL -o /usr/local/bin/jq "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-${ARCH}"
-          chmod +x /usr/local/bin/jq
-          gh --version && jq --version
       - name: Get Ccache from Apache Stash
         id: ccache-stash
         uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
@@ -138,7 +126,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ "quay.io/centos/centos:stream9" ]
+        os: [ "apache/gluten:centos-9-runtime" ]
         spark: [ "spark-3.5" ]
         java: [ "java-8" ]
     runs-on: ubuntu-24.04-arm
@@ -150,13 +138,6 @@ jobs:
         with:
           name: velox-native-lib-centos-9-${{github.sha}}
           path: ./cpp/build/releases/
-      - name: Update mirror list
-        run: |
-          sed -i -e "s|mirrorlist=|#mirrorlist=|g" /etc/yum.repos.d/CentOS-* || true
-          sed -i -e "s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-* || true
-      - name: Setup java
-        run: |
-          yum update -y && yum install -y java-1.8.0-openjdk-devel wget procps
       - name: Set environment variables
         run: |
           echo "JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk" >> $GITHUB_ENV
@@ -183,18 +164,6 @@ jobs:
     container: apache/gluten:centos-9-jdk8
     steps:
       - uses: actions/checkout@v7
-      - name: Install Stash restore dependencies # the stash action needs gh and jq, absent from this container
-        run: |
-          case "$(uname -m)" in
-            x86_64) ARCH=amd64 ;;
-            aarch64) ARCH=arm64 ;;
-            *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
-          esac
-          curl -fsSL "https://github.com/cli/cli/releases/download/v2.63.2/gh_2.63.2_linux_${ARCH}.tar.gz" \
-            | tar -xz -C /usr/local --strip-components=1 "gh_2.63.2_linux_${ARCH}/bin/gh"
-          curl -fsSL -o /usr/local/bin/jq "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-${ARCH}"
-          chmod +x /usr/local/bin/jq
-          gh --version && jq --version
       - name: Get Ccache from Apache Stash
         id: ccache-stash
         uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b

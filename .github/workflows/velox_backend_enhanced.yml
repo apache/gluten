@@ -92,12 +92,6 @@ jobs:
     runs-on: ubuntu-22.04
     container: apache/gluten:vcpkg-almalinux-8-gcc13
     steps:
-      - name: Install CI tools (temporary - until image is rebuilt with gh/jq/bison/python3.9)
-        run: |
-          dnf install -y jq bison tzdata
-          dnf module -y install python39 && alternatives --set python3 /usr/bin/python3.9
-          dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
-          dnf install -y gh --setopt=gpgcheck=0
       - uses: actions/checkout@v7
       - name: Get Ccache from Apache Stash
         id: ccache-stash
@@ -116,7 +110,6 @@ jobs:
       - name: Build Gluten native libraries
         run: |
           set -e
-          yum install tzdata bison -y
           df -a
           export CCACHE_MAXSIZE=1G
           ccache -sz
@@ -151,18 +144,13 @@ jobs:
         with:
           name: velox-native-lib-enhanced-centos-8-${{github.sha}}
           path: ./cpp/build/releases
-      - name: Prepare spark.test.home for Spark 3.5.5 (other tests)
-        run: |
-          dnf module -y install python39 && \
-          alternatives --set python3 /usr/bin/python3.9 && \
-          pip3 install setuptools==77.0.3 && \
-          pip3 install pyspark==3.5.5 cython && \
-          pip3 install pandas==2.2.3 pyarrow==20.0.0
+      - name: Select PySpark 3.5.5
+        # The image ships one virtualenv per PySpark version; see dev/docker/install-ci-tools.sh.
+        run: echo "/opt/pyspark/3.5.5/bin" >> $GITHUB_PATH
       - name: Build and Run unit test for Spark 3.5.5 (other tests)
         run: |
           cd $GITHUB_WORKSPACE/
           export SPARK_SCALA_VERSION=2.12
-          yum install -y java-17-openjdk-devel
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
@@ -211,7 +199,6 @@ jobs:
       - name: Build and Run unit test for Spark 3.5.5 (slow tests)
         run: |
           cd $GITHUB_WORKSPACE/
-          yum install -y java-17-openjdk-devel
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
