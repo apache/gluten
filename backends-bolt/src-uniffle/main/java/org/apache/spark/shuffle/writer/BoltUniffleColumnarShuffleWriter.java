@@ -18,15 +18,15 @@ package org.apache.spark.shuffle.writer;
 
 import org.apache.gluten.backendsapi.BackendsApiManager;
 import org.apache.gluten.columnarbatch.ColumnarBatches;
+import org.apache.gluten.config.BoltConfig;
 import org.apache.gluten.config.GlutenConfig;
-import org.apache.gluten.config.SortShuffleWriterType$;
 import org.apache.gluten.memory.memtarget.MemoryTarget;
 import org.apache.gluten.memory.memtarget.Spiller;
+import org.apache.gluten.proto.ShuffleWriterInfo;
 import org.apache.gluten.runtime.Runtime;
 import org.apache.gluten.runtime.Runtimes;
-import org.apache.gluten.vectorized.GlutenSplitResult;
-import org.apache.gluten.vectorized.ShuffleWriterJniWrapper;
-import org.apache.gluten.vectorized.UnifflePartitionWriterJniWrapper;
+import org.apache.gluten.shuffle.BoltShuffleWriterJniWrapper;
+import org.apache.gluten.shuffle.BoltSplitResult;
 
 import org.apache.spark.SparkConf;
 import org.apache.spark.TaskContext;
@@ -48,6 +48,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
@@ -67,16 +68,12 @@ public class BoltUniffleColumnarShuffleWriter<K, V> extends RssShuffleWriter<K, 
   private String compressionCodec;
   private String codecBackend;
   private int compressionLevel;
-  private int compressionBufferSize;
-  private final int diskWriteBufferSize;
   private final int partitionId;
 
   private final Runtime runtime =
       Runtimes.contextInstance(BackendsApiManager.getBackendName(), "UniffleShuffleWriter");
-  private final UnifflePartitionWriterJniWrapper partitionWriterJniWrapper =
-      UnifflePartitionWriterJniWrapper.create(runtime);
-  private final ShuffleWriterJniWrapper shuffleWriterJniWrapper =
-      ShuffleWriterJniWrapper.create(runtime);
+  private final BoltShuffleWriterJniWrapper shuffleWriterJniWrapper =
+      BoltShuffleWriterJniWrapper.create(runtime);
   private final int nativeBufferSize = GlutenConfig.get().maxBatchSize();
   private final int bufferSize;
   private final int numPartitions;
@@ -123,18 +120,48 @@ public class BoltUniffleColumnarShuffleWriter<K, V> extends RssShuffleWriter<K, 
             sparkConf.getSizeAsBytes(
                 RssSparkConfig.RSS_WRITER_BUFFER_SIZE.key(),
                 RssSparkConfig.RSS_WRITER_BUFFER_SIZE.defaultValue().get());
-    this.diskWriteBufferSize =
-        (int) (long) sparkConf.get(package$.MODULE$.SHUFFLE_DISK_WRITE_BUFFER_SIZE());
     if ((boolean) sparkConf.get(package$.MODULE$.SHUFFLE_COMPRESS())) {
       compressionCodec = GlutenShuffleUtils.getCompressionCodec(sparkConf);
       compressionLevel = GlutenShuffleUtils.getCompressionLevel(sparkConf, compressionCodec);
-      compressionBufferSize =
-          GlutenShuffleUtils.getCompressionBufferSize(sparkConf, compressionCodec);
       Option<String> codecBackend = GlutenConfig.get().columnarShuffleCodecBackend();
       if (codecBackend.isDefined()) {
         this.codecBackend = codecBackend.get();
       }
     }
+  }
+
+  private ShuffleWriterInfo getShuffleWriterInfo() {
+    BoltConfig config = BoltConfig.get();
+    return ShuffleWriterInfo.newBuilder()
+        .setPartitioningName(columnarDep.nativePartitioning().getShortName())
+        .setNumPartitions(numPartitions)
+        .setStartPartitionId(
+            GlutenShuffleUtils.getStartPartitionId(columnarDep.nativePartitioning(), partitionId))
+        .setTaskAttemptId(TaskContext.get().taskAttemptId())
+        .setBufferSize(nativeBufferSize)
+        .setReallocThreshold(reallocThreshold)
+        .setMemLimit(availableOffHeapPerTask())
+        .setCompressionCodec(compressionCodec == null ? "uncompressed" : compressionCodec)
+        .setCompressionBackend(codecBackend == null ? "none" : codecBackend)
+        .setCompressionLevel(compressionLevel)
+        .setCompressionThreshold(config.columnarShuffleCompressionThreshold())
+        .setCompressionMode(config.columnarShuffleCompressionMode())
+        .setPushBufferMaxSize(bufferSize)
+        .setShuffleBatchByteSize(config.maxShuffleBatchByteSize())
+        // Bolt names its transport-neutral RSS partition writer "celeborn".
+        // The supplied pusher still sends every block through Uniffle.
+        .setWriterType("celeborn")
+        .setForcedWriterType(config.forceShuffleWriterType())
+        .setUseV2PreallocThreshold(config.useV2PreallocSizeThreshold())
+        .setRowCompressionMinCols(config.rowVectorModeCompressionMinColumns())
+        .setRowCompressionMaxBuffer(config.rowvectorModeCompressionMaxBufferSize())
+        .setEnableVectorCombination(config.enableVectorCombination())
+        .setAccumulateBatchMaxColumns(config.accumulateBatchMaxColumns())
+        .setAccumulateBatchMaxBatches(config.accumulateBatchMaxBatches())
+        .setRecommendedC2RSize(config.recommendedColumn2RowSize())
+        .setShuffleCheckRatio(config.shuffleCheckRatio())
+        .setRowFormat(config.shuffleRowFormat())
+        .build();
   }
 
   @Override
@@ -151,39 +178,11 @@ public class BoltUniffleColumnarShuffleWriter<K, V> extends RssShuffleWriter<K, 
         LOG.info("Skip ColumnarBatch of 0 rows or 0 cols");
       } else {
         if (nativeShuffleWriter == -1) {
-          long partitionWriterHandle =
-              partitionWriterJniWrapper.createPartitionWriter(
-                  numPartitions,
-                  compressionCodec,
-                  codecBackend,
-                  compressionLevel,
-                  compressionBufferSize,
-                  bufferSize,
-                  bufferSize,
-                  partitionPusher);
-
-          if (columnarDep.shuffleWriterType().equals(SortShuffleWriterType$.MODULE$)) {
-            nativeShuffleWriter =
-                shuffleWriterJniWrapper.createSortShuffleWriter(
-                    numPartitions,
-                    columnarDep.nativePartitioning().getShortName(),
-                    GlutenShuffleUtils.getStartPartitionId(
-                        columnarDep.nativePartitioning(), partitionId),
-                    diskWriteBufferSize,
-                    (int) (long) sparkConf.get(package$.MODULE$.SHUFFLE_SORT_INIT_BUFFER_SIZE()),
-                    (boolean) sparkConf.get(package$.MODULE$.SHUFFLE_SORT_USE_RADIXSORT()),
-                    partitionWriterHandle);
-          } else {
-            nativeShuffleWriter =
-                shuffleWriterJniWrapper.createHashShuffleWriter(
-                    numPartitions,
-                    columnarDep.nativePartitioning().getShortName(),
-                    GlutenShuffleUtils.getStartPartitionId(
-                        columnarDep.nativePartitioning(), partitionId),
-                    nativeBufferSize,
-                    reallocThreshold,
-                    partitionWriterHandle);
-          }
+          long firstBatchHandle =
+              ColumnarBatches.getNativeHandle(BackendsApiManager.getBackendName(), cb);
+          nativeShuffleWriter =
+              shuffleWriterJniWrapper.createShuffleWriter(
+                  getShuffleWriterInfo().toByteArray(), firstBatchHandle, partitionPusher);
 
           runtime
               .memoryManager()
@@ -207,8 +206,7 @@ public class BoltUniffleColumnarShuffleWriter<K, V> extends RssShuffleWriter<K, 
         long bytes =
             shuffleWriterJniWrapper.write(
                 nativeShuffleWriter, cb.numRows(), columnarBatchHandle, availableOffHeapPerTask());
-        LOG.debug("jniWrapper.write rows {}, split bytes {}", cb.numRows(), bytes);
-        columnarDep.metrics().get("dataSize").get().add(bytes);
+        LOG.debug("jniWrapper.write rows {}, input bytes {}", cb.numRows(), bytes);
         // this metric replace part of uniffle shuffle write time
         columnarDep.metrics().get("shuffleWallTime").get().add(System.nanoTime() - startTime);
         columnarDep.metrics().get("numInputRows").get().add(cb.numRows());
@@ -224,29 +222,36 @@ public class BoltUniffleColumnarShuffleWriter<K, V> extends RssShuffleWriter<K, 
       return;
     }
     long startTime = System.nanoTime();
-    GlutenSplitResult splitResult;
+    BoltSplitResult splitResult;
     try {
       splitResult = shuffleWriterJniWrapper.stop(nativeShuffleWriter);
     } catch (IOException e) {
       throw new RssException(e);
     }
     columnarDep.metrics().get("shuffleWallTime").get().add(System.nanoTime() - startTime);
+    // AQE needs the uncompressed size, including batches flushed by stop().
+    columnarDep
+        .metrics()
+        .get("dataSize")
+        .get()
+        .add(Arrays.stream(splitResult.getRawPartitionLengths()).sum());
+    // Bolt's evict time includes compression; the common writer reported push time separately.
+    long pushTime =
+        Math.max(0L, splitResult.getTotalPushTime() - splitResult.getTotalCompressTime());
     columnarDep
         .metrics()
         .get("splitTime")
         .get()
         .add(
             columnarDep.metrics().get("shuffleWallTime").get().value()
-                - splitResult.getTotalPushTime()
+                - pushTime
                 - splitResult.getTotalWriteTime()
                 - splitResult.getTotalCompressTime());
 
     // bytesWritten is calculated in uniffle side: WriteBufferManager.createShuffleBlock
     // shuffleWriteMetrics.incBytesWritten(splitResult.getTotalBytesWritten());
     shuffleWriteMetrics.incWriteTime(
-        splitResult.getTotalWriteTime()
-            + splitResult.getTotalPushTime()
-            + splitResult.getTotalCompressTime());
+        splitResult.getTotalWriteTime() + pushTime + splitResult.getTotalCompressTime());
     // partitionLengths is calculate in uniffle side
 
     long pushMergedDataTime = System.nanoTime();

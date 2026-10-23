@@ -16,7 +16,8 @@
 find_package(Arrow CONFIG REQUIRED)
 find_package(gfx-timsort REQUIRED CONFIG)
 
-set(BOLT_BENCHMARK_COMMON_SRCS common/BenchmarkUtils.cc)
+set(BOLT_BENCHMARK_COMMON_SRCS common/BenchmarkUtils.cc
+                               ../tests/utils/LocalRssClient.cc)
 add_library(bolt_benchmark_common STATIC ${BOLT_BENCHMARK_COMMON_SRCS})
 target_include_directories(
   bolt_benchmark_common PUBLIC ${CMAKE_SOURCE_DIR}/bolt
@@ -34,6 +35,12 @@ target_link_libraries(
 function(add_bolt_benchmark BM_EXEC BM_FILE)
   add_executable(${BM_EXEC} ${BM_FILE})
   target_link_libraries(${BM_EXEC} PRIVATE bolt_benchmark_common)
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # Keep the static gflags registry separate from libgluten.so's registry,
+    # as in the Bolt test executables.
+    target_link_options(${BM_EXEC}
+                        PRIVATE "-Wl,--exclude-libs,libgflags_nothreads.a")
+  endif()
   install(TARGETS ${BM_EXEC}
           DESTINATION ${CMAKE_CURRENT_SOURCE_DIR}/../../build/benchmark)
 endfunction()

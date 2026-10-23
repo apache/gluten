@@ -84,7 +84,7 @@ class NativeBenchmarkPlanGenerator extends BoltWholeStageTransformerSuite {
       executedPlan.execute()
 
       val finalPlan = executedPlan.asInstanceOf[AdaptiveSparkPlanExec].executedPlan
-      val lastStageTransformer = finalPlan.find(_.isInstanceOf[WholeStageTransformer])
+      val lastStageTransformer = stripAQEPlan(finalPlan).find(_.isInstanceOf[WholeStageTransformer])
       assert(lastStageTransformer.nonEmpty)
       val planJson = lastStageTransformer.get.asInstanceOf[WholeStageTransformer].substraitPlanJson
       assert(planJson.nonEmpty)

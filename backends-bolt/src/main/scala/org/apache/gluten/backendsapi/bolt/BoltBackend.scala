@@ -572,4 +572,6 @@ object BoltBackendSettings extends BackendSettingsApi {
   override def supportOverwriteByExpression(): Boolean = enableEnhancedFeatures()
 
   override def supportOverwritePartitionsDynamic(): Boolean = enableEnhancedFeatures()
+
+  override def supportEmptySchemaColumnarShuffle(): Boolean = false
 }

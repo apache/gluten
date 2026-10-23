@@ -112,10 +112,10 @@ private class CelebornColumnarBatchSerializerInstance(
       if (conf.getBoolean(SHUFFLE_COMPRESS.key, SHUFFLE_COMPRESS.defaultValue.get)) {
         GlutenShuffleUtils.getCompressionCodec(conf)
       } else {
-        null // uncompressed
+        "" // uncompressed
       }
     val compressionCodecBackend =
-      GlutenConfig.get.columnarShuffleCodecBackend.orNull
+      GlutenConfig.get.columnarShuffleCodecBackend.getOrElse("none")
     val jniWrapper = BoltShuffleReaderJniWrapper.create(runtime)
     val batchSize = GlutenConfig.get.maxBatchSize
 
@@ -310,7 +310,7 @@ private class CelebornColumnarBatchSerializerInstance(
       if (wrappedOut == null) {
         wrappedOut = new ColumnarBatchOutIterator(
           runtime,
-          ShuffleReaderJniWrapper
+          BoltShuffleReaderJniWrapper
             .create(runtime)
             .read(shuffleReaderHandle, streamReader))
       }
