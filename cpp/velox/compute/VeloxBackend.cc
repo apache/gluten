@@ -259,9 +259,17 @@ void VeloxBackend::init(
         std::make_unique<folly::CPUThreadPoolExecutor>(ioThreads, folly::CPUThreadPoolExecutor::makeLifoSemQueue());
   }
 
-  const auto broadcastHashTableBuildThreads =
-      std::max<int32_t>(1, backendConf_->get<int32_t>(kBroadcastHashTableBuildThreads, numTaskSlotsPerExecutor));
-  broadcastHashTableBuildExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(broadcastHashTableBuildThreads);
+  const int32_t broadcastHashTableBuildThreads = std::max<int32_t>(1, [&]() {
+    if (!backendConf_->valueExists(kBroadcastHashTableBuildThreads)) {
+      LOG(WARNING) << kBroadcastHashTableBuildThreads << " is not set. Falling back to " << kNumTaskSlotsPerExecutor
+                   << " (" << numTaskSlotsPerExecutor << ").";
+      return numTaskSlotsPerExecutor;
+    }
+    return backendConf_->get<int32_t>(kBroadcastHashTableBuildThreads).value();
+  }());
+  if (broadcastHashTableBuildThreads > 1) {
+    broadcastHashTableBuildExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(broadcastHashTableBuildThreads);
+  }
 
   initJolFilesystem();
 
