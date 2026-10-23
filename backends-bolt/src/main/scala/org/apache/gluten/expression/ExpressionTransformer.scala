@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.expression
 
+import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.expression.ConverterUtils.FunctionConfig
 import org.apache.gluten.expression.ExpressionConverter.replaceWithExpressionTransformer
 import org.apache.gluten.substrait.`type`.StructNode
@@ -23,7 +24,7 @@ import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.expression._
 
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.types.{IntegerType, LongType, TimestampType}
+import org.apache.spark.sql.types.{DateType, IntegerType, LongType, TimestampType}
 
 import java.lang.{Integer => JInteger}
 import java.util.{ArrayList => JArrayList}
@@ -120,6 +121,14 @@ case class ToUnixTimestampTransformer(
   override def children: Seq[ExpressionTransformer] = {
     timeExpTransformer.dataType match {
       case _: TimestampType => Seq(timeExpTransformer)
+      case _: DateType =>
+        val timezone = original.asInstanceOf[TimeZoneAwareExpression].timeZoneId.getOrElse {
+          throw new GlutenNotSupportException(
+            "DATE unix timestamp requires a resolved time zone")
+        }
+        // This native overload ignores the format for DATE inputs, including a null format,
+        // while using the expression's time zone rather than the session default.
+        Seq(timeExpTransformer, formatTransformer, LiteralTransformer(timezone))
       case _ => Seq(timeExpTransformer, formatTransformer)
     }
   }

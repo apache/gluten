@@ -893,7 +893,7 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
         ExpressionNames.FROM_JSON,
         FromJsonRestrictions.NOT_SUPPORT_COLUMN_CORRUPT_RECORD)
     }
-    GenericExpressionTransformer(substraitExprName, children, expr)
+    BoltFromJsonTransformer(substraitExprName, children, expr)
   }
 
   /** Generate an expression transformer to transform StructsToJson to Substrait. */
@@ -931,15 +931,25 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
     GenericExpressionTransformer(substraitExprName, child, expr)
   }
 
+  override def genSparkVersionStaticInvokeTransformer(): Option[ExpressionTransformer] =
+    Some(ExpressionConverter.sparkVersionTransformer())
+
   override def genBase64StaticInvokeTransformer(
       substraitExprName: String,
       child: ExpressionTransformer,
       expr: StaticInvoke): ExpressionTransformer = {
-    if (!SQLConf.get.getConfString("spark.sql.chunkBase64String.enabled", "true").toBoolean) {
-      GlutenExceptionUtil
-        .throwsNotFullySupported(
-          ExpressionNames.BASE64,
-          Base64Restrictions.NOT_SUPPORT_DISABLE_CHUNK_BASE64_STRING)
+    val key = BoltConfig.SPARK_CHUNK_BASE64_STRING_ENABLED_KEY
+    val nativeChunking = !BoltConfig.EXTRA_NATIVE_SESSION_CONF_KEYS.contains(key) ||
+      SQLConf.get.getConfString(key).toBoolean
+    val boundChunking = expr.arguments.lift(1) match {
+      case Some(Literal(value: Boolean, _)) => value
+      case None => true
+      case _ =>
+        throw new GlutenNotSupportException("Base64 requires a literal chunking option")
+    }
+    if (boundChunking != nativeChunking) {
+      throw new GlutenNotSupportException(
+        "Base64 expression chunking option differs from the native query configuration")
     }
     GenericExpressionTransformer(
       ExpressionNames.BASE64,
@@ -959,6 +969,8 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
       expr: Expression,
       attributeSeq: Seq[Attribute]): Option[ExpressionTransformer] = {
     expr match {
+      case c: CreateMap if c.children.isEmpty =>
+        Some(LiteralTransformer(Literal.create(c.eval(), c.dataType)))
       case _: MapFromArrays =>
         val policy = SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY).toString
         if (policy == "FIRST_WIN") {
@@ -1082,8 +1094,11 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
 
   override def genPostProjectForGenerate(generate: GenerateExec): SparkPlan = {
     generate.generator match {
-      case _: JsonTuple =>
-        PullOutGenerateProjectHelper.pullOutPostProject(generate)
+      case _: JsonTupleExplode =>
+        // The json_tuple pre-project always produces array(struct(...)) with one element,
+        // even for null or invalid JSON. Non-outer generation therefore preserves every row
+        // and unpacks the struct without the isPresent column that Bolt does not produce.
+        PullOutGenerateProjectHelper.pullOutPostProject(generate.copy(outer = false))
       case _ =>
         generate
     }
