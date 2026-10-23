@@ -18,6 +18,9 @@
 #include "memory/BoltColumnarBatch.h"
 #include "bolt/vector/arrow/Bridge.h"
 #include "bolt/vector/tests/utils/VectorTestBase.h"
+#include "utils/BoltArrowUtils.h"
+
+#include <arrow/api.h>
 
 using namespace bytedance::bolt;
 
@@ -60,6 +63,69 @@ TEST_F(BoltColumnarBatchTest, flattenTruncatedVector) {
   auto inputOfMap = makeRowVector({encodedMapVector});
   auto batchOfMap = std::make_shared<BoltColumnarBatch>(inputOfMap);
   ASSERT_NO_THROW(batchOfMap->getFlattenedRowVector());
+}
+
+TEST_F(BoltColumnarBatchTest, importArrowNullType) {
+  arrow::StringBuilder strings;
+  ASSERT_TRUE(strings.Append("one").ok());
+  ASSERT_TRUE(strings.Append("two").ok());
+  std::shared_ptr<arrow::Array> values;
+  ASSERT_TRUE(strings.Finish(&values).ok());
+  auto nulls = arrow::MakeArrayOfNull(arrow::null(), 2).ValueOrDie();
+  auto input = std::make_shared<ArrowColumnarBatch>(arrow::RecordBatch::Make(
+      arrow::schema({arrow::field("a", arrow::utf8()), arrow::field("b", arrow::null())}), 2, {values, nulls}));
+  auto result = BoltColumnarBatch::from(pool(), input)->getRowVector();
+  ASSERT_EQ(result->size(), 2);
+  ASSERT_EQ(result->childAt(1)->typeKind(), TypeKind::UNKNOWN);
+  EXPECT_TRUE(result->childAt(1)->isNullAt(0));
+  EXPECT_TRUE(result->childAt(1)->isNullAt(1));
+  EXPECT_EQ(result->childAt(0)->as<SimpleVector<StringView>>()->valueAt(0), "one");
+  EXPECT_EQ(result->childAt(0)->as<SimpleVector<StringView>>()->valueAt(1), "two");
+  EXPECT_FALSE(ArrowUtils::getBridgeOptions().exportToArrowIPC);
+}
+
+TEST_F(BoltColumnarBatchTest, importArrowRegularAndDictionaryTypes) {
+  arrow::Int32Builder integers;
+  ASSERT_TRUE(integers.Append(42).ok());
+  ASSERT_TRUE(integers.AppendNull().ok());
+  std::shared_ptr<arrow::Array> values;
+  ASSERT_TRUE(integers.Finish(&values).ok());
+  arrow::StringBuilder strings;
+  ASSERT_TRUE(strings.Append("one").ok());
+  ASSERT_TRUE(strings.Append("two").ok());
+  std::shared_ptr<arrow::Array> stringValues;
+  ASSERT_TRUE(strings.Finish(&stringValues).ok());
+  arrow::Int32Builder dictionaryIndices;
+  ASSERT_TRUE(dictionaryIndices.Append(0).ok());
+  ASSERT_TRUE(dictionaryIndices.Append(1).ok());
+  std::shared_ptr<arrow::Array> indices;
+  ASSERT_TRUE(dictionaryIndices.Finish(&indices).ok());
+  auto dictionary =
+      arrow::DictionaryArray::FromArrays(arrow::dictionary(arrow::int32(), arrow::utf8()), indices, stringValues)
+          .ValueOrDie();
+  auto timestampType = arrow::timestamp(arrow::TimeUnit::MICRO, "UTC");
+  arrow::TimestampBuilder timestamps(timestampType, arrow::default_memory_pool());
+  ASSERT_TRUE(timestamps.Append(1'234'567).ok());
+  ASSERT_TRUE(timestamps.AppendNull().ok());
+  std::shared_ptr<arrow::Array> times;
+  ASSERT_TRUE(timestamps.Finish(&times).ok());
+  auto input = std::make_shared<ArrowColumnarBatch>(arrow::RecordBatch::Make(
+      arrow::schema(
+          {arrow::field("a", arrow::int32()), arrow::field("b", dictionary->type()), arrow::field("t", timestampType)}),
+      2,
+      {values, dictionary, times}));
+  auto result = BoltColumnarBatch::from(pool(), input)->getRowVector();
+  EXPECT_EQ(result->childAt(0)->as<SimpleVector<int32_t>>()->valueAt(0), 42);
+  EXPECT_TRUE(result->childAt(0)->isNullAt(1));
+  EXPECT_EQ(result->childAt(1)->as<SimpleVector<StringView>>()->valueAt(0), "one");
+  EXPECT_EQ(result->childAt(1)->as<SimpleVector<StringView>>()->valueAt(1), "two");
+  EXPECT_EQ(result->childAt(2)->as<SimpleVector<Timestamp>>()->valueAt(0), Timestamp(1, 234'567'000));
+  EXPECT_TRUE(result->childAt(2)->isNullAt(1));
+}
+
+TEST_F(BoltColumnarBatchTest, importExistingBoltBatchKeepsIdentity) {
+  auto original = std::make_shared<BoltColumnarBatch>(makeRowVector({makeFlatVector<int32_t>({42, 99})}));
+  EXPECT_EQ(BoltColumnarBatch::from(pool(), original), original);
 }
 
 } // namespace gluten

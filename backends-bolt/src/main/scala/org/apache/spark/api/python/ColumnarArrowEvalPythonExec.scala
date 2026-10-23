@@ -33,12 +33,12 @@ import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.execution.python.{ArrowEvalPythonExec, BasePythonRunnerShim, EvalPythonExecBase}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DataType, StructField, StructType}
-import org.apache.spark.sql.utils.{SparkArrowUtil, SparkSchemaUtil, SparkVectorUtil}
+import org.apache.spark.sql.utils.SparkArrowUtil
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
-import org.apache.spark.util.{SparkVersionUtil, Utils}
+import org.apache.spark.util.SparkVersionUtil
 
-import org.apache.arrow.vector.{VectorLoader, VectorSchemaRoot}
-import org.apache.arrow.vector.ipc.{ArrowStreamReader, ArrowStreamWriter}
+import org.apache.arrow.vector.VectorSchemaRoot
+import org.apache.arrow.vector.ipc.ArrowStreamReader
 
 import java.io.{DataInputStream, DataOutputStream}
 import java.util.concurrent.atomic.AtomicBoolean
@@ -151,52 +151,29 @@ class ColumnarArrowPythonRunner(
         ColumnarArrowPythonRunner.this.writeUdf(dataOut, argMetas)
       }
 
+      private val inputWriter = new BoltArrowPythonInputWriter(
+        inputIterator,
+        schema,
+        timeZoneId,
+        () => ArrowBufferAllocators.contextInstance())
+
+      context.addTaskCompletionListener[Unit] {
+        _ =>
+          try {
+            inputWriter.close()
+          } catch {
+            case scala.util.control.NonFatal(_) =>
+          }
+      }
+
       def writeIteratorToStream(dataOut: DataOutputStream): Unit = {
-        writeToStreamHelper(dataOut)
+        inputWriter.writeToStream(dataOut)
       }
 
       def writeNextInputToStream(dataOut: DataOutputStream): Boolean = {
-        writeToStreamHelper(dataOut)
+        inputWriter.writeNext(dataOut)
       }
 
-      def writeToStreamHelper(dataOut: DataOutputStream): Boolean = {
-        if (!inputIterator.hasNext) {
-          return false
-        }
-        var numRows: Long = 0
-        val arrowSchema = SparkSchemaUtil.toArrowSchema(schema, timeZoneId)
-        val allocator = ArrowBufferAllocators.contextInstance()
-        val root = VectorSchemaRoot.create(arrowSchema, allocator)
-
-        Utils.tryWithSafeFinally {
-          val loader = new VectorLoader(root)
-          val writer = new ArrowStreamWriter(root, null, dataOut)
-          writer.start()
-          while (inputIterator.hasNext) {
-            val nextBatch = inputIterator.next()
-            numRows += nextBatch.numRows
-
-            val cols = (0 until nextBatch.numCols).toList.map(
-              i =>
-                nextBatch
-                  .asInstanceOf[ColumnarBatch]
-                  .column(i)
-                  .asInstanceOf[ArrowWritableColumnVector]
-                  .getValueVector)
-            val nextRecordBatch =
-              SparkVectorUtil.toArrowRecordBatch(nextBatch.numRows, cols)
-            loader.load(nextRecordBatch)
-            writer.writeBatch()
-            if (nextRecordBatch != null) {
-              nextRecordBatch.close()
-            }
-          }
-          writer.end()
-          true
-        } {
-          root.close()
-        }
-      }
     }
   }
 
