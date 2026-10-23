@@ -42,12 +42,14 @@ object ScanTransformerFactory {
   }
 
   def createBatchScanTransformer(batchScanExec: BatchScanExec): BatchScanExecTransformerBase = {
-    BatchScanExecTransformer(
+    val transformer = BatchScanExecTransformer(
       batchScanExec.output,
       batchScanExec.scan,
       batchScanExec.runtimeFilters,
       keyGroupedPartitioning = batchScanExec.keyGroupedPartitioning,
       table = batchScanExec.table
     )
+    transformer.copyTagsFrom(batchScanExec)
+    transformer
   }
 }
