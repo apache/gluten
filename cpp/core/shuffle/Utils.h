@@ -73,6 +73,19 @@ int64_t getMaxCompressedBufferSize(
 
 std::shared_ptr<arrow::Buffer> zeroLengthNullBuffer();
 
+// Velox may read past the end of a buffer with SIMD loads, up to simd::kPadding bytes,
+// which its AlignedBuffer keeps addressable. The shuffle reader hands deserialized buffers
+// to Velox without a copy, so they reserve the same spare capacity. 64 covers AVX-512.
+constexpr int64_t kVeloxBufferPadding = 64;
+
+// Allocates a buffer of 'size' bytes with at least kVeloxBufferPadding bytes of spare
+// capacity after it.
+arrow::Result<std::shared_ptr<arrow::ResizableBuffer>> allocatePaddedBuffer(int64_t size, arrow::MemoryPool* pool);
+
+// Resizes 'buffer' to 'size' bytes, keeping at least kVeloxBufferPadding bytes of spare
+// capacity after it.
+arrow::Status resizeWithPadding(arrow::ResizableBuffer& buffer, int64_t size);
+
 // MmapFileStream is used to optimize sequential file reading. It uses madvise
 // to prefetch and release memory timely.
 class MmapFileStream : public arrow::io::InputStream {

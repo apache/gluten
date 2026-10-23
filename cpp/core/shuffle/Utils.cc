@@ -265,3 +265,18 @@ std::shared_ptr<arrow::Buffer> gluten::zeroLengthNullBuffer() {
   static std::shared_ptr<arrow::Buffer> kNullBuffer = std::make_shared<arrow::Buffer>(nullptr, 0);
   return kNullBuffer;
 }
+
+arrow::Result<std::shared_ptr<arrow::ResizableBuffer>> gluten::allocatePaddedBuffer(
+    int64_t size,
+    arrow::MemoryPool* pool) {
+  ARROW_ASSIGN_OR_RAISE(auto buffer, arrow::AllocateResizableBuffer(size + kVeloxBufferPadding, pool));
+  // Shrinking without shrink_to_fit keeps the capacity.
+  RETURN_NOT_OK(buffer->Resize(size, /*shrink_to_fit=*/false));
+  return std::shared_ptr<arrow::ResizableBuffer>(std::move(buffer));
+}
+
+arrow::Status gluten::resizeWithPadding(arrow::ResizableBuffer& buffer, int64_t size) {
+  // Reserve() only reallocates if the capacity is too small.
+  RETURN_NOT_OK(buffer.Reserve(size + kVeloxBufferPadding));
+  return buffer.Resize(size, /*shrink_to_fit=*/false);
+}
