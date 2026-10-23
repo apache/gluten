@@ -138,7 +138,7 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
   std::shared_ptr<const facebook::velox::core::PlanNode> veloxPlan_;
   /// Whether the plan calls a Delta counter and so needs the query configs set by
   /// setIncrementMetricQueryConfigs().
-  const bool trackExpressionStats_;
+  const bool usesIncrementMetricFunctions_;
 
   /// Spill.
   std::string spillStrategy_;

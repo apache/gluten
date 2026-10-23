@@ -43,14 +43,16 @@ constexpr int32_t kIncrementMetricFunctionSlots = 32;
 /// Name of the counter function for `slot`.
 std::string incrementMetricFunctionName(int32_t slot);
 
-/// True if `functionName` is a counter slot.
+/// True if `functionName` is one of the registered slots, `increment_metric_0` to
+/// `increment_metric_<kIncrementMetricFunctionSlots - 1>`.
 bool isIncrementMetricFunction(const std::string& functionName);
 
 /// Registers every counter slot. Called from registerAllFunctions().
 void registerIncrementMetricFunctions();
 
 /// True if a project or filter in `plan` calls a counter, which is when the query needs
-/// setIncrementMetricQueryConfigs().
+/// setIncrementMetricQueryConfigs(). Only those nodes are inspected because they are the only ones
+/// Gluten puts counters in: the JVM emits them from Delta's project and filter transformers alone.
 bool usesIncrementMetricFunctions(const facebook::velox::core::PlanNode& plan);
 
 /// Sets the query configs a plan that calls a counter depends on, over any user override: project

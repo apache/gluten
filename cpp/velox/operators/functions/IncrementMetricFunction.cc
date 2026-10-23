@@ -17,7 +17,10 @@
 
 #include "operators/functions/IncrementMetricFunction.h"
 
+#include <charconv>
 #include <memory>
+#include <string_view>
+#include <system_error>
 #include <vector>
 
 #include "velox/core/Expressions.h"
@@ -69,7 +72,17 @@ std::string incrementMetricFunctionName(int32_t slot) {
 }
 
 bool isIncrementMetricFunction(const std::string& functionName) {
-  return functionName.rfind(kIncrementMetricFunctionPrefix, 0) == 0;
+  const std::string_view prefix{kIncrementMetricFunctionPrefix};
+  if (functionName.size() <= prefix.size() || functionName.compare(0, prefix.size(), prefix) != 0) {
+    return false;
+  }
+  int32_t slot = -1;
+  const char* const end = functionName.data() + functionName.size();
+  const auto [parsedEnd, error] = std::from_chars(functionName.data() + prefix.size(), end, slot);
+  // The last check rejects spellings that parse to a slot but are not its name, such as a leading
+  // zero.
+  return error == std::errc() && parsedEnd == end && slot >= 0 && slot < kIncrementMetricFunctionSlots &&
+      functionName == incrementMetricFunctionName(slot);
 }
 
 void registerIncrementMetricFunctions() {
