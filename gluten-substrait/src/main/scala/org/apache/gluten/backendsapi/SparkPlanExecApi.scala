@@ -365,6 +365,13 @@ trait SparkPlanExecApi {
     throw new GlutenNotSupportException("make_timestamp is not supported")
   }
 
+  /**
+   * Whether literal regex patterns must be translated from Java to RE2 syntax (and patterns RE2
+   * cannot express rejected) before being written into the Substrait plan. Backends whose native
+   * engine is RE2 (Velox, Bolt) override this to true.
+   */
+  def needsRe2PatternTranslation: Boolean = false
+
   def genRegexpReplaceTransformer(
       substraitExprName: String,
       children: Seq[ExpressionTransformer],

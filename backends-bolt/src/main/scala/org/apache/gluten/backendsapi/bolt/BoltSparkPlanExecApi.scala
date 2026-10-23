@@ -71,6 +71,9 @@ import scala.collection.JavaConverters._
 
 class BoltSparkPlanExecApi extends SparkPlanExecApi {
 
+  /** Velox/Bolt evaluate regexes with RE2, so Java patterns must be translated first. */
+  override def needsRe2PatternTranslation: Boolean = true
+
   /** Transform GetArrayItem to Substrait. */
   override def genGetArrayItemTransformer(
       substraitExprName: String,
