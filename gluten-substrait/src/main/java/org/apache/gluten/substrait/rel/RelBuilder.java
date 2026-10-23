@@ -171,13 +171,8 @@ public class RelBuilder {
     return new InputIteratorRelNode(typeList, nameList, iteratorIndex);
   }
 
-  public static RelNode makeVirtualTableReadRel(
-      List<TypeNode> types,
-      List<String> names,
-      List<List<Expression.Literal>> rows,
-      SubstraitContext context,
-      long operatorId) {
-    RelNode node = new VirtualTableRelNode(types, names, rows);
+  public static RelNode makeOneRowReadRel(SubstraitContext context, long operatorId) {
+    RelNode node = new OneRowRelNode();
     context.registerRelToOperator(operatorId);
     return node;
   }

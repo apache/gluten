@@ -26,8 +26,6 @@ import org.apache.spark.sql.catalyst.plans.physical.{Partitioning, SinglePartiti
 import org.apache.spark.sql.execution.LeafExecNode
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
-import java.util.Collections
-
 case class OneRowRelationExecTransformer() extends LeafExecNode with TransformSupport {
 
   override def output: Seq[Attribute] = Nil
@@ -54,11 +52,6 @@ case class OneRowRelationExecTransformer() extends LeafExecNode with TransformSu
   }
 
   private def makeOneRowRel(context: SubstraitContext, operatorId: Long): RelNode = {
-    RelBuilder.makeVirtualTableReadRel(
-      Collections.emptyList(),
-      Collections.emptyList(),
-      Collections.singletonList(Collections.emptyList()),
-      context,
-      operatorId)
+    RelBuilder.makeOneRowReadRel(context, operatorId)
   }
 }
