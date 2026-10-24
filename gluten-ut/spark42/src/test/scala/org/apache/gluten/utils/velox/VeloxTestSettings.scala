@@ -1286,7 +1286,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("EXPLAIN CODEGEN command")
   enableSuite[GlutenHivePlanTest]
   enableSuite[GlutenHiveQuerySuite]
-    .exclude("ADD JAR command 2") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenHiveResolutionSuite]
   enableSuite[GlutenHiveSQLQuerySuite]
   enableSuite[GlutenHiveSQLViewSuite]
