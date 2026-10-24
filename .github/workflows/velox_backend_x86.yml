@@ -20,6 +20,10 @@ on:
     paths:
       - '.github/workflows/velox_backend_x86.yml'
       - '.github/workflows/util/parallel-ut/**'
+      - '.github/workflows/iceberg_spark_ut.yml'
+      - '.github/workflows/iceberg_upstream_revision.yml'
+      - '.github/workflows/velox_native_build.yml'
+      - '.github/workflows/util/iceberg-upstream/**'
       - 'pom.xml'
       - 'backends-velox/**'
       - 'gluten-uniffle/**'
@@ -31,6 +35,7 @@ on:
       - 'gluten-iceberg/**'
       - 'gluten-hudi/**'
       - 'gluten-paimon/**'
+      - 'gluten-kafka/**'
       - 'gluten-ut/**'
       - 'package/**'
       - 'shims/**'
@@ -107,6 +112,10 @@ jobs:
       shims41:  ${{ steps.filter.outputs.shims41 }}
       shims42:  ${{ steps.filter.outputs.shims42 }}
       tools_it: ${{ steps.filter.outputs.tools_it }}
+      spark35_needed: >-
+        ${{ steps.filter.outputs.java == 'true' ||
+            steps.filter.outputs.shims35 == 'true' ||
+            steps.filter.outputs.cpp == 'true' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -146,7 +155,7 @@ jobs:
           match() { echo "$changed" | grep -qE "$1" && echo true || echo false; }
 
           echo "cpp=$(match      '^(cpp/|ep/build-velox/|dev/)')"                                            >> $GITHUB_OUTPUT
-          echo "java=$(match     '^(\.github/workflows/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi|paimon)/|gluten-ut/(common/|test/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
+          echo "java=$(match     '^(\.github/workflows/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi|paimon|kafka)/|gluten-ut/(common/|test/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
           echo "shims34=$(match  '^(shims/(spark34|common)/|gluten-ut/spark34/)')"                           >> $GITHUB_OUTPUT
           echo "shims35=$(match  '^(shims/(spark35|common)/|gluten-ut/spark35/)')"                           >> $GITHUB_OUTPUT
           echo "shims40=$(match  '^(shims/(spark40|common)/|gluten-ut/spark40/)')"                           >> $GITHUB_OUTPUT
@@ -865,10 +874,7 @@ jobs:
 
   spark-test-spark35:
     needs: [detect-changes, build-native-lib-centos-8]
-    if: >-
-      needs.detect-changes.outputs.java == 'true' ||
-      needs.detect-changes.outputs.shims35 == 'true' ||
-      needs.detect-changes.outputs.cpp == 'true'
+    if: needs.detect-changes.outputs.spark35_needed == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -1004,10 +1010,7 @@ jobs:
 
   spark-test-spark35-slow:
     needs: [detect-changes, build-native-lib-centos-8]
-    if: >-
-      needs.detect-changes.outputs.java == 'true' ||
-      needs.detect-changes.outputs.shims35 == 'true' ||
-      needs.detect-changes.outputs.cpp == 'true'
+    if: needs.detect-changes.outputs.spark35_needed == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -1652,3 +1655,88 @@ jobs:
             **/target/*.log
             **/gluten-ut/**/hs_err_*.log
             **/gluten-ut/**/core.*
+
+  # Runs upstream Iceberg tests on the static native libraries built above for the head
+  # revision; see docs/backends/velox/developers/velox-backend-CI.md.
+  iceberg-spark-ut:
+    needs: [detect-changes, build-native-lib-centos-8]
+    if: needs.detect-changes.outputs.spark35_needed == 'true'
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    uses: ./.github/workflows/iceberg_spark_ut.yml
+    with:
+      native_artifact: velox-native-lib-centos-8-${{github.sha}}
+
+  # The Kafka native tests run in cpp-test-udf-test, whose build enables Kafka.
+  spark-test-kafka-spark35:
+    needs: [detect-changes, build-native-lib-centos-8]
+    if: needs.detect-changes.outputs.spark35_needed == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      KAFKA_BOOTSTRAP_SERVERS: localhost:9092
+      SPARK_LOCAL_IP: 127.0.0.1
+    services:
+      kafka:
+        image: apache/kafka:3.9.1
+        ports:
+          - 9092:9092
+        env:
+          CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+          KAFKA_NODE_ID: 1
+          KAFKA_PROCESS_ROLES: broker,controller
+          KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+          KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+          KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+          KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+          KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+          KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+        options: >-
+          --health-cmd "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup java
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openjdk-17-jdk
+          echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
+          echo "/usr/lib/jvm/java-17-openjdk-amd64/bin" >> $GITHUB_PATH
+      - name: Download All Native Artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: velox-native-lib-centos-8-${{github.sha}}
+          path: ./cpp/build/releases/
+      - name: Install Spark 3.5 modules with Kafka support
+        run: |
+          ./build/mvn -B -ntp install -Pbackends-velox -Pspark-3.5 -Pscala-2.12 \
+            -Pjava-17 -Pkafka -Pspark-ut -Pfast-build -DskipTests
+      # TODO: The suites below read Kafka natively, so re-enabling them needs a static build
+      # with --enable_kafka=ON (dev/ci-velox-buildstatic-centos-8.sh does not enable it).
+      # TODO: Re-enable when VeloxKafkaScanValidationSuite is added.
+      # - name: Check Kafka schema validation without a broker
+      #   run: |
+      #     ./build/mvn -B -ntp test -pl gluten-ut/spark35 -Pbackends-velox -Pspark-3.5 \
+      #       -Pscala-2.12 -Pjava-17 -Pspark-ut -Pfast-build \
+      #       -Dsuites=org.apache.gluten.execution.VeloxKafkaScanValidationSuite
+      # TODO: Re-enable when VeloxGlutenKafkaScanSuite is added in #13237.
+      # - name: Check native micro-batch reads and headers fallback
+      #   run: |
+      #     ./build/mvn -B -ntp test -pl backends-velox -Pbackends-velox -Pspark-3.5 \
+      #       -Pscala-2.12 -Pjava-17 -Pkafka -Pfast-build \
+      #       -Dsuites=org.apache.gluten.execution.kafka.VeloxGlutenKafkaScanSuite
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: velox-kafka-spark35-results
+          path: |
+            **/surefire-reports/*
+            **/target/*.log

@@ -15,43 +15,14 @@
 
 name: Iceberg Spark UT (Gluten)
 
+# Pull requests run this from velox_backend_x86.yml, which passes the static native libraries
+# it already built for the head revision. Manual runs build them here.
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/iceberg_spark_ut.yml'
-      - '.github/workflows/iceberg_upstream_revision.yml'
-      - '.github/workflows/velox_native_build.yml'
-      - '.github/workflows/util/iceberg-upstream/**'
-      - 'backends-velox/src-iceberg*/**'
-      - 'gluten-iceberg/**'
-      - 'gluten-ut/src-iceberg-upstream/**'
-      # Shared production code and dependencies used by Iceberg on Spark 3.5.
-      - 'pom.xml'
-      - 'backends-velox/pom.xml'
-      - 'backends-velox/src/main/**'
-      - 'gluten-core/pom.xml'
-      - 'gluten-core/src/main/**'
-      - 'gluten-substrait/pom.xml'
-      - 'gluten-substrait/src/main/**'
-      - 'gluten-arrow/pom.xml'
-      - 'gluten-arrow/src/main/**'
-      - 'shims/pom.xml'
-      - 'shims/common/pom.xml'
-      - 'shims/common/src/main/**'
-      - 'shims/spark35/pom.xml'
-      - 'shims/spark35/src/main/**'
-      - 'build/mvn'
-      - 'dev/gluten-build-info.sh'
-      # Native code and the build inputs used by velox_native_build.yml.
-      - 'cpp/**'
-      - 'ep/build-velox/**'
-      - 'dev/ci-velox-buildstatic-centos-8.sh'
-      - 'dev/builddeps-veloxbe.sh'
-      - 'dev/build-helper-functions.sh'
-      - 'dev/vcpkg/**'
-      # Documentation-only changes do not affect this runtime.
-      - '!**/*.md'
-      - '!**/*.rst'
+  workflow_call:
+    inputs:
+      native_artifact:
+        type: string
+        default: ''
   workflow_dispatch:
 
 permissions:
@@ -73,7 +44,7 @@ env:
 
 # Five class shards avoid repeating class fixtures on multiple runners.
 # Keep the default job timeout so cold builds can finish; measure elapsed time separately.
-# Independent entry point keeps these shards outside the main backend workflow's concurrency.
+# The head revision reuses the static native build of velox_backend_x86.yml when called from it.
 jobs:
   prepare:
     runs-on: ubuntu-22.04
@@ -134,6 +105,7 @@ jobs:
       label: head
       native_image: ${{ needs.prepare.outputs.native_image }}
       test_image: ${{ needs.prepare.outputs.test_image }}
+      native_artifact: ${{ inputs.native_artifact }}
 
   iceberg-base-test:
     needs: prepare
