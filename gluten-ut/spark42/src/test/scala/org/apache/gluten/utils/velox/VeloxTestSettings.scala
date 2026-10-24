@@ -839,9 +839,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("test with low buffer spill threshold")
   enableSuite[GlutenTakeOrderedAndProjectSuite]
   enableSuite[GlutenSessionExtensionSuite]
-    .exclude(
-      "Gluten - test gluten extensions"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenBucketedReadWithoutHiveSupportSuite]
     // Exclude the following suite for plan changed from SMJ to SHJ.
     .exclude("avoid shuffle when join 2 bucketed tables")
@@ -1115,9 +1112,6 @@ class VeloxTestSettings extends BackendTestSettings {
     // expression referenced multiple times yields row-wise equal values (rand/randn).
     // Same class of difference as SPARK-9083. Not really an issue.
     .exclude("SPARK-45216: Non-deterministic functions with seed")
-    .exclude(
-      "SPARK-57725: resolve columns when the input plan has a null-named attribute"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenDataFrameTimeWindowingSuite]
   enableSuite[GlutenDataFrameTungstenSuite]
   enableSuite[GlutenDataFrameWindowFunctionsSuite]
@@ -1317,9 +1311,10 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenLegacyParameterSubstitutionSuite]
   enableSuite[GlutenParametersSuite]
   enableSuite[GlutenResolveDefaultColumnsSuite]
+    // Velox char/varchar write-side check throws VeloxUserError instead of SparkRuntimeException.
+    // Rewritten in GlutenResolveDefaultColumnsSuite.
     .exclude(
-      "SPARK-57187: non-foldable default exceeding CHAR/VARCHAR length fails at INSERT time (explicit DEFAULT keyword)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
+      "SPARK-57187: non-foldable default exceeding CHAR/VARCHAR length fails at INSERT time (explicit DEFAULT keyword)")
   enableSuite[GlutenSubqueryHintPropagationSuite]
   enableSuite[GlutenUrlFunctionsSuite]
   enableSuite[GlutenParquetRowIndexSuite]
