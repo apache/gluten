@@ -875,21 +875,6 @@ class VeloxTestSettings extends BackendTestSettings {
   disableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuite](
     "GLUTEN-4893: Vanilla UT checks scan operator by exactly matching the class type")
   enableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuiteAE]
-    .exclude(
-      "Aggregates with no groupby over tables having 1 BUCKET, return multiple rows"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-32859: disable unnecessary bucketed table scan - basic test"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-32859: disable unnecessary bucketed table scan - multiple bucketed columns test"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-32859: disable unnecessary bucketed table scan - multiple joins test"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-32859: disable unnecessary bucketed table scan - other operators test"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenExternalCommandRunnerSuite]
   enableSuite[GlutenFilteredScanSuite]
   enableSuite[GlutenFiltersSuite]
