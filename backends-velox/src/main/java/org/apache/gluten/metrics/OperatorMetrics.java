@@ -17,6 +17,9 @@
 package org.apache.gluten.metrics;
 
 public class OperatorMetrics implements IOperatorMetrics {
+  /** Rows processed per expression, keyed by function name; see IncrementMetricCall. */
+  public java.util.Map<String, Long> expressionStats = new java.util.HashMap<>();
+
   public long inputRows;
   public long inputVectors;
   public long inputBytes;
