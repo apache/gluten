@@ -20,9 +20,6 @@
 # Velox forks x ~4G run close to the ~16G runner limit) -- so a baseline captured
 # at a different parallelism spuriously flags them as regressions.
 # ---------------------------------------------------------------------------
-io.delta.sql.DeltaExtensionAndCatalogSuite#activate Delta SQL parser using SQL conf
-io.delta.sql.DeltaExtensionAndCatalogSuite#activate Delta SQL parser using withExtensions
-io.delta.sql.JavaDeltaSparkSessionExtensionSuite#testSQLConf
 io.delta.tables.DeltaTableHadoopOptionsSuite#delete - with filesystem options
 io.delta.tables.DeltaTableHadoopOptionsSuite#details - with filesystem options.
 io.delta.tables.DeltaTableHadoopOptionsSuite#forPath - with filesystem options
@@ -63,9 +60,7 @@ org.apache.spark.sql.delta.CloneTableSQLWithCatalogOwnedBatch2Suite#shallow clon
 org.apache.spark.sql.delta.CloneTableScalaDeletionVectorSuite#shallow clone across file systems
 org.apache.spark.sql.delta.CloneTableScalaSuite#shallow clone across file systems
 org.apache.spark.sql.delta.ConvertToDeltaSQLSuite#CONVERT keeps NaN rows for finite-threshold predicate (NaN-excluding writer)
-org.apache.spark.sql.delta.ConvertToDeltaSQLSuite#external tables use correct path scheme
 org.apache.spark.sql.delta.ConvertToDeltaScalaSuite#CONVERT keeps NaN rows for finite-threshold predicate (NaN-excluding writer)
-org.apache.spark.sql.delta.ConvertToDeltaScalaSuite#external tables use correct path scheme
 org.apache.spark.sql.delta.DeleteMetricsSuite#delete-metrics: delete one row per file - Partitioned = false, cdfEnabled = false
 org.apache.spark.sql.delta.DeleteMetricsSuite#delete-metrics: delete one row per file - Partitioned = false, cdfEnabled = true
 org.apache.spark.sql.delta.DeltaCDCIdColumnMappingSuite#filters with special characters in name should be pushed down - column mapping id mode
@@ -122,8 +117,6 @@ org.apache.spark.sql.delta.DeltaSuite#SC-8810: skipping deleted file still throw
 org.apache.spark.sql.delta.DeltaSuite#all operations with special characters in path
 org.apache.spark.sql.delta.DeltaSuite#deleted files cause failure by default
 org.apache.spark.sql.delta.DeltaTableCreationSuite#Default column values: CONVERT TO DELTA keeps EXISTS_DEFAULT
-org.apache.spark.sql.delta.DeltaUpdateCatalogSuite#convert to delta with partitioning change
-org.apache.spark.sql.delta.DeltaUpdateCatalogSuite#partitioned convert to delta with schema change
 org.apache.spark.sql.delta.DeltaVacuumSuite#vacuum for cdc - delete tombstones
 org.apache.spark.sql.delta.DeltaVacuumSuite#vacuum for cdc - update/merge
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch100Suite#SC-8810: skip deleted file
@@ -537,15 +530,3 @@ org.apache.spark.sql.delta.typewidening.TypeWideningInsertSchemaEvolutionBasicSu
 org.apache.spark.sql.delta.typewidening.TypeWideningInsertSchemaEvolutionBasicSuite#INSERT - automatic type widening DATE -> TIMESTAMP_NTZ
 org.apache.spark.sql.delta.typewidening.TypeWideningMergeIntoSchemaEvolutionSuite#MERGE - automatic type widening DATE -> TIMESTAMP_NTZ
 org.apache.spark.sql.delta.typewidening.TypeWideningTableFeatureAdvancedSuite#drop feature after type change DATE -> TIMESTAMP_NTZ
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - Portable
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - invalid Int ids - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - invalid Int ids - Portable
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - invalid unsigned Int ids - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - invalid unsigned Int ids - Portable
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - Portable
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - invalid Int ids - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - invalid Int ids - Portable
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - invalid unsigned Int ids - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - invalid unsigned Int ids - Portable
