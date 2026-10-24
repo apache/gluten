@@ -1,0 +1,41 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Runtime image for the Ubuntu TPC jobs, which check that the static native library runs on a
+# plain Ubuntu. It adds only JDKs, CI tools, Hadoop and MinIO to the OS image, no native
+# libraries. All JDKs are installed side by side under /usr/lib/jvm/java-<N>-openjdk-<arch>;
+# jobs select one through JAVA_HOME instead of installing it at runtime.
+# Produces the apache/gluten:ubuntu-22.04-runtime image.
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Etc/GMT
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+RUN --mount=type=bind,source=dev/docker/install-ci-tools.sh,target=/tmp/install-ci-tools.sh \
+    --mount=type=bind,source=.github/workflows/util/install-spark-deps.sh,target=/tmp/install-spark-deps.sh \
+    set -ex; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends tzdata ca-certificates curl wget git procps \
+        python3 python3-pip openjdk-8-jdk openjdk-11-jdk openjdk-17-jdk openjdk-21-jdk openjdk-25-jdk; \
+    python3 -m pip install --no-cache-dir requests; \
+    bash /tmp/install-ci-tools.sh; \
+    # Hadoop (/opt/hadoop-<version>) and MinIO for the HDFS and S3 TPC runs.
+    cd /opt; bash -ec 'source /tmp/install-spark-deps.sh; \
+    download_hadoop 3.3.6; \ 
+    install_minio'; \
+    ls /usr/lib/jvm /opt; \
+    rm -rf /var/lib/apt/lists/*
