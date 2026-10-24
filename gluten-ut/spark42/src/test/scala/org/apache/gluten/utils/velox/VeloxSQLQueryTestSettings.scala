@@ -251,6 +251,7 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "having-and-order-by-recursive-type-name-resolution.sql",
     "identifier-clause-legacy.sql",
     "join-resolution-edge-cases.sql",
+    "kllquantiles.sql",
     "name-precedence-in-order-by-and-having-with-conflicting-attributes.sql",
     // TODO: fix on Spark-4.1 "nonansi/st-functions.sql",
     "order-by-alias.sql",
