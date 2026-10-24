@@ -221,6 +221,29 @@ class VeloxScanSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
+  test("scan with a filter of many ANDed conditions") {
+    // Builds the condition as a balanced tree, so that Spark's own analysis doesn't recurse
+    // deeply. The scan gets it as 1000 data filters and joins them into one And expression.
+    def balancedAnd(conditions: Seq[String]): String = conditions match {
+      case Seq(single) => single
+      case _ =>
+        val (left, right) = conditions.splitAt(conditions.length / 2)
+        s"(${balancedAnd(left)}) and (${balancedAnd(right)})"
+    }
+    // Vanilla Spark's Parquet filter pushdown overflows the stack on such a filter itself.
+    withSQLConf(SQLConf.PARQUET_FILTER_PUSHDOWN_ENABLED.key -> "false") {
+      withTempPath {
+        dir =>
+          val path = dir.getCanonicalPath
+          spark.range(0, 100, 1, 1).write.parquet(path)
+          val condition = balancedAnd((0 until 1000).map(i => s"id <> ${i + 50}"))
+          runQueryAndCompare(s"select count(*) from parquet.`$path` where $condition") {
+            checkGlutenPlan[FileSourceScanExecTransformer]
+          }
+      }
+    }
+  }
+
   test("test binary as string") {
     withTempDir {
       dir =>

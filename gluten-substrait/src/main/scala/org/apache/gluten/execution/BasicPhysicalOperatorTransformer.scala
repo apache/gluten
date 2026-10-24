@@ -118,7 +118,7 @@ abstract class FilterExecTransformerBase(val cond: Expression, val input: SparkP
     } else {
       val remainingFilters =
         FilterHandler.subtractFilters(splitConjunctivePredicates(cond), scanFilters)
-      remainingFilters.reduceLeftOption(And).orNull
+      FilterHandler.combineConjuncts(remainingFilters).orNull
     }
   }
 
@@ -305,6 +305,15 @@ object ColumnarUnionExec {
  * Filter. Contains the function to manually push down the conditions into Scan.
  */
 object FilterHandler extends PredicateHelper {
+
+  /**
+   * Joins the conjuncts with And into a balanced tree, keeping their order. The tree is log2(n)
+   * levels deep, while reduceLeft(And) builds a chain n levels deep, which the recursive expression
+   * conversion can't handle for thousands of conjuncts.
+   */
+  def combineConjuncts(conjuncts: Seq[Expression]): Option[Expression] = {
+    if (conjuncts.isEmpty) None else Some(buildBalancedPredicate(conjuncts, And))
+  }
 
   /**
    * Get the original filter conditions in Scan for the comparison with those in Filter.
