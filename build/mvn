@@ -65,30 +65,44 @@ install_mvn() {
         local MVN_TAR="${MVN_DOWNLOAD_DIR}/apache-maven-${VERSION}-bin.tar.gz"
 
         if [ ! -f "${MVN_TAR}" ]; then
-            # Use Maven Central repository for download
-            local DOWNLOAD_URL="https://repo1.maven.org/maven2/org/apache/maven/apache-maven/${VERSION}/apache-maven-${VERSION}-bin.tar.gz"
-
-            echo "Downloading Maven ${VERSION} from Maven Central..." >&2
-            echo "URL: ${DOWNLOAD_URL}" >&2
-
-            if command -v curl > /dev/null 2>&1; then
-                curl -f -L --retry 3 --retry-delay 3 \
-                     --connect-timeout 30 --max-time 600 \
-                     -o "${MVN_TAR}" "${DOWNLOAD_URL}" || {
-                    echo "ERROR: Failed to download Maven from ${DOWNLOAD_URL}" >&2
-                    rm -f "${MVN_TAR}"
-                    exit 1
-                }
-            elif command -v wget > /dev/null 2>&1; then
-                wget --tries=3 --waitretry=3 \
-                     --connect-timeout=30 --read-timeout=600 \
-                     -O "${MVN_TAR}" "${DOWNLOAD_URL}" || {
-                    echo "ERROR: Failed to download Maven from ${DOWNLOAD_URL}" >&2
-                    rm -f "${MVN_TAR}"
-                    exit 1
-                }
-            else
+            if ! command -v curl > /dev/null 2>&1 && ! command -v wget > /dev/null 2>&1; then
                 echo "ERROR: Neither curl nor wget found. Please install one of them or install Maven manually." >&2
+                exit 1
+            fi
+
+            # Maven Central first, then the Apache CDN and the Apache archive, which are separate
+            # infrastructure. Central intermittently answers CI runners with 403 or 404, which curl and
+            # wget do not retry, so a failure moves on to the next mirror. The CDN only keeps current
+            # releases; the archive keeps every one.
+            local MAJOR_VERSION="${VERSION%%.*}"
+            local DOWNLOAD_URLS=(
+                "https://repo1.maven.org/maven2/org/apache/maven/apache-maven/${VERSION}/apache-maven-${VERSION}-bin.tar.gz"
+                "https://dlcdn.apache.org/maven/maven-${MAJOR_VERSION}/${VERSION}/binaries/apache-maven-${VERSION}-bin.tar.gz"
+                "https://archive.apache.org/dist/maven/maven-${MAJOR_VERSION}/${VERSION}/binaries/apache-maven-${VERSION}-bin.tar.gz"
+            )
+
+            local DOWNLOAD_URL
+            local DOWNLOADED=false
+            for DOWNLOAD_URL in "${DOWNLOAD_URLS[@]}"; do
+                echo "Downloading Maven ${VERSION} from ${DOWNLOAD_URL}" >&2
+                if command -v curl > /dev/null 2>&1; then
+                    curl -f -L --retry 3 --retry-delay 3 \
+                         --connect-timeout 30 --max-time 600 \
+                         -o "${MVN_TAR}" "${DOWNLOAD_URL}" && DOWNLOADED=true
+                else
+                    wget --tries=3 --waitretry=3 \
+                         --connect-timeout=30 --read-timeout=600 \
+                         -O "${MVN_TAR}" "${DOWNLOAD_URL}" && DOWNLOADED=true
+                fi
+                if [ "${DOWNLOADED}" = true ]; then
+                    break
+                fi
+                echo "WARNING: Failed to download Maven from ${DOWNLOAD_URL}" >&2
+                rm -f "${MVN_TAR}"
+            done
+
+            if [ "${DOWNLOADED}" != true ]; then
+                echo "ERROR: Failed to download Maven ${VERSION} from any of: ${DOWNLOAD_URLS[*]}" >&2
                 exit 1
             fi
 
