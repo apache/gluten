@@ -27,6 +27,7 @@
 #include "compute/delta/DeltaSplit.h"
 #include "compute/delta/DeltaSplitInfo.h"
 #include "config/VeloxConfig.h"
+#include "operators/functions/IncrementMetricFunction.h"
 #include "utils/ConfigExtractor.h"
 #include "velox/connectors/hive/HiveConfig.h"
 #include "velox/connectors/hive/HiveConnectorSplit.h"
@@ -106,6 +107,7 @@ WholeStageResultIterator::WholeStageResultIterator(
       taskInfo_(taskInfo),
       executor_(executor),
       veloxPlan_(planNode),
+      usesIncrementMetricFunctions_(usesIncrementMetricFunctions(*planNode)),
       spillExecutor_(spillExecutor),
       connectorIds_(std::move(connectorIds)),
       scanNodeIds_(scanNodeIds),
@@ -511,8 +513,7 @@ void WholeStageResultIterator::collectMetrics() {
         customStats[customMetric.first] = folly::dynamic::object("sum", customMetric.second.sum)(
             "count", customMetric.second.count)("min", customMetric.second.min)("max", customMetric.second.max);
       }
-
-      operatorStats.push_back(folly::dynamic::object("inputRows", opStats->inputRows)(
+      folly::dynamic stats = folly::dynamic::object("inputRows", opStats->inputRows)(
           "inputVectors", opStats->inputVectors)("inputBytes", opStats->inputBytes)(
           "rawInputRows", opStats->rawInputRows)("rawInputBytes", opStats->rawInputBytes)(
           "outputRows", opStats->outputRows)("outputVectors", opStats->outputVectors)(
@@ -521,7 +522,19 @@ void WholeStageResultIterator::collectMetrics() {
           "numMemoryAllocations", opStats->numMemoryAllocations)("spilledInputBytes", opStats->spilledInputBytes)(
           "spilledBytes", opStats->spilledBytes)("spilledRows", opStats->spilledRows)(
           "spilledPartitions", opStats->spilledPartitions)("spilledFiles", opStats->spilledFiles)(
-          "physicalWrittenBytes", opStats->physicalWrittenBytes)("customStats", customStats));
+          "physicalWrittenBytes", opStats->physicalWrittenBytes)("customStats", customStats);
+      // Rows processed per Delta counter function, keyed by its slot name. Project and filter
+      // operators export these only when the plan calls a counter, so other operators get no key.
+      folly::dynamic expressionStats = folly::dynamic::object();
+      for (const auto& exprStats : opStats->expressionStats) {
+        if (isIncrementMetricFunction(exprStats.first)) {
+          expressionStats[exprStats.first] = exprStats.second.numProcessedRows;
+        }
+      }
+      if (!expressionStats.empty()) {
+        stats["expressionStats"] = std::move(expressionStats);
+      }
+      operatorStats.push_back(std::move(stats));
     }
 
     statsNum += static_cast<unsigned int>(operatorStats.size());
@@ -711,6 +724,14 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
     setIfExists(kOpTraceDirectoryCreateConfig, velox::core::QueryConfig::kOpTraceDirectoryCreateConfig);
 
     overwriteVeloxConf(veloxCfg_.get(), configs, kDynamicBackendConfPrefix);
+
+    // Only a plan that calls a Delta counter reads its counts from the per-expression processed-row
+    // stats (see IncrementMetricFunction.h). Set after the user overrides: a query that disabled
+    // the stats, or switched to simplified evaluation, which does not count, would report zero
+    // modified rows and could suppress valid change-data-feed rows.
+    if (usesIncrementMetricFunctions_) {
+      setIncrementMetricQueryConfigs(configs);
+    }
   } catch (const std::invalid_argument& err) {
     std::string errDetails = err.what();
     throw std::runtime_error("Invalid conf arg: " + errDetails);
