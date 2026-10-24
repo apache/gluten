@@ -16,6 +16,7 @@
  */
 #include "operators/functions/RegistrationAllFunctions.h"
 
+#include "operators/functions/IncrementMetricFunction.h"
 #include "operators/functions/RowConstructorWithNull.h"
 #include "operators/functions/RowFunctionWithNull.h"
 #include "operators/functions/delta/DeltaBitmapAggregator.h"
@@ -87,6 +88,8 @@ void registerAllFunctions() {
 
   velox::functions::iceberg::registerFunctions();
   registerDeltaBitmapAggregator();
+  // Fixed counter slots for Delta's IncrementMetric; see IncrementMetricFunction.h.
+  registerIncrementMetricFunctions();
 
   // Gluten-managed function implementations. Registered last so they take
   // precedence over same-name, same-signature Velox functions.

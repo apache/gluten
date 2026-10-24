@@ -89,6 +89,8 @@ object VeloxBackend {
 }
 
 object VeloxBackendSettings extends BackendSettingsApi {
+  override def supportNativeIncrementMetric(): Boolean = true
+
   val SHUFFLE_SUPPORTED_CODEC = Set("lz4", "zstd")
   val GLUTEN_VELOX_UDF_LIB_PATHS = VeloxBackend.CONF_PREFIX + ".udfLibraryPaths"
   val GLUTEN_VELOX_DRIVER_UDF_LIB_PATHS = VeloxBackend.CONF_PREFIX + ".driver.udfLibraryPaths"
