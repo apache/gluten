@@ -295,7 +295,8 @@ abstract class HashAggregateExecTransformer(
       val functionInputAttributes = aggFunc.inputAggBufferAttributes
       aggFunc match {
         case _ if aggregateExpression.mode == Partial || aggregateExpression.mode == Complete =>
-          val childNodes = aggFunc.children
+          val childNodes = VeloxIntermediateData
+            .getRawInputs(aggFunc)
             .map(
               ExpressionConverter
                 .replaceWithExpressionTransformer(_, originalInputAttributes)
@@ -504,7 +505,7 @@ abstract class HashAggregateExecTransformer(
         val aggregateFunc = aggExpr.aggregateFunction
         val childrenNodes = aggExpr.mode match {
           case Partial | Complete =>
-            aggregateFunc.children.toList.map(toExpressionNode)
+            VeloxIntermediateData.getRawInputs(aggregateFunc).toList.map(toExpressionNode)
           case PartialMerge | Final =>
             if (rowConstructed) {
               // Only occupies one column due to intermediate results are combined
