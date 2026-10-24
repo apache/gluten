@@ -810,6 +810,11 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("Give up splitting aggregate code if a parameter length goes over the limit")
     .exclude("Give up splitting subexpression code if a parameter length goes over the limit")
     .exclude("SPARK-47238: Test broadcast threshold for generated code")
+    .exclude("SPARK-56431: CSE in FilterExec preserves null guards for notNull columns")
+    .exclude("SPARK-56032: FilterExec skips CSE codegen when there is no common subexpression")
+    .exclude("SPARK-56032: FilterExec skips CSE codegen when the common subexpression is cheap")
+    .exclude(
+      "SPARK-56032: FilterExec takes CSE codegen when the common subexpression is non-cheap")
   enableSuite[GlutenBroadcastExchangeSuite]
     .exclude("SPARK-52962: broadcast exchange should not reset metrics") // Add Gluten test
     .exclude(
