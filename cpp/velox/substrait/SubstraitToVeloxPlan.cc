@@ -1700,6 +1700,11 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 #endif
   }
   common::SubfieldFilters subfieldFilters;
+  // Defer loading the lazily loaded columns of this scan when the config is on and the scan has
+  // a filter. Without a filter every row survives, every lazy column is read, and deferring
+  // could only delay the load. GlutenDirectBufferedInput applies the decision.
+  splitInfo->deferLazyColumnPrefetch =
+      veloxCfg_->get<bool>(kDeferLazyColumnPrefetch, false) && remainingFilter != nullptr;
   tableHandle = std::make_shared<connector::hive::HiveTableHandle>(
       connectorId, "hive_table", std::move(subfieldFilters), remainingFilter, dataColumns);
 

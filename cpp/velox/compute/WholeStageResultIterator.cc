@@ -274,7 +274,23 @@ WholeStageResultIterator::WholeStageResultIterator(
 
 std::shared_ptr<velox::core::QueryCtx> WholeStageResultIterator::createNewVeloxQueryCtx() {
   std::unordered_map<std::string, std::shared_ptr<velox::config::ConfigBase>> connectorConfigs;
+  // Table scans whose BufferedInput defers loading the lazily loaded columns, decided per scan
+  // during plan conversion; GlutenBufferedInputBuilder matches them by plan node id.
+  std::string deferScanNodeIds;
+  for (size_t idx = 0; idx < scanNodeIds_.size() && idx < scanInfos_.size(); ++idx) {
+    if (scanInfos_[idx] != nullptr && scanInfos_[idx]->deferLazyColumnPrefetch) {
+      if (!deferScanNodeIds.empty()) {
+        deferScanNodeIds += ",";
+      }
+      deferScanNodeIds += scanNodeIds_[idx];
+    }
+  }
   auto hiveSessionConfig = createHiveConnectorSessionConfig(veloxCfg_);
+  if (!deferScanNodeIds.empty()) {
+    auto configs = hiveSessionConfig->rawConfigsCopy();
+    configs[kDeferLazyColumnPrefetchScanNodeIds] = deferScanNodeIds;
+    hiveSessionConfig = std::make_shared<velox::config::ConfigBase>(std::move(configs));
+  }
   connectorConfigs[connectorIds_.hive] = hiveSessionConfig;
   connectorConfigs[connectorIds_.iceberg] = hiveSessionConfig;
   connectorConfigs[connectorIds_.delta] = hiveSessionConfig;

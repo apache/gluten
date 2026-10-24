@@ -684,6 +684,18 @@ object VeloxConfig extends ConfigRegistry {
       .intConf
       .createWithDefault(1)
 
+  val DEFER_LAZY_COLUMN_PREFETCH =
+    buildConf("spark.gluten.sql.columnar.backend.velox.deferLazyColumnPrefetch")
+      .doc(
+        "When true, every native Parquet scan that has a filter asks the Velox reader to " +
+          "prefetch its lazily loaded columns (projected columns without a filter) only once " +
+          "a row passes the filters, instead of together with their row group. Splits where " +
+          "no row passes never read those columns; splits with survivors pay one deferred " +
+          "load. Decided per scan by Gluten (scans without a filter never defer) and applied by " +
+          "Gluten's buffered input; requires the Velox lazy-column hooks.")
+      .booleanConf
+      .createWithDefault(false)
+
   val LOAD_QUANTUM =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.loadQuantum")
       .doc("Set the load quantum for velox file scan, recommend to use the default value (256MB) " +

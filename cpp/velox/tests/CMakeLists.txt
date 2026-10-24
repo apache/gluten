@@ -113,6 +113,8 @@ endif()
 set(VELOX_TEST_COMMON_SRCS JsonToProtoConverter.cc FilePathGenerator.cc)
 
 add_velox_test(velox_shuffle_writer_test SOURCES VeloxShuffleWriterTest.cc)
+add_velox_test(gluten_direct_buffered_input_test SOURCES
+               GlutenDirectBufferedInputTest.cc)
 
 add_velox_test(velox_hash_shuffle_writer_input_encoding_test SOURCES
                VeloxHashShuffleWriterInputEncodingTest.cc)
