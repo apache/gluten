@@ -41,6 +41,7 @@
 #include "operators/hashjoin/HashTableBuilder.h"
 #include "shuffle/rss/RssPartitionWriter.h"
 #include "substrait/SubstraitToVeloxPlanValidator.h"
+#include "utils/ConfigExtractor.h"
 #include "utils/ObjectStore.h"
 #include "utils/VeloxBatchResizer.h"
 #include "velox/common/base/BloomFilter.h"

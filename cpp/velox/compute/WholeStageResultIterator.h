@@ -101,9 +101,6 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
   void requestBarrier() override;
 
  private:
-  /// Get the Spark confs to Velox query context.
-  std::unordered_map<std::string, std::string> getQueryContextConf();
-
   /// Create QueryCtx.
   std::shared_ptr<facebook::velox::core::QueryCtx> createNewVeloxQueryCtx();
 
