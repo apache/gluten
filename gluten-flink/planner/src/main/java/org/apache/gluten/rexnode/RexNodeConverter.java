@@ -98,6 +98,9 @@ public class RexNodeConverter {
   }
 
   public static Variant toVariant(RexLiteral literal) {
+    if (literal.getValue() == null) {
+      return new VarCharValue(null);
+    }
     switch (literal.getType().getSqlTypeName()) {
       case BOOLEAN:
         return new BooleanValue((boolean) literal.getValue());
