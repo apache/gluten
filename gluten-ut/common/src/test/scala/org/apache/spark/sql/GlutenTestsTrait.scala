@@ -244,6 +244,9 @@ trait GlutenTestsTrait extends GlutenTestsCommonTrait {
           getSortedArrays(expected, kt, vt)._2,
           ArrayType(vt, vcn),
           exprNullable = false)
+      case (result: Double, expected: Double) if result.isNaN && expected.isNaN =>
+        // Different NaN bit patterns are all NaN; see SPARK-55975.
+        true
       case (result: Double, expected: Double) =>
         if (
           (isNaNOrInf(result) || isNaNOrInf(expected))
