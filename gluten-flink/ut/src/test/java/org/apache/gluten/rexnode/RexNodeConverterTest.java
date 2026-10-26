@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.rexnode;
 
+import io.github.zhztheplayer.velox4j.variant.IntegerValue;
 import io.github.zhztheplayer.velox4j.variant.VarCharValue;
 import io.github.zhztheplayer.velox4j.variant.Variant;
 
@@ -26,6 +27,7 @@ import org.apache.flink.table.planner.calcite.FlinkTypeSystem;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.sql.type.SqlTypeName;
+import org.apache.calcite.util.TimeString;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -52,6 +54,15 @@ public class RexNodeConverterTest {
     Variant variant = RexNodeConverter.toVariant(literal);
     assertThat(variant).isInstanceOf(VarCharValue.class);
     assertThat(((VarCharValue) variant).getValue()).isEqualTo("apple");
+  }
+
+  @Test
+  public void testTimeLiteralConvertsToMillisOfDay() {
+    RexLiteral literal = rexBuilder.makeTimeLiteral(new TimeString(12, 34, 56), 0);
+    Variant variant = RexNodeConverter.toVariant(literal);
+    assertThat(variant).isInstanceOf(IntegerValue.class);
+    assertThat(((IntegerValue) variant).getValue())
+        .isEqualTo(12 * 3_600_000 + 34 * 60_000 + 56_000);
   }
 
   @Test

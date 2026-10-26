@@ -119,6 +119,12 @@ public class RexCallConverterFactory {
           // substring returns an empty string. Start semantics (0 counts as 1,
           // negative counts from the end) already match Flink.
           Map.entry("SUBSTRING", Arrays.asList(() -> new SubstringRexCallConverter())),
+          // Offload targets implemented in velox's flinksql namespace;
+          // the names arrive upper-cased from the operator table.
+          Map.entry(
+              "CURRENT_DATE", Arrays.asList(() -> new DefaultRexCallConverter("current_date"))),
+          Map.entry(
+              "CURRENT_TIME", Arrays.asList(() -> new DefaultRexCallConverter("current_time"))),
           Map.entry("COALESCE", Arrays.asList(() -> new DefaultRexCallConverter("coalesce"))));
 
   public static RexCallConverter getConverter(RexCall callNode, RexConversionContext context) {
