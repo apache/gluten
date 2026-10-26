@@ -21,7 +21,11 @@ import org.apache.gluten.utils.BackendTestUtils
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql._
+import org.apache.spark.sql.catalyst.FunctionIdentifier
+import org.apache.spark.sql.connector.catalog.CatalogManager
 import org.apache.spark.sql.internal.StaticSQLConf.SPARK_SESSION_EXTENSIONS
+
+import java.util.Locale
 
 class GlutenSessionExtensionSuite extends GlutenSQLTestsTrait {
 
@@ -45,10 +49,13 @@ class GlutenSessionExtensionSuite extends GlutenSQLTestsTrait {
     } else {
       assert(spark.sessionState.sqlParser.isInstanceOf[MyParser])
     }
-    assert(
-      spark.sessionState.functionRegistry
-        .lookupFunction(MyExtensions.myFunction._1)
-        .isDefined)
+    // Since SPARK-55964, injected functions are registered as builtin functions with a
+    // fully qualified (3-part) name, so look them up the same way as SparkSessionExtensionSuite.
+    val builtinIdent = FunctionIdentifier(
+      MyExtensions.myFunction._1.funcName.toLowerCase(Locale.ROOT),
+      Some(CatalogManager.BUILTIN_NAMESPACE),
+      Some(CatalogManager.SYSTEM_CATALOG_NAME))
+    assert(spark.sessionState.functionRegistry.lookupFunction(builtinIdent).isDefined)
     assert(
       spark.sessionState.columnarRules.contains(
         MyColumnarRule(PreRuleReplaceAddWithBrokenVersion(), MyPostRule())))
