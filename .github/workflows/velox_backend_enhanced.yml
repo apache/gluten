@@ -19,6 +19,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/velox_backend_enhanced.yml'
+      - '.github/workflows/util/parallel-ut/**'
       - 'pom.xml'
       - 'backends-velox/**'
       - 'gluten-uniffle/**'
@@ -45,6 +46,13 @@ env:
   CCACHE_DIR: "${{ github.workspace }}/.ccache"
   # spark.sql.ansi.enabled defaults to false.
   SPARK_ANSI_SQL_MODE: false
+  # The spark-test-* jobs prefix their `mvn test` with this wrapper: Maven compiles and runs
+  # the JUnit tests, then the ScalaTest suites run in UT_PARALLELISM concurrent JVMs instead
+  # of one after another inside Maven. See .github/workflows/util/parallel-ut/run.py.
+  PARALLEL_UT: '.github/workflows/util/parallel-ut/mvn-test.sh'
+  # The runners have 4 vCPUs and a single test JVM already keeps several busy: with 4
+  # JVMs each suite ran ~5x slower than serially, so total throughput dropped.
+  UT_PARALLELISM: 3
 
 concurrency:
   group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
@@ -160,7 +168,7 @@ jobs:
           java -version
           export SPARK_HOME=/opt/shims/spark35/spark_home/
           ls -l $SPARK_HOME
-          $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi \
+          $PARALLEL_UT $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi \
           -DtagsToExclude=org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest \
           -DargLine="-Dspark.test.home=$SPARK_HOME"
       - name: Upload test report
@@ -207,10 +215,10 @@ jobs:
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
-          $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
+          $PARALLEL_UT $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
           -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/" \
           -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest
-          $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
+          $PARALLEL_UT $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
           -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/" \
           -DtagsToInclude=org.apache.spark.tags.SlowHiveTest
       - name: Upload test report

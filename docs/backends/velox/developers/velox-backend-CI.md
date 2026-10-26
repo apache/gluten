@@ -9,18 +9,9 @@ parent: Developer Overview
 GitHub Actions (GHA) workflows are defined under `.github/workflows/`.
 
 ## Docker Build
-A weekly job defined in `docker_image.yml` builds the Docker images used for CI verification. The Dockerfiles (under `dev/docker/`) and their corresponding images are listed below:
-
-file | images | comments
--- | -- | --
-Dockerfile.almalinux8-gcc13-static-build | apache/gluten:vcpkg-almalinux-8-gcc13 | almalinux 8, static link, jdk8
-Dockerfile.centos8-gcc13-static-build | apache/gluten:vcpkg-centos-8-gcc13 | centos 8, static link, jdk8
-Dockerfile.centos8-dynamic-build | apache/gluten:centos-8-jdk8 | centos 8, dynamic link, jdk8
-Dockerfile.centos8-dynamic-build | apache/gluten:centos-8-jdk11 | centos 8, dynamic link, jdk11
-Dockerfile.centos8-dynamic-build | apache/gluten:centos-8-jdk17 | centos 8, dynamic link, jdk17
-cudf/Dockerfile.centos-9-jdk17-cuda13.1-cudf | apache/gluten:centos-9-jdk17-cuda13.1-cudf | centos 9, dynamic link, jdk17
-
-The Docker images can be found at [https://hub.docker.com/r/apache/gluten/tags](https://hub.docker.com/r/apache/gluten/tags).
+`docker_image.yml` builds the Docker images that CI jobs run in, from the Dockerfiles under `dev/docker/`, weekly and on
+every change to them on `main`. See [Pre-built Docker Images](velox-backend-docker-images.md) for every published tag,
+its Dockerfile, architectures, size, contents, the jobs that use it, and how the images are published.
 
 ## Vcpkg Caching
 The Gluten main branch is pulled during the static build in Docker, and vcpkg caches binary data for all dependencies defined under `dev/vcpkg`.

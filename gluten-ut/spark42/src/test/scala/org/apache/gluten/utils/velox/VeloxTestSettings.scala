@@ -1357,15 +1357,15 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenDeltaBasedUpdateAsDeleteAndInsertTableSuite]
     // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
     .exclude("update with NOT NULL checks")
-    .exclude(
-      "update with constraint violation and transactional checks"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
+    // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException.
+    // Rewritten in GlutenUpdateTableSuiteBase.
+    .exclude("update with constraint violation and transactional checks")
   enableSuite[GlutenDeltaBasedUpdateTableSuite]
     // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
     .exclude("update with NOT NULL checks")
-    .exclude(
-      "update with constraint violation and transactional checks"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
+    // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException.
+    // Rewritten in GlutenUpdateTableSuiteBase.
+    .exclude("update with constraint violation and transactional checks")
   enableSuite[GlutenGroupBasedMergeIntoTableSuite]
     // Replaced by Gluten versions that handle wrapped exceptions
     .excludeByPrefix("merge cardinality check with")
