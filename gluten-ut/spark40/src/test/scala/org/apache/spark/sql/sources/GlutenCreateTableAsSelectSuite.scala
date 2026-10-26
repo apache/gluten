@@ -16,8 +16,46 @@
  */
 package org.apache.spark.sql.sources
 
+import org.apache.spark.SparkException
 import org.apache.spark.sql.GlutenSQLTestsBaseTrait
+import org.apache.spark.util.Utils
 
-class GlutenCreateTableAsSelectSuite
-  extends CreateTableAsSelectSuite
-  with GlutenSQLTestsBaseTrait {}
+import java.io.File
+
+class GlutenCreateTableAsSelectSuite extends CreateTableAsSelectSuite with GlutenSQLTestsBaseTrait {
+
+  // Same as the Spark test, but skipped when removing the write permission from a directory
+  // does not stop writes to it, e.g. when the tests run as root like in Gluten's CI.
+  // TODO: find a way to run this test in CI as well, see
+  // https://github.com/apache/gluten/issues/13569
+  testGluten("CREATE TABLE USING AS SELECT based on the file without write permission") {
+    // setWritable(...) does not work on Windows. Please refer JDK-6728842.
+    assume(!Utils.isWindows)
+    val dir = Utils.createTempDir()
+    val childPath = new File(dir, "child")
+    dir.setWritable(false)
+    try {
+      assume(
+        !childPath.mkdir(),
+        "The write permission of a directory is not enforced for this user, e.g. root")
+
+      withTable("jsonTable") {
+        val e = intercept[SparkException] {
+          sql(s"""
+                 |CREATE TABLE jsonTable
+                 |USING json
+                 |OPTIONS (
+                 |  path '${childPath.toURI}'
+                 |) AS
+                 |SELECT a, b FROM jt
+           """.stripMargin)
+          sql("SELECT a, b FROM jsonTable").collect()
+        }
+        assert(e.getMessage().contains("Job aborted"))
+      }
+    } finally {
+      dir.setWritable(true)
+      Utils.deleteRecursively(dir)
+    }
+  }
+}

@@ -868,6 +868,9 @@ class VeloxTestSettings extends BackendTestSettings {
     .excludeByPrefix("bucket coalescing is applied when join expressions match")
   enableSuite[GlutenBucketedWriteWithoutHiveSupportSuite]
   enableSuite[GlutenCreateTableAsSelectSuite]
+    // Rewritten in GlutenCreateTableAsSelectSuite so that it is skipped when running as root,
+    // where removing the write permission does not stop writes. Gluten's CI runs as root.
+    .exclude("CREATE TABLE USING AS SELECT based on the file without write permission")
   enableSuite[GlutenDDLSourceLoadSuite]
   disableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuite](
     "GLUTEN-4893: Vanilla UT checks scan operator by exactly matching the class type")
