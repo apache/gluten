@@ -72,7 +72,7 @@ jobs:
         run: |
           python3 -m unittest discover -s gluten-ut/src-iceberg-upstream/test/python
 
-      - name: Find a baseline from merged or default-branch results
+      - name: Find a baseline from verified base, merged or default-branch results
         id: restore
         continue-on-error: true
         env:
@@ -122,21 +122,15 @@ jobs:
     needs: [prepare, iceberg-upstream-test, iceberg-base-test]
     if: always() && !cancelled()
     runs-on: ubuntu-22.04
+    env:
+      NATIVE_IMAGE: ${{ needs.prepare.outputs.native_image }}
+      TEST_IMAGE: ${{ needs.prepare.outputs.test_image }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: Require complete test runs
-        env:
-          UPSTREAM_RESULT: ${{ needs.iceberg-upstream-test.result }}
-          RUN_BASE: ${{ needs.prepare.outputs.run_base }}
-          BASE_RESULT: ${{ needs.iceberg-base-test.result }}
-        run: |
-          test "$UPSTREAM_RESULT" = success
-          if [ "$RUN_BASE" = true ]; then
-            test "$BASE_RESULT" = success
-          fi
       - name: Download current shards
+        id: download-head
         if: always()
         uses: actions/download-artifact@v8
         with:
@@ -144,7 +138,10 @@ jobs:
           path: iceberg-head
       - name: Merge every current shard
         id: head
-        if: always()
+        if: >-
+          always() && needs.iceberg-upstream-test.result == 'success' &&
+          steps.download-head.outcome == 'success' &&
+          hashFiles('iceberg-head/**/execution-coverage.json') != ''
         run: python3 .github/workflows/util/iceberg-upstream/merge.py iceberg-head --shards "$ICEBERG_SHARD_COUNT"
       # A complete, validated result remains publishable when only comparison is unavailable.
       # Once this PR merges, later PRs can use the saved report without any base test run.
@@ -155,7 +152,8 @@ jobs:
           HEAD_KEY: ${{ needs.prepare.outputs.head_key }}
         run: |
           python3 .github/workflows/util/iceberg-upstream/baseline.py record \
-            --directory iceberg-head --key "$HEAD_KEY" --revision "$GITHUB_SHA"
+            --directory iceberg-head --key "$HEAD_KEY" --revision "$GITHUB_SHA" --kind head \
+            --native-image "$NATIVE_IMAGE" --test-image "$TEST_IMAGE"
       - name: Save the result for reuse after merge
         if: always() && steps.head-identity.outcome == 'success'
         uses: actions/upload-artifact@v7
@@ -167,12 +165,13 @@ jobs:
           if-no-files-found: error
           overwrite: true
       - name: Download the saved baseline or lookup diagnostic
-        if: always()
+        if: always() && needs.prepare.result == 'success'
         uses: actions/download-artifact@v8
         with:
           name: iceberg-baseline-lookup
           path: iceberg-base
       - name: Download freshly tested base shards
+        id: download-base
         if: always() && needs.prepare.outputs.run_base == 'true'
         uses: actions/download-artifact@v8
         with:
@@ -180,18 +179,51 @@ jobs:
           path: iceberg-base
       - name: Merge and validate every base shard
         id: base
-        if: always() && needs.prepare.outputs.run_base == 'true'
+        if: >-
+          always() && needs.prepare.outputs.run_base == 'true' &&
+          needs.iceberg-base-test.result == 'success' &&
+          steps.download-base.outcome == 'success' &&
+          hashFiles('iceberg-base/**/execution-coverage.json') != ''
         env:
           BASELINE_KEY: ${{ needs.prepare.outputs.baseline_key }}
           BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
-          BASE_RESULT: ${{ needs.iceberg-base-test.result }}
         run: |
-          test "$BASE_RESULT" = success
           python3 .github/workflows/util/iceberg-upstream/merge.py iceberg-base --shards "$ICEBERG_SHARD_COUNT"
           python3 .github/workflows/util/iceberg-upstream/baseline.py record \
-            --directory iceberg-base --key "$BASELINE_KEY" --revision "$BASE_SHA"
-      - name: Reject regressions or validate initial baseline evidence
+            --directory iceberg-base --key "$BASELINE_KEY" --revision "$BASE_SHA" --kind base \
+            --native-image "$NATIVE_IMAGE" --test-image "$TEST_IMAGE"
+      # Cache the validated base independently of head build/tests and comparison.
+      - name: Save the tested base for reuse
+        if: always() && steps.base.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ needs.prepare.outputs.baseline_key }}
+          path: |
+            iceberg-base/baseline-identity.json
+            iceberg-base/execution-coverage.json
+          if-no-files-found: error
+          overwrite: true
+      - name: Download available build diagnostics
         if: always()
+        uses: actions/download-artifact@v8
+        with:
+          pattern: iceberg-*-diagnostics
+          path: iceberg-diagnostics
+      - name: Require complete comparison inputs
+        id: ready
+        if: always()
+        env:
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          UPSTREAM_RESULT: ${{ needs.iceberg-upstream-test.result }}
+          HEAD_OUTCOME: ${{ steps.head.outcome }}
+          BASE_RESULT: ${{ needs.iceberg-base-test.result }}
+          BASELINE_OUTCOME: ${{ needs.prepare.outputs.baseline_outcome }}
+          RUN_BASE: ${{ needs.prepare.outputs.run_base }}
+          BASE_OUTCOME: ${{ steps.base.outcome }}
+          INITIAL_BASELINE: ${{ needs.prepare.outputs.initial_baseline }}
+        run: python3 .github/workflows/util/iceberg-upstream/gate.py
+      - name: Reject regressions or validate initial baseline evidence
+        if: always() && steps.ready.outcome == 'success'
         env:
           BASELINE_OUTCOME: ${{ needs.prepare.outputs.baseline_outcome }}
           RUN_BASE: ${{ needs.prepare.outputs.run_base }}
@@ -224,6 +256,7 @@ jobs:
           path: |
             iceberg-base/
             iceberg-head/
+            iceberg-diagnostics/
             iceberg-comparison.json
             iceberg-comparison.csv
           if-no-files-found: error
