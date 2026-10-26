@@ -219,6 +219,11 @@ if(ENABLE_S3)
   find_package(ZLIB)
 endif()
 
+if(ENABLE_KAFKA)
+  list(APPEND VELOX_SRCS operators/reader/KafkaDataSource.cc
+       operators/reader/KafkaConnector.cc)
+endif()
+
 if(ENABLE_GPU)
   list(
     APPEND
@@ -508,11 +513,16 @@ set(CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES_BCK})
 
 # Find and link librdkafka for Kafka streaming support
 if(ENABLE_KAFKA)
-  target_compile_definitions(velox PUBLIC ENABLE_KAFKA)
+  target_compile_definitions(gluten_velox_impl PUBLIC ENABLE_KAFKA)
+  # Native tests link the implementation target directly and use both Kafka
+  # APIs.
   find_package(RdKafka CONFIG QUIET)
-  if(RdKafka_FOUND AND TARGET RdKafka::rdkafka++)
+  if(RdKafka_FOUND
+     AND TARGET RdKafka::rdkafka++
+     AND TARGET RdKafka::rdkafka)
     message(STATUS "Found RdKafka: ${RdKafka_DIR}")
-    target_link_libraries(velox PUBLIC RdKafka::rdkafka++)
+    target_link_libraries(gluten_velox_impl PUBLIC RdKafka::rdkafka++
+                                                   RdKafka::rdkafka)
   else()
     # Link the C++ client and C mock API.
     find_package(PkgConfig QUIET)
@@ -520,7 +530,7 @@ if(ENABLE_KAFKA)
       pkg_check_modules(RDKAFKA QUIET IMPORTED_TARGET rdkafka++ rdkafka)
       if(RDKAFKA_FOUND)
         message(STATUS "Found librdkafka via pkg-config: ${RDKAFKA_LIBRARIES}")
-        target_link_libraries(velox PUBLIC PkgConfig::RDKAFKA)
+        target_link_libraries(gluten_velox_impl PUBLIC PkgConfig::RDKAFKA)
       else()
         message(
           FATAL_ERROR

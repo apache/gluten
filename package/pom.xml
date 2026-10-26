@@ -121,10 +121,19 @@
                     <include>com.google.gson.**</include>
                   </includes>
                 </relocation>
-                <relocation>
-                  <pattern>com.google.flatbuffers</pattern>
-                  <shadedPattern>${gluten.shade.packageName}.com.google.flatbuffers</shadedPattern>
-                </relocation>
+                <!--
+                  Do not relocate com.google.flatbuffers. Arrow is bundled under
+                  its original package names, and com.google.flatbuffers is part
+                  of Arrow's binary interface: every org.apache.arrow.flatbuf
+                  class extends com.google.flatbuffers.Table or Struct, and
+                  org.apache.arrow.vector passes them around as Table and
+                  FlatBufferBuilder. Relocating flatbuffers alone gives the
+                  bundled flatbuf classes a different superclass than the
+                  same-named classes in Spark's arrow-format jar. Whenever
+                  classpath order mixes the two copies, the JVM fails with
+                  `VerifyError: Type 'org/apache/arrow/flatbuf/Null' is not
+                  assignable to 'com/google/flatbuffers/Table'`.
+                -->
               </relocations>
               <filters>
                 <filter>

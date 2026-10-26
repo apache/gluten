@@ -225,7 +225,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ ubuntu-latest, ubuntu-24.04-arm ]
+        # amd64 only: no CI job runs the centos-8-jdk* images on arm64.
+        os: [ ubuntu-latest ]
         jdk: [jdk8, jdk11, jdk17]
     env:
       JDK_VERSION: 1.8.0
@@ -290,6 +291,13 @@ jobs:
       matrix:
         os: [ ubuntu-22.04, ubuntu-22.04-arm ]
         jdk: [jdk8, jdk11, jdk17]
+        # Only centos-9-jdk8 is needed on arm64: the ARM cpp-test-udf-test job and the default
+        # dev container (Apple-silicon Macs) use it.
+        exclude:
+          - os: ubuntu-22.04-arm
+            jdk: jdk11
+          - os: ubuntu-22.04-arm
+            jdk: jdk17
     env:
       JDK_VERSION: 1.8.0
     steps:
