@@ -19,6 +19,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/velox_backend_x86.yml'
+      - '.github/workflows/util/parallel-ut/**'
       - 'pom.xml'
       - 'backends-velox/**'
       - 'gluten-uniffle/**'
@@ -57,6 +58,13 @@ env:
   CCACHE_DIR: "${{ github.workspace }}/.ccache"
   # spark.sql.ansi.enabled defaults to false.
   SPARK_ANSI_SQL_MODE: false
+  # The spark-test-* jobs prefix their `mvn test` with this wrapper: Maven compiles and runs
+  # the JUnit tests, then the ScalaTest suites run in UT_PARALLELISM concurrent JVMs instead
+  # of one after another inside Maven. See .github/workflows/util/parallel-ut/run.py.
+  PARALLEL_UT: '.github/workflows/util/parallel-ut/mvn-test.sh'
+  # The runners have 4 vCPUs and a single test JVM already keeps several busy: with 4
+  # JVMs each suite ran ~5x slower than serially, so total throughput dropped.
+  UT_PARALLELISM: 3
 
 concurrency:
   group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
@@ -769,15 +777,15 @@ jobs:
           export SPARK_HOME=/opt/shims/spark34/spark_home/
           TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest"
           if [ "${{ matrix.group }}" = "1" ]; then
-            $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Piceberg-test -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Piceberg-test -Pdelta -Phudi -Ppaimon -Pspark-ut \
             -DtagsToExclude="$TAGS_EXCLUDE" -DargLine="-Dspark.test.home=$SPARK_HOME" \
             -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
           elif [ "${{ matrix.group }}" = "2" ]; then
-            $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Piceberg-test -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Piceberg-test -Pdelta -Phudi -Ppaimon -Pspark-ut \
             -DtagsToExclude="$TAGS_EXCLUDE" -DargLine="-Dspark.test.home=$SPARK_HOME" \
             -DwildcardSuites="org.apache.spark.sql.execution,org.apache.spark.sql.catalyst,org.apache.spark.sql.errors,org.apache.spark.sql.extension"
           else
-            $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Piceberg-test -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Piceberg-test -Pdelta -Phudi -Ppaimon -Pspark-ut \
             -DtagsToExclude="$TAGS_EXCLUDE" -DargLine="-Dspark.test.home=$SPARK_HOME" \
             -DwildcardSuites="org.apache.spark.sql.GlutenSQL,org.apache.spark.sql.Gluten,org.apache.spark.sql.connector,org.apache.spark.sql.sources,org.apache.spark.sql.hive,org.apache.spark.sql.gluten,org.apache.spark.sql.shim"
           fi
@@ -831,11 +839,11 @@ jobs:
           java -version
           export SPARK_HOME=/opt/shims/spark34/spark_home/
           if [ "${{ matrix.suite }}" = "extended" ]; then
-            $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
             -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest \
             -DargLine="-Dspark.test.home=$SPARK_HOME"
           else
-            $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
             -DtagsToInclude=org.apache.spark.tags.SlowHiveTest \
             -DargLine="-Dspark.test.home=$SPARK_HOME"
           fi
@@ -893,15 +901,15 @@ jobs:
           java -version
           TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest"
           if [ "${{ matrix.group }}" = "1" ]; then
-            $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Plance -Plance-test -Pspark-ut \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Plance -Plance-test -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
             -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
           elif [ "${{ matrix.group }}" = "2" ]; then
-            $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
             -DwildcardSuites="org.apache.spark.sql.execution,org.apache.spark.sql.catalyst,org.apache.spark.sql.errors,org.apache.spark.sql.extension"
           else
-            $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
             -DwildcardSuites="org.apache.spark.sql.GlutenSQL,org.apache.spark.sql.Gluten,org.apache.spark.sql.connector,org.apache.spark.sql.sources,org.apache.spark.sql.hive,org.apache.spark.sql.gluten,org.apache.spark.sql.shim"
           fi
@@ -929,10 +937,11 @@ jobs:
 
   spark-test-spark35-scala213:
     needs: [detect-changes, build-native-lib-centos-8]
-    if: >-
-      needs.detect-changes.outputs.java == 'true' ||
-      needs.detect-changes.outputs.shims35 == 'true' ||
-      needs.detect-changes.outputs.cpp == 'true'
+    # Nightly only: the spark40/41/42 jobs already build and test with Scala 2.13 on
+    # every PR, so per-PR this Spark 3.5 + Scala 2.13 combo adds ~90 runner-minutes for
+    # little PR-specific signal. The nightly full_run (or a workflow_dispatch run)
+    # still covers it daily.
+    if: needs.detect-changes.outputs.full_run == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -965,15 +974,15 @@ jobs:
           java -version
           TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest"
           if [ "${{ matrix.group }}" = "1" ]; then
-            $MVN_CMD clean test -Pspark-3.5 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Pspark-ut \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-3.5 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark35-scala-2.13/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
             -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
           elif [ "${{ matrix.group }}" = "2" ]; then
-            $MVN_CMD clean test -Pspark-3.5 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Pspark-ut \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-3.5 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark35-scala-2.13/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
             -DwildcardSuites="org.apache.spark.sql.execution,org.apache.spark.sql.catalyst,org.apache.spark.sql.errors,org.apache.spark.sql.extension"
           else
-            $MVN_CMD clean test -Pspark-3.5 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Pspark-ut \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-3.5 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark35-scala-2.13/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
             -DwildcardSuites="org.apache.spark.sql.GlutenSQL,org.apache.spark.sql.Gluten,org.apache.spark.sql.connector,org.apache.spark.sql.sources,org.apache.spark.sql.hive,org.apache.spark.sql.gluten,org.apache.spark.sql.shim"
           fi
@@ -1022,11 +1031,11 @@ jobs:
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
           if [ "${{ matrix.suite }}" = "extended" ]; then
-            $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/" \
             -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest
           else
-            $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/" \
             -DtagsToInclude=org.apache.spark.tags.SlowHiveTest
           fi
@@ -1299,15 +1308,15 @@ jobs:
           java -version
           TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest"
           if [ "${{ matrix.group }}" = "1" ]; then
-            $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Ppaimon -Plance -Plance-test -Pspark-ut \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Ppaimon -Plance -Plance-test -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
             -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
           elif [ "${{ matrix.group }}" = "2" ]; then
-            $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Ppaimon -Pspark-ut \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Ppaimon -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
             -DwildcardSuites="org.apache.spark.sql.execution,org.apache.spark.sql.catalyst,org.apache.spark.sql.errors,org.apache.spark.sql.extension"
           else
-            $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Ppaimon -Pspark-ut \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Ppaimon -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
             -DwildcardSuites="org.apache.spark.sql.GlutenSQL,org.apache.spark.sql.Gluten,org.apache.spark.sql.connector,org.apache.spark.sql.sources,org.apache.spark.sql.hive,org.apache.spark.sql.gluten,org.apache.spark.sql.shim"
           fi
@@ -1356,11 +1365,11 @@ jobs:
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
           if [ "${{ matrix.suite }}" = "extended" ]; then
-            $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Ppaimon -Pspark-ut \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Ppaimon -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" \
             -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest
           else
-            $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Pspark-ut \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" \
             -DtagsToInclude=org.apache.spark.tags.SlowHiveTest
           fi
@@ -1425,17 +1434,17 @@ jobs:
           TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest"
           if [ "${{ matrix.group }}" = "1" ]; then
             # Group 1: streaming + gluten utils + top-level spark tests (~55 classes)
-            $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
             -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
             -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
           elif [ "${{ matrix.group }}" = "2" ]; then
             # Group 2: execution + catalyst + errors + extension tests (~140 classes)
-            $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
             -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
             -DwildcardSuites="org.apache.spark.sql.execution,org.apache.spark.sql.catalyst,org.apache.spark.sql.errors,org.apache.spark.sql.extension"
           else
             # Group 3: top-level sql, connector, sources, hive and remaining tests (~205 classes)
-            $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
             -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
             -DwildcardSuites="org.apache.spark.sql.GlutenSQL,org.apache.spark.sql.Gluten,org.apache.spark.sql.connector,org.apache.spark.sql.sources,org.apache.spark.sql.hive,org.apache.spark.sql.gluten,org.apache.spark.sql.shim"
           fi
@@ -1485,11 +1494,11 @@ jobs:
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
           if [ "${{ matrix.suite }}" = "extended" ]; then
-            $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Pspark-ut \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/" \
             -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest
           else
-            $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/" \
             -DtagsToInclude=org.apache.spark.tags.SlowHiveTest
           fi
@@ -1557,17 +1566,17 @@ jobs:
           $MVN_CMD clean install -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta -DskipTests
           if [ "${{ matrix.group }}" = "1" ]; then
             # Group 1: streaming + gluten utils + top-level spark tests (~55 classes)
-            $MVN_CMD clean test -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
             -DargLine="-Dspark.test.home=/opt/shims/spark42/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
             -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
           elif [ "${{ matrix.group }}" = "2" ]; then
             # Group 2: execution + catalyst + errors + extension tests (~140 classes)
-            $MVN_CMD clean test -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
             -DargLine="-Dspark.test.home=/opt/shims/spark42/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
             -DwildcardSuites="org.apache.spark.sql.execution,org.apache.spark.sql.catalyst,org.apache.spark.sql.errors,org.apache.spark.sql.extension"
           else
             # Group 3: top-level sql, connector, sources, hive and remaining tests (~205 classes)
-            $MVN_CMD clean test -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
             -DargLine="-Dspark.test.home=/opt/shims/spark42/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
             -DwildcardSuites="org.apache.spark.sql.GlutenSQL,org.apache.spark.sql.Gluten,org.apache.spark.sql.connector,org.apache.spark.sql.sources,org.apache.spark.sql.hive,org.apache.spark.sql.gluten,org.apache.spark.sql.shim"
           fi
@@ -1620,11 +1629,11 @@ jobs:
           # sibling Gluten modules (gluten-substrait etc.) before testing.
           $MVN_CMD clean install -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Pspark-ut -DskipTests
           if [ "${{ matrix.suite }}" = "extended" ]; then
-            $MVN_CMD clean test -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Pspark-ut \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark42/spark_home/" \
             -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest
           else
-            $MVN_CMD clean test -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark42/spark_home/" \
             -DtagsToInclude=org.apache.spark.tags.SlowHiveTest
           fi

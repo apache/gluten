@@ -20,7 +20,7 @@ import org.apache.gluten.backendsapi.arrow.ArrowBatchTypes.ArrowJavaBatchType
 import org.apache.gluten.extension.columnar.transition.Convention
 import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
-import org.apache.gluten.vectorized.ArrowWritableColumnVector
+import org.apache.gluten.vectorized.ArrowColumnVectors
 
 import org.apache.spark.{Partition, SparkContext, TaskContext}
 import org.apache.spark.rdd.RDD
@@ -118,7 +118,7 @@ private class LancePartition(override val index: Int, val inputPartition: LanceI
 
 /**
  * Executes the planned Lance partitions, importing each fragment's exported Arrow C stream with
- * Gluten's Arrow build and yielding offloadable [[ArrowWritableColumnVector]] batches.
+ * Gluten's Arrow build and yielding offloadable Java Arrow batches.
  */
 private class LanceColumnarRDD(
     @transient private val sc: SparkContext,
@@ -212,8 +212,8 @@ private class LanceFragmentIterator(
         pair.transfer()
         transferred.add(pair.getTo.asInstanceOf[FieldVector])
     }
-    val vectors = ArrowWritableColumnVector.loadColumns(rowCount, transferred)
-    new ColumnarBatch(vectors.asInstanceOf[Array[ColumnVector]], rowCount)
+    val vectors = ArrowColumnVectors.wrap(transferred)
+    new ColumnarBatch(vectors.map(_.asInstanceOf[ColumnVector]), rowCount)
   }
 
   override def close(): Unit =

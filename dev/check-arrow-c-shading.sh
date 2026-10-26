@@ -55,7 +55,8 @@
 # Exit codes:
 #   0 — bundle is well-shaded (Arrow C-Data API uses public Apache Arrow API)
 #   1 — bundle is broken (Arrow C-Data references gluten-shaded types, OR
-#       Arrow content does not match the declared arrow-deps-scope)
+#       Arrow content does not match the declared arrow-deps-scope, OR any
+#       bundled org.apache.arrow class references a gluten-shaded type)
 #   2 — usage / setup error
 
 set -euo pipefail
@@ -198,6 +199,28 @@ elif [[ -n "$ARROW_DEPS_SCOPE" ]]; then
   esac
 fi
 
+# Fourth check: no bundled org.apache.arrow class may reference anything in the
+# shaded namespace. Arrow is bundled under its original names, and on Spark 3.x
+# those names also exist in Spark's own arrow-* jars. For each class, the JVM
+# loads whichever copy comes first on the classpath, so the bundled copy must be
+# binary compatible with upstream Arrow. With com.google.flatbuffers relocated
+# and Arrow not, every bundled org.apache.arrow.flatbuf class extended the
+# shaded Table. Mixing it with Spark's arrow-vector then failed with
+# `VerifyError: ... is not assignable to 'com/google/flatbuffers/Table'`.
+# Info-ZIP `unzip` matches `/` with `*`, so the whole Arrow tree is extracted.
+unzip -qo "$JAR" 'org/apache/arrow/*' -d "$WORKDIR/all" 2>/dev/null || true
+if [[ -n "$(find "$WORKDIR/all/org/apache/arrow" -name '*.class' 2>/dev/null | head -1)" ]]; then
+  bad_classes=$(grep -rlaE "${SHADE_SLASHES}/" "$WORKDIR/all/org/apache/arrow" 2>/dev/null || true)
+  if [[ -n "$bad_classes" ]]; then
+    echo "  FAIL org/apache/arrow/** — $(printf '%s\n' "$bad_classes" | grep -c .) class(es) reference gluten-shaded packages:"
+    grep -rahoE "${SHADE_SLASHES}/[a-zA-Z0-9_$/-]+" "$WORKDIR/all/org/apache/arrow" 2>/dev/null \
+      | sed 's#/[^/]*$##' | sort -u | sed 's/^/    /' || true
+    failures=$((failures + 1))
+  else
+    echo "  OK   org/apache/arrow/** references no gluten-shaded package"
+  fi
+fi
+
 if (( failures > 0 )); then
   echo
   echo "Bundle has $failures Arrow shading/content problem(s)."
@@ -206,6 +229,8 @@ if (( failures > 0 )); then
   echo "from org.apache.arrow.c stays unshaded (memory, vector, util)."
   echo "For content failures, see gluten#12737 and check each Arrow"
   echo "dependency's <scope> against \${arrow.deps.scope} for this profile."
+  echo "For org/apache/arrow/** referencing shaded packages, stop relocating"
+  echo "the package that Arrow's API exposes (e.g. com.google.flatbuffers)."
   exit 1
 fi
 
