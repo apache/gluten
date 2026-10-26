@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Reuse saved Iceberg results only after verifying that their tested tree was merged."""
+"""Reuse verified Iceberg results with identical build, test and runtime inputs."""
 
 import argparse
 from datetime import datetime, timezone
@@ -45,6 +45,59 @@ HARNESS_PATHS = (
     "backends-velox/src-iceberg-upstream",
     "gluten-ut/src-iceberg-upstream",
 )
+# Keep every tracked production, dependency, build and test input, including
+# new/unknown paths. Only these known non-runtime inputs are excluded. In
+# particular, do not exclude *.md/*.rst globally: they can be test resources.
+NON_RUNTIME_PATHS = (
+    "docs/",
+    ".devcontainer/",
+    ".idea/",
+    ".github/ISSUE_TEMPLATE/",
+    ".github/PULL_REQUEST_TEMPLATE.md",
+    ".github/skills/",
+    ".asf.yaml",
+    "AGENTS.md",
+    "CONTRIBUTING.md",
+    "README.md",
+    "mkdocs.yml",
+)
+
+
+def input_fingerprint(entries):
+    """Hash Git paths, modes, types and object IDs; include gitlinks and symlinks."""
+    digest = hashlib.sha256()
+    for entry in sorted(entries, key=lambda item: item["path"]):
+        path = entry["path"]
+        if entry["type"] == "tree" or any(
+            path.startswith(name) if name.endswith("/") else path == name
+            for name in NON_RUNTIME_PATHS
+        ):
+            continue
+        # Other workflows do not execute in this comparison. Their supporting
+        # scripts remain inputs, as do all three invoked workflow definitions.
+        if (
+            path.startswith(".github/workflows/")
+            and path.endswith((".yml", ".yaml"))
+            and path not in HARNESS_PATHS
+            and "/" not in path[len(".github/workflows/") :]
+        ):
+            continue
+        for field in ("path", "mode", "type", "sha"):
+            digest.update(entry[field].encode() + b"\0")
+    return digest.hexdigest()
+
+
+def git_inputs(revision):
+    entries = []
+    tree = git_tree(revision)
+    listing = subprocess.check_output(["git", "ls-tree", "-rz", tree])
+    for record in listing.split(b"\0"):
+        if not record:
+            continue
+        metadata, path = record.decode().split("\t", 1)
+        mode, kind, sha = metadata.split()
+        entries.append({"path": path, "mode": mode, "type": kind, "sha": sha})
+    return input_fingerprint(entries)
 
 
 def overlay_harness(checkout, harness):
@@ -121,11 +174,11 @@ def harness_hash(checkout):
     return digest.hexdigest()
 
 
-def artifact_key(tree, harness, native_image, test_image):
+def artifact_key(inputs, harness, native_image, test_image):
     runtime = hashlib.sha256(
         (harness + "\0" + native_image + "\0" + test_image).encode()
     ).hexdigest()
-    return "iceberg-baseline-v2-" + tree + "-" + runtime
+    return "iceberg-baseline-v3-" + inputs + "-" + runtime
 
 
 def git_tree(revision):
@@ -155,17 +208,30 @@ def initial_baseline(revision):
     return not existing.strip()
 
 
-def record(directory, key, revision):
+def record(directory, key, revision, kind, native_image, test_image):
     # Called only after all shards succeeded and their complete union was merged.
     index(json.loads((directory / "execution-coverage.json").read_text()))
     tree = git_tree(revision)
-    if not key.startswith("iceberg-baseline-v2-" + tree + "-"):
-        raise ValueError("Baseline key does not identify the tested tree")
+    inputs = git_inputs(revision)
+    harness = harness_hash(Path.cwd())
+    if key != artifact_key(inputs, harness, native_image, test_image):
+        raise ValueError(
+            "Baseline key does not identify the tested inputs and runtimes"
+        )
+    if kind not in ("head", "base"):
+        raise ValueError("Unknown baseline result kind")
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
     identity = {
         "key": key,
+        "kind": kind,
         "revision": revision,
         "tree": tree,
+        "inputs": inputs,
+        "harness": harness,
+        "harness_revision": os.environ["GITHUB_SHA"],
+        "native_image": native_image,
+        "test_image": test_image,
+        "shard_count": int(os.environ["ICEBERG_SHARD_COUNT"]),
         "repository": os.environ["GITHUB_REPOSITORY"],
         "run_id": int(os.environ["GITHUB_RUN_ID"]),
         "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
@@ -212,6 +278,23 @@ class GitHub:
             raise ValueError("Invalid baseline commit")
         return self.request("git/commits/" + revision)
 
+    def inputs(self, tree):
+        result = self.request("git/trees/" + tree + "?recursive=1")
+        if result.get("truncated"):
+            raise ValueError("Cannot verify inputs from a truncated Git tree")
+        return input_fingerprint(result["tree"])
+
+    def jobs(self, run_id, attempt):
+        jobs, page = [], 1
+        while True:
+            result = self.request(
+                f"actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100&page={page}"
+            )["jobs"]
+            jobs.extend(result)
+            if len(result) < 100:
+                return jobs
+            page += 1
+
 
 def read_artifact(data):
     # Read two JSON documents, never extract or execute downloaded files.
@@ -227,18 +310,49 @@ def read_artifact(data):
         )
 
 
-def verify_source(api, artifact, identity, key, tree, branch):
+def verify_jobs(api, identity):
+    """A failed head or comparison does not invalidate successful base jobs."""
+    kind = identity["kind"]
+    prefix = "iceberg-base-test" if kind == "base" else "iceberg-upstream-test"
+    count = identity.get("shard_count")
+    if type(count) is not int or count != int(
+        os.environ.get("ICEBERG_SHARD_COUNT", "5")
+    ):
+        raise ValueError("Baseline has an incompatible shard count")
+    expected = {f"{prefix} / native / build", f"{prefix} / build"} | {
+        f"{prefix} / iceberg-upstream-test (3.5, {kind}, {shard})"
+        for shard in range(count)
+    }
+    jobs = api.jobs(identity["run_id"], identity["run_attempt"])
+    for name in expected:
+        matches = [job for job in jobs if job["name"] == name]
+        if (
+            len(matches) != 1
+            or matches[0]["status"] != "completed"
+            or matches[0]["conclusion"] != "success"
+        ):
+            raise ValueError("Baseline requires a successful job: " + name)
+
+
+def verify_source(api, artifact, identity, key, inputs, branch):
     run_id = artifact["workflow_run"]["id"]
     attempt = identity.get("run_attempt")
     if (
         identity.get("key") != key
-        or identity.get("tree") != tree
+        or identity.get("inputs") != inputs
+        or identity.get("kind") not in ("head", "base")
         or identity.get("repository") != api.repository
         or identity.get("run_id") != run_id
         or type(attempt) is not int
         or attempt < 1
     ):
         raise ValueError("Baseline identity does not match this comparison")
+    if key != artifact_key(
+        inputs, identity["harness"], identity["native_image"], identity["test_image"]
+    ):
+        raise ValueError(
+            "Baseline harness or image identities differ from this comparison"
+        )
     run = api.request(f"actions/runs/{run_id}/attempts/{attempt}")
     if (
         run["repository"]["full_name"] != api.repository
@@ -248,39 +362,64 @@ def verify_source(api, artifact, identity, key, tree, branch):
     ):
         raise ValueError("Baseline is not from a completed Iceberg workflow")
     tested = api.tree(identity["revision"])
-    if tested["tree"]["sha"] != tree:
-        raise ValueError("Baseline tested tree differs from the base tree")
+    tree = tested["tree"]["sha"]
+    if identity.get("tree") != tree or api.inputs(tree) != inputs:
+        raise ValueError("Baseline tested inputs differ from the base inputs")
+    harness = api.tree(identity["harness_revision"])
     if run["event"] == "pull_request":
         number = identity.get("pull_request")
         if type(number) is not int or number < 1:
             raise ValueError("Baseline has no source pull request")
         pr = api.request(f"pulls/{number}")
         if (
-            not pr["merged"]
-            or pr["base"]["repo"]["full_name"] != api.repository
+            pr["base"]["repo"]["full_name"] != api.repository
             or pr["base"]["ref"] != branch
-            or pr["head"]["sha"] != run["head_sha"]
             or (pr["head"].get("repo") or {}).get("full_name")
             != (run.get("head_repository") or {}).get("full_name")
-            or len(tested["parents"]) != 2
-            or tested["parents"][1]["sha"] != run["head_sha"]
+            or len(harness["parents"]) != 2
+            or harness["parents"][1]["sha"] != run["head_sha"]
         ):
-            raise ValueError("Baseline was not tested at the merged PR's final head")
-        if api.tree(pr["merge_commit_sha"])["tree"]["sha"] != tree:
-            raise ValueError("PR merged different code than the saved test run")
-    elif (
-        run["event"] not in ("schedule", "workflow_dispatch")
-        or run["head_branch"] != branch
-        or run["head_repository"]["full_name"] != api.repository
-        or run["head_sha"] != identity["revision"]
-    ):
-        raise ValueError("Baseline is not a merged PR or a target-branch run")
+            raise ValueError(
+                "Baseline harness is not from a PR run for the target branch"
+            )
+        if identity["kind"] == "base":
+            # A base result tests the first parent of this run's merge checkout
+            # under its harness. The PR need not be merged or its head successful.
+            if harness["parents"][0]["sha"] != identity["revision"]:
+                raise ValueError("Baseline did not test the PR run's base revision")
+        else:
+            if (
+                not pr["merged"]
+                or pr["head"]["sha"] != run["head_sha"]
+                or identity["harness_revision"] != identity["revision"]
+            ):
+                raise ValueError(
+                    "Baseline was not tested at the merged PR's final head"
+                )
+            if api.tree(pr["merge_commit_sha"])["tree"]["sha"] != tree:
+                raise ValueError("PR merged different code than the saved test run")
+    else:
+        if (
+            run["event"] not in ("schedule", "workflow_dispatch")
+            or run["head_branch"] != branch
+            or run["head_repository"]["full_name"] != api.repository
+            or run["head_sha"] != identity["harness_revision"]
+        ):
+            raise ValueError("Baseline is not a merged PR or a target-branch run")
+        expected = (
+            harness["parents"][0]["sha"]
+            if identity["kind"] == "base"
+            else run["head_sha"]
+        )
+        if identity["revision"] != expected:
+            raise ValueError("Baseline did not test the target-branch run's revision")
+    verify_jobs(api, identity)
 
 
 def restore(directory, key, revision, branch, api):
-    tree = api.tree(revision)["tree"]["sha"]
-    if not key.startswith("iceberg-baseline-v2-" + tree + "-"):
-        raise ValueError("Baseline key does not identify the base tree")
+    inputs = git_inputs(revision)
+    if not key.startswith("iceberg-baseline-v3-" + inputs + "-"):
+        raise ValueError("Baseline key does not identify the base inputs")
     errors = []
     page = 1
     while True:
@@ -293,9 +432,16 @@ def restore(directory, key, revision, branch, api):
                 identity, report = read_artifact(
                     api.request(f"actions/artifacts/{artifact['id']}/zip", binary=True)
                 )
-                verify_source(api, artifact, identity, key, tree, branch)
+                verify_source(api, artifact, identity, key, inputs, branch)
                 index(report)
-            except (ValueError, KeyError, OSError, zipfile.BadZipFile) as error:
+            except (
+                ValueError,
+                KeyError,
+                TypeError,
+                IndexError,
+                OSError,
+                zipfile.BadZipFile,
+            ) as error:
                 errors.append(f"Artifact {artifact['id']}: {error}")
                 continue
             directory.mkdir(parents=True, exist_ok=True)
@@ -333,6 +479,9 @@ if __name__ == "__main__":
     parser.add_argument("--harness", type=Path)
     parser.add_argument("--key")
     parser.add_argument("--branch")
+    parser.add_argument("--kind", choices=("head", "base"))
+    parser.add_argument("--native-image")
+    parser.add_argument("--test-image")
     args = parser.parse_args()
     if args.mode == "overlay":
         if args.directory is None or args.harness is None:
@@ -351,14 +500,23 @@ if __name__ == "__main__":
         print("test_image=" + test)
         print(
             "baseline_key="
-            + artifact_key(git_tree(args.revision), harness, native, test)
+            + artifact_key(git_inputs(args.revision), harness, native, test)
         )
-        print("head_key=" + artifact_key(git_tree("HEAD"), harness, native, test))
+        print("head_key=" + artifact_key(git_inputs("HEAD"), harness, native, test))
     else:
         if args.directory is None or args.key is None:
             parser.error("record/restore require --directory and --key")
         if args.mode == "record":
-            record(args.directory, args.key, args.revision)
+            if not all((args.kind, args.native_image, args.test_image)):
+                parser.error("record requires --kind, --native-image and --test-image")
+            record(
+                args.directory,
+                args.key,
+                args.revision,
+                args.kind,
+                args.native_image,
+                args.test_image,
+            )
         else:
             if not args.branch:
                 parser.error("restore requires --branch")

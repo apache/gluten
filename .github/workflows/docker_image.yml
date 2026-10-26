@@ -382,6 +382,11 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,"name=${{ env.DOCKERHUB_REPO }}",push-by-digest=true,push=true
 
+      - name: Verify CI tools in the published image
+        env:
+          IMAGE: ${{ env.DOCKERHUB_REPO }}@${{ steps.build.outputs.digest }}
+        run: docker run --rm "$IMAGE" bash /usr/local/bin/verify-native-ci-tools
+
       - name: Export digest
         run: |
           mkdir -p ${{ runner.temp }}/digests
