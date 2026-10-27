@@ -26,6 +26,33 @@ import org.apache.spark.sql.types.{IntegerType, MapType, StringType, StructField
 class GlutenDataFrameFunctionsSuite extends DataFrameFunctionsSuite with GlutenSQLTestsTrait {
   import testImplicits._
 
+  // Same as the Spark test, without the check that the query runs in whole-stage codegen:
+  // Gluten offloads the query to Velox, so the plan has no WholeStageCodegenExec.
+  testGluten("array_join with nullable nullReplacement under whole-stage codegen") {
+    withTempView("array_join_codegen") {
+      Seq(
+        (Seq[String]("a", null, "b"), ",", "NR"),
+        (Seq[String]("a", null, "b"), ",", null),
+        (Seq[String]("x", "y"), "-", "NR")
+      ).toDF("arr", "delim_col", "repl_col").createOrReplaceTempView("array_join_codegen")
+      spark.catalog.cacheTable("array_join_codegen")
+
+      val query =
+        "SELECT array_join(arr, delim_col, repl_col) FROM array_join_codegen " +
+          "WHERE arr IS NOT NULL AND delim_col IS NOT NULL"
+
+      withSQLConf(SQLConf.CODEGEN_FACTORY_MODE.key -> "CODEGEN_ONLY") {
+        checkAnswer(sql(query), Seq(Row("a,NR,b"), Row(null), Row("x-y")))
+      }
+
+      withSQLConf(
+        SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "false",
+        SQLConf.CODEGEN_FACTORY_MODE.key -> "NO_CODEGEN") {
+        checkAnswer(sql(query), Seq(Row("a,NR,b"), Row(null), Row("x-y")))
+      }
+    }
+  }
+
   testGluten("map with arrays") {
     val df1 = Seq((Seq(1, 2), Seq("a", "b"))).toDF("k", "v")
     val expectedType = MapType(IntegerType, StringType, valueContainsNull = true)
