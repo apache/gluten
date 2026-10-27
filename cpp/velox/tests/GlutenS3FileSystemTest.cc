@@ -62,9 +62,10 @@ TEST(GlutenS3FileSystemTest, extractsAsyncUploadConfigs) {
 
   const auto hiveConfig = createHiveConnectorConfig(config, FileSystemType::kS3);
 
-  EXPECT_EQ(hiveConfig->get<std::string>("hive.s3.part-upload-async"), "true");
-  EXPECT_EQ(hiveConfig->get<std::string>("hive.s3.max-concurrent-upload-num"), "8");
-  EXPECT_EQ(hiveConfig->get<std::string>("hive.s3.upload-threads"), "32");
+  const std::string prefix = filesystems::S3Config::kS3Prefix;
+  EXPECT_EQ(hiveConfig->get<std::string>(prefix + "part-upload-async"), "true");
+  EXPECT_EQ(hiveConfig->get<std::string>(prefix + "max-concurrent-upload-num"), "8");
+  EXPECT_EQ(hiveConfig->get<std::string>(prefix + "upload-threads"), "32");
 }
 
 } // namespace

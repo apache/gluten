@@ -355,7 +355,6 @@ object MetricsUtil extends Logging {
       mutNode: MetricsUpdaterTree,
       relMap: JMap[JLong, JList[JLong]],
       operatorIdx: JLong,
-      metrics: Metrics,
       nativeMetrics: JArrayList[OperatorMetrics],
       metricsIdx: Int,
       joinParamsMap: JMap[JLong, JoinParams],
@@ -380,7 +379,7 @@ object MetricsUtil extends Logging {
           p.postProjectionNeeded = false
           p
         }
-        smj.updateJoinMetrics(operatorMetrics, metrics.getSingleMetrics, joinParams)
+        smj.updateJoinMetrics(operatorMetrics, joinParams)
       case ju: JoinMetricsUpdaterBase =>
         // JoinRel and CrossRel output two suites of metrics respectively for build and probe.
         // Therefore, fetch one more suite of metrics here.
@@ -391,7 +390,7 @@ object MetricsUtil extends Logging {
           p.postProjectionNeeded = false
           p
         }
-        ju.updateJoinMetrics(operatorMetrics, metrics.getSingleMetrics, joinParams)
+        ju.updateJoinMetrics(operatorMetrics, joinParams)
       case u: UnionMetricsUpdater =>
         // Union outputs two suites of metrics respectively.
         // Therefore, fetch one more suite of metrics here.
@@ -431,7 +430,6 @@ object MetricsUtil extends Logging {
           child,
           relMap,
           newOperatorIdx,
-          metrics,
           nativeMetrics,
           newMetricsIdx,
           joinParamsMap,
@@ -480,7 +478,6 @@ object MetricsUtil extends Logging {
           mutNode,
           relMap,
           operatorIdx,
-          metrics,
           nativeMetrics,
           numNativeMetrics - 1,
           joinParamsMap,

@@ -58,7 +58,17 @@ VELOX:
           - 'gluten-arrow/**/*'
           - 'backends-velox/**/*'
           - 'ep/build-velox/**/*'
+      - all-globs-to-any-file:
           - 'cpp/**/*'
+          - '!cpp/bolt/**/*'
+
+BOLT:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'backends-bolt/**/*'
+      - all-globs-to-any-file:
+          - 'cpp/**/*'
+          - '!cpp/velox/**/*'
 
 CLICKHOUSE:
   - changed-files:

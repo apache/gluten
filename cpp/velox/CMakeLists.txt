@@ -75,7 +75,7 @@ if(NOT DEFINED VELOX_BUILD_PATH)
   endif()
 endif()
 
-find_package(Roaring REQUIRED)
+find_package(Roaring MODULE REQUIRED)
 set(GLUTEN_ROARING_LINK_LIBRARY roaring)
 
 set(VELOX_PROTO_SRC_DIR
@@ -169,13 +169,13 @@ set(VELOX_SRCS
     compute/iceberg/IcebergPlanConverter.cc
     jni/JniFileSystem.cc
     jni/JniUdf.cc
-    jni/VeloxJniWrapper.cc
     jni/JniHashTable.cc
     memory/BufferOutputStream.cc
     memory/VeloxColumnarBatch.cc
     memory/VeloxMemoryManager.cc
     operators/functions/RegistrationAllFunctions.cc
     operators/functions/delta/DeltaBitmapAggregator.cc
+    operators/functions/overlay/GetMapValue.cc
     operators/functions/overlay/RegisterFunctionOverlay.cc
     operators/functions/RowConstructorWithNull.cc
     operators/functions/SparkExprToSubfieldFilterParser.cc
@@ -219,6 +219,11 @@ if(ENABLE_S3)
   find_package(ZLIB)
 endif()
 
+if(ENABLE_KAFKA)
+  list(APPEND VELOX_SRCS operators/reader/KafkaDataSource.cc
+       operators/reader/KafkaConnector.cc)
+endif()
+
 if(ENABLE_GPU)
   list(
     APPEND
@@ -245,7 +250,15 @@ if(BUILD_TEST_UTILS)
        tests/utils/TestAllocationListener.cc)
 endif()
 
-add_library(velox SHARED ${VELOX_SRCS})
+add_library(gluten_velox_impl OBJECT ${VELOX_SRCS})
+set_target_properties(gluten_velox_impl PROPERTIES POSITION_INDEPENDENT_CODE ON)
+add_library(velox SHARED jni/VeloxJniWrapper.cc)
+target_link_libraries(velox PUBLIC gluten_velox_impl gluten)
+
+if(ENABLE_GLUTEN_VCPKG)
+  find_package(xxHash CONFIG REQUIRED)
+  target_link_libraries(gluten_velox_impl PUBLIC xxHash::xxhash)
+endif()
 
 # Keep ABI sensitive Velox feature macros in sync
 set(GLUTEN_VELOX_CMAKE_CACHE "${VELOX_BUILD_PATH}/CMakeCache.txt")
@@ -255,7 +268,7 @@ if(NOT GLUTEN_VELOX_ENABLE_PARQUET AND EXISTS "${GLUTEN_VELOX_CMAKE_CACHE}")
        REGEX "^VELOX_ENABLE_PARQUET:BOOL=(ON|TRUE|1)$")
 endif()
 if(GLUTEN_VELOX_ENABLE_PARQUET)
-  target_compile_definitions(velox PRIVATE VELOX_ENABLE_PARQUET)
+  target_compile_definitions(gluten_velox_impl PRIVATE VELOX_ENABLE_PARQUET)
   message(STATUS "Propagating VELOX_ENABLE_PARQUET to Gluten Velox backend")
 endif()
 
@@ -286,10 +299,10 @@ add_custom_target(velox_jni_proto ALL DEPENDS ${SUBSTRAIT_PROTO_OUTPUT_FILES}
                                               ${VELOX_PROTO_OUTPUT_FILES})
 add_dependencies(velox_jni_proto protobuf::libprotobuf)
 
-add_dependencies(velox velox_jni_proto)
+add_dependencies(gluten_velox_impl velox_jni_proto)
 
 target_include_directories(
-  velox
+  gluten_velox_impl
   PUBLIC ${CMAKE_SYSTEM_INCLUDE_PATH}
          ${JNI_INCLUDE_DIRS}
          ${VELOX_BUILD_PATH}
@@ -298,7 +311,8 @@ target_include_directories(
          ${PROTO_OUTPUT_DIR}
          ${PROTOBUF_INCLUDE})
 if(GLUTEN_PREFIX_INCLUDE_DIRS)
-  target_include_directories(velox BEFORE PUBLIC ${GLUTEN_PREFIX_INCLUDE_DIRS})
+  target_include_directories(gluten_velox_impl BEFORE
+                             PUBLIC ${GLUTEN_PREFIX_INCLUDE_DIRS})
 endif()
 
 set_target_properties(velox PROPERTIES LIBRARY_OUTPUT_DIRECTORY
@@ -312,13 +326,14 @@ if(ENABLE_JEMALLOC_STATS)
     build_jemalloc()
   endif()
   add_definitions(-DENABLE_JEMALLOC_STATS)
-  target_link_libraries(velox PUBLIC jemalloc::jemalloc)
+  target_link_libraries(gluten_velox_impl PUBLIC jemalloc::jemalloc)
 endif()
 
-target_link_libraries(velox PUBLIC gluten)
+target_link_libraries(gluten_velox_impl PUBLIC gluten_core_impl)
 
 # Requires VELOX_MONO_LIBRARY=ON when building Velox.
 import_library(facebook::velox ${VELOX_BUILD_PATH}/lib/libvelox.a)
+target_link_libraries(facebook::velox INTERFACE Arrow::arrow)
 set(GLUTEN_VELOX_LINK_SCOPE PUBLIC)
 if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
   set(GLUTEN_VELOX_LINK_SCOPE PRIVATE)
@@ -336,6 +351,7 @@ if(BUILD_TESTS)
   import_library(
     facebook::velox::vector_test_lib
     ${VELOX_BUILD_PATH}/velox/vector/tests/utils/libvelox_vector_test_lib.a)
+  target_link_libraries(facebook::velox::vector_test_lib INTERFACE GTest::gtest)
   import_library(
     facebook::velox::dwio_common_test
     ${VELOX_BUILD_PATH}/velox/dwio/common/tests/utils/libvelox_dwio_common_test_utils.a
@@ -344,22 +360,45 @@ if(BUILD_TESTS)
     facebook::velox::file_test_utils
     ${VELOX_BUILD_PATH}/velox/common/file/tests/libvelox_file_test_utils.a)
   import_library(
+    facebook::velox::vector_fuzzer_util
+    ${VELOX_BUILD_PATH}/velox/vector/fuzzer/libvelox_vector_fuzzer_util.a)
+  import_library(
+    facebook::velox::constrained_vector_generator
+    ${VELOX_BUILD_PATH}/velox/vector/fuzzer/libvelox_constrained_vector_generator.a
+  )
+  target_link_libraries(facebook::velox::constrained_vector_generator
+                        INTERFACE facebook::velox::vector_fuzzer_util)
+  import_library(
+    facebook::velox::vector_fuzzer
+    ${VELOX_BUILD_PATH}/velox/vector/fuzzer/libvelox_vector_fuzzer.a)
+  target_link_libraries(
+    facebook::velox::vector_fuzzer
+    INTERFACE facebook::velox::vector_fuzzer_util
+              facebook::velox::constrained_vector_generator)
+  import_library(
     facebook::velox::exec_test_lib
     ${VELOX_BUILD_PATH}/velox/exec/tests/utils/libvelox_exec_test_lib.a)
   target_link_libraries(
     facebook::velox::exec_test_lib
-    INTERFACE facebook::velox::vector_test_lib
+    INTERFACE facebook::velox::vector_test_lib facebook::velox::vector_fuzzer
               facebook::velox::dwio_common_test
               facebook::velox::file_test_utils)
-  target_link_libraries(velox PUBLIC facebook::velox::exec_test_lib)
+  set(GLUTEN_VELOX_TEST_LIBRARIES facebook::velox::exec_test_lib)
 endif()
 
-target_link_libraries(velox ${GLUTEN_VELOX_LINK_SCOPE} facebook::velox)
+target_link_libraries(gluten_velox_impl ${GLUTEN_VELOX_LINK_SCOPE}
+                      facebook::velox)
 
-target_link_libraries(velox PUBLIC ${GLUTEN_ROARING_LINK_LIBRARY})
+target_link_libraries(gluten_velox_impl PUBLIC ${GLUTEN_ROARING_LINK_LIBRARY})
 
 find_re2()
-target_link_libraries(velox PUBLIC ${RE2_LIBRARY})
+target_link_libraries(gluten_velox_impl PUBLIC ${RE2_LIBRARY})
+
+if(ENABLE_GLUTEN_VCPKG)
+  # FBThrift -> mvfst -> fizz -> OpenSSL; with VCPKG_DYNAMIC_OPENSSL=ON vcpkg
+  # only provides libssl.so/libcrypto.so, so resolve it before forcing ".a".
+  find_package(OpenSSL REQUIRED)
+endif()
 
 set(CMAKE_FIND_LIBRARY_SUFFIXES_BCK ${CMAKE_FIND_LIBRARY_SUFFIXES})
 set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
@@ -375,7 +414,7 @@ else()
     external::stemmer
     ${VELOX_BUILD_PATH}/_deps/libstemmer/src/libstemmer/libstemmer.a)
 endif()
-target_link_libraries(velox PUBLIC external::stemmer)
+target_link_libraries(gluten_velox_impl PUBLIC external::stemmer)
 
 find_package(geos)
 if(geos_FOUND AND TARGET GEOS::geos)
@@ -384,7 +423,7 @@ else()
   message(STATUS "import Velox bundled geos")
   import_library(external::geos ${VELOX_BUILD_PATH}/lib/libgeos.a)
 endif()
-target_link_libraries(velox PUBLIC external::geos)
+target_link_libraries(gluten_velox_impl PUBLIC external::geos)
 
 find_package(veloxthrift CONFIG)
 if(veloxthrift_FOUND AND TARGET veloxthrift::veloxthrift)
@@ -396,7 +435,7 @@ else()
     ${VELOX_BUILD_PATH}/velox/dwio/parquet/thrift/libvelox_dwio_parquet_thrift_raw.a
   )
 endif()
-target_link_libraries(velox PUBLIC external::veloxthrift)
+target_link_libraries(gluten_velox_impl PUBLIC external::veloxthrift)
 
 # If folly is not installed in system lib paths, please add
 # `-DCMAKE_PREFIX_PATH="${folly lib path}" to cmake arguments. It is also
@@ -420,32 +459,12 @@ if(CMAKE_SYSTEM_NAME MATCHES "Darwin" AND TARGET gflags_shared)
     endif()
   endforeach()
 endif()
-target_link_libraries(velox PUBLIC Folly::folly)
+target_link_libraries(gluten_velox_impl PUBLIC Folly::folly)
 
 # Link thrift libraries - check vcpkg first, then fall back to system libraries
-# Determine vcpkg triplet directory based on architecture
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)")
-  set(VCPKG_TRIPLET_DIR "x64-linux-avx")
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(aarch64)|(arm64)")
-  set(VCPKG_TRIPLET_DIR "arm64-linux-neon")
-else()
-  message(
-    WARNING
-      "Unknown processor type for vcpkg: ${CMAKE_SYSTEM_PROCESSOR}, defaulting to x64-linux-avx"
-  )
-  set(VCPKG_TRIPLET_DIR "x64-linux-avx")
-endif()
-
-if(DEFINED VCPKG_INSTALLED_DIR
-   AND EXISTS "${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftcpp2.a")
-  message(
-    STATUS
-      "Using vcpkg thrift libraries from ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}"
-  )
-  target_link_libraries(
-    velox
-    PRIVATE ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftcpp2.a
-            ${VCPKG_INSTALLED_DIR}/${VCPKG_TRIPLET_DIR}/lib/libthriftprotocol.a)
+if(ENABLE_GLUTEN_VCPKG)
+  find_package(FBThrift CONFIG REQUIRED)
+  target_link_libraries(gluten_velox_impl PUBLIC FBThrift::thriftcpp2)
 else()
   set(THRIFT_LIBRARY_DIRS)
   if(CMAKE_INSTALL_PREFIX)
@@ -470,7 +489,8 @@ else()
     NO_DEFAULT_PATH)
 
   if(THRIFTCPP2_LIB AND THRIFTPROTOCOL_LIB)
-    target_link_libraries(velox PRIVATE ${THRIFTCPP2_LIB} ${THRIFTPROTOCOL_LIB})
+    target_link_libraries(gluten_velox_impl PRIVATE ${THRIFTCPP2_LIB}
+                                                    ${THRIFTPROTOCOL_LIB})
   else()
     message(
       FATAL_ERROR
@@ -480,14 +500,57 @@ endif()
 
 find_package(simdjson CONFIG)
 if(simdjson_FOUND AND TARGET simdjson::simdjson)
-  target_link_libraries(velox PUBLIC simdjson::simdjson)
+  target_link_libraries(gluten_velox_impl PUBLIC simdjson::simdjson)
 else()
   import_library(external::simdjson
                  ${VELOX_BUILD_PATH}/_deps/simdjson-build/libsimdjson.a)
-  target_link_libraries(velox PUBLIC external::simdjson)
+  target_link_libraries(gluten_velox_impl PUBLIC external::simdjson)
 endif()
 
+# Restore the platform's default suffixes before looking for optional dynamic
+# dependencies such as librdkafka.
 set(CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES_BCK})
+
+# Find and link librdkafka for Kafka streaming support
+if(ENABLE_KAFKA)
+  target_compile_definitions(gluten_velox_impl PUBLIC ENABLE_KAFKA)
+  # Native tests link the implementation target directly and use both Kafka
+  # APIs.
+  find_package(RdKafka CONFIG QUIET)
+  if(RdKafka_FOUND
+     AND TARGET RdKafka::rdkafka++
+     AND TARGET RdKafka::rdkafka)
+    message(STATUS "Found RdKafka: ${RdKafka_DIR}")
+    target_link_libraries(gluten_velox_impl PUBLIC RdKafka::rdkafka++
+                                                   RdKafka::rdkafka)
+  else()
+    # Link the C++ client and C mock API.
+    find_package(PkgConfig QUIET)
+    if(PKG_CONFIG_FOUND)
+      pkg_check_modules(RDKAFKA QUIET IMPORTED_TARGET rdkafka++ rdkafka)
+      if(RDKAFKA_FOUND)
+        message(STATUS "Found librdkafka via pkg-config: ${RDKAFKA_LIBRARIES}")
+        target_link_libraries(gluten_velox_impl PUBLIC PkgConfig::RDKAFKA)
+      else()
+        message(
+          FATAL_ERROR
+            "Kafka is enabled, but librdkafka (C/C++) was not found.\n"
+            "Install it: ./dev/builddeps-veloxbe.sh install_librdkafka\n"
+            "For an existing install, set RdKafka_DIR, CMAKE_PREFIX_PATH or PKG_CONFIG_PATH.\n"
+            "Disable Kafka with --enable_kafka=OFF (script) or -DENABLE_KAFKA=OFF (CMake)."
+        )
+      endif()
+    else()
+      message(
+        FATAL_ERROR
+          "librdkafka was not found through CMake, and pkg-config is unavailable.\n"
+          "Install it: ./dev/builddeps-veloxbe.sh install_librdkafka\n"
+          "For an existing install, set RdKafka_DIR or CMAKE_PREFIX_PATH.\n"
+          "Disable Kafka with --enable_kafka=OFF (script) or -DENABLE_KAFKA=OFF (CMake)."
+      )
+    endif()
+  endif()
+endif()
 
 # Adopted from Velox's CMakeLists.txt.
 # https://github.com/facebookincubator/velox/pull/11410
@@ -509,7 +572,7 @@ find_package(
   ICU
   COMPONENTS i18n uc data
   REQUIRED)
-target_link_libraries(velox PUBLIC ICU::i18n ICU::uc ICU::data)
+target_link_libraries(gluten_velox_impl PUBLIC ICU::i18n ICU::uc ICU::data)
 
 if(BUILD_TESTS)
   add_subdirectory(compute/delta/tests)
@@ -527,21 +590,22 @@ endif()
 if(ENABLE_S3)
   add_definitions(-DENABLE_S3)
   find_awssdk()
-  target_link_libraries(velox PUBLIC ${AWSSDK_LIBRARIES})
+  target_link_libraries(gluten_velox_impl PUBLIC ${AWSSDK_LIBRARIES})
 endif()
 
 if(ENABLE_GCS)
   add_definitions(-DENABLE_GCS)
   find_gcssdk()
-  target_link_libraries(velox PUBLIC google-cloud-cpp::storage)
+  target_link_libraries(gluten_velox_impl PUBLIC google-cloud-cpp::storage)
 endif()
 
 if(ENABLE_ABFS)
   add_definitions(-DENABLE_ABFS)
   find_azure()
-  target_link_libraries(velox PUBLIC Azure::azure-storage-blobs)
-  target_link_libraries(velox PUBLIC Azure::azure-storage-files-datalake)
-  target_link_libraries(velox PUBLIC Azure::azure-identity)
+  target_link_libraries(gluten_velox_impl PUBLIC Azure::azure-storage-blobs)
+  target_link_libraries(gluten_velox_impl
+                        PUBLIC Azure::azure-storage-files-datalake)
+  target_link_libraries(gluten_velox_impl PUBLIC Azure::azure-identity)
 endif()
 
 if(BUILD_EXAMPLES)
@@ -582,7 +646,7 @@ if(ENABLE_GPU)
   )
 
   target_compile_definitions(
-    velox PRIVATE LIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE)
+    gluten_velox_impl PRIVATE LIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE)
 
   add_library(velox_curl SHARED IMPORTED GLOBAL)
   set_target_properties(
@@ -590,7 +654,7 @@ if(ENABLE_GPU)
                           ${VELOX_BUILD_PATH}/_deps/curl-build/lib/libcurl.so)
 
   target_link_libraries(
-    velox
+    gluten_velox_impl
     PUBLIC facebook::velox::velox_cudf_exec
            facebook::velox::velox_cudf_vector
            facebook::velox::velox_cudf_iceberg_connector

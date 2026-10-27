@@ -52,6 +52,7 @@
 #include <Storages/SubstraitSource/SubstraitFileSource.h>
 #include <Storages/SubstraitSource/SubstraitFileSourceStep.h>
 #include <google/protobuf/wrappers.pb.h>
+#include <magic_enum.hpp>
 #include <Common/BlockTypeUtils.h>
 #include <Common/DebugUtils.h>
 #include <Common/Exception.h>
@@ -59,6 +60,15 @@
 #include <Common/PlanUtil.h>
 #include <Common/logger_useful.h>
 #include <Common/typeid_cast.h>
+
+/// Gluten's own relations sit at 1000+ in the Rel oneof, past magic_enum's default reflection range,
+/// so widen it to keep their metric names (e.g. kGenerate, kWindowGroupLimit).
+template <>
+struct magic_enum::customize::enum_range<substrait::Rel::RelTypeCase>
+{
+    static constexpr int min = 0;
+    static constexpr int max = 1001;
+};
 
 namespace DB
 {
@@ -270,6 +280,12 @@ QueryPlanPtr SerializedPlanParser::parseOp(const substrait::Rel & rel, std::list
         }
         else if (read_rel_parser->isReadFromStreamKafka(read))
         {
+            /// Unlike MergeTree/Range above, a Kafka read is *identified* by an in-plan extension_table
+            /// (its detail's type_url is gluten.StreamKafka), so has_extension_table() is always true here
+            /// yet the real per-partition payload still rides split-info -- we must consume a split
+            /// unconditionally. Do NOT add a `!read.has_extension_table()` guard like the siblings have:
+            /// that would stop split_info_index from advancing and hand later leaves the wrong split.
+            chassert(read.has_extension_table());
             read_rel_parser->setSplitInfo(nextSplitInfo());
         }
     }

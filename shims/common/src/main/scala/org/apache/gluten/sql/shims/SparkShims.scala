@@ -89,6 +89,19 @@ trait SparkShims {
    */
   def isEmptyRelationExec(plan: SparkPlan): Boolean = false
 
+  /**
+   * The seed of a [[SampleExec]]. Spark 4.2 (SPARK-53564) made the seed optional and resolves it
+   * lazily via `resolvedSeed`, so the accessor is shimmed per version.
+   */
+  def getSampleSeed(plan: SampleExec): Long
+
+  /**
+   * Whether the partitioning is Spark's storage-partitioned-join partitioning. Spark 4.2
+   * (SPARK-53401) renamed `KeyGroupedPartitioning` to `KeyedPartitioning`, so the type test is
+   * shimmed per version.
+   */
+  def isKeyGroupedPartitioning(partitioning: Partitioning): Boolean
+
   def getWindowGroupLimitExecShim(plan: SparkPlan): WindowGroupLimitExecShim = null
 
   def getWindowGroupLimitExec(windowGroupLimitExecShim: WindowGroupLimitExecShim): SparkPlan = null

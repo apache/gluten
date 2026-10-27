@@ -20,6 +20,14 @@ set(ARROW_STATIC_LIBRARY_SUFFIX ".a")
 set(ARROW_LIB_NAME "arrow")
 set(ARROW_BUNDLED_DEPS "arrow_bundled_dependencies")
 
+if(ENABLE_GLUTEN_VCPKG)
+  find_package(Arrow CONFIG REQUIRED)
+  if(NOT TARGET Arrow::arrow)
+    add_library(Arrow::arrow INTERFACE IMPORTED)
+    target_link_libraries(Arrow::arrow INTERFACE Arrow::arrow_static)
+  endif()
+endif()
+
 set(ARROW_INSTALL_DIR "${ARROW_HOME}/install")
 set(ARROW_LIB_DIR "${ARROW_INSTALL_DIR}/lib")
 set(ARROW_LIB64_DIR "${ARROW_INSTALL_DIR}/lib64")
@@ -28,7 +36,7 @@ function(FIND_ARROW_LIB LIB_NAME)
   if(NOT TARGET Arrow::${LIB_NAME})
     set(ARROW_LIB_FULL_NAME
         ${CMAKE_SHARED_LIBRARY_PREFIX}${LIB_NAME}${ARROW_STATIC_LIBRARY_SUFFIX})
-    add_library(Arrow::${LIB_NAME} STATIC IMPORTED)
+    add_library(Arrow::${LIB_NAME} STATIC IMPORTED GLOBAL)
     # Firstly find the lib from bundled path in Velox. If not found, try to find
     # it from system.
     find_library(

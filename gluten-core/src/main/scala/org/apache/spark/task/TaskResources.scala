@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 import scala.collection.mutable
 import scala.compat.Platform.ConcurrentModificationException
+import scala.util.control.NonFatal
 
 object TaskResources extends TaskListener with Logging {
   // And open java assert mode to get memory stack
@@ -216,17 +217,42 @@ object TaskResources extends TaskListener with Logging {
         })
       tc.addTaskCompletionListener(new TaskCompletionListener {
         override def onTaskCompletion(context: TaskContext): Unit = {
-          RESOURCE_REGISTRIES.synchronized {
-            val currentTaskRegistries = RESOURCE_REGISTRIES.get(context)
-            if (currentTaskRegistries == null) {
+          val currentTaskRegistries = RESOURCE_REGISTRIES.synchronized {
+            val r = RESOURCE_REGISTRIES.get(context)
+            if (r == null) {
               throw new IllegalStateException(
                 "TaskResourceRegistry is not initialized, this should not happen")
             }
-            // We should first call `releaseAll` then remove the registries, because
-            // the functions inside registries may register new resource to registries.
+            r
+          }
+          // Release outside the JVM-global RESOURCE_REGISTRIES lock: the release callbacks
+          // do native teardown (ms-scale), and holding the lock across them serializes every
+          // other task's completion and registration. The registry is per-task with its own
+          // internal lock, so the map is the only state that needs the global lock.
+          // Take the usage recorder first: releaseAll marks the registry released, after
+          // which the registry rejects every call, getSharedUsage included.
+          val sharedUsage = currentTaskRegistries.getSharedUsage()
+          try {
             currentTaskRegistries.releaseAll()
-            context.taskMetrics().incPeakExecutionMemory(registry.getSharedUsage().peak())
-            RESOURCE_REGISTRIES.remove(context)
+          } finally {
+            // Remove the map entry even if releaseAll or the metrics update throws, or the
+            // registry leaks across tasks. Metrics is best-effort so it cannot mask a
+            // releaseAll failure propagating from the outer try.
+            try {
+              context
+                .taskMetrics()
+                .incPeakExecutionMemory(sharedUsage.peak())
+            } catch {
+              case NonFatal(e) =>
+                logWarning("Failed to record peak execution memory", e)
+            } finally {
+              RESOURCE_REGISTRIES.synchronized {
+                // Remove only if the map still points at the registry we released.
+                if (RESOURCE_REGISTRIES.get(context) eq currentTaskRegistries) {
+                  RESOURCE_REGISTRIES.remove(context)
+                }
+              }
+            }
           }
         }
       })
@@ -254,8 +280,15 @@ class TaskResourceRegistry extends Logging {
     mutable.Map.empty[Int, mutable.LinkedHashSet[TaskResource]]
 
   private var exclusiveLockAcquired: Boolean = false
+  // Set once releaseAll has run. The completion listener releases outside the global
+  // registry lock, so a thread that fetched this registry before the map entry is
+  // removed must fail here rather than register a resource nothing will release.
+  private var released: Boolean = false
   private def lock[T](body: => T): T = {
     synchronized {
+      if (released) {
+        throw new IllegalStateException("TaskResourceRegistry is already released")
+      }
       if (exclusiveLockAcquired) {
         throw new ConcurrentModificationException
       }
@@ -290,12 +323,57 @@ class TaskResourceRegistry extends Logging {
 
   /** Release all managed resources according to priority and reversed order */
   private[task] def releaseAll(): Unit = lock {
+    // Mark released on every exit: a fatal throwable from a release callback skips the rest
+    // of the pass, but the completion listener still removes the map entry.
+    try releaseAll0()
+    finally released = true
+  }
+
+  private def releaseAll0(): Unit = {
+    val failures = mutable.ArrayBuffer.empty[Throwable]
+    def safeResourceName(resource: TaskResource): String =
+      try resource.resourceName()
+      catch {
+        // Best-effort log label only: catch everything, including fatal errors, so a
+        // throwing resourceName() can never abort the release loop before the remaining
+        // resources are freed and the maps are cleared. Fatal errors from release()
+        // itself are still left to propagate (see the NonFatal handler below).
+        case _: Throwable => s"resource@${System.identityHashCode(resource)}"
+      }
     priorityToResourcesMapping.toSeq.sortBy(-_._1).foreach {
       case (_, resources) =>
-        resources.toSeq.reverse.foreach(release)
+        resources.toSeq.reverse.foreach {
+          resource =>
+            try release(resource)
+            catch {
+              case e: InterruptedException =>
+                // The catch cleared the interrupt status; restore it so task
+                // cancellation still propagates, then record and keep releasing so
+                // the remaining resources are freed and the registry is cleared.
+                Thread.currentThread().interrupt()
+                failures += e
+                logError(s"Interrupted while releasing resource ${safeResourceName(resource)}", e)
+              case NonFatal(e) =>
+                // One failing release must not skip the remaining ones or leave the
+                // registry uncleared; record the failure and rethrow it after the
+                // loop so callers still see the error. Fatal throwables are left to
+                // propagate immediately.
+                failures += e
+                logError(s"Failed to release resource ${safeResourceName(resource)}", e)
+            }
+        }
     }
     priorityToResourcesMapping.clear()
     resources.clear()
+    failures.headOption.foreach {
+      failure =>
+        // Keep the remaining failures attached; the logs are the only other
+        // record and may be swallowed by the completion-listener machinery.
+        // Skip entries identical to `failure` by reference: addSuppressed throws
+        // IllegalArgumentException on self-suppression.
+        failures.tail.filterNot(_ eq failure).foreach(failure.addSuppressed)
+        throw failure
+    }
   }
 
   /** Release single resource by ID */

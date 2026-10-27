@@ -18,9 +18,11 @@ package org.apache.gluten.functions
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.{BatchScanExecTransformer, FilterExecTransformer, ProjectExecTransformer}
+import org.apache.gluten.expression.FormatNumberRestrictions
+import org.apache.gluten.extension.columnar.FallbackTags
 
 import org.apache.spark.SparkException
-import org.apache.spark.sql.Row
+import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.catalyst.optimizer.NullPropagation
 import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.internal.SQLConf
@@ -31,6 +33,18 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
   disableFallbackCheck
 
   import testImplicits._
+
+  // Collects the fallback reasons recorded on the executed plan. GlutenFallbackReporter moves the
+  // tag from the physical node to its logical link, so read both places like the reporter does.
+  private def fallbackReasons(df: DataFrame): Seq[String] = {
+    getExecutedPlan(df).flatMap {
+      p =>
+        FallbackTags
+          .getOption(p)
+          .orElse(p.logicalLink.flatMap(FallbackTags.getOption))
+          .map(_.reason())
+    }
+  }
 
   // Test "SELECT ..." without a from clause.
   test("isnull") {
@@ -381,7 +395,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
 
         spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("map_tbl")
 
-        runQueryAndCompare(
+        runQueryAndCheck(
           "select map_zip_with(m1, m2, (k, v1, v2) -> k == v1 + v2) from map_tbl") {
           checkGlutenPlan[ProjectExecTransformer]
         }
@@ -483,7 +497,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
   }
 
   test("isnan") {
-    runQueryAndCompare(
+    runQueryAndCheck(
       "SELECT isnan(l_orderkey), isnan(cast('NaN' as double)), isnan(0.0F/0.0F)" +
         " from lineitem limit 1") {
       checkGlutenPlan[ProjectExecTransformer]
@@ -493,15 +507,15 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
   test("conditional") {
     Seq("nanvl", "nullif", "nvl").foreach {
       func =>
-        runQueryAndCompare(s"""
-                              |SELECT
-                              | $func(cast('nan' as float), 1f),
-                              | $func(l_orderkey, cast('null' as double)),
-                              | $func(cast('null' as double), l_orderkey),
-                              | $func(l_orderkey, l_orderkey / 0.0d),
-                              | $func(cast('nan' as float), l_orderkey)
-                              | from lineitem limit 1
-                              |""".stripMargin) {
+        runQueryAndCheck(s"""
+                            |SELECT
+                            | $func(cast('nan' as float), 1f),
+                            | $func(l_orderkey, cast('null' as double)),
+                            | $func(cast('null' as double), l_orderkey),
+                            | $func(l_orderkey, l_orderkey / 0.0d),
+                            | $func(cast('nan' as float), l_orderkey)
+                            | from lineitem limit 1
+                            |""".stripMargin) {
           checkGlutenPlan[ProjectExecTransformer]
         }
     }
@@ -510,23 +524,27 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
   test("nvl2") {
     Seq("null", "l_orderkey").foreach {
       expr =>
-        runQueryAndCompare(s"""
-                              |SELECT
-                              | nvl2($expr, cast('nan' as float), 1f),
-                              | nvl2($expr, l_orderkey, cast('null' as double)),
-                              | nvl2($expr, cast('null' as double), l_orderkey),
-                              | nvl2($expr, l_orderkey, l_orderkey / 0.0d),
-                              | nvl2($expr, cast('nan' as float), l_orderkey)
-                              | from lineitem limit 1
-                              |""".stripMargin) {
+        runQueryAndCheck(s"""
+                            |SELECT
+                            | nvl2($expr, cast('nan' as float), 1f),
+                            | nvl2($expr, l_orderkey, cast('null' as double)),
+                            | nvl2($expr, cast('null' as double), l_orderkey),
+                            | nvl2($expr, l_orderkey, l_orderkey / 0.0d),
+                            | nvl2($expr, cast('nan' as float), l_orderkey)
+                            | from lineitem limit 1
+                            |""".stripMargin) {
           checkGlutenPlan[ProjectExecTransformer]
         }
     }
   }
 
-  // FIXME: Ignored: https://github.com/apache/gluten/issues/7600.
-  ignore("monotonically_increasintestg_id") {
+  test("monotonically_increasing_id") {
     runQueryAndCompare("""SELECT monotonically_increasing_id(), l_orderkey
+                         | from lineitem limit 100""".stripMargin) {
+      checkGlutenPlan[ProjectExecTransformer]
+    }
+    // Each call keeps its own state, so both columns have the same values (#7628).
+    runQueryAndCompare("""SELECT monotonically_increasing_id(), monotonically_increasing_id()
                          | from lineitem limit 100""".stripMargin) {
       checkGlutenPlan[ProjectExecTransformer]
     }
@@ -801,16 +819,25 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
       "SELECT format_number(cast(l_discount as double), 3) FROM lineitem limit 50") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    // Velox format_number only supports tinyint/smallint/integer/bigint/float/double.
-    // Decimal input has no matching signature, so it must fall back to vanilla Spark.
+    // Velox format_number only supports tinyint/smallint/integer/bigint/float/double. Decimal
+    // input is rejected on the JVM side, so it falls back to vanilla Spark and the fallback
+    // reason names the documented restriction instead of a generic native validation failure.
     runQueryAndCompare("SELECT format_number(l_quantity, 1) FROM lineitem limit 50") {
-      checkSparkPlan[ProjectExec]
+      df =>
+        checkSparkPlan[ProjectExec](df)
+        assert(
+          fallbackReasons(df).exists(
+            _.contains(FormatNumberRestrictions.NOT_SUPPORT_DECIMAL_INPUT)))
     }
     // Velox only implements the integer decimal-places form. The string-format form
-    // (e.g. '#,###.##') has no matching signature, so it must fall back to vanilla Spark.
+    // (e.g. '#,###.##') is rejected on the JVM side in the same way.
     runQueryAndCompare(
       "SELECT format_number(cast(l_quantity as double), '#,###.##') FROM lineitem limit 50") {
-      checkSparkPlan[ProjectExec]
+      df =>
+        checkSparkPlan[ProjectExec](df)
+        assert(
+          fallbackReasons(df).exists(
+            _.contains(FormatNumberRestrictions.NOT_SUPPORT_STRING_FORMAT)))
     }
   }
 
@@ -841,7 +868,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
   }
 
   test("bitwise_and") {
-    runQueryAndCompare(
+    runQueryAndCheck(
       "select cast(l_orderkey as tinyint) & cast(l_partkey as tinyint)," +
         " cast(l_orderkey as int) & cast(l_partkey as int), l_orderkey & l_partkey" +
         " from lineitem") {
@@ -850,7 +877,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
   }
 
   test("bitwise_not") {
-    runQueryAndCompare(
+    runQueryAndCheck(
       "select ~(cast(l_orderkey as tinyint)), ~(cast(l_orderkey as int)), ~l_orderkey" +
         " from lineitem") {
       checkGlutenPlan[ProjectExecTransformer]
@@ -858,7 +885,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
   }
 
   test("bitwise_or") {
-    runQueryAndCompare(
+    runQueryAndCheck(
       "select cast(l_orderkey as tinyint) | cast(l_partkey as tinyint)," +
         " cast(l_orderkey as int) | cast(l_partkey as int), l_orderkey | l_partkey" +
         " from lineitem") {
@@ -867,7 +894,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
   }
 
   test("bitwise_xor") {
-    runQueryAndCompare(
+    runQueryAndCheck(
       "select cast(l_orderkey as tinyint) ^ cast(l_partkey as tinyint)," +
         " cast(l_orderkey as int) ^ cast(l_partkey as int), l_orderkey ^ l_partkey" +
         " from lineitem") {
@@ -1330,94 +1357,100 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
             .write
             .parquet(path.getCanonicalPath)
           spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("cast_table")
-          runQueryAndCompare("select cast(str as bigint) from cast_table") {
+          runQueryAndCheck("select cast(str as bigint) from cast_table") {
             checkGlutenPlan[ProjectExecTransformer]
           }
-          runQueryAndCompare("select cast(str as double) from cast_table") {
+          runQueryAndCheck("select cast(str as double) from cast_table") {
             checkGlutenPlan[ProjectExecTransformer]
           }
       }
     }
-    runQueryAndCompare("select cast(' 123 ' AS int)") {
+    runQueryAndCheck("select cast(' 123 ' AS int)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast('2147483648' AS int)") {
+    runQueryAndCheck("select cast('2147483648' AS int)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast('12a34' AS int)") {
+    runQueryAndCheck("select cast('12a34' AS int)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast('2023-08-21 ' AS date)") {
+    runQueryAndCheck("select cast('2023-08-21 ' AS date)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast(' true' AS boolean)") {
+    runQueryAndCheck("select cast(' true' AS boolean)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast('null' AS int)") {
+    runQueryAndCheck("select cast('null' AS int)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast('on' AS BOOLEAN)") {
+    runQueryAndCheck("select cast('on' AS BOOLEAN)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast(128 AS DECIMAL(2, 0))") {
+    runQueryAndCheck("select cast(128 AS DECIMAL(2, 0))") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast(128 AS TINYINT)") {
+    runQueryAndCheck("select cast(128 AS TINYINT)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast(9223372036854775807 AS int)") {
+    runQueryAndCheck("select cast(9223372036854775807 AS int)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast('123.0' AS INT)") {
+    runQueryAndCheck("select cast('123.0' AS INT)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
     // Cast Array as Array[String]
-    runQueryAndCompare("select cast(array(1, null) AS array<string>)") {
+    runQueryAndCheck("select cast(array(1, null) AS array<string>)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast(array(1L, null) AS array<string>)") {
+    runQueryAndCheck("select cast(array(1L, null) AS array<string>)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast(array(1.1d, null) AS array<string>)") {
+    runQueryAndCheck("select cast(array(1.1d, null) AS array<string>)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast(array(false, null) AS array<string>)") {
+    runQueryAndCheck("select cast(array(false, null) AS array<string>)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast(array(date'2024-01-01') AS array<string>)") {
+    runQueryAndCheck("select cast(array(date'2024-01-01') AS array<string>)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast(array(timestamp'2024-01-01 12:00:00') AS array<string>)") {
+    runQueryAndCheck(
+      "select cast(array(timestamp'2024-01-01 12:00:00') AS array<string>)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
     // Cast Array[String] to Array
-    runQueryAndCompare("select cast(array('123', '-98', 'abc', null) AS array<tinyint>)") {
+    runQueryAndCheck(
+      "select cast(array('123', '-98', 'abc', null) AS array<tinyint>)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast(array('123', '-98', 'abc', null) AS array<smallint>)") {
+    runQueryAndCheck(
+      "select cast(array('123', '-98', 'abc', null) AS array<smallint>)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast(array('123', '-98', 'abc', null) AS array<int>)") {
+    runQueryAndCheck("select cast(array('123', '-98', 'abc', null) AS array<int>)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast(array('123', '-98', 'abc', null) AS array<bigint>)") {
+    runQueryAndCheck("select cast(array('123', '-98', 'abc', null) AS array<bigint>)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast(array('123e-2', '-234.548', 'xyz', null) AS array<float>)") {
+    runQueryAndCheck(
+      "select cast(array('123e-2', '-234.548', 'xyz', null) AS array<float>)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast(array('123e-2', '-234.548', 'xyz', null) AS array<double>)") {
+    runQueryAndCheck(
+      "select cast(array('123e-2', '-234.548', 'xyz', null) AS array<double>)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("""
-                         |select
-                         |  cast(
-                         |    array('2023-01-01 12:00:00', '2023-01-02 12:00:00', 'def', null)
-                         |      AS array<timestamp>)
-                         |""".stripMargin) {
+    runQueryAndCheck(
+      """
+        |select
+        |  cast(
+        |    array('2023-01-01 12:00:00', '2023-01-02 12:00:00', 'def', null)
+        |      AS array<timestamp>)
+        |""".stripMargin) {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare(
+    runQueryAndCheck(
       "select cast(array('2024-01-01', '2024-01-02', 'uvw', null) AS array<date>)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
@@ -1430,27 +1463,27 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
             .write
             .parquet(path.getCanonicalPath)
           spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("cast_table")
-          runQueryAndCompare("select cast(c1 as string) from cast_table") {
+          runQueryAndCheck("select cast(c1 as string) from cast_table") {
             checkGlutenPlan[ProjectExecTransformer]
           }
       }
     }
-    runQueryAndCompare("select cast(array(1, 2) AS string)") {
+    runQueryAndCheck("select cast(array(1, 2) AS string)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast(array(1L, null) AS string)") {
+    runQueryAndCheck("select cast(array(1L, null) AS string)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast(array(1.1d, null) AS string)") {
+    runQueryAndCheck("select cast(array(1.1d, null) AS string)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast(array(false, null) AS string)") {
+    runQueryAndCheck("select cast(array(false, null) AS string)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast(array(date'2024-01-01') AS string)") {
+    runQueryAndCheck("select cast(array(date'2024-01-01') AS string)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("select cast(array(timestamp'2024-01-01 12:00:00') AS string)") {
+    runQueryAndCheck("select cast(array(timestamp'2024-01-01 12:00:00') AS string)") {
       checkGlutenPlan[ProjectExecTransformer]
     }
     // Cast Map
@@ -1465,19 +1498,24 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
 
           spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("byte_map_tbl")
 
-          runQueryAndCompare("select cast(c1 as map<tinyint, double>) from byte_map_tbl") {
+          runQueryAndCheck(
+            "select cast(c1 as map<tinyint, double>) from byte_map_tbl") {
             checkGlutenPlan[ProjectExecTransformer]
           }
-          runQueryAndCompare("select cast(c1 as map<double, tinyint>) from byte_map_tbl") {
+          runQueryAndCheck(
+            "select cast(c1 as map<double, tinyint>) from byte_map_tbl") {
             checkGlutenPlan[ProjectExecTransformer]
           }
-          runQueryAndCompare("select cast(c1 as map<tinyint, string>) from byte_map_tbl") {
+          runQueryAndCheck(
+            "select cast(c1 as map<tinyint, string>) from byte_map_tbl") {
             checkGlutenPlan[ProjectExecTransformer]
           }
-          runQueryAndCompare("select cast(c1 as map<string, tinyint>) from byte_map_tbl") {
+          runQueryAndCheck(
+            "select cast(c1 as map<string, tinyint>) from byte_map_tbl") {
             checkGlutenPlan[ProjectExecTransformer]
           }
-          runQueryAndCompare("select cast(c1 as map<tinyint, boolean>) from byte_map_tbl") {
+          runQueryAndCheck(
+            "select cast(c1 as map<tinyint, boolean>) from byte_map_tbl") {
             checkGlutenPlan[ProjectExecTransformer]
           }
       }
@@ -1497,19 +1535,24 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
 
           spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("small_int_map_tbl")
 
-          runQueryAndCompare("select cast(c1 as map<smallint, double>) from small_int_map_tbl") {
+          runQueryAndCheck(
+            "select cast(c1 as map<smallint, double>) from small_int_map_tbl") {
             checkGlutenPlan[ProjectExecTransformer]
           }
-          runQueryAndCompare("select cast(c1 as map<double, smallint>) from small_int_map_tbl") {
+          runQueryAndCheck(
+            "select cast(c1 as map<double, smallint>) from small_int_map_tbl") {
             checkGlutenPlan[ProjectExecTransformer]
           }
-          runQueryAndCompare("select cast(c1 as map<smallint, string>) from small_int_map_tbl") {
+          runQueryAndCheck(
+            "select cast(c1 as map<smallint, string>) from small_int_map_tbl") {
             checkGlutenPlan[ProjectExecTransformer]
           }
-          runQueryAndCompare("select cast(c1 as map<string, smallint>) from small_int_map_tbl") {
+          runQueryAndCheck(
+            "select cast(c1 as map<string, smallint>) from small_int_map_tbl") {
             checkGlutenPlan[ProjectExecTransformer]
           }
-          runQueryAndCompare("select cast(c1 as map<smallint, boolean>) from small_int_map_tbl") {
+          runQueryAndCheck(
+            "select cast(c1 as map<smallint, boolean>) from small_int_map_tbl") {
             checkGlutenPlan[ProjectExecTransformer]
           }
       }
@@ -1525,10 +1568,10 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
 
           spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("int_map_tbl")
 
-          runQueryAndCompare("select cast(c1 as map<double, int>) from int_map_tbl") {
+          runQueryAndCheck("select cast(c1 as map<double, int>) from int_map_tbl") {
             checkGlutenPlan[ProjectExecTransformer]
           }
-          runQueryAndCompare("select cast(c1 as map<string, string>) from int_map_tbl") {
+          runQueryAndCheck("select cast(c1 as map<string, string>) from int_map_tbl") {
             checkGlutenPlan[ProjectExecTransformer]
           }
       }
@@ -1544,31 +1587,33 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
 
           spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("float_map_tbl")
 
-          runQueryAndCompare("select cast(c1 as map<float, float>) from float_map_tbl") {
+          runQueryAndCheck("select cast(c1 as map<float, float>) from float_map_tbl") {
             checkGlutenPlan[ProjectExecTransformer]
           }
-          runQueryAndCompare("select cast(c1 as map<string, string>) from float_map_tbl") {
+          runQueryAndCheck(
+            "select cast(c1 as map<string, string>) from float_map_tbl") {
             checkGlutenPlan[ProjectExecTransformer]
           }
       }
     }
 
-    runQueryAndCompare("""
-                         |select
-                         |  cast(
-                         |    map(
-                         |      timestamp '2023-01-01 12:00:00', '2023-01-01 13:00:00',
-                         |      timestamp '2023-01-02 12:00:00', 'xyz')
-                         |    as map<string, timestamp>)
-                         |""".stripMargin) {
+    runQueryAndCheck("""
+                       |select
+                       |  cast(
+                       |    map(
+                       |      timestamp '2023-01-01 12:00:00', '2023-01-01 13:00:00',
+                       |      timestamp '2023-01-02 12:00:00', 'xyz')
+                       |    as map<string, timestamp>)
+                       |""".stripMargin) {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    runQueryAndCompare("""
-                         |select
-                         |  cast(
-                         |    map(date '2024-01-01', '2024-01-02', date '2024-02-01', 'xyz')
-                         |      as map<string, date>)
-                         |""".stripMargin) {
+    runQueryAndCheck(
+      """
+        |select
+        |  cast(
+        |    map(date '2024-01-01', '2024-01-02', date '2024-02-01', 'xyz')
+        |      as map<string, date>)
+        |""".stripMargin) {
       checkGlutenPlan[ProjectExecTransformer]
     }
     // Cast struct
@@ -1601,52 +1646,52 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
 
           spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("struct_tbl")
 
-          runQueryAndCompare("""
-                               |select
-                               |  cast(
-                               |    c1 as
-                               |      struct<
-                               |        a: array<bigint>,
-                               |        b: map<smallint, int>,
-                               |        c: struct<x: string, y: string, z:boolean>>)
-                               |from struct_tbl
-                               |""".stripMargin) {
+          runQueryAndCheck("""
+                             |select
+                             |  cast(
+                             |    c1 as
+                             |      struct<
+                             |        a: array<bigint>,
+                             |        b: map<smallint, int>,
+                             |        c: struct<x: string, y: string, z:boolean>>)
+                             |from struct_tbl
+                             |""".stripMargin) {
             checkGlutenPlan[ProjectExecTransformer]
           }
-          runQueryAndCompare("""
-                               |select
-                               |  cast(
-                               |    c1 as
-                               |      struct<
-                               |        a: array<double>,
-                               |        b: map<int, bigint>,
-                               |        c: struct<x: int, y: boolean, z:string>>)
-                               |from struct_tbl
-                               |""".stripMargin) {
+          runQueryAndCheck("""
+                             |select
+                             |  cast(
+                             |    c1 as
+                             |      struct<
+                             |        a: array<double>,
+                             |        b: map<int, bigint>,
+                             |        c: struct<x: int, y: boolean, z:string>>)
+                             |from struct_tbl
+                             |""".stripMargin) {
             checkGlutenPlan[ProjectExecTransformer]
           }
-          runQueryAndCompare("""
-                               |select
-                               |  cast(
-                               |    c1 as
-                               |      struct<
-                               |        a: array<timestamp>,
-                               |        b: map<bigint, boolean>,
-                               |        c: struct<x: tinyint, y: smallint, z:double>>)
-                               |from struct_tbl
-                               |""".stripMargin) {
+          runQueryAndCheck("""
+                             |select
+                             |  cast(
+                             |    c1 as
+                             |      struct<
+                             |        a: array<timestamp>,
+                             |        b: map<bigint, boolean>,
+                             |        c: struct<x: tinyint, y: smallint, z:double>>)
+                             |from struct_tbl
+                             |""".stripMargin) {
             checkGlutenPlan[ProjectExecTransformer]
           }
-          runQueryAndCompare("""
-                               |select
-                               |  cast(
-                               |    c1 as
-                               |      struct<
-                               |        a: array<date>,
-                               |        b: map<string, double>,
-                               |        c: struct<x: int, y: bigint, z:float>>)
-                               |from struct_tbl
-                               |""".stripMargin) {
+          runQueryAndCheck("""
+                             |select
+                             |  cast(
+                             |    c1 as
+                             |      struct<
+                             |        a: array<date>,
+                             |        b: map<string, double>,
+                             |        c: struct<x: int, y: bigint, z:float>>)
+                             |from struct_tbl
+                             |""".stripMargin) {
             checkGlutenPlan[ProjectExecTransformer]
           }
       }

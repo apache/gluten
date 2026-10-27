@@ -175,7 +175,25 @@ trait SparkPlanExecApi {
       right: ExpressionTransformer,
       original: GetMapValue): ExpressionTransformer
 
+  /**
+   * Generate an expression transformer to transform ElementAt to Substrait. The default emits the
+   * mapped function as is; a backend may pick another native function for some inputs.
+   */
+  def genElementAtTransformer(
+      substraitExprName: String,
+      left: ExpressionTransformer,
+      right: ExpressionTransformer,
+      original: ElementAt): ExpressionTransformer =
+    GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
+
   def genStringToMapTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      expr: Expression): ExpressionTransformer = {
+    GenericExpressionTransformer(substraitExprName, children, expr)
+  }
+
+  def genFormatNumberTransformer(
       substraitExprName: String,
       children: Seq[ExpressionTransformer],
       expr: Expression): ExpressionTransformer = {
@@ -262,10 +280,14 @@ trait SparkPlanExecApi {
     GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
   }
 
-  // Default: ignore allowPrecisionLoss and return exprName unchanged. Non-Velox backends
-  // (e.g. ClickHouse) do not use the _deny_precision_loss naming convention; they handle
-  // decimal precision through their own mechanisms. VeloxSparkPlanExecApi overrides this.
-  def getDecimalArithmeticExprName(exprName: String, allowPrecisionLoss: Boolean): String = exprName
+  // Default: ignore 'original' and allowPrecisionLoss, and return exprName unchanged. Non-Velox
+  // backends (e.g. ClickHouse) do not use the checked_ and _deny_precision_loss naming
+  // conventions; they handle decimal overflow and precision through their own mechanisms.
+  // VeloxSparkPlanExecApi overrides this.
+  def getDecimalArithmeticExprName(
+      exprName: String,
+      original: BinaryArithmetic,
+      allowPrecisionLoss: Boolean): String = exprName
 
   /** Transform map_entries to Substrait. */
   def genMapEntriesTransformer(
@@ -594,7 +616,9 @@ trait SparkPlanExecApi {
   def genPreProjectForArrowEvalPythonExec(arrowEvalPythonExec: ArrowEvalPythonExec): SparkPlan =
     arrowEvalPythonExec
 
-  def maybeCollapseTakeOrderedAndProject(plan: SparkPlan): SparkPlan = plan
+  def maybeCollapseTakeOrderedAndProject(
+      plan: SparkPlan,
+      metrics: Map[String, SQLMetric]): SparkPlan = plan
 
   def genDecimalRoundExpressionOutput(decimalType: DecimalType, toScale: Int): DecimalType = {
     val p = decimalType.precision

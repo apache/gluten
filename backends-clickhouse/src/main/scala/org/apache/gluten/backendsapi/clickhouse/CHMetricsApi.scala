@@ -352,6 +352,16 @@ class CHMetricsApi extends MetricsApi with Logging with LogLevelUtil {
   override def genSortTransformerMetricsUpdater(metrics: Map[String, SQLMetric]): MetricsUpdater =
     new SortMetricsUpdater(metrics)
 
+  override def genTopNTransformerMetrics(sparkContext: SparkContext): Map[String, SQLMetric] =
+    // CH does not lower TakeOrderedAndProject to a native TopN operator, so no TopN metrics are
+    // reported on that node. Return an empty map rather than throwing, since the shared
+    // TakeOrderedAndProjectExecTransformer node evaluates this for every backend.
+    Map.empty
+
+  override def genTopNTransformerMetricsUpdater(metrics: Map[String, SQLMetric]): MetricsUpdater =
+    throw new UnsupportedOperationException(
+      "TopNTransformer metrics update is not supported in CH backend")
+
   override def genSortMergeJoinTransformerMetrics(
       sparkContext: SparkContext): Map[String, SQLMetric] =
     Map(
