@@ -30,6 +30,9 @@
 #include "utils/ConfigExtractor.h"
 #include "velox/connectors/hive/HiveConfig.h"
 #include "velox/connectors/hive/HiveConnectorSplit.h"
+#ifdef ENABLE_KAFKA
+#include "operators/reader/KafkaSplitInfo.h"
+#endif
 #include "velox/exec/PlanNodeStats.h"
 #include "velox/functions/sparksql/SparkQueryConfig.h"
 #ifdef GLUTEN_ENABLE_GPU
@@ -144,6 +147,14 @@ WholeStageResultIterator::WholeStageResultIterator(
 
   for (size_t scanInfoIdx = 0; scanInfoIdx < scanInfos.size(); ++scanInfoIdx) {
     const auto& scanInfo = scanInfos[scanInfoIdx];
+#ifdef ENABLE_KAFKA
+    if (auto kafkaSplitInfo = std::dynamic_pointer_cast<KafkaSplitInfo>(scanInfo)) {
+      std::vector<velox::exec::Split> kafkaSplits;
+      kafkaSplits.emplace_back(kafkaSplitInfo->toConnectorSplit(connectorIds_.kafka));
+      splits_.emplace_back(std::move(kafkaSplits));
+      continue;
+    }
+#endif
     // Get the information for TableScan.
     // Partition index in scan info is not used.
     const auto& paths = scanInfo->paths;
@@ -268,6 +279,9 @@ std::shared_ptr<velox::core::QueryCtx> WholeStageResultIterator::createNewVeloxQ
   connectorConfigs[connectorIds_.iceberg] = hiveSessionConfig;
   connectorConfigs[connectorIds_.delta] = hiveSessionConfig;
   connectorConfigs[connectorIds_.iterator] = hiveSessionConfig;
+#ifdef ENABLE_KAFKA
+  connectorConfigs[connectorIds_.kafka] = hiveSessionConfig;
+#endif
 #ifdef GLUTEN_ENABLE_GPU
   if (!connectorIds_.cudfHive.empty()) {
     connectorConfigs[connectorIds_.cudfHive] = hiveSessionConfig;
@@ -649,6 +663,10 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
     configs[velox::core::QueryConfig::kDriverCpuTimeSliceLimitMs] = "0";
 
     configs[SparkQueryConfig::qualify(SparkQueryConfig::kPartitionId)] = std::to_string(taskInfo_.partitionId);
+
+    // Spark keeps each call of a non-deterministic function separate, with its own state. Without
+    // this, Velox merges identical calls such as two monotonically_increasing_id() into one.
+    configs[velox::core::QueryConfig::kExprDedupNonDeterministic] = "false";
 
     // Enable Spark legacy date formatter if spark.sql.legacy.timeParserPolicy is set to 'LEGACY'
     // or 'legacy'

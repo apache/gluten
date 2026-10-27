@@ -20,8 +20,8 @@
 # (EOL Dec 2021). glibc 2.28 allows Velox's modern Folly/FBThrift/MVFST stack
 # to build without the socket.h workaround required on CentOS 7 (glibc 2.17).
 #
-# Modelled on dev/docker/Dockerfile.centos7-gcc13-static-build, which is the
-# reference requested in https://github.com/apache/gluten/issues/12412.
+# Replaces the former CentOS 7 static build image, as requested in
+# https://github.com/apache/gluten/issues/12412.
 
 FROM almalinux:8
 
