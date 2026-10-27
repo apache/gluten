@@ -19,6 +19,11 @@ on:
   push:
     branches:
       - 'main'
+    paths:
+      - 'cpp/**'
+      - 'ep/build-velox/**'
+      - 'dev/**'
+      - '.github/workflows/velox_backend_cache.yml'
 
 env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true

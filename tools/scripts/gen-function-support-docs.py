@@ -1696,6 +1696,10 @@ if __name__ == "__main__":
         generate_function_doc(
             category,
             os.path.join(
-                gluten_home, "docs", f"velox-backend-{category}-function-support.md"
+                gluten_home,
+                "docs",
+                "backends",
+                "velox",
+                f"velox-backend-{category}-function-support.md",
             ),
         )

@@ -19,6 +19,7 @@ package org.apache.spark.sql.hive.execution
 import org.apache.spark.SparkFiles
 import org.apache.spark.sql.GlutenTestSetWithSystemPropertyTrait
 import org.apache.spark.sql.hive.HiveUtils.{builtinHiveVersion => hiveVersion}
+import org.apache.spark.sql.hive.test.{HiveTestJars, TestUDTFJar}
 import org.apache.spark.tags.SlowHiveTest
 
 import java.io.File
@@ -31,6 +32,7 @@ class GlutenHiveQuerySuite
 
   override def testNameBlackList: Seq[String] = Seq(
     "ADD FILE command",
+    "ADD JAR command 2",
     "SPARK-33084: Add jar support Ivy URI in SQL"
   )
 
@@ -46,6 +48,29 @@ class GlutenHiveQuerySuite
     assert(sql("list files").filter(_.getString(0).contains("data/files/v1.txt")).count() > 0)
     assert(sql("list file").filter(_.getString(0).contains("data/files/v1.txt")).count() > 0)
     assert(sql(s"list file $testFile").count() == 1)
+  }
+
+  testGluten("ADD JAR command 2") {
+    val testJar = HiveTestJars.getHiveHcatalogCoreJar().toURI
+    val testData = hiveResourcePath("data/files/sample.json").toUri
+    sql(s"ADD JAR $testJar")
+    withTable("t1") {
+      sql("""CREATE TABLE t1(a string, b string)
+            |ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe'""".stripMargin)
+      sql(s"""LOAD DATA LOCAL INPATH "$testData" INTO TABLE t1""")
+      sql("select * from src join t1 on src.key = t1.a")
+    }
+    assert(
+      sql("list jars")
+        .filter(_.getString(0).contains(HiveTestJars.getHiveHcatalogCoreJar().getName))
+        .count() > 0)
+    assert(
+      sql("list jar")
+        .filter(_.getString(0).contains(HiveTestJars.getHiveHcatalogCoreJar().getName))
+        .count() > 0)
+    val testJar2 = TestUDTFJar.jar.getCanonicalPath
+    sql(s"ADD JAR $testJar2")
+    assert(sql(s"list jar $testJar").count() == 1)
   }
 
   testGluten("SPARK-33084: Add jar support Ivy URI in SQL") {

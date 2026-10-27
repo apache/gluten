@@ -68,7 +68,7 @@ You can execute a script to fix license header issue, as the following shows.
 ### Gluten CI
 
 ##### ClickHouse Backend CI
-To check CI failure for CH backend, please log in with the public account/password provided [here](https://github.com/apache/gluten/blob/main/docs/get-started/ClickHouse.md#new-ci-system).
+To check CI failure for CH backend, please log in with the public account/password provided [here](https://github.com/apache/gluten/blob/main/docs/backends/clickhouse/get-started/ClickHouse.md#new-ci-system).
 To re-trigger CH CI, please post the below comment on PR page:
 
 `Run Gluten Clickhouse CI`

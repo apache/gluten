@@ -27,7 +27,7 @@ import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
  * aggregation, full-text query) fall back to vanilla Spark.
  *
  * Requires the lance-spark runtime (and its native library) on the classpath; see
- * docs/get-started/VeloxLance.md for the supported platforms.
+ * docs/backends/velox/get-started/VeloxLance.md for the supported platforms.
  */
 class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
   override protected val resourcePath: String = "/tpch-data-parquet"

@@ -201,6 +201,9 @@
       -Dfile.encoding=UTF-8
     </extraJavaTestArgs>
     <log4j.conf>file:src/test/resources/log4j2.properties</log4j.conf>
+    <!-- Java executable for ScalaTest forks; empty means the JDK running Maven. CI points
+         it at .github/workflows/util/parallel-ut/record-fork.sh to run suites in parallel. -->
+    <scalatest.jvm/>
   </properties>
 
   <dependencyManagement>
@@ -623,6 +626,7 @@
             <testFailureIgnore>${maven.test.failure.ignore}</testFailureIgnore>
             <junitxml>.</junitxml>
             <argLine>${argLine} ${extraJavaTestArgs}</argLine>
+            <jvm>${scalatest.jvm}</jvm>
             <systemProperties>
               <log4j.configurationFile>${log4j.conf}</log4j.configurationFile>
             </systemProperties>

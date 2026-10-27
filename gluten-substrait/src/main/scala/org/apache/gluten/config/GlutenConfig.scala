@@ -358,6 +358,10 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def benchmarkSaveDir: String = getConf(BENCHMARK_SAVE_DIR)
 
+  // Whether whole stage dumping for the micro benchmark is requested for some task. Which tasks
+  // are actually dumped is decided per task, see DebugUtil.isDumpingEnabledForTask.
+  def benchmarkDumpRequested: Boolean = benchmarkStageId >= 0 || benchmarkTaskId.nonEmpty
+
   def textInputMaxBlockSize: Long = getConf(TEXT_INPUT_ROW_MAX_BLOCK_SIZE)
 
   def textIputEmptyAsDefault: Boolean = getConf(TEXT_INPUT_EMPTY_AS_DEFAULT)
