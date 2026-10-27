@@ -20,7 +20,6 @@
 #include "bolt/vector/FlatVector.h"
 #include "compute/BoltRuntime.h"
 #include "utils/BoltArrowUtils.h"
-#include "utils/Timer.h"
 
 namespace gluten {
 
@@ -49,7 +48,6 @@ void BoltColumnarBatch::ensureFlattened() {
   if (flattened_) {
     return;
   }
-  ScopedTimer timer(&exportNanos_);
   for (auto& child : rowVector_->children()) {
     bytedance::bolt::BaseVector::flattenVector(child);
     if (child->isLazy()) {

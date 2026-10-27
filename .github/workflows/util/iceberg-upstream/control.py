@@ -24,6 +24,7 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 
 from compare import PASSING, parameters
+from flaky import is_flaky, load_flaky_tests
 from summarize import classify, write_reports
 
 RUNTIME_FAILURE = re.compile(
@@ -32,22 +33,26 @@ RUNTIME_FAILURE = re.compile(
 )
 
 
-def selection(results):
+def selection(results, flaky_tests=None):
+    if flaky_tests is None:
+        flaky_tests = load_flaky_tests()
     methods = collections.defaultdict(set)
     for row in results:
-        if row["status"] == "FAILED":
+        if row["status"] == "FAILED" and not is_flaky(row, flaky_tests):
             methods[row["class"]].add(row["name"].split("(")[0])
     return ",".join(
         name + "#" + "+".join(sorted(tests)) for name, tests in sorted(methods.items())
     )
 
 
-def attribute(results, controls):
+def attribute(results, controls, flaky_tests=None):
+    if flaky_tests is None:
+        flaky_tests = load_flaky_tests()
     index = {(row["class"], row["name"]): row for row in controls}
     if len(index) != len(controls):
         raise ValueError("Duplicate vanilla controls")
     for row in results:
-        if row["status"] != "FAILED":
+        if row["status"] != "FAILED" or is_flaky(row, flaky_tests):
             continue
         control = index.get((row["class"], row["name"]))
         if control is None:
@@ -79,13 +84,15 @@ def main():
     results = json.loads((args.reports / "execution-coverage.json").read_text())[
         "tests"
     ]
+    flaky_tests = load_flaky_tests()
+    active = [row for row in results if not is_flaky(row, flaky_tests)]
     if args.select is not None:
-        args.select.write_text(selection(results))
+        args.select.write_text(selection(results, flaky_tests))
         return 0
     if args.vanilla is None:
         parser.error("Specify --select or --vanilla")
     controls = []
-    if any(row["status"] == "FAILED" for row in results):
+    if any(row["status"] == "FAILED" for row in active):
         for path in args.vanilla.glob("TEST-*.xml"):
             props = {
                 p.get("name"): p.get("value")
@@ -97,10 +104,10 @@ def main():
                 )
         controls = classify(args.vanilla)
         write_reports(args.vanilla, controls, label="Vanilla Spark controls")
-    results = attribute(results, controls)
+    results = attribute(results, controls, flaky_tests)
     broken = [
         row
-        for row in results
+        for row in active
         if row["status"] == "FAILED" and row.get("failure_origin") != "GLUTEN"
     ]
     write_reports(args.reports, results, label="Gluten coverage after vanilla controls")
@@ -108,9 +115,7 @@ def main():
         print(
             f"{len(broken)} failures could not be attributed reliably; see failed.csv"
         )
-    return int(
-        bool(broken) or any(row["status"] == "COVERAGE_ERROR" for row in results)
-    )
+    return int(bool(broken) or any(row["status"] == "COVERAGE_ERROR" for row in active))
 
 
 if __name__ == "__main__":

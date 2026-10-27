@@ -256,13 +256,6 @@ function setup_linux {
     case "$LINUX_VERSION_ID" in
     9) scripts/setup-centos9.sh ;;
     8) $GLUTEN_VELOX_SCRIPT_HOME/setup-centos8.sh ;;
-    7)
-      $GLUTEN_VELOX_SCRIPT_HOME/setup-centos7.sh
-      set +u
-      export PKG_CONFIG_PATH=/usr/local/lib64/pkgconfig:/usr/local/lib/pkgconfig:/usr/lib64/pkgconfig:/usr/lib/pkgconfig:$PKG_CONFIG_PATH
-      source /opt/rh/devtoolset-11/enable
-      set -u
-      ;;
     *)
       echo "Unsupported centos version: $LINUX_VERSION_ID"
       exit 1
@@ -280,13 +273,6 @@ function setup_linux {
     esac
   elif [[ "$LINUX_DISTRIBUTION" == "alinux" ]]; then
     case "${LINUX_VERSION_ID:0:1}" in
-    2)
-      $GLUTEN_VELOX_SCRIPT_HOME/setup-centos7.sh
-      set +u
-      export PKG_CONFIG_PATH=/usr/local/lib64/pkgconfig:/usr/local/lib/pkgconfig:/usr/lib64/pkgconfig:/usr/lib/pkgconfig:$PKG_CONFIG_PATH
-      source /opt/rh/devtoolset-11/enable
-      set -u
-      ;;
     3) $GLUTEN_VELOX_SCRIPT_HOME/setup-centos8.sh ;;
     *)
       echo "Unsupported alinux version: $LINUX_VERSION_ID"
@@ -295,13 +281,6 @@ function setup_linux {
     esac
   elif [[ "$LINUX_DISTRIBUTION" == "tencentos" ]]; then
     case "$LINUX_VERSION_ID" in
-    2.4)
-        $GLUTEN_VELOX_SCRIPT_HOME/setup-centos7.sh
-        set +u
-        export PKG_CONFIG_PATH=/usr/local/lib64/pkgconfig:/usr/local/lib/pkgconfig:/usr/lib64/pkgconfig:/usr/lib/pkgconfig:$PKG_CONFIG_PATH
-        source /opt/rh/devtoolset-11/enable
-        set -u
-        ;;
     3.2) $GLUTEN_VELOX_SCRIPT_HOME/setup-centos8.sh ;;
     *)
       echo "Unsupported tencentos version: $LINUX_VERSION_ID"
@@ -312,6 +291,7 @@ function setup_linux {
     "$LINUX_DISTRIBUTION" == "almalinux" ]]; then
     case "${LINUX_VERSION_ID%%.*}" in
     9)
+      source $GLUTEN_VELOX_SCRIPT_HOME/setup-rhel.sh
       $GLUTEN_VELOX_SCRIPT_HOME/setup-rhel.sh ;;
     *)
       echo "Unsupported ${LINUX_DISTRIBUTION} version: $LINUX_VERSION_ID"

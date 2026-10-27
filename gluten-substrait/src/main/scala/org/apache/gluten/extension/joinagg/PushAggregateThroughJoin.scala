@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.extension.joinagg
 
-import org.apache.gluten.config.{GlutenConfig, PartialMergeMode}
+import org.apache.gluten.config.GlutenConfig
 
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, AttributeSet, EqualTo, Expression, NamedExpression, PredicateHelper}
@@ -174,7 +174,7 @@ case class PushAggregateThroughJoin(spark: SparkSession)
   private def pushPartialWrapperAggregate(lowerPartialAgg: Aggregate): LogicalPlan = {
     // Push one join edge per iteration. This keeps the rewrite local and lets `maxDepth` bound
     // how far a pushed aggregate is allowed to travel through a multi-join subtree.
-    val partialMergeMode = GlutenConfig.get.pushAggregateThroughJoinPartialMergeMode
+    val partialMergeEnabled = GlutenConfig.get.pushAggregateThroughJoinPartialMergeEnabled
     var current: LogicalPlan = lowerPartialAgg
     var changed = true
     var pushCount = 0
@@ -182,9 +182,8 @@ case class PushAggregateThroughJoin(spark: SparkSession)
       changed = false
       current = current.transformUp {
         case partialAgg: Aggregate if isPurePartialWrapperAggregate(partialAgg) =>
-          // The first successful push leaves a merge at the original partial aggregate position.
-          val retainPartialMerge = partialMergeMode == PartialMergeMode.ALL ||
-            (partialMergeMode == PartialMergeMode.TOP && pushCount == 0)
+          // The physical strategy owns the top merge; retain logical merges only between joins.
+          val retainPartialMerge = partialMergeEnabled && pushCount > 0
           val pushed = if (retainPartialMerge) {
             val (partialMergeAgg, freshLowerPartialAgg) = splitPartialAggregateForMerge(partialAgg)
             pushOnce(freshLowerPartialAgg).map {

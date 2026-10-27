@@ -70,8 +70,11 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def broadcastBuildMergeBatches: Boolean =
     getConf(VELOX_BROADCAST_BUILD_MERGE_BATCHES)
 
+  // A hash table built once per executor reaches the native join through a process local cache
+  // rather than through the build side input iterator, so a dumped stage could not be replayed by
+  // the micro benchmark. Dumping therefore always builds the hash table per task.
   def enableBroadcastBuildOncePerExecutor: Boolean =
-    getConf(VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR)
+    getConf(VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR) && !benchmarkDumpRequested
 
   def broadcastNestedLoopJoinFullOuterRewriteThreshold: Long =
     getConf(VELOX_BROADCAST_NESTED_LOOP_JOIN_FULL_OUTER_REWRITE_THRESHOLD)
@@ -246,6 +249,16 @@ object VeloxConfig extends ConfigRegistry {
         "The Size of the IO thread pool in the Connector. " +
           "This thread pool is used for split preloading and DirectBufferedInput. " +
           "By default, the value is the same as the maximum task slots per Spark executor.")
+      .intConf
+      .createOptional
+
+  val COLUMNAR_VELOX_BROADCAST_HASH_TABLE_BUILD_THREADS =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.broadcastHashTableBuildThreads")
+      .doc(
+        "Size of the dedicated CPU thread pool for the parallel broadcast hash-table build. " +
+          "By default, the thread pool is sized to the maximum task slots per Spark executor " +
+          "on executors, or to spark.driver.cores on the driver (used when " +
+          "driver-side broadcast hash-table build is enabled), with a minimum of one thread.")
       .intConf
       .createOptional
 

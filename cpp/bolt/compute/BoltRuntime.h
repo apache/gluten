@@ -89,9 +89,9 @@ class BoltRuntime final : public Runtime {
       const std::unordered_map<std::string, std::string>& sparkConfs);
 #endif
 
-  Metrics* getMetrics(ColumnarBatchIterator* rawIter, int64_t exportNanos) override {
+  Metrics* getMetrics(ColumnarBatchIterator* rawIter) override {
     auto iter = static_cast<WholeStageResultIterator*>(rawIter);
-    return iter->getMetrics(exportNanos);
+    return iter->getMetrics();
   }
 
   std::unique_ptr<ColumnarBatchSerializer> createColumnarBatchSerializer(struct ArrowSchema* cSchema) override;
