@@ -89,9 +89,11 @@ object LanceWriteExec {
 
   /**
    * The first column whose committed Arrow type Velox cannot export with the same layout, if any.
-   * Velox exports plain Utf8, Binary and List, microsecond timestamps and 128-bit decimals.
+   * Velox exports plain Utf8, Binary and List, microsecond timestamps and 128-bit decimals. The
+   * writer converts the plain lists of top-level fixed-size list columns, such as vectors.
    */
-  def unsupportedColumn(schema: Schema): Option[String] = firstUnsupported(schema.getFields, "")
+  def unsupportedColumn(schema: Schema): Option[String] =
+    firstUnsupported(schema.getFields, "", topLevel = true)
 
   /**
    * The first timestamp inside a struct that Spark says may be null, if any. Velox converts the
@@ -125,10 +127,15 @@ object LanceWriteExec {
   }
 
   // Lazy, so the check stops at the first unsupported field.
-  private def firstUnsupported(fields: JList[Field], prefix: String): Option[String] =
-    fields.asScala.iterator.map(unsupported(_, prefix)).collectFirst { case Some(reason) => reason }
+  private def firstUnsupported(
+      fields: JList[Field],
+      prefix: String,
+      topLevel: Boolean): Option[String] =
+    fields.asScala.iterator
+      .map(unsupported(_, prefix, topLevel))
+      .collectFirst { case Some(reason) => reason }
 
-  private def unsupported(field: Field, prefix: String): Option[String] = {
+  private def unsupported(field: Field, prefix: String, topLevel: Boolean): Option[String] = {
     val name = prefix + field.getName
     if (isBlob(field)) {
       return Some(s"Lance blob column $name is not offloaded")
@@ -140,7 +147,11 @@ object LanceWriteExec {
       case d: ArrowType.Date if d.getUnit == DateUnit.DAY => None
       case t: ArrowType.Timestamp if t.getUnit == TimeUnit.MICROSECOND => None
       case _: ArrowType.List | _: ArrowType.Struct | _: ArrowType.Map =>
-        firstUnsupported(field.getChildren, s"$name.")
+        firstUnsupported(field.getChildren, s"$name.", topLevel = false)
+      case _: ArrowType.FixedSizeList if topLevel =>
+        val elementType = field.getChildren.get(0).getType
+        if (isSignedIntOrFloat(elementType)) None
+        else Some(s"Fixed-size list column $name has elements of Arrow type $elementType")
       case other =>
         Some(s"Column $name has Arrow type $other, which Velox cannot export for Lance")
     }

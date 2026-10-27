@@ -23,8 +23,10 @@ import org.apache.spark.scheduler.{SparkListener, SparkListenerTaskEnd}
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.execution.{QueryExecution, SparkPlan}
 import org.apache.spark.sql.execution.datasources.v2.{AppendDataExec, OverwriteByExpressionExec}
+import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.gluten.LanceTestUtils
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.{Metadata, MetadataBuilder}
 import org.apache.spark.sql.util.QueryExecutionListener
 import org.apache.spark.task.TaskResources
 
@@ -676,6 +678,74 @@ class VeloxLanceWriteSuite extends VeloxWholeStageTransformerSuite {
           }
           checkAnswer(read(uri), rows(0, 10))
       }
+    }
+  }
+
+  /** Rows with a 4-element float vector column, every ninth vector null below id 60. */
+  private def vectors(start: Long, n: Long): DataFrame = {
+    val fixedSize = new MetadataBuilder().putLong("arrow.fixed-size-list.size", 4).build()
+    spark
+      .range(start, start + n)
+      .selectExpr(
+        "cast(id as int) as id",
+        "case when id % 9 = 0 and id < 60 then null " +
+          "else array(cast(id as float), cast(id + 0.5 as float), cast(-id as float), " +
+          "cast(0 as float)) end as v"
+      )
+      .withColumn("v", col("v").as("v", fixedSize))
+  }
+
+  /** Reads on vanilla Spark: the Lance scan offload cannot load fixed-size list columns yet. */
+  private def readVectors(uri: String): Seq[Row] = {
+    var rows: Seq[Row] = Nil
+    withSQLConf(GlutenConfig.COLUMNAR_BATCHSCAN_ENABLED.key -> "false") {
+      rows = read(uri).collect().toSeq
+    }
+    rows
+  }
+
+  test("fixed-size list columns are written natively") {
+    // Small batches, so a task switches between the copying and zero-copy paths and Lance still
+    // holds earlier batches while the reader converts later ones.
+    withSQLConf(GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> "8") {
+      withLanceTable(vectors(0, 30)) {
+        uri =>
+          // Spark resolves a write to the table's vector column, so plain arrays will do. Rows
+          // below 60 include null vectors, which are copied; later rows hold none, so their
+          // elements move without a copy.
+          def write(df: DataFrame, mode: String): Seq[SparkPlan] = executedPlans {
+            df.select(col("id"), col("v").as("v", Metadata.empty))
+              .write
+              .format("lance")
+              .mode(mode)
+              .option("path", uri)
+              .save()
+          }
+          assertOffloaded[VeloxLanceAppendDataExec](write(vectors(30, 60), "append"))
+          // Also the output of a filter.
+          val filtered = vectors(90, 60).where("id % 3 != 0")
+          assertOffloaded[VeloxLanceAppendDataExec](write(filtered, "append"))
+          checkAnswer(vectors(0, 90).union(filtered), readVectors(uri))
+          assert(read(uri).schema("v").metadata.getLong("arrow.fixed-size-list.size") == 4)
+
+          assertOffloaded[VeloxLanceOverwriteByExpressionExec](write(vectors(40, 30), "overwrite"))
+          checkAnswer(vectors(40, 30), readVectors(uri))
+      }
+    }
+  }
+
+  test("a list of the wrong size fails the write") {
+    withLanceTable(vectors(0, 10)) {
+      uri =>
+        val wrongSize =
+          spark.range(10, 20).selectExpr("cast(id as int) as id", "array(cast(id as float)) as v")
+        assertNoArrowLeak {
+          val e = intercept[Exception] {
+            wrongSize.write.format("lance").mode("append").option("path", uri).save()
+          }
+          assert(causedBy(e, "holds lists of 4 elements, but row 0 has 1 elements"), e)
+        }
+        checkAnswer(vectors(0, 10), readVectors(uri))
     }
   }
 
