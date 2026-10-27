@@ -116,6 +116,9 @@ public class RexNodeConverter {
       case CHAR:
       case BINARY:
       case DECIMAL:
+      case DATE:
+      case INTERVAL_SECOND:
+      case SYMBOL:
       case TIMESTAMP:
         return new VarCharValue(null);
       default:

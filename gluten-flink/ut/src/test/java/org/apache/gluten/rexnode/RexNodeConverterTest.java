@@ -23,8 +23,12 @@ import org.apache.flink.table.planner.calcite.FlinkRexBuilder;
 import org.apache.flink.table.planner.calcite.FlinkTypeFactory;
 import org.apache.flink.table.planner.calcite.FlinkTypeSystem;
 
+import org.apache.calcite.avatica.util.TimeUnit;
+import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexLiteral;
+import org.apache.calcite.sql.SqlIntervalQualifier;
+import org.apache.calcite.sql.parser.SqlParserPos;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -66,12 +70,25 @@ public class RexNodeConverterTest {
 
   @Test
   public void testNullLiteralConvertsToNullCarrier() {
+    RexLiteral intervalLiteral =
+        (RexLiteral)
+            rexBuilder.makeNullLiteral(
+                typeFactory.createSqlIntervalType(
+                    new SqlIntervalQualifier(
+                        TimeUnit.SECOND,
+                        RelDataType.PRECISION_NOT_SPECIFIED,
+                        TimeUnit.SECOND,
+                        RelDataType.PRECISION_NOT_SPECIFIED,
+                        SqlParserPos.ZERO)));
+    assertThat(((VarCharValue) RexNodeConverter.toVariant(intervalLiteral)).getValue()).isNull();
     SqlTypeName[] names = {
       SqlTypeName.VARCHAR,
       SqlTypeName.INTEGER,
       SqlTypeName.BIGINT,
       SqlTypeName.DOUBLE,
       SqlTypeName.TIMESTAMP,
+      SqlTypeName.DATE,
+      SqlTypeName.SYMBOL,
     };
     for (SqlTypeName name : names) {
       RexLiteral literal = (RexLiteral) rexBuilder.makeNullLiteral(typeFactory.createSqlType(name));
@@ -90,6 +107,4 @@ public class RexNodeConverterTest {
     assertThat(variant).isInstanceOf(VarCharValue.class);
     assertThat(((VarCharValue) variant).getValue()).isNull();
   }
-
 }
-
