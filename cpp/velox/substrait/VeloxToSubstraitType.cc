@@ -122,9 +122,10 @@ const ::substrait::Type& VeloxToSubstraitTypeConvertor::toSubstraitType(
     case velox::TypeKind::ROW: {
       ::substrait::Type_Struct* substraitStruct =
           google::protobuf::Arena::CreateMessage<::substrait::Type_Struct>(&arena);
-      for (const auto& child : type->asRow().children()) {
-        substraitStruct->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
-        substraitStruct->add_types()->MergeFrom(toSubstraitType(arena, child));
+      const auto& rowType = type->asRow();
+      for (uint32_t i = 0; i < rowType.size(); ++i) {
+        substraitStruct->add_types()->MergeFrom(toSubstraitType(arena, rowType.childAt(i)));
+        substraitStruct->add_names(rowType.nameOf(i));
       }
       substraitStruct->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
       substraitType->set_allocated_struct_(substraitStruct);

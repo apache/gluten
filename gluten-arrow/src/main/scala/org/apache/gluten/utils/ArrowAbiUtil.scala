@@ -18,10 +18,10 @@ package org.apache.gluten.utils
 
 import org.apache.gluten.columnarbatch.ColumnarBatches
 import org.apache.gluten.exception.GlutenException
-import org.apache.gluten.vectorized.ArrowWritableColumnVector
+import org.apache.gluten.vectorized.ArrowColumnVectors
 
 import org.apache.spark.sql.utils.SparkVectorUtil
-import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
+import org.apache.spark.sql.vectorized.ColumnarBatch
 
 import org.apache.arrow.c.{ArrowArray, ArrowSchema, CDataDictionaryProvider, Data}
 import org.apache.arrow.memory.BufferAllocator
@@ -80,16 +80,7 @@ object ArrowAbiUtil {
   }
 
   private def toSparkColumnarBatch(vsr: VectorSchemaRoot): ColumnarBatch = {
-    val rowCount: Int = vsr.getRowCount
-    val vectors: Array[ColumnVector] =
-      ArrowWritableColumnVector
-        .loadColumns(rowCount, vsr.getFieldVectors)
-        .map(
-          v => {
-            v.setValueCount(rowCount)
-            v
-          })
-    new ColumnarBatch(vectors, rowCount)
+    ArrowColumnVectors.toBatch(vsr)
   }
 
   private def toVectorSchemaRoot(
