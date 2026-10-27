@@ -16,5 +16,7 @@
 # All invocations of these methods run and are reported, but do not affect the gate.
 # Use exact class and method names; omit method arguments and invocation indices.
 class,method
-# Example
-# org.apache.iceberg.spark.extensions.TestAlterTablePartitionFields,testDropPartitionAndSourceColumnLong
+# Tests expect BatchScanExec, native uses IcebergScanTransformer so these fail.
+org.apache.iceberg.spark.extensions.TestCopyOnWriteDelete,testDeleteWithVectorizedReads
+org.apache.iceberg.spark.extensions.TestCopyOnWriteMerge,testMergeWithVectorizedReads
+org.apache.iceberg.spark.extensions.TestCopyOnWriteUpdate,testUpdateWithVectorizedReads

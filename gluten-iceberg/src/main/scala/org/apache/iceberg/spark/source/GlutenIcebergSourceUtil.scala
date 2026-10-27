@@ -46,11 +46,25 @@ object GlutenIcebergSourceUtil {
   private val InputFileBlockLengthCol = "input_file_block_length"
 
   def isSupportedScan(sparkScan: Scan): Boolean = sparkScan match {
-    case _: SparkBatchQueryScan | _: SparkStagedScan => true
+    case _: SparkBatchQueryScan | _: SparkStagedScan | _: SparkCopyOnWriteScan => true
     case _ => false
   }
 
   def isSparkStagedScan(sparkScan: Scan): Boolean = sparkScan.isInstanceOf[SparkStagedScan]
+
+  def isSparkCopyOnWriteScan(sparkScan: Scan): Boolean =
+    sparkScan.isInstanceOf[SparkCopyOnWriteScan]
+
+  def hasOrcFiles(sparkScan: Scan): Boolean =
+    getScanTasks(sparkScan).exists {
+      case task if task.isFileScanTask =>
+        task.asFileScanTask().file().format() == FileFormat.ORC
+      case task: CombinedScanTask =>
+        task.tasks().asScala.exists(_.file().format() == FileFormat.ORC)
+      case _ =>
+        throw new UnsupportedOperationException(
+          "Only support iceberg CombinedScanTask and FileScanTask.")
+    }
 
   def hasVendedCredentials(sparkScan: Scan): Boolean =
     isSupportedScan(sparkScan) && hasVendedCredentials(getTable(sparkScan).io())
@@ -181,6 +195,8 @@ object GlutenIcebergSourceUtil {
           case InputFileNameCol => metadataColumns.put(name, filePath)
           case InputFileBlockStartCol => metadataColumns.put(name, start.toString)
           case InputFileBlockLengthCol => metadataColumns.put(name, length.toString)
+          case filePathCol if filePathCol == MetadataColumns.FILE_PATH.name() =>
+            metadataColumns.put(name, filePath)
           case _ =>
         }
     }
@@ -232,7 +248,7 @@ object GlutenIcebergSourceUtil {
       }
     }
 
-    asFileScanTask(getScanTasks(sparkScan)).foreach {
+    asFileScanTask(getScanTasks(sparkScan).toList).foreach {
       task =>
         if (fileFormat == ReadFileFormat.UnknownFormat) {
           task.file().format() match {
@@ -254,7 +270,7 @@ object GlutenIcebergSourceUtil {
   }
 
   def getReadPartitionSchema(sparkScan: Scan): StructType = {
-    asFileScanTask(getScanTasks(sparkScan)).foreach {
+    asFileScanTask(getScanTasks(sparkScan).toList).foreach {
       task =>
         val spec = task.spec()
         if (spec.isPartitioned) {
@@ -292,18 +308,20 @@ object GlutenIcebergSourceUtil {
     throw new UnsupportedOperationException("Failed to get partition schema from iceberg scan.")
   }
 
-  private def getTable(sparkScan: Scan): Table = sparkScan match {
+  def getTable(sparkScan: Scan): Table = sparkScan match {
     case scan: SparkBatchQueryScan => scan.table()
+    case scan: SparkCopyOnWriteScan => scan.table()
     case scan: SparkStagedScan => scan.table()
     case _ =>
       throw new GlutenNotSupportException(
         s"Unsupported Iceberg scan: ${sparkScan.getClass.getName}.")
   }
 
-  private def getScanTasks(sparkScan: Scan): List[ScanTask] = sparkScan match {
-    case scan: SparkBatchQueryScan => scan.tasks().asScala.toList
+  private def getScanTasks(sparkScan: Scan): Iterator[ScanTask] = sparkScan match {
+    case scan: SparkBatchQueryScan => scan.tasks().asScala.iterator
+    case scan: SparkCopyOnWriteScan => scan.tasks().asScala.iterator
     case scan: SparkStagedScan =>
-      scan.taskGroups().asScala.flatMap(_.tasks().asScala).toList
+      scan.taskGroups().asScala.iterator.flatMap(_.tasks().asScala.iterator)
     case _ =>
       throw new GlutenNotSupportException(
         s"Unsupported Iceberg scan: ${sparkScan.getClass.getName}.")
