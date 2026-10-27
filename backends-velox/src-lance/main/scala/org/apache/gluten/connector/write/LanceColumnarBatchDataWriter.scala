@@ -53,7 +53,8 @@ import scala.collection.JavaConverters._
  *
  * The stream advertises the commit schema, so its names, nullability and timestamp zone are the
  * ones `LanceBatchWrite.commit` uses. Every exported batch is checked against it, so a type Velox
- * exports differently fails the task instead of writing a corrupt table. The values Velox leaves
+ * exports differently fails the task instead of writing a corrupt table. Fixed-size list columns
+ * arrive as plain lists and are converted by [[LanceFixedSizeLists]], and the values Velox leaves
  * under nulls are zeroed by [[LanceNullSlots]] so that Lance encodes as compactly as it does for
  * the row writer.
  *
@@ -73,6 +74,7 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
   private val allocator: BufferAllocator =
     ArrowBufferAllocators.contextInstance(classOf[LanceColumnarBatchDataWriter].getSimpleName)
   private val queue = new ArrayBlockingQueue[Item](QueueCapacity)
+  private val exportedSchema = LanceFixedSizeLists.exportedSchema(commitSchema)
 
   private var stream: ArrowArrayStream = _
   private var thread: Thread = _
@@ -277,7 +279,7 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
   }
 
   private def checkExportedSchema(exported: Schema): Unit =
-    layoutMismatch(commitSchema, exported).foreach {
+    layoutMismatch(exportedSchema, exported).foreach {
       mismatch =>
         throw new IllegalStateException(
           s"Velox exported a batch that does not fit the Lance commit schema: $mismatch")
@@ -285,6 +287,12 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
 
   /** The stream's source: imports queued batches into a root shaped like the commit schema. */
   private class QueueReader extends ArrowReader(allocator) {
+    // Batches with fixed-size list columns are imported as Velox exports them, then converted.
+    private val staging: Option[VectorSchemaRoot] =
+      if (exportedSchema == commitSchema) None
+      else
+        Some(VectorSchemaRoot.create(exportedSchema, LanceColumnarBatchDataWriter.this.allocator))
+
     override protected def readSchema(): Schema = commitSchema
 
     override def loadNextBatch(): Boolean = {
@@ -308,7 +316,12 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
           false
         case batch: ExportedBatch =>
           val writerAllocator = LanceColumnarBatchDataWriter.this.allocator
-          batch.importInto(writerAllocator, getVectorSchemaRoot)
+          staging match {
+            case None => batch.importInto(writerAllocator, getVectorSchemaRoot)
+            case Some(root) =>
+              batch.importInto(writerAllocator, root)
+              LanceFixedSizeLists.moveInto(root, getVectorSchemaRoot)
+          }
           LanceNullSlots.zero(getVectorSchemaRoot, writerAllocator)
           true
       }
@@ -316,7 +329,10 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
 
     override def bytesRead(): Long = 0
 
-    override protected def closeReadSource(): Unit = drain()
+    override protected def closeReadSource(): Unit = {
+      drain()
+      staging.foreach(_.close())
+    }
   }
 }
 
