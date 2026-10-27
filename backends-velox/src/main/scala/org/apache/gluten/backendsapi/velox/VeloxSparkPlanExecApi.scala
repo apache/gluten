@@ -195,6 +195,14 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     GenericExpressionTransformer(substraitExprName, Seq(child), expr)
   }
 
+  /** Transform transform_keys to Substrait. Velox honors either map key dedup policy. */
+  override def genTransformKeysTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      expr: TransformKeys): ExpressionTransformer = {
+    GenericExpressionTransformer(substraitExprName, children, expr)
+  }
+
   /** Transform array filter to Substrait. */
   override def genArrayFilterTransformer(
       substraitExprName: String,

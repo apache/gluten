@@ -600,6 +600,40 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("transform_keys offloads to Velox under both mapKeyDedupPolicy values") {
+    // k % 2 maps l_orderkey and l_orderkey + 2 to the same key.
+    val duplicateKeyQuery =
+      "select transform_keys(map(l_orderkey, l_partkey, l_orderkey + 1, l_suppkey, " +
+        "l_orderkey + 2, l_linenumber), (k, v) -> k % 2) as m, " +
+        "map_keys(transform_keys(map(l_orderkey, l_partkey, l_orderkey + 1, l_suppkey, " +
+        "l_orderkey + 2, l_linenumber), (k, v) -> k % 2)) as k from lineitem limit 10"
+
+    // k % 2 maps l_orderkey and l_orderkey + 1 to different keys.
+    val distinctKeyQuery =
+      "select transform_keys(map(l_orderkey, l_partkey, l_orderkey + 1, l_suppkey), " +
+        "(k, v) -> k % 2) from lineitem limit 10"
+
+    withSQLConf(SQLConf.MAP_KEY_DEDUP_POLICY.key -> SQLConf.MapKeyDedupPolicy.EXCEPTION.toString) {
+      runQueryAndCompare(distinctKeyQuery) {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+
+      val df = sql(duplicateKeyQuery)
+      checkGlutenPlan[ProjectExecTransformer](df)
+      val e = intercept[SparkException] {
+        df.collect()
+      }
+      assert(e.getMessage.contains("Duplicate map key"))
+    }
+
+    withSQLConf(SQLConf.MAP_KEY_DEDUP_POLICY.key -> SQLConf.MapKeyDedupPolicy.LAST_WIN.toString) {
+      // LAST_WIN policy keeps the duplicate's first position and its last value.
+      runQueryAndCompare(duplicateKeyQuery) {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+    }
+  }
+
   test("raise_error, assert_true") {
     runQueryAndCompare("""SELECT assert_true(l_orderkey >= 1), l_orderkey
                          | from lineitem limit 100""".stripMargin) {
