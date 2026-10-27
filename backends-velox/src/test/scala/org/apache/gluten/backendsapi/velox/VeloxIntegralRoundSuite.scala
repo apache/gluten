@@ -18,7 +18,7 @@ package org.apache.gluten.backendsapi.velox
 
 import org.apache.gluten.config.GlutenConfig
 
-import org.apache.spark.sql.catalyst.expressions.{BoundReference, Literal, Round}
+import org.apache.spark.sql.catalyst.expressions.{Add, BoundReference, Cast, Literal, Round}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
@@ -45,6 +45,15 @@ class VeloxIntegralRoundSuite extends AnyFunSuite {
         assert(!validator.doExprValidate(
           "round",
           Round(value, BoundReference(1, IntegerType, nullable = false))))
+        Seq(
+          Add(Literal(0), Literal(0)),
+          Add(Literal(400), Literal(0)),
+          Cast(Literal.create(null, NullType), IntegerType)).foreach {
+          scale =>
+            assert(scale.foldable)
+            assert(scale.dataType == IntegerType)
+            assert(!validator.doExprValidate("round", Round(value, scale)))
+        }
       }
     }
   }

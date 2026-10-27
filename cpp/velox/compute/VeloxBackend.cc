@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <algorithm>
 #include <filesystem>
 
 #include "VeloxBackend.h"
@@ -25,6 +26,10 @@
 #include "operators/functions/RegistrationAllFunctions.h"
 #include "operators/plannodes/RowVectorStream.h"
 #include "utils/ConfigExtractor.h"
+
+#ifdef ENABLE_KAFKA
+#include "operators/reader/KafkaConnector.h"
+#endif
 
 #ifdef GLUTEN_ENABLE_QAT
 #include "utils/qat/QatCodec.h"
@@ -254,6 +259,10 @@ void VeloxBackend::init(
         std::make_unique<folly::CPUThreadPoolExecutor>(ioThreads, folly::CPUThreadPoolExecutor::makeLifoSemQueue());
   }
 
+  const auto broadcastHashTableBuildThreads =
+      std::max<int32_t>(1, backendConf_->get<int32_t>(kBroadcastHashTableBuildThreads, numTaskSlotsPerExecutor));
+  broadcastHashTableBuildExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(broadcastHashTableBuildThreads);
+
   initJolFilesystem();
 
   velox::dwio::common::registerFileSinks();
@@ -421,6 +430,13 @@ std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createValue
   return std::make_shared<ValueStreamConnector>(connectorId, hiveConnectorConfig_, dynamicFilterEnabled);
 }
 
+#ifdef ENABLE_KAFKA
+std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createKafkaConnector(
+    const std::string& connectorId) const {
+  return std::make_shared<KafkaConnector>(connectorId, hiveConnectorConfig_);
+}
+#endif
+
 #ifdef GLUTEN_ENABLE_GPU
 std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createCudfHiveConnector(
     const std::string& connectorId,
@@ -472,6 +488,7 @@ void VeloxBackend::tearDown() {
   spillExecutor_.reset();
   ioExecutor_.reset();
   ssdCacheExecutor_.reset();
+  broadcastHashTableBuildExecutor_.reset();
   globalMemoryManager_.reset();
 
   // dump cache stats on exit if enabled

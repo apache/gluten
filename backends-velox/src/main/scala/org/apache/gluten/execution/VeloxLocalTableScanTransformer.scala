@@ -76,7 +76,7 @@ case class VeloxLocalTableScanTransformer(
    * Validates that data types are compatible with the Arrow ABI export path used by
    * RowToVeloxColumnarExec.toColumnarBatchIterator:
    *   - Map types can trigger "Map data key type should be a non-nullable" in Arrow export
-   *   - Interval types are not supported by ArrowWritableColumnVector
+   *   - Interval types are not supported by the Arrow conversion
    */
   private def validateArrowCompatibility(dataType: DataType): Option[String] = {
     dataType match {

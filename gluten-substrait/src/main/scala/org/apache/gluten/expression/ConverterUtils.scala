@@ -189,10 +189,10 @@ object ConverterUtils extends Logging {
         (DecimalType(precision, scale), isNullable(decimal.getNullability))
       case Type.KindCase.STRUCT =>
         val struct_ = substraitType.getStruct
-        val fields = struct_.getTypesList.asScala.map {
-          typ =>
+        val fields = struct_.getTypesList.asScala.zip(structFieldNames(struct_)).map {
+          case (typ, name) =>
             val (field, nullable) = parseFromSubstraitType(typ)
-            StructField("", field, nullable)
+            StructField(name, field, nullable)
         }
         (StructType(fields.toSeq), isNullable(substraitType.getStruct.getNullability))
       case Type.KindCase.LIST =>
@@ -210,6 +210,15 @@ object ConverterUtils extends Logging {
         (NullType, true)
       case unsupported =>
         throw new GlutenNotSupportException(s"Type $unsupported not supported.")
+    }
+  }
+
+  // Not every producer sets `names`; without one name per field, the fields stay unnamed.
+  private def structFieldNames(substraitStruct: Type.Struct): Seq[String] = {
+    if (substraitStruct.getNamesCount == substraitStruct.getTypesCount) {
+      substraitStruct.getNamesList.asScala.toSeq
+    } else {
+      Seq.fill(substraitStruct.getTypesCount)("")
     }
   }
 
