@@ -171,12 +171,6 @@ public class RelBuilder {
     return new InputIteratorRelNode(typeList, nameList, iteratorIndex);
   }
 
-  public static RelNode makeOneRowReadRel(SubstraitContext context, long operatorId) {
-    RelNode node = new OneRowRelNode();
-    context.registerRelToOperator(operatorId);
-    return node;
-  }
-
   // only used in CHHashAggregateExecTransformer for CH backend
   public static RelNode makeReadRelForInputIteratorWithoutRegister(
       List<TypeNode> typeList, List<String> nameList, SubstraitContext context) {

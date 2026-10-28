@@ -24,7 +24,9 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.catalyst.plans.physical.{Partitioning, SinglePartition}
 import org.apache.spark.sql.execution.LeafExecNode
-import org.apache.spark.sql.vectorized.ColumnarBatch
+import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
+
+import scala.collection.JavaConverters._
 
 case class OneRowRelationExecTransformer() extends LeafExecNode with TransformSupport {
 
@@ -32,9 +34,10 @@ case class OneRowRelationExecTransformer() extends LeafExecNode with TransformSu
 
   override def outputPartitioning: Partitioning = SinglePartition
 
-  override def columnarInputRDDs: Seq[RDD[ColumnarBatch]] = Seq.empty
-
-  override def supportsNoInputExecution: Boolean = true
+  override def columnarInputRDDs: Seq[RDD[ColumnarBatch]] = Seq(
+    sparkContext.parallelize(Seq(0), 1).mapPartitions {
+      _ => Iterator.single(new ColumnarBatch(Array.empty[ColumnVector], 1))
+    })
 
   override def metricsUpdater(): MetricsUpdater = MetricsUpdater.Todo
 
@@ -52,6 +55,6 @@ case class OneRowRelationExecTransformer() extends LeafExecNode with TransformSu
   }
 
   private def makeOneRowRel(context: SubstraitContext, operatorId: Long): RelNode = {
-    RelBuilder.makeOneRowReadRel(context, operatorId)
+    RelBuilder.makeReadRelForInputIterator(output.asJava, context, operatorId)
   }
 }

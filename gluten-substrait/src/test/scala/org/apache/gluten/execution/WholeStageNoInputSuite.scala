@@ -16,23 +16,10 @@
  */
 package org.apache.gluten.execution
 
-import org.apache.spark.TaskContext
-
 import org.mockito.Mockito.mock
 import org.scalatest.funsuite.AnyFunSuite
 
-import java.util.concurrent.TimeUnit
-
 class WholeStageNoInputSuite extends AnyFunSuite {
-  test("explicit no-input execution creates one dependency-free partition") {
-    val wrapper = new ColumnarInputRDDsWrapper(Seq.empty, supportsNoInputExecution = true)
-
-    assert(wrapper.getPartitionLength == 1)
-    assert(wrapper.getDependencies.isEmpty)
-    assert(wrapper.getPartitions(0).isEmpty)
-    assert(wrapper.getIterators(Seq.empty, mock(classOf[TaskContext])).isEmpty)
-  }
-
   test("an accidental empty input stage still fails") {
     val wrapper = new ColumnarInputRDDsWrapper(Seq.empty)
 
@@ -40,16 +27,6 @@ class WholeStageNoInputSuite extends AnyFunSuite {
       wrapper.getPartitionLength
     }
     assert(error.getMessage.contains("No non-broadcast input RDD is available"))
-  }
-
-  test("an explicitly supported broadcast-only input creates one partition") {
-    val broadcast = mock(classOf[BroadcastBuildSideRDD])
-    val wrapper =
-      new ColumnarInputRDDsWrapper(Seq(broadcast), supportsNoInputExecution = true)
-
-    assert(wrapper.getDependencies.isEmpty)
-    assert(wrapper.getPartitions(0).isEmpty)
-    assert(wrapper.getPartitionLength == 1)
   }
 
   test("an unsupported broadcast-only input still fails") {
@@ -61,26 +38,4 @@ class WholeStageNoInputSuite extends AnyFunSuite {
     }
   }
 
-  test("concurrent partition discovery still produces one partition per request") {
-    val wrapper = new ColumnarInputRDDsWrapper(Seq.empty, supportsNoInputExecution = true)
-    val partitionLengths = Array.fill(32)(0)
-    val threads = partitionLengths.indices.map {
-      index =>
-        val thread = new Thread(() => partitionLengths(index) = wrapper.getPartitionLength)
-        thread.setDaemon(true)
-        thread
-    }
-    threads.foreach(_.start())
-    val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
-    threads.foreach {
-      thread =>
-        val remainingNanos = deadlineNanos - System.nanoTime()
-        if (remainingNanos > 0) {
-          thread.join(math.max(1L, TimeUnit.NANOSECONDS.toMillis(remainingNanos)))
-        }
-    }
-
-    assert(threads.forall(thread => !thread.isAlive), "Partition discovery threads timed out")
-    assert(partitionLengths.forall(_ == 1))
-  }
 }

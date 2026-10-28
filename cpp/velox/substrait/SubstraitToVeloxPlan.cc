@@ -1593,22 +1593,6 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         !readRel.common().has_emit(), "Emit not supported for ValuesNode and TableScanNode related Substrait plans.");
   }
 
-  // Virtual tables are self-contained and do not have Spark file splits.
-  if (readRel.has_virtual_table()) {
-    std::vector<TypePtr> veloxTypes;
-    if (readRel.has_base_schema()) {
-      const bool asLowerCase = !veloxCfg_->get<bool>(kCaseSensitive, false);
-      veloxTypes = SubstraitParser::parseNamedStruct(readRel.base_schema(), asLowerCase);
-    }
-
-    std::vector<std::string> outputNames;
-    outputNames.reserve(veloxTypes.size());
-    for (int32_t idx = 0; idx < veloxTypes.size(); ++idx) {
-      outputNames.emplace_back(SubstraitParser::makeNodeName(planNodeId_, idx));
-    }
-    return toVeloxPlan(readRel, ROW(std::move(outputNames), std::move(veloxTypes)));
-  }
-
 #ifdef ENABLE_KAFKA
   if (isKafkaRead(readRel)) {
     return constructKafkaStreamNode(readRel);
@@ -1824,11 +1808,15 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   }
   auto outputType = ROW(std::move(outNames), std::move(veloxTypeList));
 
-  auto tableScanNode = std::make_shared<core::TableScanNode>(
-      nextPlanNodeId(), std::move(outputType), std::move(tableHandle), assignments);
-  // Set split info map.
-  splitInfoMap_[tableScanNode->id()] = splitInfo;
-  return tableScanNode;
+  if (readRel.has_virtual_table()) {
+    return toVeloxPlan(readRel, outputType);
+  } else {
+    auto tableScanNode = std::make_shared<core::TableScanNode>(
+        nextPlanNodeId(), std::move(outputType), std::move(tableHandle), assignments);
+    // Set split info map.
+    splitInfoMap_[tableScanNode->id()] = splitInfo;
+    return tableScanNode;
+  }
 }
 
 core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
@@ -1836,7 +1824,6 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
     const RowTypePtr& type) {
   const ::substrait::ReadRel_VirtualTable& readVirtualTable = readRel.virtual_table();
   const int64_t numVectors = readVirtualTable.expressions_size();
-  VELOX_USER_CHECK_GT(numVectors, 0, "Virtual table must contain at least one row group.");
   const int64_t numColumns = type->size();
   std::vector<RowVectorPtr> vectors;
   vectors.reserve(numVectors);
@@ -1848,9 +1835,6 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
     // the whole table.
     const ::substrait::Expression_Nested_Struct& rowValue = readVirtualTable.expressions(index);
     const int64_t fieldSize = rowValue.fields_size();
-    if (!readRel.has_base_schema()) {
-      VELOX_USER_CHECK_EQ(fieldSize, 0, "ReadRel.VirtualTable without base_schema cannot contain fields.");
-    }
     // For the empty vectors, eg,vectors = makeRowVector(ROW({}, {}), 1).
     const int64_t batchSize = numColumns == 0 ? 1 : fieldSize / numColumns;
     VELOX_USER_CHECK_EQ(
@@ -1887,11 +1871,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
     vectors.emplace_back(std::make_shared<RowVector>(pool_, type, nullptr, batchSize, children));
   }
 
-  auto node = std::make_shared<core::ValuesNode>(nextPlanNodeId(), std::move(vectors));
-  auto splitInfo = std::make_shared<SplitInfo>();
-  splitInfo->leafType = SplitInfo::LeafType::TRIVIAL_LEAF;
-  splitInfoMap_[node->id()] = splitInfo;
-  return node;
+  return std::make_shared<core::ValuesNode>(nextPlanNodeId(), std::move(vectors));
 }
 
 core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::Rel& rel) {

@@ -24,8 +24,9 @@ import org.scalatest.funsuite.AnyFunSuite
  * Pins the wire tags of the vendored `ReadRel.VirtualTable` after its rebase onto upstream
  * Substrait v0.98.0. A round trip through the generated classes cannot catch a renumber or a field
  * rename, because producer and consumer share one schema, so these assert on the descriptors
- * instead. The JVM producer and C++ consumer both rely on these descriptors, so a generated-code
- * round trip alone would not detect an accidental wire-format regression.
+ * instead. There is no JVM producer for virtual tables - the only producer and consumer live in
+ * cpp/velox/substrait - which is precisely why nothing else in the build would notice a regression
+ * here.
  */
 class VirtualTableProtoSuite extends AnyFunSuite {
 

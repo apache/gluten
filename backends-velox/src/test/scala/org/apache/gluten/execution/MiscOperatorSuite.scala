@@ -27,8 +27,6 @@ import org.apache.spark.SparkConf
 import org.apache.spark.shuffle.GlutenShuffleUtils
 import org.apache.spark.sql.{DataFrame, GlutenQueryTest, Row}
 import org.apache.spark.sql.catalyst.expressions.Cast
-import org.apache.spark.sql.catalyst.optimizer.BuildRight
-import org.apache.spark.sql.catalyst.plans.Inner
 import org.apache.spark.sql.catalyst.trees.TreeNodeTag
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, AdaptiveSparkPlanHelper, AQEShuffleReadExec, ColumnarAQEShuffleReadExec, ShuffleQueryStageExec}
@@ -845,8 +843,9 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
             val readRel = relation.transform(new SubstraitContext).root.toProtobuf.getRead
             assert(readRel.getBaseSchema.getNamesCount == 0)
             assert(readRel.getBaseSchema.getStruct.getTypesCount == 0)
-            assert(readRel.getVirtualTable.getExpressionsCount == 1)
-            assert(readRel.getVirtualTable.getExpressions(0).getFieldsCount == 0)
+            assert(!readRel.hasVirtualTable)
+            assert(readRel.hasLocalFiles)
+            assert(readRel.getLocalFiles.getItemsCount == 1)
         }
         val nativeStages = collect(plan) {
           case stage: WholeStageTransformer
@@ -979,7 +978,7 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
       withTempView("one_row_join_build") {
         spark.range(2).createOrReplaceTempView("one_row_join_build")
 
-        def checkDependencyFreeStream(plan: SparkPlan): Unit = {
+        def checkSinglePartitionStream(plan: SparkPlan): Unit = {
           assert(plan.find(_.isInstanceOf[OneRowRelationExecTransformer]).isDefined)
           assert(plan.find(_.isInstanceOf[RowToVeloxColumnarExec]).isEmpty)
           val nativeStages = collect(plan) {
@@ -1002,7 +1001,7 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
         assert(
           hashJoinPlan.find(_.isInstanceOf[BroadcastHashJoinExecTransformer]).isDefined,
           hashJoinPlan)
-        checkDependencyFreeStream(hashJoinPlan)
+        checkSinglePartitionStream(hashJoinPlan)
 
         val nestedLoopJoin = sql("""
                                    |SELECT /*+ BROADCAST(build) */ one.marker, build.id
@@ -1016,64 +1015,38 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
           nestedLoopJoinPlan.find(
             _.isInstanceOf[VeloxBroadcastNestedLoopJoinExecTransformer]).isDefined,
           nestedLoopJoinPlan)
-        checkDependencyFreeStream(nestedLoopJoinPlan)
+        checkSinglePartitionStream(nestedLoopJoinPlan)
       }
     }
   }
 
-  test("test OneRowRelation no-input capability propagation") {
+  test("test OneRowRelation ordinary single-partition columnar input") {
     assume(isSparkVersionGE("4.1"))
 
-    val supported = OneRowRelationExecTransformer()
-    val unsupported = UnionExecTransformer(Seq.empty)
-    val nonTransform = spark.range(1).queryExecution.sparkPlan
+    val relation = OneRowRelationExecTransformer()
+    val inputs = relation.columnarInputRDDs
+    assert(inputs.size == 1)
+    assert(inputs.head.getNumPartitions == 1)
+    val wrapper = new ColumnarInputRDDsWrapper(inputs)
+    assert(wrapper.getDependencies.size == 1)
+    assert(wrapper.getPartitionLength == 1)
+    assert(wrapper.getPartitions(0).size == 1)
 
-    assert(WholeStageTransformer(supported)(0).supportsNoInputExecution)
-    assert(!WholeStageTransformer(unsupported)(0).supportsNoInputExecution)
-    assert(!WholeStageTransformer(nonTransform)(0).supportsNoInputExecution)
-
-    assert(!UnionExecTransformer(Seq.empty).supportsNoInputExecution)
-    assert(UnionExecTransformer(Seq(supported, supported)).supportsNoInputExecution)
-    assert(!UnionExecTransformer(Seq(supported, unsupported)).supportsNoInputExecution)
-    assert(!UnionExecTransformer(Seq(supported, nonTransform)).supportsNoInputExecution)
-
-    val hashWithSupportedStream = BroadcastHashJoinExecTransformer(
-      Nil,
-      Nil,
-      Inner,
-      BuildRight,
-      None,
-      supported,
-      unsupported,
-      isNullAwareAntiJoin = false)
-    val hashWithUnsupportedStream = BroadcastHashJoinExecTransformer(
-      Nil,
-      Nil,
-      Inner,
-      BuildRight,
-      None,
-      unsupported,
-      supported,
-      isNullAwareAntiJoin = false)
-    assert(hashWithSupportedStream.supportsNoInputExecution)
-    assert(!hashWithUnsupportedStream.supportsNoInputExecution)
-
-    val nestedLoopWithSupportedStream =
-      VeloxBroadcastNestedLoopJoinExecTransformer(
-        supported,
-        unsupported,
-        BuildRight,
-        Inner,
-        None)
-    val nestedLoopWithUnsupportedStream =
-      VeloxBroadcastNestedLoopJoinExecTransformer(
-        unsupported,
-        supported,
-        BuildRight,
-        Inner,
-        None)
-    assert(nestedLoopWithSupportedStream.supportsNoInputExecution)
-    assert(!nestedLoopWithUnsupportedStream.supportsNoInputExecution)
+    Seq(1, 2).foreach {
+      _ =>
+        val batches = inputs.head.mapPartitions {
+          iterator =>
+            iterator.map {
+              batch =>
+                try {
+                  (batch.numCols(), batch.numRows())
+                } finally {
+                  batch.close()
+                }
+            }
+        }.collect()
+        assert(batches.toSeq == Seq((0, 1)))
+    }
   }
 
   test("test OneRowRelation transformer preserves Spark plan tags") {
