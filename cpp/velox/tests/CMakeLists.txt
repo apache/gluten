@@ -106,6 +106,7 @@ if(ENABLE_GPU)
   add_velox_gpu_test(velox_gpu_shuffle_writer_test SOURCES
                      VeloxGpuShuffleWriterTest.cc)
   add_velox_gpu_test(velox_gpu_lock_test SOURCES GpuLockTest.cc)
+  add_velox_gpu_test(velox_gpu_cudf_functions_test SOURCES CudfFunctionsTest.cc)
   add_velox_gpu_test(velox_cudf_value_stream_test SOURCES
                      CudfValueStreamTest.cc)
 endif()

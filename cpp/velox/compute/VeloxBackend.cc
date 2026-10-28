@@ -35,6 +35,7 @@
 #include "utils/qat/QatCodec.h"
 #endif
 #ifdef GLUTEN_ENABLE_GPU
+#include "cudf/CudfFunctions.h"
 #include "cudf/GpuLock.h"
 #include "operators/plannodes/CudfVectorStream.h"
 #include "velox/experimental/cudf/CudfConfig.h"
@@ -227,6 +228,7 @@ void VeloxBackend::init(
       velox::exec::Operator::registerOperator(std::make_unique<CudfVectorStreamOperatorTranslator>());
       velox::cudf_velox::registerSparkFunctions("");
       velox::cudf_velox::registerSparkAggregateFunctions("");
+      registerCudfFunctions();
     } else {
       LOG(WARNING) << "No Cuda device found. Skip Cudf initialization.";
     }
