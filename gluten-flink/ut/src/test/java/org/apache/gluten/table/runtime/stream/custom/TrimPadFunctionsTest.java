@@ -77,14 +77,33 @@ class TrimPadFunctionsTest extends GlutenStreamingTestBase {
 
   @Test
   void testTrimWithColumnSeek() {
-    // The seek column data avoids strings whose first byte is a space and that
-    // are multi-character (the Flink isSpaceString divergence).
+    // The seek column data covers both flavors: seeks not starting with a
+    // space take the character-set walk, while Flink's isSpaceString degrades
+    // a seek whose first byte is a space to space-only trimming for
+    // segment-backed (column-sourced) strings.
     List<Row> rows =
-        Arrays.asList(Row.of(1, "xxabx", "x"), Row.of(2, "abba", "ab"), Row.of(3, "abc", ""));
+        Arrays.asList(
+            Row.of(1, "xxabx", "x"),
+            Row.of(2, "abba", "ab"),
+            Row.of(3, "abc", ""),
+            Row.of(4, "abx ", " x"),
+            Row.of(5, " xab", " x"));
     createSimpleBoundedValuesTable("tblTrimSeek", "a int, c1 string, c2 string", rows);
 
     String query = "select TRIM(c2 FROM c1) from tblTrimSeek";
-    runAndCheck(query, Arrays.asList("+I[ab]", "+I[]", "+I[abc]"));
+    runAndCheck(query, Arrays.asList("+I[ab]", "+I[]", "+I[abc]", "+I[abx]", "+I[xab]"));
+  }
+
+  @Test
+  void testLtrimRtrimWithColumnSeek() {
+    // Column-sourced seek starting with a space: Flink trims spaces only
+    // (BinaryStringDataUtil.isSpaceString checks byteAt(0) for segment-backed
+    // strings), matching the *_runtime velox functions.
+    List<Row> rows = Arrays.asList(Row.of(1, "abx ", " x"));
+    createSimpleBoundedValuesTable("tblLtrimRtrimColSeek", "a int, c1 string, c2 string", rows);
+
+    String query = "select LTRIM(c1, c2), RTRIM(c1, c2) from tblLtrimRtrimColSeek";
+    runAndCheck(query, Arrays.asList("+I[abx , abx]"));
   }
 
   @Test
@@ -92,8 +111,12 @@ class TrimPadFunctionsTest extends GlutenStreamingTestBase {
     List<Row> rows = Arrays.asList(Row.of(1, "xxabx"));
     createSimpleBoundedValuesTable("tblLtrimRtrimSeek", "a int, s string", rows);
 
-    String query = "select LTRIM(s, 'x'), RTRIM(s, 'x') from tblLtrimRtrimSeek";
-    runAndCheck(query, Arrays.asList("+I[abx, xxab]"));
+    // A literal seek keeps its Java object in Flink and always takes the
+    // character-set walk, even when it starts with a space.
+    String query =
+        "select LTRIM(s, 'x'), RTRIM(s, 'x'), LTRIM(s, ' x'), RTRIM(s, ' x')"
+            + " from tblLtrimRtrimSeek";
+    runAndCheck(query, Arrays.asList("+I[abx, xxab, abx, xxab]"));
   }
 
   @Test

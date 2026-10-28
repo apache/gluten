@@ -124,9 +124,13 @@ public class RexCallConverterFactory {
           // maps the flag to ltrim/rtrim/trim and reorders to (str, seek).
           Map.entry("TRIM", Arrays.asList(() -> new TrimRexCallConverter())),
           // LTRIM/RTRIM keep the Flink argument order (str[, seek]); the
-          // flinksql ltrim/rtrim signatures match as-is.
-          Map.entry("LTRIM", Arrays.asList(() -> new DefaultRexCallConverter("ltrim"))),
-          Map.entry("RTRIM", Arrays.asList(() -> new DefaultRexCallConverter("rtrim"))),
+          // converter routes a two-argument call by the seek constancy:
+          // a constant seek takes the flinksql character-set signatures, a
+          // runtime-sourced seek takes the *_runtime ones (Flink's
+          // isSpaceString degrades a seek starting with a space to
+          // space-only trimming for segment-backed strings).
+          Map.entry("LTRIM", Arrays.asList(() -> new TrimSeekRexCallConverter("ltrim"))),
+          Map.entry("RTRIM", Arrays.asList(() -> new TrimSeekRexCallConverter("rtrim"))),
           Map.entry("LPAD", Arrays.asList(() -> new DefaultRexCallConverter("lpad"))),
           Map.entry("RPAD", Arrays.asList(() -> new DefaultRexCallConverter("rpad"))),
           Map.entry("COALESCE", Arrays.asList(() -> new DefaultRexCallConverter("coalesce"))));

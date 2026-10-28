@@ -43,6 +43,12 @@ import java.util.List;
  * function: LEADING → {@code ltrim}, TRAILING → {@code rtrim}, BOTH → {@code trim}. All three
  * accept the optional second argument (a character set, not a prefix).
  *
+ * <p>The seek picks the flavor by constancy, mirroring Flink's {@code
+ * BinaryStringDataUtil.isSpaceString}: a plan constant keeps its Java object and takes the
+ * character-set walk ({@code trim}/{@code ltrim}/{@code rtrim}); a runtime-sourced seek (column or
+ * computed expression) is segment-backed and Flink checks only its first byte, degrading a seek
+ * that starts with a space to space-only trimming ({@code trim_runtime} et al.).
+ *
  * <p>A non-literal flag (a pathological plan) is rejected by {@link #isSuitable}.
  */
 public class TrimRexCallConverter extends BaseRexCallConverter {
@@ -79,6 +85,11 @@ public class TrimRexCallConverter extends BaseRexCallConverter {
       default:
         functionName = "trim";
         break;
+    }
+    // A runtime-sourced seek takes the *_runtime flavor (Flink's isSpaceString
+    // degrades a seek starting with a space to space-only trimming).
+    if (!TrimSeekFlavor.isConstantSeek(operands.get(1))) {
+      functionName = functionName + "_runtime";
     }
     // Flink/velox argument order: (str, seek) = (operand[2], operand[1]).
     List<TypedExpr> params = new ArrayList<>();
