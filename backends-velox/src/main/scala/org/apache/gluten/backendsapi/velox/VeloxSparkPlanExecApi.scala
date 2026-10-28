@@ -28,6 +28,7 @@ import org.apache.gluten.shuffle.NeedCustomColumnarBatchSerializer
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.expression.{ExpressionBuilder, ExpressionNode, WindowFunctionNode}
+import org.apache.gluten.utils.VeloxIntermediateData
 import org.apache.gluten.vectorized.{ColumnarBatchSerializer, ColumnarBatchSerializeResult}
 
 import org.apache.spark.{ShuffleDependency, SparkEnv}
@@ -1664,7 +1665,8 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
                   }
               }
 
-            val childrenNodeList = aggregateFunc.children
+            val childrenNodeList = VeloxIntermediateData
+              .getRawInputs(aggregateFunc)
               .map(
                 ExpressionConverter
                   .replaceWithExpressionTransformer(_, originalInputAttributes)

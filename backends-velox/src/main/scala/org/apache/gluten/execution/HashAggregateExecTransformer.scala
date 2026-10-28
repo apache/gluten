@@ -295,7 +295,11 @@ abstract class HashAggregateExecTransformer(
       val functionInputAttributes = aggFunc.inputAggBufferAttributes
       aggFunc match {
         case _ if aggregateExpression.mode == Partial || aggregateExpression.mode == Complete =>
-          val childNodes = aggFunc.children
+          // Literal arguments stay inline in the aggregate (see getAggRelInternal), because Velox
+          // only treats an argument as constant when it is a literal, not a projected column.
+          val childNodes = VeloxIntermediateData
+            .getRawInputs(aggFunc)
+            .filterNot(_.isInstanceOf[Literal])
             .map(
               ExpressionConverter
                 .replaceWithExpressionTransformer(_, originalInputAttributes)
@@ -504,7 +508,16 @@ abstract class HashAggregateExecTransformer(
         val aggregateFunc = aggExpr.aggregateFunction
         val childrenNodes = aggExpr.mode match {
           case Partial | Complete =>
-            aggregateFunc.children.toList.map(toExpressionNode)
+            // rowConstructed is per operator: in mixed-phase aggregates (e.g. the distinct
+            // stage), Partial arguments are also pre-projected and referenced by position.
+            // Literals are kept inline so that they reach Velox as constants.
+            VeloxIntermediateData.getRawInputs(aggregateFunc).toList.map {
+              case literal: Literal if rowConstructed =>
+                ExpressionConverter
+                  .replaceWithExpressionTransformer(literal, originalInputAttributes)
+                  .doTransform(context)
+              case expr => toExpressionNode(expr)
+            }
           case PartialMerge | Final =>
             if (rowConstructed) {
               // Only occupies one column due to intermediate results are combined
