@@ -158,6 +158,9 @@ set(VELOX_SRCS
     ${VELOX_PROTO_SRCS}
     compute/VeloxBackend.cc
     compute/VeloxRuntime.cc
+    compute/NativeExecutor.cc
+    compute/VeloxPlanEvaluator.cc
+    compute/VeloxExpressionEvaluator.cc
     compute/VeloxPlanConverter.cc
     compute/WholeStageResultIterator.cc
     compute/delta/DeltaConnector.cpp
@@ -253,7 +256,7 @@ endif()
 
 add_library(gluten_velox_impl OBJECT ${VELOX_SRCS})
 set_target_properties(gluten_velox_impl PROPERTIES POSITION_INDEPENDENT_CODE ON)
-add_library(velox SHARED jni/VeloxJniWrapper.cc)
+add_library(velox SHARED jni/VeloxJniWrapper.cc jni/JniExprBenchmark.cc)
 target_link_libraries(velox PUBLIC gluten_velox_impl gluten)
 
 if(ENABLE_GLUTEN_VCPKG)

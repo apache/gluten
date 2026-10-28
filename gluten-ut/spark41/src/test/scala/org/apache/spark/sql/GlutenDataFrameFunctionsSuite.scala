@@ -17,14 +17,108 @@
 package org.apache.spark.sql
 
 import org.apache.gluten.exception.GlutenException
+import org.apache.gluten.execution.ProjectExecTransformer
 
 import org.apache.spark.SparkException
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{IntegerType, MapType, StringType, StructField, StructType}
+import org.apache.spark.sql.types.{BinaryType, IntegerType, LongType, MapType, StringType, StructField, StructType}
+
+import java.nio.charset.StandardCharsets.UTF_8
 
 class GlutenDataFrameFunctionsSuite extends DataFrameFunctionsSuite with GlutenSQLTestsTrait {
   import testImplicits._
+
+  testGluten("array construction preserves repeated nullable and selected inputs") {
+    val values = Seq(
+      Row(0L, 1, 2, "a" * 64, "b" * 80),
+      Row(1L, null, 3, null, "c" * 64),
+      Row(2L, 4, null, "", null),
+      Row(3L, 5, 6, "中" * 32, "x\u0000y"),
+      Row(4L, null, null, null, null),
+      Row(5L, 7, 8, "d" * 96, "e" * 64)
+    )
+    val input = spark.createDataFrame(
+      spark.sparkContext.parallelize(
+        values.map {
+          row =>
+            val bytes = Option(row.getString(3)).map(_.getBytes(UTF_8)).orNull
+            Row.fromSeq(row.toSeq :+ bytes)
+        },
+        1),
+      StructType(Seq(
+        StructField("id", LongType, nullable = false),
+        StructField("i", IntegerType, nullable = true),
+        StructField("j", IntegerType, nullable = true),
+        StructField("s", StringType, nullable = true),
+        StructField("t", StringType, nullable = true),
+        StructField("b", BinaryType, nullable = true)
+      ))
+    )
+    withSQLConf(
+      SQLConf.ANSI_ENABLED.key -> "false",
+      "spark.gluten.sql.columnar.maxBatchSize" -> "2") {
+      val result = input.selectExpr(
+        "array(i, i)",
+        "array(i, j)",
+        "array(s, s)",
+        "array(s, t, s)",
+        "if(id % 2 = 0, array(s, t), array(t, s))",
+        "array(b, b)"
+      )
+      checkAnswer(
+        result,
+        values.map {
+          row =>
+            val s = row.getString(3)
+            val t = row.getString(4)
+            val bytes = if (s == null) null else s.getBytes(UTF_8)
+            Row(
+              Seq(row.get(1), row.get(1)),
+              Seq(row.get(1), row.get(2)),
+              Seq(s, s),
+              Seq(s, t, s),
+              if (row.getLong(0) % 2 == 0) Seq(s, t) else Seq(t, s),
+              Seq(bytes, bytes))
+        }
+      )
+      assert(getExecutedPlan(result).exists(_.isInstanceOf[ProjectExecTransformer]))
+    }
+  }
+
+  testGluten("bigint to int preserves legacy truncation and try_cast overflow nulls") {
+    val values = Seq[java.lang.Long](
+      null,
+      Long.MinValue,
+      Int.MinValue.toLong - 1,
+      Int.MinValue.toLong,
+      -1L,
+      0L,
+      Int.MaxValue.toLong,
+      Int.MaxValue.toLong + 1,
+      Long.MaxValue)
+    val input = spark.createDataFrame(
+      spark.sparkContext.parallelize(values.map(Row(_)), 1),
+      StructType(Seq(StructField("v", LongType, nullable = true))))
+    withSQLConf(SQLConf.ANSI_ENABLED.key -> "false") {
+      val result = input.selectExpr("cast(v as int)", "try_cast(v as int)")
+      checkAnswer(
+        result,
+        Seq(
+          Row(null, null),
+          Row(0, null),
+          Row(Int.MaxValue, null),
+          Row(Int.MinValue, Int.MinValue),
+          Row(-1, -1),
+          Row(0, 0),
+          Row(Int.MaxValue, Int.MaxValue),
+          Row(Int.MinValue, null),
+          Row(-1, null)
+        )
+      )
+      assert(getExecutedPlan(result).exists(_.isInstanceOf[ProjectExecTransformer]))
+    }
+  }
 
   testGluten("map with arrays") {
     val df1 = Seq((Seq(1, 2), Seq("a", "b"))).toDF("k", "v")

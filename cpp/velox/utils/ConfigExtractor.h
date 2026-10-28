@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -28,6 +29,11 @@
 namespace gluten {
 
 enum class FileSystemType : uint8_t { kHdfs, kS3, kAbfs, kGcs, kAll };
+
+/// Convert Spark session configuration to Velox query configuration.
+std::unordered_map<std::string, std::string> getQueryContextConf(
+    const facebook::velox::config::ConfigBase* conf,
+    int32_t partitionId);
 
 /// Create hive connector session config.
 std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorSessionConfig(
