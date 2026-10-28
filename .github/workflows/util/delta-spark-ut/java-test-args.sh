@@ -49,7 +49,8 @@
 # command line, so Delta's own -Xmx (build.sbt) would win; run-delta-tests.sh bumps
 # the forked-test-JVM heap via `set spark / Test / javaOptions ++= ...` instead.
 
-export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:+${JAVA_TOOL_OPTIONS} }\
+# Keep caller-provided -D properties last so they override these defaults.
+export JAVA_TOOL_OPTIONS="\
 -XX:+IgnoreUnrecognizedVMOptions \
 --add-opens=java.base/java.lang=ALL-UNNAMED \
 --add-opens=java.base/java.lang.invoke=ALL-UNNAMED \
@@ -79,4 +80,4 @@ export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:+${JAVA_TOOL_OPTIONS} }\
 -Dspark.gluten.sql.ansiFallback.enabled=false \
 -Dspark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite=true \
 -Dspark.databricks.delta.snapshotPartitions=2 \
--Dspark.gluten.sql.fallbackUnexpectedMetadataParquet=true"
+-Dspark.gluten.sql.fallbackUnexpectedMetadataParquet=true${JAVA_TOOL_OPTIONS:+ ${JAVA_TOOL_OPTIONS}}"

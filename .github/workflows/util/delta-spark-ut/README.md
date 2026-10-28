@@ -328,3 +328,6 @@ source <gluten>/.github/workflows/util/delta-spark-ut/java-test-args.sh
 
 `run-delta-tests.sh` sources the same file, so CI and local runs use identical
 flags.
+
+Existing `JAVA_TOOL_OPTIONS` are preserved after the shared defaults, so
+caller-supplied `-D` properties take precedence.
