@@ -81,6 +81,9 @@ class GlutenFileMetadataStructSuite extends FileMetadataStructSuite with GlutenS
       }).add("id", LongType)
   }
 
+  private val idColumnIndex = schemaWithMetadataCollisions.fieldIndex("id")
+  private val maxSplitBytes = 1024L * 1024
+
   private val collisionRows0 = Seq(
     Row(10L, 20L, "size0", "time0", "start0", "length0", 0L),
     Row(11L, 21L, "size1", "time1", "start1", "length1", 1L))
@@ -136,8 +139,8 @@ class GlutenFileMetadataStructSuite extends FileMetadataStructSuite with GlutenS
                 .listFiles()
                 .filter(_.getName.endsWith(s".$testFileFormat"))
                 .head
-              assert(realF0.length() < 1024 * 1024 && realF1.length() < 1024 * 1024)
-              withSQLConf(SQLConf.FILES_MAX_PARTITION_BYTES.key -> "1m") {
+              assert(realF0.length() < maxSplitBytes && realF1.length() < maxSplitBytes)
+              withSQLConf(SQLConf.FILES_MAX_PARTITION_BYTES.key -> maxSplitBytes.toString) {
                 f(df, getMetadataForFile(realF0), getMetadataForFile(realF1))
               }
           }
@@ -225,7 +228,7 @@ class GlutenFileMetadataStructSuite extends FileMetadataStructSuite with GlutenS
       val selected = df.select((metadataColumns.map(Column(_)) :+ Column("id")): _*)
       val expected = Seq((collisionRows0, f0), (collisionRows1, f1)).flatMap {
         case (rows, metadata) =>
-          rows.map(row => Row.fromSeq(metadataColumns.map(metadata) :+ row.getLong(6)))
+          rows.map(row => Row.fromSeq(metadataColumns.map(metadata) :+ row.getLong(idColumnIndex)))
       }
       checkMetadataAnswer(selected, expected)
       checkMetadataAnswer(
@@ -264,8 +267,8 @@ class GlutenFileMetadataStructSuite extends FileMetadataStructSuite with GlutenS
             .filter { case (_, metadata) => metadata(metadataColumn) == f0(metadataColumn) }
             .flatMap {
               case (rows, metadata) =>
-                rows.filter(_.getLong(6) > 0L).map {
-                  row => Row(metadata(METADATA_FILE_NAME), row.getLong(6))
+                rows.filter(_.getLong(idColumnIndex) > 0L).map {
+                  row => Row(metadata(METADATA_FILE_NAME), row.getLong(idColumnIndex))
                 }
             }
           checkMetadataAnswer(filtered, expected)
@@ -284,8 +287,8 @@ class GlutenFileMetadataStructSuite extends FileMetadataStructSuite with GlutenS
           val seconds = metadata(METADATA_FILE_MODIFICATION_TIME)
             .asInstanceOf[Timestamp]
             .getTime / 1000L
-          rows.filter(row => seconds + row.getLong(6) == targetSeconds).map {
-            row => Row(metadata(METADATA_FILE_NAME), row.getLong(6))
+          rows.filter(row => seconds + row.getLong(idColumnIndex) == targetSeconds).map {
+            row => Row(metadata(METADATA_FILE_NAME), row.getLong(idColumnIndex))
           }
       }
       assert(timestampExpected.nonEmpty)
@@ -335,8 +338,8 @@ class GlutenFileMetadataStructSuite extends FileMetadataStructSuite with GlutenS
         )
         checkMetadataAnswer(
           df.select(METADATA_FILE_NAME, "id"),
-          collisionRows0.map(row => Row(f0(METADATA_FILE_NAME), row.getLong(6))) ++
-            collisionRows1.map(row => Row(f1(METADATA_FILE_NAME), row.getLong(6)))
+          collisionRows0.map(row => Row(f0(METADATA_FILE_NAME), row.getLong(idColumnIndex))) ++
+            collisionRows1.map(row => Row(f1(METADATA_FILE_NAME), row.getLong(idColumnIndex)))
         )
       }
   }

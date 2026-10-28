@@ -127,6 +127,7 @@ class Substrait2VeloxPlanConversionTest : public exec::test::HiveConnectorTestBa
     for (const auto& path : paths) {
       auto* file = files.add_items();
       file->set_uri_file(path);
+      // Velox's default whole-file range; the start offset defaults to zero.
       file->set_length(std::numeric_limits<uint64_t>::max());
       file->mutable_parquet();
       auto* metadata = file->add_metadata_columns();
