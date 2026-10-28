@@ -20,21 +20,17 @@
 #include "IcebergReadExtension.pb.h"
 
 namespace gluten {
-
 namespace {
 
-using SubstraitDeleteBoundsMap = ::substrait::ReadRel_LocalFiles_FileOrFiles::IcebergReadOptions::DeleteFile::Map;
+using SubstraitDeleteFile = ::substrait::ReadRel_LocalFiles_FileOrFiles::IcebergReadOptions::DeleteFile;
 
-std::unordered_map<int32_t, std::string> parseBounds(const SubstraitDeleteBoundsMap& bounds) {
-  std::unordered_map<int32_t, std::string> parsed;
-  parsed.reserve(bounds.key_values_size());
-
-  for (int i = 0; i < bounds.key_values_size(); ++i) {
-    const auto& kv = bounds.key_values(i);
-    parsed.emplace(kv.key(), kv.value());
+std::unordered_map<int32_t, std::string> parseBounds(const SubstraitDeleteFile::Map& bounds) {
+  std::unordered_map<int32_t, std::string> result;
+  result.reserve(bounds.key_values_size());
+  for (const auto& entry : bounds.key_values()) {
+    result.emplace(entry.key(), entry.value());
   }
-
-  return parsed;
+  return result;
 }
 
 } // namespace
@@ -99,12 +95,16 @@ std::shared_ptr<IcebergSplitInfo> IcebergPlanConverter::parseIcebergSplitInfo(
         case SubstraitDeleteFileFormatCase::kOrc:
           format = dwio::common::FileFormat::ORC;
           break;
+        case SubstraitDeleteFileFormatCase::kPuffin:
+          format = dwio::common::FileFormat::PUFFIN;
+          break;
         default:
           format = dwio::common::FileFormat::UNKNOWN;
       }
       switch (deleteFile.filecontent()) {
         case ::substrait::ReadRel_LocalFiles_FileOrFiles_IcebergReadOptions_FileContent_POSITION_DELETES:
-          fileContent = FileContent::kPositionalDeletes;
+          fileContent = format == dwio::common::FileFormat::PUFFIN ? FileContent::kDeletionVector
+                                                                   : FileContent::kPositionalDeletes;
           break;
         case ::substrait::ReadRel_LocalFiles_FileOrFiles_IcebergReadOptions_FileContent_EQUALITY_DELETES:
           fileContent = FileContent::kEqualityDeletes;
@@ -119,9 +119,13 @@ std::shared_ptr<IcebergSplitInfo> IcebergPlanConverter::parseIcebergSplitInfo(
           format,
           deleteFile.recordcount(),
           deleteFile.filesize(),
-          {},
+          {deleteFile.equalityfieldids().begin(), deleteFile.equalityfieldids().end()},
           parseBounds(deleteFile.lowerbounds()),
-          parseBounds(deleteFile.upperbounds())));
+          parseBounds(deleteFile.upperbounds()),
+          deleteFile.datasequencenumber(),
+          deleteFile.contentoffset(),
+          deleteFile.contentsizeinbytes(),
+          deleteFile.referenceddatafile()));
     }
     icebergSplitInfo->deleteFilesVec.emplace_back(deletes);
   } else {
