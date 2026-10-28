@@ -17,6 +17,7 @@ import importlib.util
 import csv
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -25,6 +26,7 @@ SCRIPT = (
     Path(__file__).resolve().parents[4]
     / ".github/workflows/util/iceberg-upstream/summarize.py"
 )
+sys.path.insert(0, str(SCRIPT.parent))
 SPEC = importlib.util.spec_from_file_location("summary", SCRIPT)
 summary = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(summary)

@@ -32,9 +32,12 @@ class VanillaJoinAggregateLogicalOnlyExtensions extends (SparkSessionExtensions 
   }
 }
 
-class VanillaStarSchemaJoinAggregateLogicalOnlySuite extends StarSchemaJoinAggregateSuite {
+class StarSchemaJoinAggregateVanillaLogicalOnlySuite extends StarSchemaJoinAggregateSuite {
   override protected def sparkConf: SparkConf = {
     super.sparkConf
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key, Int.MaxValue.toString)
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key, "false")
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE.key, "none")
       .set(GlutenConfig.GLUTEN_ENABLED.key, "false")
       .set("spark.shuffle.manager", "sort")
       .set(
@@ -52,9 +55,12 @@ class VanillaJoinAggregateExtensions extends (SparkSessionExtensions => Unit) {
   }
 }
 
-class VanillaStarSchemaJoinAggregateSuite extends StarSchemaJoinAggregateSuite {
+class StarSchemaJoinAggregateVanillaSuite extends StarSchemaJoinAggregateSuite {
   override protected def sparkConf: SparkConf = {
     super.sparkConf
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key, Int.MaxValue.toString)
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key, "false")
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE.key, "none")
       .set(GlutenConfig.GLUTEN_ENABLED.key, "false")
       .set("spark.shuffle.manager", "sort")
       .set("spark.sql.extensions", classOf[VanillaJoinAggregateExtensions].getCanonicalName)
@@ -63,28 +69,45 @@ class VanillaStarSchemaJoinAggregateSuite extends StarSchemaJoinAggregateSuite {
   override protected def checkPlan(df: DataFrame): Unit = {}
 }
 
-class StarSchemaJoinAggregateSingleDepthSuite extends StarSchemaJoinAggregateSuite {
+class StarSchemaJoinAggregateMaxDepthOneSuite extends StarSchemaJoinAggregateSuite {
   override protected def sparkConf: SparkConf = {
     super.sparkConf
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key, "1")
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key, "false")
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE.key, "none")
   }
 }
 
-class StarSchemaJoinAggregatePartialMergeEnabledSuite extends StarSchemaJoinAggregateSuite {
+class StarSchemaJoinAggregatePartialMergeTwoStageSuite extends StarSchemaJoinAggregateSuite {
   override protected def sparkConf: SparkConf = {
     super.sparkConf
-      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_MODE.key, "all")
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key, Int.MaxValue.toString)
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key, "true")
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE.key, "final")
   }
 }
 
-class StarSchemaJoinAggregateTopPartialMergeSuite extends StarSchemaJoinAggregateSuite {
+class StarSchemaJoinAggregateTwoStageFinalSuite extends StarSchemaJoinAggregateSuite {
   override protected def sparkConf: SparkConf = {
     super.sparkConf
-      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_MODE.key, "top")
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key, Int.MaxValue.toString)
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key, "false")
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE.key, "final")
   }
 }
 
-class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSparkPlanHelper {
+class StarSchemaJoinAggregateDefaultSuite extends StarSchemaJoinAggregateSuite {
+  override protected def sparkConf: SparkConf = {
+    super.sparkConf
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key, Int.MaxValue.toString)
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key, "false")
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE.key, "none")
+  }
+}
+
+abstract class StarSchemaJoinAggregateSuite
+  extends VeloxTPCHTableSupport
+  with AdaptiveSparkPlanHelper {
   private val factMeasureColumnNames = Set(
     "sales_price",
     "return_amt",
@@ -108,8 +131,6 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
     super.sparkConf
       .set(GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key, "true")
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_ENABLED.key, "true")
-      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key, s"${Int.MaxValue}")
-      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_MODE.key, "none")
       .set("spark.sql.adaptive.enabled", "false")
   }
 
@@ -1072,6 +1093,16 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
         |LIMIT 100
         |""".stripMargin
 
+    runQueryAndCompare(query)(df => checkDf(df))
+  }
+
+  test("Support filtered aggregates alongside pushed aggregates") {
+    val query = """
+                  |SELECT SUM(ss.ss_sales_price),
+                  |       MAX(d.d_moy) FILTER (WHERE d.d_year = 1999)
+                  |FROM store_sales ss
+                  |JOIN date_dim d ON ss.ss_sold_date_sk = d.d_date_sk
+                  |""".stripMargin
     runQueryAndCompare(query)(df => checkDf(df))
   }
 }

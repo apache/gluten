@@ -38,7 +38,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
 
   private case class PushdownCase(inputSql: String)
 
-  private case class ExpectedAggCounts(none: Int, top: Int, all: Int)
+  private case class ExpectedAggCounts(partialMergeDisabled: Int, partialMergeEnabled: Int)
 
   override protected def sparkConf: SparkConf = {
     // Avoid Janino projection codegen here because Spark 4's QueryExecutionErrors
@@ -95,18 +95,19 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       maxDepth: Int,
       expectedPushCount: Int,
       expectedAggCounts: ExpectedAggCounts): Unit = {
-    val modes = Seq(
-      "none" -> expectedAggCounts.none,
-      "top" -> expectedAggCounts.top,
-      "all" -> expectedAggCounts.all)
-    modes.foreach {
-      case (partialMergeMode, expectedAggCount) =>
-        withClue(s"partialMergeMode=$partialMergeMode, maxDepth=$maxDepth: ") {
+    Seq(false, true).foreach {
+      partialMergeEnabled =>
+        val expectedAggCount = if (partialMergeEnabled) {
+          expectedAggCounts.partialMergeEnabled
+        } else {
+          expectedAggCounts.partialMergeDisabled
+        }
+        withClue(s"partialMergeEnabled=$partialMergeEnabled, maxDepth=$maxDepth: ") {
           withSQLConf(
             GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_ENABLED.key -> "true",
             GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key -> maxDepth.toString,
-            GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_MODE.key ->
-              partialMergeMode
+            GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key ->
+              partialMergeEnabled.toString
           ) {
             val (withoutRuleRows, withoutRuleLogicalPlan, withoutRulePhysicalPlan) =
               withExtraPlanning(Nil, Nil) {
@@ -160,25 +161,25 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
 
             if (debugMode) {
               // scalastyle:off println
-              println("=== Optimized Plan Before (without PushJoinAggregatePreAggregation) ===")
+              println("=== Optimized Plan Before (without PushAggregateThroughJoin) ===")
               println(withoutRuleLogicalPlan.treeString)
-              println("=== Optimized Plan After (with PushJoinAggregatePreAggregation) ===")
+              println("=== Optimized Plan After (with PushAggregateThroughJoin) ===")
               println(withRuleLogicalPlan.treeString)
               println(
-                "=== Optimized Plan After (with PushJoinAggregatePreAggregation and strategy) ===")
+                "=== Optimized Plan After (with PushAggregateThroughJoin and strategy) ===")
               println(withRuleAndStrategyLogicalPlan.treeString)
-              println("=== Physical Plan Before (without PushJoinAggregatePreAggregation) ===")
+              println("=== Physical Plan Before (without PushAggregateThroughJoin) ===")
               println(withoutRulePhysicalPlan.treeString)
-              println("=== Physical Plan After (with PushJoinAggregatePreAggregation only) ===")
+              println("=== Physical Plan After (with PushAggregateThroughJoin only) ===")
               println(withRulePhysicalPlan.treeString)
               println(
-                "=== Physical Plan After (with PushJoinAggregatePreAggregation and strategy) ===")
+                "=== Physical Plan After (with PushAggregateThroughJoin and strategy) ===")
               println(withRuleAndStrategyPhysicalPlan.treeString)
-              println("=== Result Before (without PushJoinAggregatePreAggregation) ===")
+              println("=== Result Before (without PushAggregateThroughJoin) ===")
               println(withoutRuleRows.mkString("\n"))
-              println("=== Result After (with PushJoinAggregatePreAggregation only) ===")
+              println("=== Result After (with PushAggregateThroughJoin only) ===")
               println(withRuleRows.mkString("\n"))
-              println("=== Result After (with PushJoinAggregatePreAggregation and strategy) ===")
+              println("=== Result After (with PushAggregateThroughJoin and strategy) ===")
               println(withRuleAndStrategyRows.mkString("\n"))
               // scalastyle:on println
             }
@@ -235,7 +236,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 2,
-      expectedAggCounts = ExpectedAggCounts(none = 2, top = 3, all = 4))
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 3))
   }
 
   test("pre-aggregate store_sales for sum") {
@@ -253,7 +254,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 1,
-      expectedAggCounts = ExpectedAggCounts(none = 2, top = 3, all = 3))
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 2))
   }
 
   test("pre-aggregate store_sales for avg") {
@@ -271,7 +272,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 1,
-      expectedAggCounts = ExpectedAggCounts(none = 2, top = 3, all = 3))
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 2))
   }
 
   test("pre-aggregate store_sales for sum on fact table") {
@@ -289,7 +290,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 1,
-      expectedAggCounts = ExpectedAggCounts(none = 2, top = 3, all = 3))
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 2))
   }
 
   test("pre-aggregate store_sales for avg on fact table") {
@@ -307,7 +308,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 1,
-      expectedAggCounts = ExpectedAggCounts(none = 2, top = 3, all = 3))
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 2))
   }
 
   test("pre-aggregate store_sales for sum on three-way join") {
@@ -327,7 +328,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 2,
-      expectedAggCounts = ExpectedAggCounts(none = 2, top = 3, all = 4))
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 3))
   }
 
   test("pre-aggregate store_sales for sum and avg on different fact columns on three-way join") {
@@ -348,7 +349,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 2,
-      expectedAggCounts = ExpectedAggCounts(none = 2, top = 3, all = 4))
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 3))
   }
 
   test("pre-aggregate store_sales for sum and avg on same fact column on three-way join") {
@@ -369,7 +370,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 2,
-      expectedAggCounts = ExpectedAggCounts(none = 2, top = 3, all = 4))
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 3))
   }
 
   test("pre-aggregate store_sales by i_item_desc") {
@@ -387,7 +388,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 1,
-      expectedAggCounts = ExpectedAggCounts(none = 2, top = 3, all = 3))
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 2))
   }
 
   test("pre-aggregate store_sales by substr(i_item_desc, 3), 3 ways") {
@@ -407,7 +408,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 2,
-      expectedAggCounts = ExpectedAggCounts(none = 2, top = 3, all = 4))
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 3))
   }
 
   test("pre-aggregate store_sales for sum with item filter") {
@@ -424,7 +425,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 1,
-      expectedAggCounts = ExpectedAggCounts(none = 2, top = 3, all = 3))
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 2))
   }
 
   test("pre-aggregate three-way joins independently under union all") {
@@ -467,17 +468,17 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = 1,
       expectedPushCount = 3,
-      expectedAggCounts = ExpectedAggCounts(none = 6, top = 9, all = 9))
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 6, partialMergeEnabled = 6))
     runCaseWithMaxDepth(
       pushdownCase,
       maxDepth = 2,
       expectedPushCount = 6,
-      expectedAggCounts = ExpectedAggCounts(none = 6, top = 9, all = 12))
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 6, partialMergeEnabled = 9))
     runCaseWithMaxDepth(
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 6,
-      expectedAggCounts = ExpectedAggCounts(none = 6, top = 9, all = 12))
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 6, partialMergeEnabled = 9))
   }
 
   test("pre-aggregate store_sales for sum on three-way join with maxDepth=1 / maxDepth=2") {
@@ -497,17 +498,17 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = 1,
       expectedPushCount = 1,
-      expectedAggCounts = ExpectedAggCounts(none = 2, top = 3, all = 3))
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 2))
     runCaseWithMaxDepth(
       pushdownCase,
       maxDepth = 2,
       expectedPushCount = 2,
-      expectedAggCounts = ExpectedAggCounts(none = 2, top = 3, all = 4))
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 3))
     runCaseWithMaxDepth(
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 2,
-      expectedAggCounts = ExpectedAggCounts(none = 2, top = 3, all = 4))
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 3))
   }
 
   test("partial merge is not retained when no side can be pushed") {
@@ -522,7 +523,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 0,
-      expectedAggCounts = ExpectedAggCounts(none = 2, top = 2, all = 2))
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 2))
   }
 
   test("pre-aggregate with filter inside inner equi-join") {
@@ -540,6 +541,6 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 1,
-      expectedAggCounts = ExpectedAggCounts(none = 2, top = 3, all = 3))
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 2))
   }
 }

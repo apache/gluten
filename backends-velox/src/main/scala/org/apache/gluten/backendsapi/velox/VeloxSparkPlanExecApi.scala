@@ -28,6 +28,7 @@ import org.apache.gluten.shuffle.NeedCustomColumnarBatchSerializer
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.expression.{ExpressionBuilder, ExpressionNode, WindowFunctionNode}
+import org.apache.gluten.utils.VeloxIntermediateData
 import org.apache.gluten.vectorized.{ColumnarBatchSerializer, ColumnarBatchSerializeResult}
 
 import org.apache.spark.{ShuffleDependency, SparkEnv}
@@ -68,11 +69,13 @@ import org.apache.commons.lang3.ClassUtils
 import java.net.URI
 import java.util.{ArrayList => JArrayList, List => JList}
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
 
 class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
+  import VeloxSparkPlanExecApi._
 
   /** Transform GetArrayItem to Substrait. */
   override def genGetArrayItemTransformer(
@@ -768,6 +771,17 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         // IdentityBroadcastMode
         Seq.empty
     }
+    if (
+      mode.isInstanceOf[HashedRelationBroadcastMode] &&
+      VeloxConfig.get.benchmarkDumpRequested &&
+      VeloxConfig.get.getConf(VeloxConfig.VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR) &&
+      warnedBroadcastBuildOncePerExecutorIgnored.compareAndSet(false, true)
+    ) {
+      logWarning(
+        s"${VeloxConfig.VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR.key} is ignored " +
+          "while whole stage dumping is requested: the broadcast hash table is built per task " +
+          "so that the micro benchmark can replay the dumped build side.")
+    }
     var offload = true
     val (newChild, newOutput, newBuildKeys) =
       if (VeloxConfig.get.enableBroadcastBuildOncePerExecutor) {
@@ -1404,6 +1418,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       Sig[VeloxBloomFilterAggregate](ExpressionNames.BLOOM_FILTER_AGG),
       Sig[MapFilter](ExpressionNames.MAP_FILTER),
       Sig[AssertNotNull](ExpressionNames.ASSERT_NOT_NULL),
+      Sig[MonotonicallyIncreasingID](ExpressionNames.MONOTONICALLY_INCREASING_ID),
       // For test purpose.
       Sig[VeloxDummyExpression](VeloxDummyExpression.VELOX_DUMMY_EXPRESSION)
     )
@@ -1650,7 +1665,8 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
                   }
               }
 
-            val childrenNodeList = aggregateFunc.children
+            val childrenNodeList = VeloxIntermediateData
+              .getRawInputs(aggregateFunc)
               .map(
                 ExpressionConverter
                   .replaceWithExpressionTransformer(_, originalInputAttributes)
@@ -1747,4 +1763,10 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         }
     }
   }
+}
+
+object VeloxSparkPlanExecApi {
+  // A new VeloxSparkPlanExecApi is created per call to Backend.sparkPlanExecApi(), so state that
+  // must be shared across calls lives here.
+  private val warnedBroadcastBuildOncePerExecutorIgnored = new AtomicBoolean(false)
 }

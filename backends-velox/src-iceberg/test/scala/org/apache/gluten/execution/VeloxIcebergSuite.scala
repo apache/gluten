@@ -18,6 +18,7 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.extension.columnar.FallbackTags
+import org.apache.gluten.utils.VeloxFileSystemValidationJniWrapper
 
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.connector.catalog.{Identifier, TableCatalog}
@@ -28,7 +29,7 @@ import org.apache.iceberg.{FileScanTask, UpdateSchema}
 import org.apache.iceberg.expressions.Literal
 import org.apache.iceberg.hadoop.HadoopCatalog
 import org.apache.iceberg.io.{ResolvingFileIO, StorageCredential}
-import org.apache.iceberg.spark.{ScanTaskSetManager, Spark3Util, SparkCatalog, SparkReadOptions}
+import org.apache.iceberg.spark.{ScanTaskSetManager, Spark3Util, SparkCatalog, SparkTableCache}
 import org.apache.iceberg.spark.source.{GlutenIcebergSourceUtil, SparkTable}
 import org.apache.iceberg.types.{Type, Types}
 
@@ -119,15 +120,20 @@ class VeloxIcebergSuite extends IcebergSuite {
         val table = Spark3Util.loadIcebergTable(spark, tableName)
         val taskSetId = "vended-credentials"
         val taskSetManager = ScanTaskSetManager.get()
+        val tableCache = SparkTableCache.get()
         val tasks = table.newScan().planFiles()
         try {
+          // Register the table under the task set ID and load by that ID, which resolves to a
+          // staged scan on both Iceberg 1.10 (needs the "scan-task-set-id" option) and Iceberg
+          // 1.11+ (removed SparkReadOptions.SCAN_TASK_SET_ID, resolves cached tables directly).
+          tableCache.add(taskSetId, table)
           taskSetManager.stageTasks(table, taskSetId, tasks.asScala.toList.asJava)
           compareDfResultsAgainstVanillaSpark(
             () =>
               spark.read
                 .format("iceberg")
-                .option(SparkReadOptions.SCAN_TASK_SET_ID, taskSetId)
-                .load(tableName),
+                .option("scan-task-set-id", taskSetId)
+                .load(taskSetId),
             noFallBack = false,
             customCheck = df => {
               checkAnswer(df, Seq(Row(1), Row(2)))
@@ -141,6 +147,7 @@ class VeloxIcebergSuite extends IcebergSuite {
             }
           )
         } finally {
+          tableCache.remove(taskSetId)
           taskSetManager.removeTasks[FileScanTask](table, taskSetId)
           tasks.close()
         }
@@ -223,6 +230,45 @@ class VeloxIcebergSuite extends IcebergSuite {
         df =>
           checkAnswer(df, Seq(Row(1, "IN"), Row(2, "IN")))
           checkGlutenPlan[IcebergScanTransformer](df)
+      }
+    }
+  }
+
+  test("iceberg root paths on an unsupported scheme fail native scheme validation") {
+    // See https://github.com/apache/gluten/issues/12712: IcebergScanTransformer used to always
+    // report Seq.empty root paths, so VeloxBackend.validateScanExec's scheme check was silently
+    // skipped for every Iceberg scan, regardless of the scan's actual filesystem.
+    withTable("iceberg_root_paths_scheme_tb") {
+      spark.sql("""
+                  |CREATE TABLE iceberg_root_paths_scheme_tb (id INT)
+                  |USING iceberg
+                  |""".stripMargin)
+      spark.sql("INSERT INTO iceberg_root_paths_scheme_tb VALUES (1), (2)")
+
+      runQueryAndCompare("SELECT * FROM iceberg_root_paths_scheme_tb") {
+        df =>
+          val scans = getExecutedPlan(df).collect { case i: IcebergScanTransformer => i }
+          assert(scans.size == 1)
+          val rootPaths = scans.head.getRootPathsInternal
+          assert(rootPaths.nonEmpty)
+          // Confirm these are real table root paths (registered as `file` scheme), which
+          // VeloxBackendSettings.distinctRootPaths always excludes from scheme validation (the
+          // local filesystem is always registered) -- so a real root path from this suite
+          // passes validation, as expected for a supported local table.
+          assert(
+            VeloxFileSystemValidationJniWrapper.allSupportedByRegisteredFileSystems(
+              rootPaths.toArray))
+
+          // Since this suite only exercises the local `file` scheme, which is always
+          // considered supported, separately confirm -- with a clean, synthetic URI, not
+          // derived from the real paths above -- that Velox's own native filesystem check (the
+          // same one VeloxBackend.validateScanExec relies on to decide whether to fall back)
+          // correctly rejects a genuinely unsupported scheme.
+          assert(
+            !VeloxFileSystemValidationJniWrapper.allSupportedByRegisteredFileSystems(
+              Array("unsupported-test-scheme://bucket/path/file.parquet")),
+            "expected an unsupported scheme to fail native filesystem validation"
+          )
       }
     }
   }

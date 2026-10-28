@@ -17,15 +17,16 @@
 package org.apache.gluten.extension.columnar
 
 import org.apache.gluten.execution.{BatchScanExecTransformerBase, FileSourceScanExecTransformer, ProjectExecTransformer}
+import org.apache.gluten.expression.ConverterUtils
 
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Expression, InputFileBlockLength, InputFileBlockStart, InputFileName, NamedExpression}
 import org.apache.spark.sql.catalyst.optimizer.CollapseProjectShim
 import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.catalyst.trees.TreeNodeTag
 import org.apache.spark.sql.execution.{DeserializeToObjectExec, FileSourceScanExec, FilterExec, LeafExecNode, ProjectExec, SerializeFromObjectExec, SparkPlan, UnionExec}
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.hive.HiveTableScanExecTransformer
-
-import java.util.Locale
+import org.apache.spark.sql.internal.SQLConf
 
 import scala.collection.mutable
 
@@ -44,8 +45,28 @@ import scala.collection.mutable
  */
 object PushDownInputFileExpression {
 
+  /**
+   * Tag placed on a scan node (before offloading) when an injected input-file attribute would share
+   * a normalized name with a user data column in the scan output. The native scan cannot
+   * simultaneously produce two columns with the same normalized name, so the scan must fall back to
+   * vanilla Spark (where the file-path thread-local is correctly populated by the JVM iterator).
+   *
+   * The tag survives the scan's conversion to a transformer (via
+   * [[ScanTransformerFactory.createFileSourceScanTransformer]] calling copyTagsFrom), allowing
+   * [[BasicScanExecTransformer.doValidateInternal]] to detect the conflict and fail validation.
+   */
+  val INPUT_FILE_NAME_COLLISION_TAG: TreeNodeTag[Boolean] =
+    TreeNodeTag[Boolean]("org.apache.gluten.InputFileNameCollisionTag")
+
   private val INPUT_FILE_ATTR_NAMES =
     Set("input_file_name", "input_file_block_start", "input_file_block_length")
+
+  /**
+   * Whether `name` is the name of an attribute injected for an input file function, following
+   * Spark's configured (case-sensitive or case-insensitive) resolution.
+   */
+  def isInputFileAttrName(name: String): Boolean =
+    INPUT_FILE_ATTR_NAMES.exists(SQLConf.get.resolver(name, _))
 
   def containsInputFileFunctionExpr(expr: Expression): Boolean = {
     expr match {
@@ -57,8 +78,7 @@ object PushDownInputFileExpression {
   def containsInputFileRelatedExpr(expr: Expression): Boolean = {
     expr match {
       case _: InputFileName | _: InputFileBlockStart | _: InputFileBlockLength => true
-      case a: AttributeReference =>
-        INPUT_FILE_ATTR_NAMES.contains(a.name.toLowerCase(Locale.ROOT))
+      case a: AttributeReference => isInputFileAttrName(a.name)
       case _ => expr.children.exists(containsInputFileRelatedExpr)
     }
   }
@@ -113,6 +133,16 @@ object PushDownInputFileExpression {
           // to prevent offloading when input_file expressions are present
           addFallbackTag(ProjectExec(p.output ++ replacedExprs.values, p))
         case p: LeafExecNode if shouldAddInputFileExpr(p) =>
+          // Tag the scan when the injected attribute name would collide with a user data column
+          // under the current case-sensitivity setting.  The native scan cannot map two columns
+          // to the same normalized name; BasicScanExecTransformer.doValidateInternal checks this
+          // tag and fails validation, which causes the scan to remain on vanilla Spark where the
+          // file-path thread-local is set by the JVM iterator.
+          val scanNames = p.output.map(a => ConverterUtils.normalizeColName(a.name)).toSet
+          val injectedNames = replacedExprs.values.map(a => ConverterUtils.normalizeColName(a.name))
+          if (injectedNames.exists(scanNames)) {
+            p.setTagValue(INPUT_FILE_NAME_COLLISION_TAG, true)
+          }
           addFallbackTag(ProjectExec(p.output ++ replacedExprs.values, p))
         case p: LeafExecNode =>
           p
@@ -175,10 +205,12 @@ object PushDownInputFileExpression {
         val newProjectList = projectList.map {
           expr => rewriteExpr(expr, replacedExprs).asInstanceOf[NamedExpression]
         }
-        val existingNames = child.output.map(_.name.toLowerCase(Locale.ROOT)).toSet
+        // Dedup by exprId rather than by name, so that a user column whose name differs from the
+        // injected attribute only by case is not mistaken for it.
+        val existingExprIds = child.output.map(_.exprId).toSet
         val inputFileAttrs = replacedExprs.values.toSeq
           .map(_.toAttribute.asInstanceOf[AttributeReference])
-          .filterNot(attr => existingNames.contains(attr.name.toLowerCase(Locale.ROOT)))
+          .filterNot(attr => existingExprIds.contains(attr.exprId))
         p.copy(
           projectList = newProjectList,
           child = child.withOutput(child.output ++ inputFileAttrs))
