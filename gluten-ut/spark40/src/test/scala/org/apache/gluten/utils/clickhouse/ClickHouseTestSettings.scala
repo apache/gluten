@@ -1160,7 +1160,8 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeCH("atan2")
     .excludeCH("SPARK-42045: integer overflow in round/bround")
     .excludeCH("Gluten - round/bround/floor/ceil")
-    .excludeGlutenTest("unhex")
+    // See https://github.com/apache/gluten/issues/7232
+    .excludeGlutenTest("unhex returns null for invalid hex input")
   enableSuite[GlutenMathFunctionsSuite]
   enableSuite[GlutenMergedOrcReadSchemaSuite]
     .includeCH("append column into middle")
