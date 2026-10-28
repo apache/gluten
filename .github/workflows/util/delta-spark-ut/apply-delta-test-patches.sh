@@ -88,6 +88,7 @@ echo "::group::Applying temporary Delta test patches"
 # for the files they touch. Patch paths are relative to this script, not Delta.
 for patch in \
   cdf-pushed-filter-assertions.patch \
+  mock-s3-fixture-writer.patch \
   parquet-fixture-row-groups.patch \
   dv-predicate-pushdown-row-groups.patch \
   dv-2b-row-fail-fast.patch; do
@@ -99,34 +100,6 @@ for patch in \
     exit 1
   fi
 done
-echo "::endgroup::"
-
-echo "::group::Using Spark's writer for the Hadoop-only mock S3 fixture"
-# This test maps s3: paths to local files through a Hadoop FileSystem mock.
-# Velox's native writer cannot use that mock. Only prepare the fixture with
-# Spark's writer; keep Gluten enabled for the conversion and path-scheme check.
-if ! sed 's/^__BLANK_CONTEXT__$/ /' <<'PATCH' | git -C "$DELTA_DIR" apply -
-diff --git a/spark/src/test/scala/org/apache/spark/sql/delta/ConvertToDeltaSuiteBase.scala b/spark/src/test/scala/org/apache/spark/sql/delta/ConvertToDeltaSuiteBase.scala
---- a/spark/src/test/scala/org/apache/spark/sql/delta/ConvertToDeltaSuiteBase.scala
-+++ b/spark/src/test/scala/org/apache/spark/sql/delta/ConvertToDeltaSuiteBase.scala
-@@ -1322,7 +1322,9 @@
-     withTempDir { dir =>
-       withTable("externalTable") {
-         withSQLConf(("fs.s3.impl", classOf[S3LikeLocalFileSystem].getCanonicalName)) {
--          sql(s"CREATE TABLE externalTable USING parquet LOCATION 's3://$dir' AS SELECT 1")
-+          withSQLConf("spark.gluten.sql.native.writer.enabled" -> "false") {
-+            sql(s"CREATE TABLE externalTable USING parquet LOCATION 's3://$dir' AS SELECT 1")
-+          }
-__BLANK_CONTEXT__
-           // Ideally we would test a successful conversion with a remote filesystem, but there's
-           // no good way to set one up in unit tests. So instead we delete the data, and let the
-PATCH
-then
-  echo "ERROR: mock S3 fixture patch did not apply." >&2
-  echo "The patch expects the mock-S3 path-scheme fixture in ConvertToDeltaSuiteBase.scala;" \
-    "ref '${DELTA_REF}' must remain source-compatible." >&2
-  exit 1
-fi
 echo "::endgroup::"
 
 echo "::group::Checking DeltaParquetFileFormat fixture row groups"

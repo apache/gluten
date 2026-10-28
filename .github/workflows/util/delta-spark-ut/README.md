@@ -44,7 +44,7 @@ starts failing** (a regression).
 | `java-test-args.sh` | Shared Gluten Spark defaults and JVM flags (`--add-opens` + Netty property). Sourced by `run-delta-tests.sh` and by local runs. |
 | `setup-delta.sh` | Clones Delta, drops in the Gluten bundle, and applies temporary compatibility patches. Takes `<delta_ref> <delta_dir> <gluten_bundle_jar>`. |
 | `apply-delta-test-patches.sh` | Cherry-picks upstream scan fixes, applies the ordered local patch list, and verifies the resulting test sources. Called by `setup-delta.sh` with `<delta_ref> <delta_dir>`. |
-| `patches/*.patch` | Separate patches for CDF plan assertions, the two Parquet row-group fixtures, and 2B-row DV fail-fast behavior. Each patch documents its rationale and removal condition. |
+| `patches/*.patch` | Separate patches for CDF plan assertions, mock-S3 fixture writes, the two Parquet row-group fixtures, and 2B-row DV fail-fast behavior. Each patch documents its rationale and removal condition. |
 
 ## Temporary Delta test patches
 
