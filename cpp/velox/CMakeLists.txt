@@ -209,6 +209,7 @@ set(VELOX_SRCS
     udf/UdfLoader.cc
     utils/Common.cc
     utils/ConfigExtractor.cc
+    utils/TlsTrustStore.cc
     utils/VeloxArrowUtils.cc
     utils/VeloxBatchResizer.cc
     utils/VeloxWholeStageDumper.cc
@@ -400,6 +401,23 @@ if(ENABLE_GLUTEN_VCPKG)
   # only provides libssl.so/libcrypto.so, so resolve it before forcing ".a".
   find_package(OpenSSL REQUIRED)
 endif()
+
+# utils/TlsTrustStore.cc asks OpenSSL for its default certificate locations
+# (X509_get_default_cert_file() and friends), so it needs the OpenSSL headers.
+# Only the include directories are taken here; the library is already linked
+# through Velox. Depending on how OpenSSL is found (a CMake config file such as
+# vcpkg's, or the FindOpenSSL module) the headers are exposed either by the
+# OpenSSL::Crypto target or by OPENSSL_INCLUDE_DIR.
+if(NOT TARGET OpenSSL::Crypto)
+  find_package(OpenSSL REQUIRED)
+endif()
+get_target_property(GLUTEN_OPENSSL_INCLUDE_DIRS OpenSSL::Crypto
+                    INTERFACE_INCLUDE_DIRECTORIES)
+if(NOT GLUTEN_OPENSSL_INCLUDE_DIRS)
+  set(GLUTEN_OPENSSL_INCLUDE_DIRS ${OPENSSL_INCLUDE_DIR})
+endif()
+target_include_directories(gluten_velox_impl SYSTEM
+                           PRIVATE ${GLUTEN_OPENSSL_INCLUDE_DIRS})
 
 set(CMAKE_FIND_LIBRARY_SUFFIXES_BCK ${CMAKE_FIND_LIBRARY_SUFFIXES})
 set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
