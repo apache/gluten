@@ -8,7 +8,7 @@ nav_order: 1
 
 | Type  | Version                      |
 |-------|------------------------------|
-| Flink | 1.19.2                       |
+| Flink | 1.19.3                       |
 | OS    | Ubuntu20.04/22.04, Centos7/8 |
 | jdk   | openjdk11/jdk17              |
 | scala | 2.12                         |
@@ -17,7 +17,7 @@ nav_order: 1
 
 Currently, with static build Gluten+Flink+Velox backend supports all the Linux OSes, but is only tested on **Ubuntu20.04**. With dynamic build, Gluten+Velox backend support **Ubuntu20.04/Ubuntu22.04/Centos7/Centos8** and their variants.
 
-Currently, the officially supported Flink version is 1.19.2.
+Currently, the officially supported Flink version is 1.19.3.
 
 We need to set up the `JAVA_HOME` env. Currently, Gluten supports **java 11** and **java 17**.
 

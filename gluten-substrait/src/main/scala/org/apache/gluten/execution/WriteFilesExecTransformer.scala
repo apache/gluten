@@ -287,7 +287,7 @@ object WriteFilesExecTransformer {
       .toLowerCase(Locale.ROOT)
   }
 
-  // To be compatible with Spark 3.3/3.4, we clean up Spark internal metadata manually.
+  // To be compatible with Spark 3.4, we clean up Spark internal metadata manually.
   // Spark 3.5 already strips these fields via SPARK-43123.
   // See https://github.com/apache/spark/pull/40776
   private val INTERNAL_METADATA_KEYS = Seq(

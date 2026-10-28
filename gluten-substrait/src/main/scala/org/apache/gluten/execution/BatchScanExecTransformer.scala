@@ -48,7 +48,8 @@ case class BatchScanExecTransformer(
     override val commonPartitionValues: Option[Seq[(InternalRow, Int)]] = None,
     override val applyPartialClustering: Boolean = false,
     override val replicatePartitions: Boolean = false,
-    override val pushDownFilters: Option[Seq[Expression]] = None)
+    override val pushDownFilters: Option[Seq[Expression]] = None,
+    override val requiredMapSubfields: Map[String, Seq[SubfieldPath]] = Map.empty)
   extends BatchScanExecTransformerBase(
     output,
     scan,
@@ -78,6 +79,13 @@ case class BatchScanExecTransformer(
 
   override def withNewPushdownFilters(filters: Seq[Expression]): BatchScanExecTransformerBase = {
     this.copy(pushDownFilters = Some(filters))
+  }
+
+  override def supportsMapKeyPruning: Boolean = true
+
+  override def withRequiredMapSubfields(
+      subfields: Map[String, Seq[SubfieldPath]]): BatchScanExecTransformerBase = {
+    this.copy(requiredMapSubfields = subfields)
   }
 
   override def withOutput(newOutput: Seq[AttributeReference]): BatchScanExecTransformerBase = {
@@ -216,13 +224,19 @@ abstract class BatchScanExecTransformerBase(
     case other: BatchScanExecTransformerBase =>
       this.keyGroupedPartitioning == other.keyGroupedPartitioning &&
       this.pushDownFilters == other.pushDownFilters &&
+      this.requiredMapSubfields == other.requiredMapSubfields &&
       super.equals(other)
     case _ =>
       false
   }
 
   override def hashCode(): Int =
-    Objects.hashCode(batch, runtimeFilters, keyGroupedPartitioning, pushDownFilters)
+    Objects.hashCode(
+      batch,
+      runtimeFilters,
+      keyGroupedPartitioning,
+      pushDownFilters,
+      requiredMapSubfields)
 
   /** Return a copy of this scan with a new output schema. */
   def withOutput(newOutput: Seq[AttributeReference]): BatchScanExecTransformerBase
