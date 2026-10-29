@@ -23,20 +23,6 @@
 io.delta.sql.DeltaExtensionAndCatalogSuite#activate Delta SQL parser using SQL conf
 io.delta.sql.DeltaExtensionAndCatalogSuite#activate Delta SQL parser using withExtensions
 io.delta.sql.JavaDeltaSparkSessionExtensionSuite#testSQLConf
-io.delta.tables.DeltaTableHadoopOptionsSuite#delete - with filesystem options
-io.delta.tables.DeltaTableHadoopOptionsSuite#details - with filesystem options.
-io.delta.tables.DeltaTableHadoopOptionsSuite#forPath - with filesystem options
-io.delta.tables.DeltaTableHadoopOptionsSuite#forPath error out without filesystem options passed in.
-io.delta.tables.DeltaTableHadoopOptionsSuite#forPath with unsupported options
-io.delta.tables.DeltaTableHadoopOptionsSuite#forPath: as/alias/toDF with filesystem options.
-io.delta.tables.DeltaTableHadoopOptionsSuite#generate - with filesystem options
-io.delta.tables.DeltaTableHadoopOptionsSuite#history - with filesystem options
-io.delta.tables.DeltaTableHadoopOptionsSuite#merge - with filesystem options
-io.delta.tables.DeltaTableHadoopOptionsSuite#optimize - with filesystem options
-io.delta.tables.DeltaTableHadoopOptionsSuite#restoreTable - with filesystem options
-io.delta.tables.DeltaTableHadoopOptionsSuite#update - with filesystem options
-io.delta.tables.DeltaTableHadoopOptionsSuite#updateExpr - with filesystem options
-io.delta.tables.DeltaTableHadoopOptionsSuite#vacuum - with filesystem options
 org.apache.spark.sql.delta.AutoCompactExecutionIdColumnMappingSuite#auto-compact-enabled-conf: auto compact should kick in when enabled - session config - column mapping id mode
 org.apache.spark.sql.delta.AutoCompactExecutionIdColumnMappingSuite#auto-compact-enabled-property: auto compact should kick in when enabled - table config - column mapping id mode
 org.apache.spark.sql.delta.AutoCompactExecutionIdColumnMappingSuite#auto-compact-enabled-property: auto compact should not kick in when session config is off - column mapping id mode
@@ -74,13 +60,6 @@ org.apache.spark.sql.delta.DeltaCDCStreamWithCatalogManagedBatch100Suite#cdc str
 org.apache.spark.sql.delta.DeltaCDCStreamWithCatalogManagedBatch1Suite#cdc streams with noop merge
 org.apache.spark.sql.delta.DeltaCDCStreamWithCatalogManagedBatch2Suite#cdc streams with noop merge
 org.apache.spark.sql.delta.DeltaColumnMappingSuite#explicit id matching
-org.apache.spark.sql.delta.DeltaDataFrameHadoopOptionsSuite#SC-86916: Delta log cache should respect options
-org.apache.spark.sql.delta.DeltaDataFrameHadoopOptionsSuite#SC-86916: checkpoint should pick up Hadoop file system options
-org.apache.spark.sql.delta.DeltaDataFrameHadoopOptionsSuite#SC-86916: invalidateCache should invalidate all DeltaLogs of the given path
-org.apache.spark.sql.delta.DeltaDataFrameHadoopOptionsSuite#SC-86916: read/write Delta paths using DataFrame should pick up Hadoop file system options
-org.apache.spark.sql.delta.DeltaDataFrameHadoopOptionsSuite#all operations should propagate Hadoop file system options
-org.apache.spark.sql.delta.DeltaDataFrameHadoopOptionsSuite#operations without Hadoop options should fail for fake:// filesystem
-org.apache.spark.sql.delta.DeltaGenerateSymlinkManifestSuite#incremental manifest: failure to generate manifest throws exception
 org.apache.spark.sql.delta.DeltaGenerateSymlinkManifestSuite#special partition column values
 org.apache.spark.sql.delta.DeltaHistoryManagerSuite#data skipping still works with time travel
 org.apache.spark.sql.delta.DeltaHistoryManagerWithCatalogOwnedBatch100Suite#data skipping still works with time travel
@@ -255,7 +234,6 @@ org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#ope
 org.apache.spark.sql.delta.FeatureEnablementConcurrencySuite#Enable column mapping feature - txnInterleaved: true
 org.apache.spark.sql.delta.FileSizeHistogramSuite#check CommitStats with deletes
 org.apache.spark.sql.delta.FileSizeHistogramSuite#histogram is re-calculated when files are removed
-org.apache.spark.sql.delta.HDFSLogStoreSuite#No AbstractFileSystem - end to end test using data frame
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: ARRAY<BIGINT>, targetType: ARRAY<INT> followAnsiEnabled: false, ansiEnabled: false, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: ARRAY<BIGINT>, targetType: ARRAY<INT> followAnsiEnabled: false, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: ARRAY<BIGINT>, targetType: ARRAY<INT> followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
@@ -316,7 +294,6 @@ org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE ov
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: STRING, targetType: INT followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: Struct<value:BIGINT>, targetType: Struct<value:INT> followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
 org.apache.spark.sql.delta.ImplicitStreamingMergeCastingSuite#Streaming MERGE overflow sourceType: Struct<value:BIGINT>, targetType: Struct<value:INT> followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: LEGACY
-org.apache.spark.sql.delta.PublicHDFSLogStoreSuite#No AbstractFileSystem - end to end test using data frame
 org.apache.spark.sql.delta.RestoreTableSQLSuite#cdf + RESTORE
 org.apache.spark.sql.delta.RestoreTableSQLSuite#restore command output metrics
 org.apache.spark.sql.delta.RestoreTableSQLSuite#restore operation metrics in Delta table history
@@ -498,11 +475,6 @@ org.apache.spark.sql.delta.rowid.RowIdSuite#missing base row ids and default row
 org.apache.spark.sql.delta.rowid.RowIdSuite#row ids can be read back
 org.apache.spark.sql.delta.rowtracking.RowTrackingReadWriteSuite#write and read table with all-null materialized columns
 org.apache.spark.sql.delta.stats.StatsCollectionSuite#recompute stats multiple columns and files
-org.apache.spark.sql.delta.storage.dv.DeletionVectorWriteDurabilitySuite#a DELETE whose deletion vector was never written does not corrupt the table
-org.apache.spark.sql.delta.storage.dv.DeletionVectorWriteDurabilitySuite#a MERGE whose deletion vector was never written does not corrupt the table
-org.apache.spark.sql.delta.storage.dv.DeletionVectorWriteDurabilitySuite#an UPDATE whose deletion vector was never written does not corrupt the table
-org.apache.spark.sql.delta.storage.dv.DeletionVectorWriteDurabilitySuite#control: an ordinary write whose close fails does not commit
-org.apache.spark.sql.delta.storage.dv.DeletionVectorWriteDurabilitySuite#the kill-switch flag off does not apply the propagate-close fix
 org.apache.spark.sql.delta.test.DeltaV2CDCStreamDeletionVectorSuite#cdc streams with noop merge
 org.apache.spark.sql.delta.test.DeltaV2CDCStreamSuite#cdc streams with noop merge
 org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening DATE -> TIMESTAMP_NTZ, partitioned=false
