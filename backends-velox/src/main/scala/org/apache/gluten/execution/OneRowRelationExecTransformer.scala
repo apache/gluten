@@ -35,7 +35,8 @@ case class OneRowRelationExecTransformer() extends LeafExecNode with TransformSu
   override def outputPartitioning: Partitioning = SinglePartition
 
   override def columnarInputRDDs: Seq[RDD[ColumnarBatch]] = Seq(
-    sparkContext.parallelize(Seq(0), 1).mapPartitions {
+    // Range slices avoid ArraySeq partition payloads under strict Kryo registration.
+    sparkContext.parallelize(0 until 1, 1).mapPartitions {
       _ => Iterator.single(new ColumnarBatch(Array.empty[ColumnVector], 1))
     })
 

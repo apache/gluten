@@ -16,14 +16,34 @@
  */
 package org.apache.spark.sql
 
+import org.apache.gluten.utils.BackendTestUtils
+
 import org.apache.spark.SparkConf
 import org.apache.spark.internal.config.Kryo.KRYO_CLASSES_TO_REGISTER
+import org.apache.spark.serializer.KryoSerializer
 import org.apache.spark.sql.execution.CachedColumnarBatch
+import org.apache.spark.sql.internal.SQLConf
 
 class GlutenCacheTableInKryoSuite extends CacheTableInKryoSuite with GlutenSQLTestsTrait {
 
   override def sparkConf: SparkConf = {
     super.sparkConf
       .set(KRYO_CLASSES_TO_REGISTER.key, classOf[CachedColumnarBatch].getCanonicalName)
+  }
+
+  testGluten("OneRow preserves values and partitioning with required Kryo registration") {
+    val conf = spark.sparkContext.getConf
+    assert(conf.get("spark.serializer") == classOf[KryoSerializer].getName)
+    assert(conf.getBoolean("spark.kryo.registrationRequired", false))
+    withSQLConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false") {
+      val df = sql("SELECT 'x', 42, CAST(NULL AS INT)")
+      GlutenQueryTest.checkAnswer(df, Seq(Row("x", 42, null)), checkToRDD = false)
+      assert(df.rdd.getNumPartitions == 1)
+      if (BackendTestUtils.isVeloxBackendLoaded()) {
+        assert(df.queryExecution.executedPlan
+          .find(_.getClass.getSimpleName == "OneRowRelationExecTransformer")
+          .nonEmpty)
+      }
+    }
   }
 }
