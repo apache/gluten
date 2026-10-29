@@ -56,12 +56,14 @@ class AbsFunctionsTest extends GlutenStreamingTestBase {
     runAndCheck(query, Arrays.asList("+I[27]", "+I[11]", "+I[null]"));
   }
 
-  /** The int64 most-negative value wraps to itself under abs, matching Java Math.abs. */
+  /** INT_MIN and the int64 most-negative value wrap to themselves under abs (Math.abs). */
   @Test
-  void testAbsBigintBoundaries() {
-    List<Row> rows = Arrays.asList(Row.of(Long.MIN_VALUE), Row.of(-9007199254740993L));
-    createSimpleBoundedValuesTable("tblAbsEdge", "l bigint", rows);
-    String query = "select ABS(l) from tblAbsEdge";
-    runAndCheck(query, Arrays.asList("+I[-9223372036854775808]", "+I[9007199254740993]"));
+  void testAbsIntegerBoundaries() {
+    List<Row> rows =
+        Arrays.asList(Row.of(Integer.MIN_VALUE, Long.MIN_VALUE), Row.of(-1, -9007199254740993L));
+    createSimpleBoundedValuesTable("tblAbsEdge", "i int, l bigint", rows);
+    String query = "select ABS(i), ABS(l) from tblAbsEdge";
+    runAndCheck(
+        query, Arrays.asList("+I[-2147483648, -9223372036854775808]", "+I[1, 9007199254740993]"));
   }
 }
