@@ -79,4 +79,13 @@ class RoundFunctionsTest extends GlutenStreamingTestBase {
         Arrays.asList(
             "+I[56, 55.7, 60]", "+I[29, 28.6, 30]", "+I[45, 45.0, 50]", "+I[null, null, null]"));
   }
+
+  /** The tie cases that separate HALF_UP-in-decimal-domain from binary-domain rounding. */
+  @Test
+  void testRoundHalfUpTieInDecimalDomain() {
+    List<Row> rows = Arrays.asList(Row.of(2.675d), Row.of(647568.815d), Row.of(-2.5d));
+    createSimpleBoundedValuesTable("tblRoundTie", "x double", rows);
+    String query = "select ROUND(x, 2) from tblRoundTie";
+    runAndCheck(query, Arrays.asList("+I[2.68]", "+I[647568.82]", "+I[-3.0]"));
+  }
 }

@@ -55,4 +55,15 @@ class AbsFunctionsTest extends GlutenStreamingTestBase {
     String query = "select ABS(i - 30) from tblAbsA";
     runAndCheck(query, Arrays.asList("+I[27]", "+I[11]", "+I[null]"));
   }
+
+  /** INT_MIN / int64-min wrap to themselves, matching Java Math.abs and Flink's -x. */
+  @Test
+  void testAbsIntegerBoundaries() {
+    List<Row> rows =
+        Arrays.asList(Row.of(Integer.MIN_VALUE, Long.MIN_VALUE), Row.of(-1, -9007199254740993L));
+    createSimpleBoundedValuesTable("tblAbsEdge", "i int, l bigint", rows);
+    String query = "select ABS(i), ABS(l) from tblAbsEdge";
+    runAndCheck(
+        query, Arrays.asList("+I[-2147483648, -9223372036854775808]", "+I[1, 9007199254740993]"));
+  }
 }
