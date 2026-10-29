@@ -182,7 +182,9 @@ case class ColumnarPartialGenerateExec(generateExec: GenerateExec, child: SparkP
     if (inputData.numCols() == 0) {
       inputData
     } else {
-      ColumnarBatches.load(ArrowBufferAllocators.contextInstance(), inputData)
+      // Only read here, and closed by this operator, so it can be untracked: its buffers stay
+      // reserved by the native batch.
+      ColumnarBatches.load(ArrowBufferAllocators.contextUntrackedInstance(), inputData)
     }
   }
 
