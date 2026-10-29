@@ -200,6 +200,11 @@ const std::string kDirectorySizeGuess = "spark.gluten.sql.columnar.backend.velox
 const std::string kFooterEstimatedSize = "spark.gluten.sql.columnar.backend.velox.footerEstimatedSize";
 const std::string kFilePreloadThreshold = "spark.gluten.sql.columnar.backend.velox.filePreloadThreshold";
 const std::string kPrefetchRowGroups = "spark.gluten.sql.columnar.backend.velox.prefetchRowGroups";
+const std::string kDeferLazyColumnPrefetch = "spark.gluten.sql.columnar.backend.velox.deferLazyColumnPrefetch";
+// Hive connector session property listing, comma separated, the plan node ids of the table scans
+// whose BufferedInput defers loading the lazily loaded columns. Set per task from the SplitInfos,
+// read by GlutenBufferedInputBuilder, which matches the plan node id in ConnectorQueryCtx::scanId().
+const std::string kDeferLazyColumnPrefetchScanNodeIds = "gluten.defer_lazy_column_prefetch.scan_node_ids";
 const std::string kLoadQuantum = "spark.gluten.sql.columnar.backend.velox.loadQuantum";
 const std::string kMaxCoalescedDistance = "spark.gluten.sql.columnar.backend.velox.maxCoalescedDistance";
 const std::string kMaxCoalescedBytes = "spark.gluten.sql.columnar.backend.velox.maxCoalescedBytes";
