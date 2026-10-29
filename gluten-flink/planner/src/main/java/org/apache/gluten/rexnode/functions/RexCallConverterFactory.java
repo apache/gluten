@@ -119,7 +119,11 @@ public class RexCallConverterFactory {
           // substring returns an empty string. Start semantics (0 counts as 1,
           // negative counts from the end) already match Flink.
           Map.entry("SUBSTRING", Arrays.asList(() -> new SubstringRexCallConverter())),
-          Map.entry("COALESCE", Arrays.asList(() -> new DefaultRexCallConverter("coalesce"))));
+          Map.entry("COALESCE", Arrays.asList(() -> new DefaultRexCallConverter("coalesce"))),
+          Map.entry("REPLACE", Arrays.asList(() -> new DefaultRexCallConverter("replace"))),
+          Map.entry("FROM_BASE64", Arrays.asList(() -> new DefaultRexCallConverter("from_base64"))),
+          Map.entry("RIGHT", Arrays.asList(() -> new DefaultRexCallConverter("right"))),
+          Map.entry("LIKE", Arrays.asList(() -> new DefaultRexCallConverter("like"))));
 
   public static RexCallConverter getConverter(RexCall callNode, RexConversionContext context) {
     String operatorName = callNode.getOperator().getName();
