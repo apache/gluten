@@ -207,6 +207,10 @@ object VeloxBackendSettings extends BackendSettingsApi {
         // Only Parquet is needed for metadata validation so far.
         return None
       }
+      if (!GlutenConfig.get.parquetMetadataValidationEnabled) {
+        // Avoid the storage I/O of the exists() pre-check below when the validation is off.
+        return None
+      }
       // Skip root paths that do not exist yet (e.g., during INSERT operations where
       // the target directory may not be created yet). Do not filter out local
       // (file://) paths here because metadata validation is independent of native
