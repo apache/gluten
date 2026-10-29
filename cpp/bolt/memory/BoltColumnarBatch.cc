@@ -96,8 +96,11 @@ std::shared_ptr<BoltColumnarBatch> BoltColumnarBatch::from(
   if (cb->getType() == "bolt") {
     return std::dynamic_pointer_cast<BoltColumnarBatch>(cb);
   }
-  auto vp = bolt::importFromArrowAsOwner(
-      *cb->exportArrowSchema(), *cb->exportArrowArray(), ArrowUtils::getBridgeOptions(), pool);
+  auto options = ArrowUtils::getBridgeOptions();
+  // Arrow NullType columns contain no buffers. The IPC import path materializes
+  // them as native null constants before inspecting a validity buffer.
+  options.exportToArrowIPC = true;
+  auto vp = bolt::importFromArrowAsOwner(*cb->exportArrowSchema(), *cb->exportArrowArray(), options, pool);
   return std::make_shared<BoltColumnarBatch>(std::dynamic_pointer_cast<bolt::RowVector>(vp));
 }
 
