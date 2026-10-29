@@ -1662,6 +1662,10 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   // HiveTableHandle::dataColumns() is used as fileSchema for the reader.
   RowTypePtr dataColumns;
   if (!splitInfo->tableSchema) {
+    // Scan outputs include connector-generated columns, not just physical fields.
+    // For example, _metadata.file_name is VARCHAR even if the file contains a
+    // file_name BIGINT column. Exclude metadata here to avoid Parquet type-checking
+    // that unrelated field before the connector supplies the metadata constant.
     std::vector<std::string> dataColNames;
     std::vector<TypePtr> dataColTypes;
     for (int idx = 0; idx < colNameList.size(); idx++) {
