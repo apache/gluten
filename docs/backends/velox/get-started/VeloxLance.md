@@ -61,6 +61,10 @@ serve it:
 | Vector (`FixedSizeList`) columns | Offload  |
 | Pushed-down aggregation (e.g. `COUNT(*)`) | Fallback |
 | Full-text query (`_score`)     | Fallback |
+| Float16 vector, `FixedSizeBinary` or `Date(MILLISECOND)` column | Fallback |
+| Blob or JSON column            | Fallback |
+| Metadata column (`_rowid`, `_rowaddr`, `_fragid`, row versions) | Fallback |
+| No columns read (e.g. `SELECT 1 FROM t`) | Fallback |
 
 Vector columns are Arrow `FixedSizeList`s, which neither Spark's `ArrowColumnVector` nor Velox
 reads, so the scan rewrites them as variable-size lists, the `ArrayType` lance-spark already
@@ -82,3 +86,6 @@ engages automatically whenever lance-spark is present on the classpath.
   (in the Lance reader) before the Arrow stream is exported, not inside Velox.
 - Rare schemas that require JVM post-processing (for example `_rowid` / `_rowaddr` / blob columns)
   are not offloaded.
+- With lance-spark 0.8.0, a scan over an unsigned integer, `LargeList`, time, or non-microsecond
+  timestamp column fails at execution instead of falling back: lance-spark's Spark schema does not
+  record these Arrow types, so the offload cannot detect them at plan time.

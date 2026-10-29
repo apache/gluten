@@ -22,12 +22,16 @@ import org.apache.spark.sql.execution.{ColumnarShuffleExchangeExec, ColumnarToRo
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.types._
 
+import org.lance.spark.utils.BlobUtils
+
+import java.sql.Date
+
 import scala.collection.JavaConverters._
 
 /**
  * Exercises the read-only Lance offload: a columnar Lance scan is handed to Velox through the Arrow
  * C stream ([[LanceScanTransformer]]), while scans that the export path cannot serve (pushed
- * aggregation, full-text query) fall back to vanilla Spark.
+ * aggregation, full-text query, columns it cannot export) fall back to vanilla Spark.
  *
  * Requires the lance-spark runtime (and its native library) on the classpath; see
  * docs/backends/velox/get-started/VeloxLance.md for the supported platforms.
@@ -141,6 +145,32 @@ class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
         multiMetadata)
     val data = spark.createDataFrame((0 until rows).map(vectorRow).asJava, schema)
     withLanceView(view, data, writeOptions, readOptions)(f)
+  }
+
+  /** Writes `rows` to a Lance dataset; field metadata in `schema` selects Lance's Arrow types. */
+  private def withLanceData(
+      schema: StructType,
+      rows: Seq[Row],
+      writeOptions: Map[String, String] = Map.empty)(f: DataFrame => Unit): Unit = {
+    withTempPath {
+      path =>
+        val uri = s"${path.getCanonicalPath}/data.lance"
+        spark
+          .createDataFrame(rows.asJava, schema)
+          .write
+          .format("lance")
+          .options(writeOptions)
+          .option("path", uri)
+          .save()
+        f(spark.read.format("lance").option("path", uri).load())
+    }
+  }
+
+  private def assertFallback(df: DataFrame): Unit = {
+    checkSparkPlan[BatchScanExec](df)
+    assert(
+      !getExecutedPlan(df).exists(_.isInstanceOf[LanceScanTransformer]),
+      s"Lance scan must not be offloaded, got:\n${df.queryExecution.executedPlan}")
   }
 
   private def isLanceScan(plan: SparkPlan): Boolean = plan match {
@@ -346,6 +376,91 @@ class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
           checkGlutenPlan[HashAggregateExecBaseTransformer](df)
           assertScanFeedsVelox(df)
       }
+    }
+  }
+
+  test("lance scan falls back on other columns it cannot export") {
+    def marked(name: String, dataType: DataType, key: String, value: Any): StructField = {
+      val metadata = value match {
+        case v: Long => new MetadataBuilder().putLong(key, v)
+        case v: String => new MetadataBuilder().putString(key, v)
+      }
+      StructField(name, dataType, nullable = true, metadata.build())
+    }
+    // Float16 vectors are a FixedSizeList of Float16, which lance-spark writes on Spark 4.0+ only.
+    val float16Vector = StructField(
+      "f",
+      ArrayType(FloatType, containsNull = false),
+      nullable = true,
+      new MetadataBuilder()
+        .putLong("arrow.fixed-size-list.size", 2)
+        .putString("arrow.float16", "true")
+        .build()
+    )
+    val cases = Seq(
+      // Arrow types ArrowColumnVector has no accessor for, also after a vector is read as a list.
+      marked("b", BinaryType, "arrow.fixed-size-binary.byte-width", 2L) -> Array[Byte](1, 2),
+      marked("d", DateType, "arrow.date-millisecond", "true") -> Date.valueOf("2024-01-02"),
+      // A column the native scan returns in its stored form, not the declared one.
+      marked("j", StringType, "ARROW:extension:name", "arrow.json") -> """{"a":1}"""
+    ) ++ (if (isSparkVersionGE("4.0")) Seq(float16Vector -> Seq(0.5f, 1.5f)) else Nil)
+    cases.foreach {
+      case (field, value) =>
+        val rows = Seq(Row(0, value), Row(1, null))
+        withLanceData(new StructType().add("id", IntegerType).add(field), rows) {
+          df =>
+            assertFallback(df)
+            checkAnswer(df, rows)
+            // The scan's columns decide: without this one it still offloads.
+            checkGlutenPlan[LanceScanTransformer](df.select("id"))
+        }
+    }
+
+    // Blob columns are also returned in their stored form, alongside `_rowaddr`. lance-spark reads
+    // them back as references (v1) or descriptions (v2, file format 2.2) rather than the written
+    // bytes, so only the row count is checked.
+    Seq(
+      (marked("blob", BinaryType, "lance-encoding:blob", "true"), Map.empty[String, String], false),
+      (
+        marked("blob", BinaryType, "ARROW:extension:name", "lance.blob.v2"),
+        Map("file_format_version" -> "2.2"),
+        true)
+    ).foreach {
+      case (field, options, v2) =>
+        withLanceData(
+          new StructType().add("id", IntegerType).add(field),
+          Seq(Row(0, Array[Byte](3))),
+          options) {
+          df =>
+            assert(BlobUtils.isBlobV2SparkField(df.schema("blob")) == v2)
+            assertFallback(df)
+            assert(df.collect().length == 1)
+        }
+    }
+  }
+
+  test("lance scan falls back on metadata columns and on reading no columns") {
+    val schema = new StructType().add("id", IntegerType).add("name", StringType)
+    withLanceData(schema, Seq(Row(0, "a"), Row(1, "b"))) {
+      df =>
+        // lance-spark leaves these out of the native scan and adds them itself.
+        Seq(
+          "_rowid",
+          "_rowaddr",
+          "_fragid",
+          "_row_created_at_version",
+          "_row_last_updated_at_version").foreach {
+          column =>
+            compareDfResultsAgainstVanillaSpark(
+              () => df.select(column, "id"),
+              customCheck = assertFallback,
+              noFallBack = false)
+        }
+        // With no columns to read, the native scan returns `_rowid`.
+        compareDfResultsAgainstVanillaSpark(
+          () => df.selectExpr("1 as one"),
+          customCheck = assertFallback,
+          noFallBack = false)
     }
   }
 }
