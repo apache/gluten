@@ -1287,6 +1287,56 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
+  testWithMinSparkVersion(
+    "delta: operators above a merge write projection that stays on Spark stay on Spark",
+    "3.5") {
+    // Blacklisting the native counter keeps every projection carrying IncrementMetric on Spark, the
+    // way any other unsupported expression in MERGE's write projection would.
+    withSQLConf("spark.gluten.expression.blacklist" -> "increment_metric") {
+      withTable("fallback_merge_target", "fallback_merge_source") {
+        import testImplicits._
+        Seq((1, "t1"), (2, "t2"), (3, "t3"))
+          .toDF("id", "name")
+          .coalesce(1)
+          .write
+          .format("delta")
+          .saveAsTable("fallback_merge_target")
+        spark.sql("create table fallback_merge_source (id int, name string) using delta")
+        spark.sql("insert into fallback_merge_source values (2, 's2'), (4, 's4')")
+        val plans = collectExecutedPlanInfos {
+          spark.sql("""
+                      |merge into fallback_merge_target t
+                      |using fallback_merge_source s
+                      |on t.id = s.id
+                      |when matched then update set name = s.name
+                      |when not matched then insert *
+                      |""".stripMargin)
+        }
+        checkAnswer(
+          spark.sql("select * from fallback_merge_target order by id"),
+          Seq(Row(1, "t1"), Row(2, "s2"), Row(3, "t3"), Row(4, "s4")))
+        val metrics = lastOperationMetrics("fallback_merge_target", "MERGE")
+        assert(metrics("numTargetRowsUpdated") === "1", metrics)
+        assert(metrics("numTargetRowsInserted") === "1", metrics)
+        assert(metrics("numTargetRowsCopied") === "2", metrics)
+
+        // The filter and column drop Delta stacks above the projection stay in its Spark codegen
+        // stage instead of moving to a native stage behind a row-to-columnar transition.
+        val writeProjection =
+          (n: SparkPlanInfo) => n.nodeName == "Project" && isMergeWriteProjection(n)
+        val nodes = plans.flatMap(flattenPlanInfo)
+        assert(nodes.exists(writeProjection), nodes.map(n => s"${n.nodeName}: ${n.simpleString}"))
+        val boundaries =
+          Seq("WholeStageCodegen", "AdaptiveSparkPlan", "QueryStage", "Exchange", "Shuffle")
+        val sameStage = plans.flatMap {
+          p =>
+            ancestorsOf(p, writeProjection).takeWhile(n => !boundaries.exists(n.nodeName.contains))
+        }
+        assert(sameStage.headOption.map(_.nodeName).contains("Filter"), sameStage.map(_.nodeName))
+      }
+    }
+  }
+
   test("delta: no-op merge with change data feed produces no change rows") {
     withTable("noop_merge_target", "noop_merge_source") {
       spark.sql("""
@@ -1373,8 +1423,8 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
       if (SparkVersionUtil.gteSpark35) {
         val nodes = plans.flatMap(flattenPlanInfo)
         if (BackendsApiManager.getSettings.supportNativeIncrementMetric()) {
-          // The write projection and the whole explode chain above it stay native, so no
-          // row-to-columnar transition sits between the projection and the writer.
+          // The write projection and the explode chain above it stay in one native stage, so no
+          // row-to-columnar transition sits between them.
           val nativeDeltaProjects = nodes.filter(_.nodeName == "DeltaProjectExecTransformer")
           assert(
             nativeDeltaProjects.exists(isMergeWriteProjection),
@@ -1391,7 +1441,10 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
                 n => n.nodeName == "DeltaProjectExecTransformer" && isMergeWriteProjection(n))
                 .takeWhile(n => !boundaries.exists(n.nodeName.contains))
           }
-          assert(!sameStage.exists(_.nodeName == "RowToVeloxColumnar"), sameStage.map(_.nodeName))
+          // Delta packs the change rows and explodes them twice, then unpacks them.
+          assert(
+            sameStage.count(_.nodeName == "GenerateExecTransformer") == 2,
+            sameStage.map(_.nodeName))
         } else {
           // Without native counting the write projection stays on Spark. Delta's explode chain
           // above it is native, so this shape keeps one row-to-columnar transition.

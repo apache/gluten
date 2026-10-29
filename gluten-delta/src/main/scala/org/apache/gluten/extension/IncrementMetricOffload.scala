@@ -25,29 +25,31 @@ import org.apache.spark.sql.types.BooleanType
 /**
  * Decides whether a project or filter carrying Delta's `IncrementMetric` may be offloaded.
  *
- * `IncrementMetric` adds one to a SQL metric every time it is evaluated and returns its child. The
- * native side never evaluates it: the Delta project and filter transformers strip it from the plan
- * and the metrics updaters credit the metric with the operator's output row count once the task
- * finishes. That is exact only when Spark would have evaluated the expression once per output row:
- * at the root of a projection alias, or as a filter condition that keeps every row. An
- * `IncrementMetric` below a conditional expression, which is where MERGE keeps the counter of every
- * `WHEN` clause (`CASE WHEN clause THEN increment ... ELSE increment(copied)`), fires for the rows
- * that take its branch only. Offloading it inflated those counters to the full row count, which
- * corrupted the operation metrics of every MERGE commit and, through
- * `CDCReader.shouldSkipFileActionsInCommit`, produced phantom change-data-feed rows for no-op
- * merges (GLUTEN-9003).
+ * `IncrementMetric` adds one to a SQL metric every time it is evaluated and returns its child.
+ * Without native counting the native side never evaluates it: the Delta project and filter
+ * transformers strip it from the plan and the metrics updaters credit the metric with the
+ * operator's output row count once the task finishes. That is exact only when Spark would have
+ * evaluated the expression once per output row: at the root of a projection alias, or as a filter
+ * condition that keeps every row. An `IncrementMetric` below a conditional expression, which is
+ * where MERGE keeps the counter of every `WHEN` clause (`CASE WHEN clause THEN increment ... ELSE
+ * increment(copied)`), fires for the rows that take its branch only. Offloading it inflated those
+ * counters to the full row count, which corrupted the operation metrics of every MERGE commit and,
+ * through `CDCReader.shouldSkipFileActionsInCommit`, produced phantom change-data-feed rows for
+ * no-op merges (GLUTEN-9003).
  *
  * A backend that counts natively
  * ([[org.apache.gluten.backendsapi.BackendSettingsApi.supportNativeIncrementMetric]]) evaluates
- * each counter as a pass-through function named after its metric and reports how many rows that
- * function processed, which is the exact evaluation count: inside a `CASE WHEN` branch only the
- * rows that took the branch reach it. That holds only below the parents Delta's DML commands put
- * above a counter ([[countsLikeSpark]]); a counter below any other parent stays on Spark. Other
- * backends keep all conditional shapes on Spark.
+ * each counter of a projection as one of its fixed pass-through slot functions
+ * ([[org.apache.gluten.expression.IncrementMetricCall]]) and reports how many rows that function
+ * processed, which is the exact evaluation count: inside a `CASE WHEN` branch only the rows that
+ * took the branch reach it. That holds only below the parents Delta's DML commands put above a
+ * counter ([[countsLikeSpark]]); a counter below any other parent stays on Spark. Other backends
+ * keep all conditional shapes on Spark. Filters are credited with their output rows on every
+ * backend.
  */
 object IncrementMetricOffload {
 
-  /** Delta's `IncrementMetric`, matched by name so the shared module needs no Delta class. */
+  /** Delta's `IncrementMetric`, matched by name because Delta 2.4 (Spark 3.4) has no such class. */
   private[gluten] def isIncrementMetric(expr: Expression): Boolean = {
     expr.prettyName == "increment_metric" && expr.children.size == 1
   }
