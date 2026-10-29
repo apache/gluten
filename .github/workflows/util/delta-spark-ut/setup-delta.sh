@@ -101,3 +101,7 @@ echo "::endgroup::"
 
 PATCH_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/apply-delta-test-patches.sh"
 bash "$PATCH_SCRIPT" "$DELTA_REF" "$DELTA_DIR"
+
+echo "::group::Installing Gluten runtime validation"
+python3 -B "$(dirname "$PATCH_SCRIPT")/install-validation.py" "$DELTA_DIR"
+echo "::endgroup::"

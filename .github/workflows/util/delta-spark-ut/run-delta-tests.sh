@@ -47,8 +47,14 @@ if command -v getent > /dev/null; then
 fi
 # Gluten defaults and JDK17 test JVM flags, shared with local dev runs.
 # Sets JAVA_TOOL_OPTIONS so they reach the sbt launcher + forked JVMs.
+UTIL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./java-test-args.sh
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/java-test-args.sh"
+source "$UTIL_DIR/java-test-args.sh"
+# A fresh directory prevents a local rerun from accepting an older JVM's proof.
+mkdir -p "$GITHUB_WORKSPACE/gluten-validation"
+GLUTEN_VALIDATION_DIR="$(mktemp -d "$GITHUB_WORKSPACE/gluten-validation/shard-${SHARD_ID}-XXXXXX")"
+export GLUTEN_VALIDATION_DIR
+export GLUTEN_VALIDATION_EXEMPTIONS="$UTIL_DIR/validation-exemptions.txt"
 cd "$GITHUB_WORKSPACE/delta"
 chmod +x build/sbt
 # Only run the unified `spark` sbt project, NOT `sparkGroup/test` --
@@ -240,6 +246,7 @@ WATCHDOG_PID=$!
   "++ ${DELTA_SCALA_VERSION}" \
   'set spark / Test / javaOptions ++= Seq("-Xmx2G", "-XX:+HeapDumpOnOutOfMemoryError", "-XX:HeapDumpPath=/tmp/")' \
   'set spark / Test / testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-u", "target/test-reports")' \
+  'set org.apache.gluten.ci.GlutenTestGrouping.setting' \
   "spark/test" 2>&1 | tee "$SBT_LOG"
 SBT_EXIT=${PIPESTATUS[0]}
 touch "$SBT_DONE_MARKER"
@@ -276,11 +283,17 @@ if [ "${REPORT_COUNT}" -eq 0 ]; then
   exit 1
 fi
 
+# Infrastructure validation must not enter the known-failure/quarantine/seed path.
+python3 -B "$UTIL_DIR/check-gluten-validation.py" \
+  --reports-dir "$GITHUB_WORKSPACE/delta" \
+  --evidence-dir "$GLUTEN_VALIDATION_DIR" \
+  --exemptions "$GLUTEN_VALIDATION_EXEMPTIONS" \
+  --expected-forks "$TEST_PARALLELISM_COUNT"
+
 # Classify this shard's results against the baseline: seed mode when
 # UPDATE_BASELINE=true (record failures, never fail) so the baseline can be
 # (re)generated; otherwise enforce against it. Writes this shard's gate-out/*.txt
 # for the aggregate job.
-UTIL_DIR="$GITHUB_WORKSPACE/.github/workflows/util/delta-spark-ut"
 GATE_MODE=enforce
 if [ "${UPDATE_BASELINE}" = "true" ]; then
   GATE_MODE=seed

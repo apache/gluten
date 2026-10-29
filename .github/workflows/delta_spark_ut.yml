@@ -55,6 +55,7 @@ on:
     paths:
       - '.github/workflows/delta_spark_ut.yml'
       - '.github/workflows/util/delta-spark-ut/**'
+      - 'gluten-ut/src-delta-validation*/**'
       # Velox revision updates can change Delta offload behavior.
       - 'ep/build-velox/src/get-velox.sh'
       - 'gluten-delta/**'
@@ -215,6 +216,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.DELTA_CHECKOUT_REF }}
+      - name: Test Delta validation utilities
+        run: python3 -B -m unittest discover -s gluten-ut/src-delta-validation/test/python
       - name: Get Ccache from Apache Stash
         id: ccache-stash
         uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
@@ -530,6 +533,14 @@ jobs:
           path: |
             delta/**/target/test-reports/**/*.xml
             delta/**/target/surefire-reports/**/*.xml
+          if-no-files-found: warn
+
+      - name: Upload Gluten activation validation
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: delta-spark-ut-validation-shard-${{ matrix.shard }}
+          path: gluten-validation/
           if-no-files-found: warn
 
       - name: Upload hang watchdog thread dumps

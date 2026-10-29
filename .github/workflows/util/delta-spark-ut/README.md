@@ -45,6 +45,12 @@ starts failing** (a regression).
 | `setup-delta.sh` | Clones Delta, drops in the Gluten bundle, and applies temporary compatibility patches. Takes `<delta_ref> <delta_dir> <gluten_bundle_jar>`. |
 | `apply-delta-test-patches.sh` | Cherry-picks upstream scan fixes, applies the ordered local patch list, and verifies the resulting test sources. Called by `setup-delta.sh` with `<delta_ref> <delta_dir>`. |
 | `patches/*.patch` | Separate patches for CDF plan assertions, mock-S3 fixture writes, the two Parquet row-group fixtures, and 2B-row DV fail-fast behavior. Each patch documents its rationale and removal condition. |
+| `install-validation.py` | Installs CI-only runtime checks in the upstream shared, Hive, Java/JUnit, session-test, and listed direct-factory paths. |
+| `gluten-ut/src-delta-validation-sbt/` | sbt helper, copied into Delta's meta-build and explicitly applied by the runner to inventory compiled suites and schedule the per-fork native canary. |
+| `check-gluten-validation.py` | Requires matching per-test checks and native proof from every fork before any baseline comparison. |
+| `validation-factories.txt` | Known direct Spark-creation suites, shared by source installation and the compiled-suite inventory. |
+| `validation-exemptions.txt` | Explicit, reasoned exceptions for tests intentionally starting with Gluten disabled. Empty by default. |
+| `gluten-ut/src-delta-validation/` | Scala runtime checks, the native canary, and Scala/Python unit tests. Scala sources are compiled only in the CI-created Delta test project. |
 
 ## Temporary Delta test patches
 
@@ -119,6 +125,74 @@ In particular, ANSI-specific tests can enable ANSI explicitly.
 Delta extensions and the Delta catalog remain suite-specific rather than
 becoming JVM defaults, because some suites test behavior when those settings
 are absent.
+
+## Mandatory Gluten activation validation
+
+Defaults alone do not prove that the test's actual session is configured correctly
+([#13496](https://github.com/apache/gluten/issues/13496)). After the compatibility
+patches, setup aliases upstream `SharedSparkSession` imports to a checked fixture
+and installs equivalent hooks for `DeltaHiveTest`, `DeltaSessionQueryTest`, Java's
+`DeltaSQLCommandJavaTest`, and the direct factories in `validation-factories.txt`.
+The helper sources live under `gluten-ut/src-delta-validation`; no production
+Gluten classes or dependency JARs are modified.
+
+Each checked test verifies the actual context's plugin configuration, installed
+Gluten columnar rules, `spark.gluten.enabled`, and
+`gluten.enabledForCurrentThread`. Direct-factory tests check each wrapped
+context/session when it is returned. Checks run again after test cleanup to
+detect leaked disabling. Scoped disabling inside a test is allowed when restored.
+Every check failure is recorded before it is thrown, so even a test that catches
+the exception cannot hide a validation violation.
+
+`GlutenTestGrouping` inventories the **compiled** suite hierarchies independently of
+these hooks. Losing a hook therefore produces missing required evidence, rather
+than silently turning that suite into an unchecked success. Suites outside the
+recognized fixtures/factories are listed explicitly as **uncovered**, not
+automatically assumed to be Spark-free.
+
+The runner applies these settings with sbt's `set` command after the build loads.
+Merely adding a root `.sbt` file is insufficient: Delta's project-level test
+settings can override it, leaving the validation inventory and per-fork canary
+unscheduled.
+
+Every fork also runs `GlutenActivationSuite`, which executes and checks a small
+native aggregation using the inherited defaults. It does not set the Gluten
+plugin or enable flag itself. Its process-specific ScalaTest `suiteId` prevents
+forks from overwriting one another's JUnit XML. The gate requires native proof
+from the requested number of distinct JVMs and from each JVM that recorded a
+test check; a successful smoke test in another fork is insufficient.
+At least one upstream test must execute on the shard: canaries and harness
+self-tests cannot turn an otherwise empty Delta run green.
+
+`run-delta-tests.sh` uses a fresh evidence directory and runs
+`check-gluten-validation.py` **before** the ordinary result comparison. Missing
+or malformed evidence, violations, and failing harness tests always fail the
+shard, including with `update_baseline=true` or `fail_on_fixed=false`. Neither
+known failures nor flaky quarantine can suppress them. The workflow uploads the
+compiled inventory, per-JVM JSONL records, and coverage summary as
+`delta-spark-ut-validation-shard-<id>`.
+
+Intentional default-disabled tests require an entry in
+`validation-exemptions.txt`: `<exact suite>#<exact test><TAB><reason>`. An exact
+suite followed by `#*` exempts that whole suite. Exempted tests must still emit
+matching lifecycle evidence, and the validation harness cannot be exempted.
+Temporary `withSQLConf("spark.gluten.enabled" -> "false")` scopes need no entry
+when the enabled default is restored.
+
+**Coverage limit:** these are fixture/factory checks, not instrumentation of
+every Spark session or query. Additional sessions created through unwrapped
+paths inside otherwise checked tests remain outside this guarantee. Legitimate
+Spark fallback and metadata-only tests are allowed; only the controlled canary
+must contain a native stage.
+
+The Python installer/gate tests run before the native build:
+
+```bash
+python3 -B -m unittest discover -s gluten-ut/src-delta-validation/test/python
+```
+
+The Scala guard tests are copied into Delta's test sources and run with the
+suite. Their failures, like canary failures, are infrastructure failures.
 
 ## How the gate works
 
@@ -322,12 +396,27 @@ configuration reaches the sbt launcher and every forked test JVM:
 
 ```bash
 # from the Delta clone prepared by setup-delta.sh (which has the Gluten bundle):
-source <gluten>/.github/workflows/util/delta-spark-ut/java-test-args.sh
-./build/sbt -DsparkVersion=4.1 "++ 2.13.17" spark/test   # or a single suite via testOnly
+GLUTEN_REPO=<absolute-path-to-gluten>
+source "$GLUTEN_REPO/.github/workflows/util/delta-spark-ut/java-test-args.sh"
+export NUM_SHARDS=1 SHARD_ID=0 TEST_PARALLELISM_COUNT=1
+export GLUTEN_VALIDATION_DIR="$(mktemp -d)"
+export GLUTEN_VALIDATION_EXEMPTIONS="$GLUTEN_REPO/.github/workflows/util/delta-spark-ut/validation-exemptions.txt"
+./build/sbt -DsparkVersion=4.1 "++ 2.13.17" \
+  'set spark / Test / testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-u", "target/test-reports")' \
+  'set org.apache.gluten.ci.GlutenTestGrouping.setting' \
+  spark/test
+
+python3 -B "$GLUTEN_REPO/.github/workflows/util/delta-spark-ut/check-gluten-validation.py" \
+  --reports-dir "$PWD" \
+  --evidence-dir "$GLUTEN_VALIDATION_DIR" \
+  --exemptions "$GLUTEN_VALIDATION_EXEMPTIONS" \
+  --expected-forks "$TEST_PARALLELISM_COUNT"
 ```
 
 `run-delta-tests.sh` sources the same file, so CI and local runs use identical
-flags.
+flags. The documented validation gate is for a full `spark/test` invocation;
+a local `testOnly` selection can filter out the canary, so its results must not
+be presented as a fully validated shard.
 
 Existing `JAVA_TOOL_OPTIONS` are preserved after the shared defaults, so
 caller-supplied `-D` properties take precedence.
