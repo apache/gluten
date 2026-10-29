@@ -19,6 +19,7 @@ package org.apache.gluten.execution
 import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 
 import org.apache.spark.SparkConf
+import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.execution.{ColumnarBroadcastExchangeExec, ColumnarShuffleExchangeExec, SortExec, SparkPlan}
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanHelper, AQEShuffleReadExec}
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
@@ -566,5 +567,92 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
           "tmp5_wide.c2 AS 5c2, tmp5_wide.c3 AS 5c3 " +
           "FROM tmp4_wide JOIN tmp5_wide ON tmp4_wide.c1 = tmp5_wide.c1")
     )
+  }
+
+  private def hasNativeScan(df: DataFrame): Boolean =
+    find(df.queryExecution.executedPlan)(_.isInstanceOf[FileSourceScanExecTransformer]).nonEmpty
+
+  // Regression tests for the input_file_name() / user-column collision fix.
+  //
+  // A table with a column named `Input_File_Name` creates a naming conflict with the
+  // input_file_name() metadata function.  Under caseSensitive=false the two names normalise to
+  // the same string; Velox cannot produce both simultaneously so the scan must fall back.
+  // Under caseSensitive=true the names are distinct and the scan stays native.
+  test("input_file_name() with a user column named Input_File_Name") {
+    withTempPath {
+      dir =>
+        import testImplicits._
+        Seq((1, "user-a"), (2, "user-b"))
+          .toDF("id", "Input_File_Name")
+          .write
+          .parquet(dir.getCanonicalPath)
+        withTempView("t") {
+          spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("t")
+
+          def checkValues(df: DataFrame): Unit = {
+            val rows = df.collect().sortBy(_.getInt(0))
+            // User column must contain the original data values, never a file path.
+            assert(rows.map(_.getString(1)).toSeq == Seq("user-a", "user-b"))
+            // input_file_name() must return the actual file path.
+            assert(rows.forall(r => r.getString(2).endsWith(".parquet")))
+          }
+
+          // caseSensitive=true: "Input_File_Name" != "input_file_name" -- scan stays native.
+          withSQLConf(SQLConf.CASE_SENSITIVE.key -> "true") {
+            runQueryAndCompare(
+              "SELECT id, Input_File_Name, input_file_name() AS fname FROM t",
+              noFallBack = false) {
+              df =>
+                checkValues(df)
+                assert(hasNativeScan(df))
+            }
+          }
+
+          // caseSensitive=false: names collide -- scan falls back, results still correct.
+          withSQLConf(SQLConf.CASE_SENSITIVE.key -> "false") {
+            runQueryAndCompare(
+              "SELECT id, Input_File_Name, input_file_name() AS fname FROM t",
+              noFallBack = false) {
+              df =>
+                checkValues(df)
+                assert(!hasNativeScan(df))
+            }
+          }
+        }
+    }
+  }
+
+  // Selecting only the user column (no input_file_name() call) must never trigger a fallback
+  // and must return the original data values regardless of case-sensitivity setting.
+  test("user column named like input_file_name is not replaced by the file path") {
+    Seq("input_file_name", "Input_File_Name").foreach {
+      colName =>
+        Seq("true", "false").foreach {
+          caseSensitive =>
+            withTempPath {
+              dir =>
+                import testImplicits._
+                Seq((1, "val1"), (2, "val2"))
+                  .toDF("id", colName)
+                  .write
+                  .parquet(dir.getCanonicalPath)
+                withTempView("t") {
+                  spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("t")
+                  withSQLConf(SQLConf.CASE_SENSITIVE.key -> caseSensitive) {
+                    runQueryAndCompare(
+                      s"SELECT id, `$colName` FROM t ORDER BY id",
+                      noFallBack = false) {
+                      df =>
+                        assert(
+                          df.collect().map(_.getString(1)).toSeq == Seq("val1", "val2"),
+                          s"col=$colName caseSensitive=$caseSensitive\n" +
+                            df.queryExecution.executedPlan)
+                        assert(hasNativeScan(df), df.queryExecution.executedPlan.toString)
+                    }
+                  }
+                }
+            }
+        }
+    }
   }
 }

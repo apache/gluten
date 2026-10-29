@@ -20,4 +20,5 @@ import org.apache.spark.sql.GlutenSQLTestsBaseTrait
 
 class GlutenDeltaBasedUpdateAsDeleteAndInsertTableSuite
   extends DeltaBasedUpdateAsDeleteAndInsertTableSuite
-  with GlutenSQLTestsBaseTrait {}
+  with GlutenSQLTestsBaseTrait
+  with GlutenUpdateTableSuiteBase {}

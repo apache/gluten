@@ -153,6 +153,8 @@ class VeloxRuntime final : public Runtime {
   std::unique_ptr<folly::Executor> spillExecutor_;
   std::unique_ptr<folly::Executor> ioExecutor_;
   VeloxConnectorIds connectorIds_;
+  // File SplitInfo and KafkaSplitInfo objects in JVM scan traversal order.
+  std::vector<std::shared_ptr<SplitInfo>> scanSplitInfos_;
 
   std::unordered_map<int32_t, std::shared_ptr<VeloxColumnarBatch>> emptySchemaBatchLoopUp_;
 };

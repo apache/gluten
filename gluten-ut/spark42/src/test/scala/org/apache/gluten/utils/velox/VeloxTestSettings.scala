@@ -228,9 +228,6 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenMathExpressionsSuite]
     // Spark round UT for round(3.1415,3) is not correct.
     .exclude("round/bround/floor/ceil")
-    .exclude(
-      "SPARK-56089: asinh/acosh fdlibm algorithm coverage"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenMiscExpressionsSuite]
   enableSuite[GlutenNondeterministicSuite]
     .exclude("MonotonicallyIncreasingID")
@@ -296,8 +293,10 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenValidateExternalTypeSuite]
   enableSuite[GlutenXmlExpressionsSuite]
     .exclude("from_xml- invalid data")
-    // Generated suites for org.apache.spark.sql.connector
-    .exclude("TIME type with arrays") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
+    // Replaced by a gluten test that checks internal rows: Dataset.collect() can't deserialize
+    // ARRAY<TIME(p)> with p < 6.
+    .exclude("TIME type with arrays")
+  // Generated suites for org.apache.spark.sql.connector
   enableSuite[GlutenDataSourceV2MetricsSuite]
   enableSuite[GlutenDataSourceV2OptionSuite]
   enableSuite[GlutenDataSourceV2UtilsSuite]
@@ -810,11 +809,13 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("Give up splitting aggregate code if a parameter length goes over the limit")
     .exclude("Give up splitting subexpression code if a parameter length goes over the limit")
     .exclude("SPARK-47238: Test broadcast threshold for generated code")
+    .exclude("SPARK-56431: CSE in FilterExec preserves null guards for notNull columns")
+    .exclude("SPARK-56032: FilterExec skips CSE codegen when there is no common subexpression")
+    .exclude("SPARK-56032: FilterExec skips CSE codegen when the common subexpression is cheap")
+    .exclude(
+      "SPARK-56032: FilterExec takes CSE codegen when the common subexpression is non-cheap")
   enableSuite[GlutenBroadcastExchangeSuite]
     .exclude("SPARK-52962: broadcast exchange should not reset metrics") // Add Gluten test
-    .exclude(
-      "SPARK-56455: broadcast should fail when table size exceeds maxBroadcastTableSize"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenLocalBroadcastExchangeSuite]
   enableSuite[GlutenCoalesceShufflePartitionsSuite]
     // Rewrite for Gluten. Change details are in the inline comments in individual tests.
@@ -826,9 +827,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("replace partial and final hash aggregate together with sort aggregate")
     .exclude("do not replace hash aggregate if child does not have sort order")
     .exclude("do not replace hash aggregate if there is no group-by column")
-    .exclude(
-      "Gluten - do not replace hash aggregate if child does not have sort order"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenReuseExchangeAndSubquerySuite]
   enableSuite[GlutenSameResultSuite]
   enableSuite[GlutenSortSuite]
@@ -839,9 +837,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("test with low buffer spill threshold")
   enableSuite[GlutenTakeOrderedAndProjectSuite]
   enableSuite[GlutenSessionExtensionSuite]
-    .exclude(
-      "Gluten - test gluten extensions"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenBucketedReadWithoutHiveSupportSuite]
     // Exclude the following suite for plan changed from SMJ to SHJ.
     .exclude("avoid shuffle when join 2 bucketed tables")
@@ -875,21 +870,6 @@ class VeloxTestSettings extends BackendTestSettings {
   disableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuite](
     "GLUTEN-4893: Vanilla UT checks scan operator by exactly matching the class type")
   enableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuiteAE]
-    .exclude(
-      "Aggregates with no groupby over tables having 1 BUCKET, return multiple rows"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-32859: disable unnecessary bucketed table scan - basic test"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-32859: disable unnecessary bucketed table scan - multiple bucketed columns test"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-32859: disable unnecessary bucketed table scan - multiple joins test"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-32859: disable unnecessary bucketed table scan - other operators test"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenExternalCommandRunnerSuite]
   enableSuite[GlutenFilteredScanSuite]
   enableSuite[GlutenFiltersSuite]
@@ -1034,9 +1014,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude(
       "SPARK-57298: collect_set normalizes NaN and -0.0 nested in complex types"
     ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "collect_set with RESPECT NULLS preserves null in set"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenDataFrameAsOfJoinSuite]
   enableSuite[GlutenDataFrameComplexTypeSuite]
   enableSuite[GlutenDataFrameFunctionsSuite]
@@ -1047,6 +1024,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("transform keys function - primitive data types")
     // Overridden.
     .exclude("map with arrays")
+    // Overridden: asserts vanilla WholeStageCodegenExec, which Gluten replaces.
+    .exclude("array_join with nullable nullReplacement under whole-stage codegen")
     .exclude(
       "SPARK-54918: array set ops normalize -0.0 and NaN via VALUES inline table"
     ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
@@ -1067,9 +1046,6 @@ class VeloxTestSettings extends BackendTestSettings {
     ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
     .exclude(
       "SPARK-54918: array_union normalizes -0.0 to +0.0 - literals"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "array_join with nullable nullReplacement under whole-stage codegen"
     ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenDataFrameHintSuite]
   enableSuite[GlutenDataFrameImplicitsSuite]
@@ -1115,9 +1091,6 @@ class VeloxTestSettings extends BackendTestSettings {
     // expression referenced multiple times yields row-wise equal values (rand/randn).
     // Same class of difference as SPARK-9083. Not really an issue.
     .exclude("SPARK-45216: Non-deterministic functions with seed")
-    .exclude(
-      "SPARK-57725: resolve columns when the input plan has a null-named attribute"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenDataFrameTimeWindowingSuite]
   enableSuite[GlutenDataFrameTungstenSuite]
   enableSuite[GlutenDataFrameWindowFunctionsSuite]
@@ -1216,7 +1189,6 @@ class VeloxTestSettings extends BackendTestSettings {
     // TODO: fix on Spark-4.1 introduced by https://github.com/apache/spark/pull/47856
     .exclude("SPARK-49386: test SortMergeJoin (with spill by size threshold)")
   enableSuite[GlutenMathFunctionsSuite]
-    .exclude("acosh") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenMapStatusEndToEndSuite]
   enableSuite[GlutenMetadataCacheSuite]
     .exclude("SPARK-16336,SPARK-27961 Suggest fixing FileNotFoundException")
@@ -1286,7 +1258,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("EXPLAIN CODEGEN command")
   enableSuite[GlutenHivePlanTest]
   enableSuite[GlutenHiveQuerySuite]
-    .exclude("ADD JAR command 2") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenHiveResolutionSuite]
   enableSuite[GlutenHiveSQLQuerySuite]
   enableSuite[GlutenHiveSQLViewSuite]
@@ -1317,9 +1288,10 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenLegacyParameterSubstitutionSuite]
   enableSuite[GlutenParametersSuite]
   enableSuite[GlutenResolveDefaultColumnsSuite]
+    // Velox char/varchar write-side check throws VeloxUserError instead of SparkRuntimeException.
+    // Rewritten in GlutenResolveDefaultColumnsSuite.
     .exclude(
-      "SPARK-57187: non-foldable default exceeding CHAR/VARCHAR length fails at INSERT time (explicit DEFAULT keyword)"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
+      "SPARK-57187: non-foldable default exceeding CHAR/VARCHAR length fails at INSERT time (explicit DEFAULT keyword)")
   enableSuite[GlutenSubqueryHintPropagationSuite]
   enableSuite[GlutenUrlFunctionsSuite]
   enableSuite[GlutenParquetRowIndexSuite]
@@ -1357,15 +1329,15 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenDeltaBasedUpdateAsDeleteAndInsertTableSuite]
     // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
     .exclude("update with NOT NULL checks")
-    .exclude(
-      "update with constraint violation and transactional checks"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
+    // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException.
+    // Rewritten in GlutenUpdateTableSuiteBase.
+    .exclude("update with constraint violation and transactional checks")
   enableSuite[GlutenDeltaBasedUpdateTableSuite]
     // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
     .exclude("update with NOT NULL checks")
-    .exclude(
-      "update with constraint violation and transactional checks"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
+    // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException.
+    // Rewritten in GlutenUpdateTableSuiteBase.
+    .exclude("update with constraint violation and transactional checks")
   enableSuite[GlutenGroupBasedMergeIntoTableSuite]
     // Replaced by Gluten versions that handle wrapped exceptions
     .excludeByPrefix("merge cardinality check with")
@@ -1471,6 +1443,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenTransformWithStateClusterSuite]
   enableSuite[GlutenTransformWithStateInitialStateSuite]
   enableSuite[GlutenTransformWithStateUnsafeRowSuite]
+    // Flaky in vanilla Spark 4.2: the expected schema error races with ExpectFailure.
+    .excludeByPrefix("test that introducing TTL after restart fails query")
   enableSuite[GlutenTransformWithStateValidationSuite]
   enableSuite[GlutenTransformWithValueStateTTLSuite]
   enableSuite[GlutenTriggerAvailableNowSuite]
