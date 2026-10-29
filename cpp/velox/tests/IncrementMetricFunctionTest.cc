@@ -20,6 +20,7 @@
 
 #include "operators/functions/IncrementMetricFunction.h"
 #include "operators/functions/RegistrationAllFunctions.h"
+#include "velox/common/base/tests/GTestUtils.h"
 #include "velox/core/QueryConfig.h"
 #include "velox/exec/tests/utils/PlanBuilder.h"
 #include "velox/functions/sparksql/tests/SparkFunctionBaseTest.h"
@@ -65,18 +66,34 @@ TEST_F(IncrementMetricFunctionTest, passesInputThroughIncludingNulls) {
 }
 
 TEST_F(IncrementMetricFunctionTest, countsOnlyRowsThatReachTheCall) {
-  // Rows 2, 3 and 4 take the branch; row 1 does not. The counter must see three rows, and the
-  // unconditional counter all four, exactly as Spark evaluates IncrementMetric.
-  // Spark function names: the parser's `>` and `+` map to Presto names that Gluten does not register.
+  // The shape of a MERGE clause: rows 2, 3 and 4 take the branch, row 1 does not, so each counter
+  // sees the rows of its own branch, exactly as Spark evaluates IncrementMetric. The literals are
+  // what Delta wraps; they must not be folded into constants, which would skip the count.
+  // Spark function names: the parser's `>` maps to a Presto name that Gluten does not register.
   auto data = makeRowVector({makeFlatVector<int32_t>({1, 2, 3, 4})});
   auto exprSet = compileExpression(
-      "add(if(greaterthan(c0, 1), increment_metric_1(c0), increment_metric_2(c0)), increment_metric_3(c0))",
-      asRowType(data->type()));
-  evaluate(*exprSet, data);
+      "if(greaterthan(c0, 1), increment_metric_1(true), increment_metric_2(false))", asRowType(data->type()));
+  auto result = evaluate(*exprSet, data);
+  facebook::velox::test::assertEqualVectors(makeFlatVector<bool>({false, true, true, true}), result);
   auto stats = exprSet->stats();
   ASSERT_EQ(stats.at("increment_metric_1").numProcessedRows, 3);
   ASSERT_EQ(stats.at("increment_metric_2").numProcessedRows, 1);
-  ASSERT_EQ(stats.at("increment_metric_3").numProcessedRows, 4);
+
+  // A counter over a literal at the root of a projection counts every row.
+  exprSet = compileExpression("increment_metric_3(true)", asRowType(data->type()));
+  evaluate(*exprSet, data);
+  ASSERT_EQ(exprSet->stats().at("increment_metric_3").numProcessedRows, 4);
+}
+
+TEST_F(IncrementMetricFunctionTest, countsEveryRowOfAnEncodedInput) {
+  // Peeling the dictionary would evaluate the counter on its 2 distinct values instead of 6 rows.
+  auto base = makeFlatVector<int32_t>({10, 20});
+  auto input = wrapInDictionary(makeIndices({0, 1, 0, 1, 0, 1}), 6, base);
+  auto data = makeRowVector({input});
+  auto exprSet = compileExpression("increment_metric_5(c0)", asRowType(data->type()));
+  auto result = evaluate(*exprSet, data);
+  facebook::velox::test::assertEqualVectors(input, result);
+  ASSERT_EQ(exprSet->stats().at("increment_metric_5").numProcessedRows, 6);
 }
 
 TEST_F(IncrementMetricFunctionTest, nullInputStillCounts) {
@@ -103,12 +120,36 @@ TEST_F(IncrementMetricFunctionTest, detectsCountersInAPlan) {
   ASSERT_FALSE(usesIncrementMetricFunctions(*plain));
 }
 
+TEST_F(IncrementMetricFunctionTest, rejectsCountersOutsideProjections) {
+  auto data = makeRowVector({makeFlatVector<int32_t>({1, 2})});
+  // Substrait declarations, `<name>:<argument types>`, as the plan converter receives them.
+  const std::unordered_map<uint64_t, std::string> functionMap{
+      {0, "increment_metric_5:i32"}, {1, "greaterthan:i32_i32"}};
+
+  auto inProject = exec::test::PlanBuilder()
+                       .values({data})
+                       .project({"increment_metric_5(c0) AS c0"})
+                       .filter("greaterthan(c0, 0)")
+                       .planNode();
+  checkIncrementMetricFunctionsInProjects(functionMap, *inProject);
+
+  // The JVM credits counters from projections only, so a counter in a filter is rejected.
+  auto inFilter = exec::test::PlanBuilder().values({data}).filter("greaterthan(increment_metric_5(c0), 0)").planNode();
+  ASSERT_FALSE(usesIncrementMetricFunctions(*inFilter));
+  VELOX_ASSERT_THROW(
+      checkIncrementMetricFunctionsInProjects(functionMap, *inFilter),
+      "Delta counter increment_metric_5 is called outside a projection");
+
+  // Plans without counters are not inspected.
+  checkIncrementMetricFunctionsInProjects({{1, "greaterthan:i32_i32"}}, *inFilter);
+}
+
 TEST_F(IncrementMetricFunctionTest, queryConfigsKeepCountingUnderUserOverrides) {
   // A counter at the root of a projection, like the single clause of an insert-only MERGE.
   auto data = makeRowVector({makeFlatVector<int32_t>({1, 2, 3, 4})});
   // Overrides a user can pass through spark.gluten.sql.columnar.backend.velox.*: simplified
   // evaluation applies the counter without counting the rows it processes, and without the export
-  // project and filter operators report no counts.
+  // FilterProject operators report no counts.
   std::unordered_map<std::string, std::string> configs{
       {core::QueryConfig::kExprEvalSimplified, "true"}, {core::QueryConfig::kOperatorTrackExpressionStats, "false"}};
   setIncrementMetricQueryConfigs(configs);
@@ -116,7 +157,7 @@ TEST_F(IncrementMetricFunctionTest, queryConfigsKeepCountingUnderUserOverrides) 
   ASSERT_FALSE(queryCtx_->queryConfig().exprEvalSimplified());
   ASSERT_TRUE(queryCtx_->queryConfig().operatorTrackExpressionStats());
 
-  // Project and filter operators pick their evaluator from the query config the same way.
+  // FilterProject operators pick their evaluator from the query config the same way.
   auto exprSet =
       exec::makeExprSetFromFlag({makeTypedExpr("increment_metric_0(c0)", asRowType(data->type()))}, &execCtx_);
   auto result = evaluate(*exprSet, data);

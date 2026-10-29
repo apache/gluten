@@ -513,7 +513,7 @@ void WholeStageResultIterator::collectMetrics() {
         customStats[customMetric.first] = folly::dynamic::object("sum", customMetric.second.sum)(
             "count", customMetric.second.count)("min", customMetric.second.min)("max", customMetric.second.max);
       }
-      folly::dynamic stats = folly::dynamic::object("inputRows", opStats->inputRows)(
+      folly::dynamic operatorJson = folly::dynamic::object("inputRows", opStats->inputRows)(
           "inputVectors", opStats->inputVectors)("inputBytes", opStats->inputBytes)(
           "rawInputRows", opStats->rawInputRows)("rawInputBytes", opStats->rawInputBytes)(
           "outputRows", opStats->outputRows)("outputVectors", opStats->outputVectors)(
@@ -523,8 +523,8 @@ void WholeStageResultIterator::collectMetrics() {
           "spilledBytes", opStats->spilledBytes)("spilledRows", opStats->spilledRows)(
           "spilledPartitions", opStats->spilledPartitions)("spilledFiles", opStats->spilledFiles)(
           "physicalWrittenBytes", opStats->physicalWrittenBytes)("customStats", customStats);
-      // Rows processed per Delta counter function, keyed by its slot name. Project and filter
-      // operators export these only when the plan calls a counter, so other operators get no key.
+      // Rows processed per Delta counter function, keyed by its slot name. Only FilterProject
+      // operators export these, and only when the plan calls a counter, so other operators get no key.
       folly::dynamic expressionStats = folly::dynamic::object();
       for (const auto& exprStats : opStats->expressionStats) {
         if (isIncrementMetricFunction(exprStats.first)) {
@@ -532,9 +532,9 @@ void WholeStageResultIterator::collectMetrics() {
         }
       }
       if (!expressionStats.empty()) {
-        stats["expressionStats"] = std::move(expressionStats);
+        operatorJson["expressionStats"] = std::move(expressionStats);
       }
-      operatorStats.push_back(std::move(stats));
+      operatorStats.push_back(std::move(operatorJson));
     }
 
     statsNum += static_cast<unsigned int>(operatorStats.size());

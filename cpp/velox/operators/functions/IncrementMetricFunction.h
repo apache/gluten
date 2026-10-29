@@ -27,10 +27,15 @@ namespace gluten {
 
 /// Delta's `IncrementMetric` counts how many rows an expression is evaluated on. Velox already
 /// keeps that count per expression (`ExprStats::numProcessedRows`) on its regular evaluation path
-/// and project and filter operators export it per function name when asked to, so a counter is a
+/// and the FilterProject operator exports it per function name when asked to, so a counter is a
 /// pass-through function whose name is the key the JVM credits the metric from. Inside a CASE WHEN
 /// branch that is the number of rows that took the branch, at the top of a projection it is every
 /// row, which is exactly how Spark evaluates `IncrementMetric`.
+///
+/// Counters only appear in projections: the JVM emits them from Delta's project transformer alone
+/// (the filter transformer strips its counters and credits the filter's output rows), and a
+/// Substrait ProjectRel always becomes a ProjectNode. checkIncrementMetricFunctionsInProjects()
+/// enforces this.
 ///
 /// The names are fixed slots, `increment_metric_<slot>`, registered once at startup. The JVM
 /// assigns one slot per distinct metric of a projection, so a metric needs no name of its own and
@@ -50,13 +55,19 @@ bool isIncrementMetricFunction(const std::string& functionName);
 /// Registers every counter slot. Called from registerAllFunctions().
 void registerIncrementMetricFunctions();
 
-/// True if a project or filter in `plan` calls a counter, which is when the query needs
-/// setIncrementMetricQueryConfigs(). Only those nodes are inspected because they are the only ones
-/// Gluten puts counters in: the JVM emits them from Delta's project and filter transformers alone.
+/// True if a projection in `plan` calls a counter, which is when the query needs
+/// setIncrementMetricQueryConfigs().
 bool usesIncrementMetricFunctions(const facebook::velox::core::PlanNode& plan);
 
-/// Sets the query configs a plan that calls a counter depends on, over any user override: project
-/// and filter operators export their expression statistics, and expressions use the regular
+/// Throws unless every counter declared in `functionMap`, the Substrait plan's function
+/// declarations, is called by a projection of `plan`. The JVM credits counters from projections
+/// only, so a counter anywhere else would leave its metric wrong.
+void checkIncrementMetricFunctionsInProjects(
+    const std::unordered_map<uint64_t, std::string>& functionMap,
+    const facebook::velox::core::PlanNode& plan);
+
+/// Sets the query configs a plan that calls a counter depends on, over any user override:
+/// FilterProject operators export their expression statistics, and expressions use the regular
 /// evaluation path, since simplified evaluation (`expression.eval_simplified`) applies functions
 /// without counting their rows.
 void setIncrementMetricQueryConfigs(std::unordered_map<std::string, std::string>& configs);

@@ -19,8 +19,10 @@
 
 #include <charconv>
 #include <memory>
+#include <optional>
 #include <string_view>
 #include <system_error>
+#include <unordered_set>
 #include <vector>
 
 #include "velox/core/Expressions.h"
@@ -48,21 +50,38 @@ class IncrementMetricFunction : public exec::VectorFunction {
   }
 };
 
-bool callsIncrementMetric(const core::ITypedExpr& expr) {
+void collectIncrementMetricCalls(const core::ITypedExpr& expr, std::unordered_set<std::string>& names) {
   if (const auto* call = dynamic_cast<const core::CallTypedExpr*>(&expr)) {
     if (isIncrementMetricFunction(call->name())) {
-      return true;
+      names.insert(call->name());
     }
   }
   if (const auto* lambda = dynamic_cast<const core::LambdaTypedExpr*>(&expr)) {
-    return lambda->body() != nullptr && callsIncrementMetric(*lambda->body());
+    if (lambda->body() != nullptr) {
+      collectIncrementMetricCalls(*lambda->body(), names);
+    }
+    return;
   }
   for (const auto& input : expr.inputs()) {
-    if (input != nullptr && callsIncrementMetric(*input)) {
-      return true;
+    if (input != nullptr) {
+      collectIncrementMetricCalls(*input, names);
     }
   }
-  return false;
+}
+
+void collectIncrementMetricCallsInProjects(const core::PlanNode& plan, std::unordered_set<std::string>& names) {
+  if (const auto* project = dynamic_cast<const core::ProjectNode*>(&plan)) {
+    for (const auto& projection : project->projections()) {
+      if (projection != nullptr) {
+        collectIncrementMetricCalls(*projection, names);
+      }
+    }
+  }
+  for (const auto& source : plan.sources()) {
+    if (source != nullptr) {
+      collectIncrementMetricCallsInProjects(*source, names);
+    }
+  }
 }
 
 } // namespace
@@ -100,23 +119,30 @@ void registerIncrementMetricFunctions() {
 }
 
 bool usesIncrementMetricFunctions(const core::PlanNode& plan) {
-  if (const auto* project = dynamic_cast<const core::ProjectNode*>(&plan)) {
-    for (const auto& projection : project->projections()) {
-      if (projection != nullptr && callsIncrementMetric(*projection)) {
-        return true;
-      }
+  std::unordered_set<std::string> names;
+  collectIncrementMetricCallsInProjects(plan, names);
+  return !names.empty();
+}
+
+void checkIncrementMetricFunctionsInProjects(
+    const std::unordered_map<uint64_t, std::string>& functionMap,
+    const core::PlanNode& plan) {
+  std::optional<std::unordered_set<std::string>> calledInProjects;
+  for (const auto& entry : functionMap) {
+    // Declarations are spelled `<name>:<argument types>`.
+    const auto name = entry.second.substr(0, entry.second.find(':'));
+    if (!isIncrementMetricFunction(name)) {
+      continue;
     }
-  } else if (const auto* filter = dynamic_cast<const core::FilterNode*>(&plan)) {
-    if (filter->filter() != nullptr && callsIncrementMetric(*filter->filter())) {
-      return true;
+    if (!calledInProjects.has_value()) {
+      calledInProjects.emplace();
+      collectIncrementMetricCallsInProjects(plan, *calledInProjects);
     }
+    VELOX_CHECK(
+        calledInProjects->count(name) > 0,
+        "Delta counter {} is called outside a projection, where the JVM does not credit it",
+        name);
   }
-  for (const auto& source : plan.sources()) {
-    if (source != nullptr && usesIncrementMetricFunctions(*source)) {
-      return true;
-    }
-  }
-  return false;
 }
 
 void setIncrementMetricQueryConfigs(std::unordered_map<std::string, std::string>& configs) {
