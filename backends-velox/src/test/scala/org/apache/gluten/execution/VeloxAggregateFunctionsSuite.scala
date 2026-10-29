@@ -927,6 +927,29 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
     }
   }
 
+  testWithMinSparkVersion("collect_set with RESPECT NULLS", "4.2") {
+    import testImplicits._
+
+    withTempView("respect_nulls") {
+      Seq((1, Some(2)), (1, None), (1, None), (2, None), (3, Some(3)), (3, Some(3)))
+        .toDF("a", "b")
+        .createOrReplaceTempView("respect_nulls")
+
+      // RESPECT NULLS keeps one null in the set.
+      Seq(
+        "SELECT a, sort_array(collect_set(b) RESPECT NULLS) FROM respect_nulls GROUP BY a",
+        "SELECT sort_array(collect_set(b) RESPECT NULLS) FROM respect_nulls"
+      ).foreach {
+        query =>
+          runQueryAndCompare(query) {
+            df =>
+              assert(
+                getExecutedPlan(df).count(_.isInstanceOf[HashAggregateExecTransformer]) == 2)
+          }
+      }
+    }
+  }
+
   test("test collect_set/collect_list with null") {
     import testImplicits._
 
