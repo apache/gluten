@@ -35,7 +35,7 @@ class ProjectMetricsUpdater(
         extraMetrics.foreach {
           case (name, metric) =>
             name match {
-              case "increment_metric" =>
+              case "increment_metric_dummy" =>
                 metric.name match {
                   case Some(input) if DELTA_INPUT_ROW_METRIC_NAMES.contains(input) =>
                     numInputRows = numInputRows :+ metric
