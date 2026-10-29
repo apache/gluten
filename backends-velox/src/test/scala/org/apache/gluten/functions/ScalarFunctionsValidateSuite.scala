@@ -559,6 +559,71 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("sequence with integer arguments") {
+    withTempPath {
+      path =>
+        Seq[(Integer, Integer)](
+          (1, 5),
+          (5, 1),
+          (3, 3),
+          (-2, 2),
+          (null, 4),
+          (2, null)
+        ).toDF("start", "stop")
+          .write
+          .parquet(path.getCanonicalPath)
+
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("tbl")
+
+        runQueryAndCompare(
+          "SELECT sequence(start, stop), " +
+            "sequence(cast(start AS tinyint), cast(stop AS tinyint)), " +
+            "sequence(cast(start AS smallint), cast(stop AS smallint)), " +
+            "sequence(cast(start AS bigint), cast(stop AS bigint)) FROM tbl") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        runQueryAndCompare(
+          "SELECT sequence(start, stop, 2), " +
+            "sequence(cast(start AS tinyint), cast(stop AS tinyint), 2Y), " +
+            "sequence(cast(start AS bigint), cast(stop AS bigint), 3L) " +
+            "FROM tbl WHERE start <= stop") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        runQueryAndCompare(
+          "SELECT sequence(start, stop, -2), " +
+            "sequence(cast(start AS smallint), cast(stop AS smallint), -1S) " +
+            "FROM tbl WHERE start >= stop") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+    }
+  }
+
+  test("sequence with date arguments or a non-literal step falls back") {
+    withTempPath {
+      path =>
+        Seq[(Integer, Integer, Integer)](
+          (1, 5, 2),
+          (3, 3, 0)
+        ).toDF("start", "stop", "step")
+          .write
+          .parquet(path.getCanonicalPath)
+
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("tbl")
+
+        runQueryAndCompare("SELECT sequence(start, stop, step) FROM tbl") {
+          checkSparkPlan[ProjectExec]
+        }
+        runQueryAndCompare("SELECT sequence(start, start, 0) FROM tbl") {
+          checkSparkPlan[ProjectExec]
+        }
+        runQueryAndCompare(
+          "SELECT sequence(date_add(DATE'2024-01-01', start), " +
+            "date_add(DATE'2024-01-01', stop)) FROM tbl") {
+          checkSparkPlan[ProjectExec]
+        }
+    }
+  }
+
   test("map_from_arrays optimized by Spark constant folding") {
     withSQLConf(("spark.sql.optimizer.excludedRules", "")) {
       runQueryAndCompare("""SELECT map_from_arrays(sequence(1, 5),sequence(1, 5)), l_orderkey
