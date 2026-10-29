@@ -100,10 +100,10 @@ public class RexNodeConverter {
   private static Variant toNullVariant(SqlTypeName sqlTypeName) {
     // A typed null needs no per-type carrier: the velox-side
     // ConstantTypedExpr renders a null variant as a null constant of the
-    // EXPRESSION type (the variant kind is irrelevant on the null path), and
-    // the velox variant serde treats an absent "value" member as the typed
-    // null (matching velox4j's Include.NON_NULL serialization). VarCharValue
-    // is the natural null-accepting carrier.
+    // EXPRESSION type (the variant kind is irrelevant on the null path).
+    // The velox serde accepts both an explicit "value": null (what velox4j
+    // emits today via @JsonInclude(ALWAYS)) and an absent "value" member as
+    // the typed null. VarCharValue is the natural null-accepting carrier.
     switch (sqlTypeName) {
       case BOOLEAN:
       case TINYINT:
@@ -128,8 +128,10 @@ public class RexNodeConverter {
 
   public static Variant toVariant(RexLiteral literal) {
     if (literal.getValue() == null || literal.isNull()) {
-      // A typed null literal: velox4j's NON_NULL serialization omits the
-      // "value" member and the velox-side serde reads that as the typed null.
+      // A typed null literal. velox4j serializes null carriers with an
+      // explicit "value": null (@JsonInclude(ALWAYS) on the Variant base
+      // class); the velox-side serde accepts both an explicit null and an
+      // absent "value" member as the typed null.
       return toNullVariant(literal.getType().getSqlTypeName());
     }
     switch (literal.getType().getSqlTypeName()) {

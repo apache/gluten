@@ -30,9 +30,9 @@ import org.apache.calcite.rex.RexCall;
 import java.util.List;
 
 /**
- * Converter for functions whose velox flinksql registrations cover scalar types only. Complex
- * operands (BINARY, ARRAY, MAP, ROW) are rejected here so the planner falls back to the native
- * operator instead of failing at runtime with an unresolved velox signature.
+ * Converter for functions whose velox flinksql registrations cover scalar types only. Operands
+ * (BINARY, ARRAY, MAP, ROW) are rejected here so conversion fails loudly at planning time instead
+ * of failing at runtime with an unresolved velox signature.
  */
 class ScalarOnlyRexCallConverter extends BaseRexCallConverter {
 

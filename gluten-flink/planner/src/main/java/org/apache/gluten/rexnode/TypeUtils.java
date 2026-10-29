@@ -55,9 +55,9 @@ public class TypeUtils {
 
   // Matches the scalar signatures registered under the velox flinksql
   // namespace: booleans, numerics, strings, dates, timestamps and decimals.
-  // BINARY, ARRAY, MAP and ROW have no flinksql registration and must be
-  // rejected at the converter level so the planner falls back instead of
-  // failing at runtime.
+  // BINARY, ARRAY, MAP and ROW have no flinksql registration and are
+  // rejected at the converter level so conversion fails at planning time
+  // instead of failing at runtime.
   public static boolean isScalarType(Type type) {
     return type instanceof BooleanType
         || isNumericType(type)
