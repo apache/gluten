@@ -45,6 +45,7 @@ import java.math.BigDecimal;
 import java.util.Collections;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 public class RexCallConverterFactoryTest {
 
@@ -137,15 +138,64 @@ public class RexCallConverterFactoryTest {
 
   /** Simple name-mapped entries resolve to the default converter. */
   @Test
-  public void testFloorResolvesToDefaultConverter() {
+  public void testFloorResolvesToNumericOnlyConverter() {
     RexNode operand =
         rexBuilder.makeLiteral(1.5, typeFactory.createSqlType(SqlTypeName.DOUBLE), false);
     RexLiteral lit = (RexLiteral) operand;
     RexCall call = (RexCall) rexBuilder.makeCall(SqlStdOperatorTable.FLOOR, lit);
     RexCallConverter converter = RexCallConverterFactory.getConverter(call, context);
-    assertThat(converter).isInstanceOf(DefaultRexCallConverter.class);
+    assertThat(converter).isInstanceOf(NumericOnlyRexCallConverter.class);
     TypedExpr expr = converter.toTypedExpr(call, context);
     assertThat(expr).isInstanceOf(CallTypedExpr.class);
     assertThat(((CallTypedExpr) expr).getFunctionName()).isEqualTo("floor");
+  }
+
+  /** The datetime form FLOOR(ts TO DAY) is rejected at planning time, not at velox runtime. */
+  @Test
+  public void testFloorDatetimeFormRejectedAtPlanning() {
+    SqlFunction floor =
+        new SqlFunction(
+            "FLOOR",
+            SqlKind.FLOOR,
+            ReturnTypes.ARG0,
+            null,
+            OperandTypes.ANY,
+            SqlFunctionCategory.NUMERIC);
+    RexNode ts = rexBuilder.makeInputRef(typeFactory.createSqlType(SqlTypeName.TIMESTAMP), 0);
+    // The parser renders FLOOR(ts TO DAY) with a SYMBOL operand; SYMBOL
+    // maps to VARCHAR at the converter layer, so a VARCHAR literal is
+    // type-equivalent for the guard under test.
+    RexNode unit =
+        rexBuilder.makeLiteral("DAY", typeFactory.createSqlType(SqlTypeName.VARCHAR), false);
+    RexCall call = (RexCall) rexBuilder.makeCall(floor, ts, unit);
+    assertThatThrownBy(() -> RexCallConverterFactory.getConverter(call, context))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining("No suitable converter found for: FLOOR");
+  }
+
+  /** Unary minus over a year-month interval is rejected at planning time. */
+  @Test
+  public void testUnaryMinusIntervalRejectedAtPlanning() {
+    SqlFunction minus =
+        new SqlFunction(
+            "-",
+            SqlKind.OTHER_FUNCTION,
+            ReturnTypes.ARG0,
+            null,
+            OperandTypes.NUMERIC,
+            SqlFunctionCategory.NUMERIC);
+    RexNode operand =
+        rexBuilder.makeNullLiteral(
+            typeFactory.createSqlIntervalType(
+                new org.apache.calcite.sql.SqlIntervalQualifier(
+                    org.apache.calcite.avatica.util.TimeUnit.YEAR,
+                    org.apache.calcite.rel.type.RelDataType.PRECISION_NOT_SPECIFIED,
+                    org.apache.calcite.avatica.util.TimeUnit.YEAR,
+                    org.apache.calcite.rel.type.RelDataType.PRECISION_NOT_SPECIFIED,
+                    org.apache.calcite.sql.parser.SqlParserPos.ZERO)));
+    RexCall call = (RexCall) rexBuilder.makeCall(minus, operand);
+    assertThatThrownBy(() -> RexCallConverterFactory.getConverter(call, context))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining("No suitable converter found for: -");
   }
 }

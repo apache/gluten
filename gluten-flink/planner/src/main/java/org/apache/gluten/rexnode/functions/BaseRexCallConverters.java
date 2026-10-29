@@ -107,6 +107,24 @@ class UnaryMinusRexCallConverter extends BaseRexCallConverter {
           "Unary minus requires exactly one operand, but found: "
               + getFunctionProtoTypeName(callNode));
     }
+    // Numeric operand only: the interval form of unary minus would
+    // otherwise be accepted by the arity guard and fail later at
+    // toType (no interval type mapping); reject it at planning time.
+    try {
+      if (!org.apache.gluten.rexnode.TypeUtils.isNumericType(
+          org.apache.gluten.rexnode.RexNodeConverter.toType(
+              callNode.getOperands().get(0).getType()))) {
+        return ValidationResult.failure(
+            "Unary minus requires a numeric operand, but found: "
+                + getFunctionProtoTypeName(callNode));
+      }
+    } catch (RuntimeException e) {
+      // Operand types without a velox mapping (e.g. intervals) are
+      // rejected at planning time rather than blowing up in toType.
+      return ValidationResult.failure(
+          "Unary minus requires a numeric operand, but found: "
+              + getFunctionProtoTypeName(callNode));
+    }
     return ValidationResult.success();
   }
 
