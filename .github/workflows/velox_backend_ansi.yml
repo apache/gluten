@@ -150,7 +150,8 @@ jobs:
           if-no-files-found: error
 
   spark-test-backends-velox-ansi41:
-    needs: build-native-lib
+    # Lists check-comment directly so that needs.check-comment.outputs.pr_sha is set.
+    needs: [check-comment, build-native-lib]
     runs-on: ubuntu-22.04
     env:
       SPARK_TESTING: true
@@ -218,7 +219,8 @@ jobs:
             **/target/*.log
 
   spark-test-spark-ut-ansi41:
-    needs: build-native-lib
+    # Lists check-comment directly so that needs.check-comment.outputs.pr_sha is set.
+    needs: [check-comment, build-native-lib]
     runs-on: ubuntu-22.04
     env:
       SPARK_TESTING: true
@@ -296,7 +298,8 @@ jobs:
             **/gluten-ut/**/core.*
 
   spark-test-backends-velox-ansi-spark40:
-    needs: build-native-lib
+    # Lists check-comment directly so that needs.check-comment.outputs.pr_sha is set.
+    needs: [check-comment, build-native-lib]
     runs-on: ubuntu-22.04
     env:
       SPARK_TESTING: true
@@ -364,7 +367,8 @@ jobs:
             **/target/*.log
 
   spark-test-spark-ut-ansi-spark40:
-    needs: build-native-lib
+    # Lists check-comment directly so that needs.check-comment.outputs.pr_sha is set.
+    needs: [check-comment, build-native-lib]
     runs-on: ubuntu-22.04
     env:
       SPARK_TESTING: true
