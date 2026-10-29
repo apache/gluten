@@ -41,6 +41,9 @@ trait Transformable {
 
 object ExpressionConverter extends SQLConfHelper with Logging {
 
+  def sparkVersionTransformer(): ExpressionTransformer =
+    LiteralTransformer(SPARK_VERSION_SHORT + " " + SPARK_REVISION)
+
   def replaceWithExpressionTransformer(
       exprs: Seq[Expression],
       attributeSeq: Seq[Attribute]): Seq[ExpressionTransformer] = {
@@ -162,7 +165,10 @@ object ExpressionConverter extends SQLConfHelper with Logging {
   private def replaceStaticInvokeWithExpressionTransformer(
       i: StaticInvoke,
       attributeSeq: Seq[Attribute],
-      expressionsMap: Map[Class[_], String]): ExpressionTransformer = {
+      expressionsMap: Map[Class[_], String],
+      versionTransformer: => Option[ExpressionTransformer] = BackendsApiManager
+        .getSparkPlanExecApiInstance.genSparkVersionStaticInvokeTransformer())
+      : ExpressionTransformer = {
 
     val objName = i.objectName
     val funcName = i.functionName
@@ -193,6 +199,16 @@ object ExpressionConverter extends SQLConfHelper with Logging {
 
     icebergTransformer.getOrElse {
       funcName match {
+        case "getSparkVersion"
+            if objName == "org.apache.spark.sql.catalyst.expressions.ExpressionImplUtils" &&
+              i.arguments.isEmpty && i.dataType == StringType &&
+              i.staticObject.getMethods.exists(
+                method => method.getName == funcName && method.getParameterTypes.isEmpty) =>
+          versionTransformer.getOrElse {
+            throw new GlutenNotSupportException(
+              s"Not supported to transform StaticInvoke with object: $objName, function: $funcName")
+          }
+
         case "isLuhnNumber" =>
           validateAndTransform(ExpressionNames.LUHN_CHECK, Seq(doTransform(i.arguments.head)))
 
@@ -894,7 +910,7 @@ object ExpressionConverter extends SQLConfHelper with Logging {
       case p: Pi =>
         LiteralTransformer(Literal(Math.PI))
       case v: SparkVersion =>
-        LiteralTransformer(SPARK_VERSION_SHORT + " " + SPARK_REVISION)
+        sparkVersionTransformer()
       case dateAdd: DateAdd =>
         BackendsApiManager.getSparkPlanExecApiInstance.genDateAddTransformer(
           attributeSeq,

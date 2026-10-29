@@ -675,6 +675,9 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
       boltCfg_->get<std::string>(kRegexMatchDanglingRightBrackets, "true");
   configs[bolt::core::QueryConfig::kSparkLegacyCastComplexTypesToStringEnabled] =
       boltCfg_->get<std::string>(kLegacyCastComplexTypesToStringEnabled, "false");
+  // Spark 3.4 always chunks; later versions forward their registered SQL option.
+  configs[bolt::core::QueryConfig::kSparkChunkBase64StringEnabled] =
+      boltCfg_->get<std::string>("spark.sql.chunkBase64String.enabled", "true");
   configs[bolt::core::QueryConfig::kRowBasedSpillMode] =
       boltCfg_->get<std::string>(kRowBasedSpillMode, bolt::core::QueryConfig::kDefaultRowBasedSpillMode);
   configs[bolt::core::QueryConfig::kBoltJitEnabled] = std::to_string(boltCfg_->get<bool>(kBoltJitEnabled, true));

@@ -228,6 +228,8 @@ trait SparkPlanExecApi {
     GenericExpressionTransformer(substraitExprName, child, expr)
   }
 
+  def genSparkVersionStaticInvokeTransformer(): Option[ExpressionTransformer] = None
+
   /** Transform GetArrayItem to Substrait. */
   def genGetArrayItemTransformer(
       substraitExprName: String,
