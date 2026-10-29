@@ -16,6 +16,22 @@
  */
 package org.apache.spark.sql.execution.python
 
-import org.apache.spark.sql.GlutenSQLTestsTrait
+import org.apache.spark.sql.{AnalysisException, GlutenSQLTestsTrait, IntegratedUDFTestUtils}
+import org.apache.spark.sql.functions.{array, transform}
 
-class GlutenPythonUDFSuite extends PythonUDFSuite with GlutenSQLTestsTrait {}
+class GlutenPythonUDFSuite extends PythonUDFSuite with GlutenSQLTestsTrait {
+
+  // Override: the original test uses this.getClass.getSimpleName in ExpectedContext pattern,
+  // which returns "GlutenPythonUDFSuite" but the actual callSite records "PythonUDFSuite".
+  testGluten("SPARK-48706: Negative test case for Python UDF in higher order functions") {
+    assume(IntegratedUDFTestUtils.shouldTestPythonUDFs)
+    checkError(
+      exception = intercept[AnalysisException] {
+        spark.range(1).select(transform(array("id"), x => pythonTestUDF(x))).collect()
+      },
+      condition = "UNSUPPORTED_FEATURE.LAMBDA_FUNCTION_WITH_PYTHON_UDF",
+      parameters = Map("funcName" -> "\"pyUDF(namedlambdavariable())\""),
+      context = ExpectedContext("transform", s".*PythonUDFSuite.*")
+    )
+  }
+}
