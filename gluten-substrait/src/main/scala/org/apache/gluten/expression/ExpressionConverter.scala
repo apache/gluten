@@ -709,6 +709,13 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           makeTimestampExprName,
           m.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
           m)
+      case g: GetTimestamp =>
+        // checked_get_timestamp vs. get_timestamp is Velox-specific, so it's picked in
+        // VeloxSparkPlanExecApi, not here.
+        BackendsApiManager.getSparkPlanExecApiInstance.genGetTimestampTransformer(
+          substraitExprName,
+          g.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
+          g)
       case tsAdd: BinaryExpression if tsAdd.getClass.getSimpleName.equals("TimestampAdd") =>
         BackendsApiManager.getSparkPlanExecApiInstance.genTimestampAddTransformer(
           substraitExprName,

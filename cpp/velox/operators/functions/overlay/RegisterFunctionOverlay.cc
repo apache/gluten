@@ -16,6 +16,7 @@
  */
 #include "operators/functions/overlay/RegisterFunctionOverlay.h"
 
+#include "operators/functions/overlay/CheckedGetTimestamp.h"
 #include "operators/functions/overlay/GetMapValue.h"
 #include "operators/functions/overlay/Round.h"
 #include "velox/functions/lib/RegistrationHelpers.h"
@@ -37,6 +38,12 @@ void registerRoundFunction() {
   velox::registerFunction<RoundFunction, float, float, int32_t>({"round"});
 }
 
+// get_timestamp's failOnError = true sibling; see VeloxSparkPlanExecApi.genGetTimestampTransformer.
+void registerCheckedGetTimestampFunction() {
+  velox::registerFunction<CheckedGetTimestampFunction, velox::Timestamp, velox::Varchar, velox::Varchar>(
+      {"checked_get_timestamp"});
+}
+
 } // namespace
 
 void registerFunctionOverlay() {
@@ -46,6 +53,7 @@ void registerFunctionOverlay() {
   // canPushdown(), so remaining filters like m['k'].x = v extract m["k"] and
   // do not defeat map-key pruning.
   registerSparkGetMapValueFunction("get_map_value");
+  registerCheckedGetTimestampFunction();
 }
 
 } // namespace gluten

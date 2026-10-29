@@ -177,3 +177,84 @@ TEST_F(SparkFunctionTest, getMapValueSemantics) {
   result = evaluate("get_map_value(c0, 2)", makeRowVector({intKeyed}));
   facebook::velox::test::assertEqualVectors(makeNullableFlatVector<std::string>({"b", std::nullopt}), result);
 }
+
+// checked_get_timestamp is get_timestamp's failOnError = true sibling (see
+// CheckedGetTimestamp.h). Exercise both names directly.
+TEST_F(SparkFunctionTest, checkedGetTimestampMatchesGetTimestampOnValidInput) {
+  auto input = makeRowVector({
+      makeFlatVector<std::string>({"2024-01-01", "2024-06-15 10:30:00"}),
+      makeFlatVector<std::string>({"yyyy-MM-dd", "yyyy-MM-dd HH:mm:ss"}),
+  });
+  auto getTimestampResult = evaluate("get_timestamp(c0, c1)", input);
+  auto checkedResult = evaluate("checked_get_timestamp(c0, c1)", input);
+  facebook::velox::test::assertEqualVectors(getTimestampResult, checkedResult);
+}
+
+TEST_F(SparkFunctionTest, checkedGetTimestampThrowsOnInvalidData) {
+  // get_timestamp stays NULL on the exact same input.
+  auto input = makeRowVector({
+      makeFlatVector<std::string>({"not a date"}),
+      makeFlatVector<std::string>({"yyyy-MM-dd"}),
+  });
+  VELOX_ASSERT_THROW(evaluate("checked_get_timestamp(c0, c1)", input), "Invalid date format");
+  facebook::velox::test::assertEqualVectors(
+      makeNullableFlatVector<Timestamp>({std::nullopt}), evaluate("get_timestamp(c0, c1)", input));
+}
+
+TEST_F(SparkFunctionTest, checkedGetTimestampNullInputStaysNull) {
+  // Not an error, even though checked_get_timestamp throws for other invalid input.
+  auto input = makeRowVector({
+      makeNullableFlatVector<std::string>({std::nullopt}),
+      makeFlatVector<std::string>({"yyyy-MM-dd"}),
+  });
+  facebook::velox::test::assertEqualVectors(
+      makeNullableFlatVector<Timestamp>({std::nullopt}), evaluate("checked_get_timestamp(c0, c1)", input));
+}
+
+TEST_F(SparkFunctionTest, checkedGetTimestampInvalidPatternPreservesLegacyVsJodaDistinction) {
+  // An invalid format pattern is never ANSI-gated: legacy stays NULL, Joda still throws,
+  // unchanged from get_timestamp for both names.
+  auto input = makeRowVector({
+      makeFlatVector<std::string>({"2024-01-01"}),
+      makeFlatVector<std::string>({"yyyy-MM-dd bb"}), // 'b' is not a supported Joda specifier.
+  });
+
+  queryCtx_->testingOverrideConfigUnsafe(
+      {{functions::sparksql::SparkQueryConfig::qualify(functions::sparksql::SparkQueryConfig::kLegacyDateFormatter),
+        "true"}});
+  facebook::velox::test::assertEqualVectors(
+      makeNullableFlatVector<Timestamp>({std::nullopt}), evaluate("checked_get_timestamp(c0, c1)", input));
+  facebook::velox::test::assertEqualVectors(
+      makeNullableFlatVector<Timestamp>({std::nullopt}), evaluate("get_timestamp(c0, c1)", input));
+
+  queryCtx_->testingOverrideConfigUnsafe(
+      {{functions::sparksql::SparkQueryConfig::qualify(functions::sparksql::SparkQueryConfig::kLegacyDateFormatter),
+        "false"}});
+  VELOX_ASSERT_THROW(evaluate("checked_get_timestamp(c0, c1)", input), "Specifier b is not supported");
+  VELOX_ASSERT_THROW(evaluate("get_timestamp(c0, c1)", input), "Specifier b is not supported");
+}
+
+TEST_F(SparkFunctionTest, checkedGetTimestampConstantFormat) {
+  // A literal format takes the isConstantTimeFormat_ path (formatter built once in initialize()).
+  auto columnFormatInput =
+      makeRowVector({makeFlatVector<std::string>({"2024-01-01"}), makeFlatVector<std::string>({"yyyy-MM-dd"})});
+  facebook::velox::test::assertEqualVectors(
+      evaluate("checked_get_timestamp(c0, 'yyyy-MM-dd')", columnFormatInput),
+      evaluate("checked_get_timestamp(c0, c1)", columnFormatInput));
+
+  auto invalidDataConstantFormat = makeRowVector({makeFlatVector<std::string>({"not a date"})});
+  VELOX_ASSERT_THROW(
+      evaluate("checked_get_timestamp(c0, 'yyyy-MM-dd')", invalidDataConstantFormat), "Invalid date format");
+}
+
+TEST_F(SparkFunctionTest, checkedGetTimestampNullFormatStaysNull) {
+  // A NULL format, not just a NULL input string, also propagates to NULL.
+  auto input = makeRowVector({
+      makeFlatVector<std::string>({"2024-01-01"}),
+      makeNullableFlatVector<std::string>({std::nullopt}),
+  });
+  facebook::velox::test::assertEqualVectors(
+      makeNullableFlatVector<Timestamp>({std::nullopt}), evaluate("checked_get_timestamp(c0, c1)", input));
+  facebook::velox::test::assertEqualVectors(
+      makeNullableFlatVector<Timestamp>({std::nullopt}), evaluate("get_timestamp(c0, c1)", input));
+}

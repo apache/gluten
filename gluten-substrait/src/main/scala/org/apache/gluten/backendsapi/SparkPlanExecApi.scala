@@ -365,6 +365,14 @@ trait SparkPlanExecApi {
     throw new GlutenNotSupportException("make_timestamp is not supported")
   }
 
+  /** Transform get_timestamp to Substrait. Default is a passthrough; Velox overrides it. */
+  def genGetTimestampTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      expr: Expression): ExpressionTransformer = {
+    GenericExpressionTransformer(substraitExprName, children, expr)
+  }
+
   def genRegexpReplaceTransformer(
       substraitExprName: String,
       children: Seq[ExpressionTransformer],
