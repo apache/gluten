@@ -66,6 +66,15 @@ public class RexNodeConverterTest {
   }
 
   @Test
+  public void testTimeNullLiteralConvertsToNullCarrier() {
+    RexLiteral literal =
+        (RexLiteral) rexBuilder.makeNullLiteral(typeFactory.createSqlType(SqlTypeName.TIME));
+    Variant variant = RexNodeConverter.toVariant(literal);
+    assertThat(variant).isInstanceOf(VarCharValue.class);
+    assertThat(((VarCharValue) variant).getValue()).isNull();
+  }
+
+  @Test
   public void testCharLiteralExtractsRawValue() {
     RexLiteral literal =
         (RexLiteral)

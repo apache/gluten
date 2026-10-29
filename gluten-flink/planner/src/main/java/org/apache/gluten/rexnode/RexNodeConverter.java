@@ -98,6 +98,14 @@ public class RexNodeConverter {
   }
 
   public static Variant toVariant(RexLiteral literal) {
+    if (literal.isNull() && literal.getType().getSqlTypeName() == SqlTypeName.TIME) {
+      // A typed-null TIME literal: the millisecond-of-day carrier wraps a
+      // primitive int and cannot carry null, so fall back to the
+      // null-accepting carrier — velox's ConstantTypedExpr renders a null
+      // variant as a null constant of the expression type, and the velox
+      // serde treats an absent "value" member as the typed null.
+      return new VarCharValue(null);
+    }
     switch (literal.getType().getSqlTypeName()) {
       case BOOLEAN:
         return new BooleanValue((boolean) literal.getValue());
