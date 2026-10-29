@@ -40,10 +40,9 @@ class ProjectMetricsUpdater(
         case (name, metric) =>
           name match {
             case "increment_metric" => metric += operatorMetrics.outputRows
-            case name if name.startsWith(IncrementMetricCall.functionNamePrefix) =>
+            case slot if slot.startsWith(IncrementMetricCall.functionNamePrefix) =>
               // The counter ran natively: credit the rows Velox evaluated it on.
-              metric += Option(
-                operatorMetrics.expressionStats.get(name)).map(_.longValue()).getOrElse(0L)
+              metric += operatorMetrics.expressionStats.getOrDefault(slot, 0L)
             case _ => // do nothing
           }
       }

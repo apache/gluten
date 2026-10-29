@@ -21,11 +21,11 @@ import org.apache.spark.sql.types.DataType
 
 /**
  * A native pass-through call that makes the backend count how many rows reached this point of an
- * expression tree. Delta's transformers emit it in place of `IncrementMetric` when the backend
- * supports native counting. `functionName` is one of the backend's fixed counter slots and is
- * unique to one SQL metric within its projection: the backend keys its per-expression statistics by
- * function name, and the metrics updater credits the metric from that entry. Never evaluated on
- * Spark; it only exists in the expression list handed to the backend.
+ * expression tree. Delta's project transformer emits it in place of `IncrementMetric` when the
+ * backend supports native counting; filters never carry one. `functionName` is one of the backend's
+ * fixed counter slots and is unique to one SQL metric within its projection: the backend keys its
+ * per-expression statistics by function name, and the metrics updater credits the metric from that
+ * entry. Never evaluated on Spark; it only exists in the expression list handed to the backend.
  *
  * Gluten maps it by class (`ExpressionNames.INCREMENT_METRIC`, which is also the name to put in the
  * expression blacklist), and `getTransformer` sends `functionName` to the backend. Its `prettyName`
