@@ -41,7 +41,15 @@ jobs:
       CCACHE_DIR: '${{ github.workspace }}/.ccache'
     steps:
       - name: Install CI tools (temporary - until image is rebuilt with gh/jq/bison/python3.9)
+        # Remove the legacy bootstrap after docker_image.yml publishes and verifies
+        # the rebuilt image on both architectures. New images require no downloads.
+        shell: bash
         run: |
+          exec > >(tee "$RUNNER_TEMP/velox-native-setup.log") 2>&1
+          if [ -f /usr/local/bin/verify-native-ci-tools ]; then
+            bash /usr/local/bin/verify-native-ci-tools
+            exit 0
+          fi
           dnf install -y jq bison tzdata
           dnf module -y install python39 && alternatives --set python3 /usr/bin/python3.9
           dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
@@ -64,12 +72,24 @@ jobs:
           restore-keys: |
             ccache-almalinux8-release-default
       - name: Build Gluten native libraries
+        shell: bash
         run: |
           df -a
           export CCACHE_MAXSIZE=1G
           ccache -sz
-          bash dev/ci-velox-buildstatic-centos-8.sh
+          bash dev/ci-velox-buildstatic-centos-8.sh 2>&1 | tee "$RUNNER_TEMP/velox-native-build.log"
           ccache -s
+
+      - name: Upload native build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact }}-diagnostics
+          path: |
+            ${{ runner.temp }}/velox-native-setup.log
+            ${{ runner.temp }}/velox-native-build.log
+          if-no-files-found: warn
+          retention-days: 1
 
       - name: "Save ccache"
         if: always() && inputs.save-cache

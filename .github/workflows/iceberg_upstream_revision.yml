@@ -86,11 +86,19 @@ jobs:
         shell: bash
         run: |
           $MVN_CMD clean install -pl backends-velox -am $ICEBERG_PROFILES -Pfast-build -DskipTests \
-            -Dstyle.color=never | tee "$RUNNER_TEMP/iceberg-build.log"
+            -Dstyle.color=never 2>&1 | tee "$RUNNER_TEMP/iceberg-build.log"
           $MVN_CMD help:evaluate -N -q -Dexpression=settings.localRepository -Doutput="$RUNNER_TEMP/iceberg-repository"
           python3 "$GITHUB_WORKSPACE/.github/workflows/util/iceberg-upstream/build-artifacts.py" pack \
             "$PWD" "$(cat "$RUNNER_TEMP/iceberg-repository")" "$RUNNER_TEMP/iceberg-build.zip" \
             --install-log "$RUNNER_TEMP/iceberg-build.log"
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: iceberg-build-${{ inputs.label }}-diagnostics
+          path: ${{ runner.temp }}/iceberg-build.log
+          if-no-files-found: warn
+          retention-days: 1
       - uses: actions/upload-artifact@v7
         with:
           name: iceberg-build-${{ inputs.label }}

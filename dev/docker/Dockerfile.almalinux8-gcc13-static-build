@@ -36,13 +36,20 @@ ENV VCPKG_PATH=/var/cache/vcpkg
 # Set vcpkg cache path.
 ENV VCPKG_BINARY_SOURCES=clear;files,${VCPKG_PATH},readwrite
 
+COPY dev/docker/verify-native-ci-tools.sh /usr/local/bin/verify-native-ci-tools
+
 RUN set -ex; \
     # AlmaLinux 8 repos are live — no mirror fixup needed. \
     dnf update -y; \
     dnf install -y epel-release sudo; \
     # gcc-toolset-13 ships GCC 13 on RHEL8-family via Red Hat Software Collections. \
     dnf install -y --setopt=install_weak_deps=False gcc-toolset-13; \
-    dnf install -y java-1.8.0-openjdk-devel patch git wget perl python3 automake libtool flex bison; \
+    dnf install -y java-1.8.0-openjdk-devel patch git wget perl automake libtool flex bison jq tzdata dnf-plugins-core; \
+    dnf module -y install python39; \
+    alternatives --set python3 /usr/bin/python3.9; \
+    dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo; \
+    dnf install -y gh; \
+    bash /usr/local/bin/verify-native-ci-tools; \
     dnf -y --enablerepo=powertools install autoconf-archive ninja-build; \
     # Install a recent CMake binary — the version in EPEL 8 is too old for Velox. \
     wget https://github.com/Kitware/CMake/releases/download/v3.31.12/cmake-3.31.12-linux-$(uname -m).sh; \
