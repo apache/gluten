@@ -40,6 +40,9 @@ RUN set -ex; \
     # AlmaLinux 8 repos are live — no mirror fixup needed. \
     dnf update -y; \
     dnf install -y epel-release sudo; \
+    # Skip EPEL when its mirrors are down instead of failing every later dnf/yum command.
+    # Packages that only exist in EPEL (e.g. ccache) still fail loudly if EPEL is unreachable.
+    sed -i -e '/^skip_if_unavailable=/d' -e '/^\[.*\]$/a skip_if_unavailable=True' /etc/yum.repos.d/epel*.repo; \
     # gcc-toolset-13 ships GCC 13 on RHEL8-family via Red Hat Software Collections. \
     dnf install -y --setopt=install_weak_deps=False gcc-toolset-13; \
     dnf install -y java-1.8.0-openjdk-devel patch git wget perl python3 automake libtool flex bison; \
