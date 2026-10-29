@@ -46,9 +46,9 @@ As some features have not been committed to upstream, you have to use the follow
 
 ```bash
 ## fetch velox4j code
-git clone -b pin-velox-expression-dev https://github.com/wud-if/velox4j.git
+git clone -b gluten-20260829 https://github.com/bigo-sg/velox4j.git
 cd velox4j
-git reset --hard 56362c0c96678779696331bd23d21e278cf4e791
+git reset --hard 2d08448f556bff669fe413874d04dd8cd96f65b2
 mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
 ```
 **Get gluten**
