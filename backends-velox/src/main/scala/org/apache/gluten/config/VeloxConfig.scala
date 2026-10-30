@@ -256,9 +256,12 @@ object VeloxConfig extends ConfigRegistry {
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.broadcastHashTableBuildThreads")
       .doc(
         "Size of the dedicated CPU thread pool for the parallel broadcast hash-table build. " +
-          "By default, the thread pool is sized to the maximum task slots per Spark executor " +
-          "on executors, or to spark.driver.cores on the driver (used when " +
-          "driver-side broadcast hash-table build is enabled), with a minimum of one thread.")
+          "If unset, the size is resolved separately for each process at backend initialization: " +
+          "spark.gluten.numTaskSlotsPerExecutor on executors, and spark.driver.cores on the " +
+          "driver. In local mode, the shared pool uses the number of cores specified by " +
+          "spark.master (for example, local[N] uses N). An explicit value applies to both " +
+          "driver and executors. A value less than or equal to one uses the serial build path " +
+          "without creating a dedicated thread pool.")
       .intConf
       .createOptional
 

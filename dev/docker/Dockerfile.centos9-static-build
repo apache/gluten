@@ -26,7 +26,8 @@ ENV VCPKG_PATH=/var/cache/vcpkg
 # Set vcpkg cache path.
 ENV VCPKG_BINARY_SOURCES=clear;files,${VCPKG_PATH},readwrite
 
-RUN set -ex; \
+RUN --mount=type=bind,source=dev/docker/install-ci-tools.sh,target=/tmp/install-ci-tools.sh \
+    set -ex; \
     yum update -y && yum install -y epel-release sudo dnf && yum install -y ccache; \
     dnf install -y --setopt=install_weak_deps=False gcc-toolset-12 gcc-toolset-13 perl-FindBin cmake; \
     echo "check_certificate = off" >> ~/.wgetrc; \
@@ -44,5 +45,8 @@ RUN set -ex; \
     cd /opt/gluten; \
     bash ./dev/vcpkg/populate-static-image-cache.sh; \
     ./build/mvn dependency:go-offline -Pbackends-velox -Piceberg -Pdelta -Pspark-3.5 -DskipTests; \
+    # gh and jq for the Apache Stash cache actions, which the native build jobs used to
+    # download at runtime.
+    bash /tmp/install-ci-tools.sh; \
     rm -rf /opt/gluten; \
     rm -rf /root/.cache/ccache;

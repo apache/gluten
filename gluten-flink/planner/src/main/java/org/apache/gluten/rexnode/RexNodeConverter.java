@@ -97,7 +97,43 @@ public class RexNodeConverter {
     return LogicalTypeConverter.toVLType(FlinkTypeFactory.toLogicalType(relDataType));
   }
 
+  private static Variant toNullVariant(SqlTypeName sqlTypeName) {
+    // A typed null needs no per-type carrier: the velox-side
+    // ConstantTypedExpr renders a null variant as a null constant of the
+    // EXPRESSION type (the variant kind is irrelevant on the null path).
+    // The velox serde accepts both an explicit "value": null (what velox4j
+    // emits today via @JsonInclude(ALWAYS)) and an absent "value" member as
+    // the typed null. VarCharValue is the natural null-accepting carrier.
+    switch (sqlTypeName) {
+      case BOOLEAN:
+      case TINYINT:
+      case SMALLINT:
+      case INTEGER:
+      case BIGINT:
+      case DOUBLE:
+      case FLOAT:
+      case VARCHAR:
+      case CHAR:
+      case BINARY:
+      case DECIMAL:
+      case DATE:
+      case INTERVAL_SECOND:
+      case SYMBOL:
+      case TIMESTAMP:
+        return new VarCharValue(null);
+      default:
+        throw new RuntimeException("Unsupported null rex node type: " + sqlTypeName);
+    }
+  }
+
   public static Variant toVariant(RexLiteral literal) {
+    if (literal.getValue() == null || literal.isNull()) {
+      // A typed null literal. velox4j serializes null carriers with an
+      // explicit "value": null (@JsonInclude(ALWAYS) on the Variant base
+      // class); the velox-side serde accepts both an explicit null and an
+      // absent "value" member as the typed null.
+      return toNullVariant(literal.getType().getSqlTypeName());
+    }
     switch (literal.getType().getSqlTypeName()) {
       case BOOLEAN:
         return new BooleanValue((boolean) literal.getValue());

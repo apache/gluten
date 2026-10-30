@@ -1811,4 +1811,36 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
         }
     }
   }
+
+  test("str_to_map with MAP_KEY_DEDUP_POLICY LAST_WIN") {
+    // Velox's str_to_map honors throw_exception_on_duplicate_map_keys, which Gluten derives
+    // from spark.sql.mapKeyDedupPolicy, so LAST_WIN no longer needs to fall back. Under
+    // LAST_WIN a repeated key keeps the position of its first occurrence and takes the last
+    // value. Entries without a key/value delimiter carry a NULL value and take part in
+    // deduplication as well.
+    withTempPath {
+      path =>
+        Seq("a:1,b:2,a:3", "x:10,x:20,x:30", "k,k", "k:1,k", "a:1,b:2,c:3")
+          .toDF("s")
+          .write
+          .parquet(path.getCanonicalPath)
+
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("str_to_map_tbl")
+
+        withSQLConf(
+          SQLConf.MAP_KEY_DEDUP_POLICY.key -> SQLConf.MapKeyDedupPolicy.LAST_WIN.toString) {
+          runQueryAndCompare("SELECT s, str_to_map(s, ',', ':') FROM str_to_map_tbl") {
+            checkGlutenPlan[ProjectExecTransformer]
+          }
+          runQueryAndCompare("SELECT s, str_to_map(s) FROM str_to_map_tbl") {
+            checkGlutenPlan[ProjectExecTransformer]
+          }
+          // Pin the entry order, which map equality ignores.
+          runQueryAndCompare(
+            "SELECT s, map_keys(str_to_map(s, ',', ':')) FROM str_to_map_tbl") {
+            checkGlutenPlan[ProjectExecTransformer]
+          }
+        }
+    }
+  }
 }

@@ -33,13 +33,74 @@ import org.apache.spark.sql.hive.HiveUDFTransformer
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
-import scala.collection.mutable.ArrayBuffer
+import scala.util.control.NonFatal
 
 trait Transformable {
   def getTransformer(childrenTransformers: Seq[ExpressionTransformer]): ExpressionTransformer
 }
 
 object ExpressionConverter extends SQLConfHelper with Logging {
+
+  /**
+   * Rebinds extraction paths handled by Spark's ProjectionOverSchema, including maps and arrays.
+   * HiveTableScanNestedColumnPruning applies the same rewrite during plan construction.
+   */
+  private def bindToInputSchema(
+      expression: Expression,
+      inputAttributes: Seq[Attribute]): Expression = {
+    val input = AttributeSeq(Option(inputAttributes).getOrElse(Seq.empty))
+    try {
+      // Expression.references also includes synthetic attributes for lambda variables, which
+      // are bound by their LambdaFunction rather than the operator's input schema.
+      val attributes = AttributeSet(expression.collect { case a: AttributeReference => a })
+      attributes.foldLeft(expression) {
+        case (bound, attribute) =>
+          val index = input.indexOf(attribute.exprId)
+          if (index < 0) {
+            throw new IllegalStateException(s"no input attribute with the exprId of $attribute")
+          }
+          if (attribute.dataType != input.attrs(index).dataType) {
+            // Project one root at a time, using exprId to select its input type. Inputs such as
+            // joins can contain same-named attributes with different nested layouts.
+            // ProjectionOverSchema reads only the root field's name and dataType; the wrapper's
+            // nullability and metadata do not affect the rewrite.
+            val schema = StructType(Seq(StructField(attribute.name, input.attrs(index).dataType)))
+            val projectionOverSchema = ProjectionOverSchema(schema, AttributeSet(Seq(attribute)))
+            bound.transformDown {
+              case projectionOverSchema(projected) =>
+                val field = projected match {
+                  case f: GetStructField => Some((f.childSchema, f.ordinal))
+                  case f: GetArrayStructFields =>
+                    val struct = f.child.dataType.asInstanceOf[ArrayType].elementType
+                      .asInstanceOf[StructType]
+                    Some((struct, f.ordinal))
+                  case _ => None
+                }
+                field.foreach {
+                  case (struct, ordinal) =>
+                    if (ordinal < 0 || ordinal >= struct.length) {
+                      throw new IllegalStateException(s"invalid field ordinal $ordinal in $struct")
+                    }
+                    val name = struct(ordinal).name
+                    if (struct.fields.count(_.name == name) > 1) {
+                      throw new IllegalStateException(s"ambiguous field $name")
+                    }
+                }
+                projected
+            }
+          } else {
+            // Preserve resolved ordinals for unchanged layouts, including duplicate field names.
+            bound
+          }
+      }
+    } catch {
+      case NonFatal(e) =>
+        val message = s"Failed to bind reference for $expression in " +
+          s"${input.attrs.mkString("[", ",", "]")}: ${e.getMessage}"
+        logWarning(message, e)
+        throw new UnsupportedOperationException(message, e)
+    }
+  }
 
   def replaceWithExpressionTransformer(
       exprs: Seq[Expression],
@@ -526,33 +587,26 @@ object ExpressionConverter extends SQLConfHelper with Logging {
             expr => replaceWithExpressionTransformer0(expr, attributeSeq, expressionsMap)),
           m)
       case getStructField: GetStructField =>
-        try {
-          val bindRef =
-            bindGetStructField(getStructField, attributeSeq)
-          // Different backends may have different result.
-          BackendsApiManager.getSparkPlanExecApiInstance.genGetStructFieldTransformer(
-            substraitExprName,
-            replaceWithExpressionTransformer0(getStructField.child, attributeSeq, expressionsMap),
-            bindRef.ordinal,
-            getStructField)
-        } catch {
-          case e: IllegalStateException =>
-            // This situation may need developers to fix, although we just throw the below
-            // exception to let the corresponding operator fall back.
-            throw new UnsupportedOperationException(
-              s"Failed to bind reference for $getStructField: ${e.getMessage}")
-        }
+        val boundStructField =
+          bindToInputSchema(getStructField, attributeSeq).asInstanceOf[GetStructField]
+        BackendsApiManager.getSparkPlanExecApiInstance.genGetStructFieldTransformer(
+          substraitExprName,
+          replaceWithExpressionTransformer0(boundStructField.child, attributeSeq, expressionsMap),
+          boundStructField.ordinal,
+          boundStructField)
 
       case getArrayStructFields: GetArrayStructFields =>
+        val boundArrayStructFields =
+          bindToInputSchema(getArrayStructFields, attributeSeq).asInstanceOf[GetArrayStructFields]
         GenericExpressionTransformer(
           substraitExprName,
           Seq(
             replaceWithExpressionTransformer0(
-              getArrayStructFields.child,
+              boundArrayStructFields.child,
               attributeSeq,
               expressionsMap),
-            LiteralTransformer(getArrayStructFields.ordinal)),
-          getArrayStructFields
+            LiteralTransformer(boundArrayStructFields.ordinal)),
+          boundArrayStructFields
         )
       case t: StringTranslate =>
         BackendsApiManager.getSparkPlanExecApiInstance.genStringTranslateTransformer(
@@ -977,49 +1031,4 @@ object ExpressionConverter extends SQLConfHelper with Logging {
       }
   }
 
-  private def bindGetStructField(
-      structField: GetStructField,
-      input: AttributeSeq): BoundReference = {
-    val names = new ArrayBuffer[String]
-    var root: Expression = structField
-    while (root.isInstanceOf[GetStructField]) {
-      val curField = root.asInstanceOf[GetStructField]
-      val name = curField.childSchema.fields(curField.ordinal).name
-      names += name
-      root = root.asInstanceOf[GetStructField].child
-    }
-    // For map/array type, the reference is correct no matter NESTED_SCHEMA_PRUNING_ENABLED or not
-    if (!root.isInstanceOf[AttributeReference]) {
-      return BoundReference(structField.ordinal, structField.dataType, structField.nullable)
-    }
-    def cannotBind(reason: String): Nothing =
-      throw new IllegalStateException(
-        s"Couldn't bind $structField ($reason) in ${input.attrs.mkString("[", ",", "]")}")
-    // Bind the root by exprId like BindReferences: the input can hold several same-named struct
-    // attributes with different layouts, e.g. a struct column of the same name on both join sides.
-    val rootAttr = root.asInstanceOf[AttributeReference]
-    val rootIndex = input.indexOf(rootAttr.exprId)
-    if (rootIndex < 0) {
-      cannotBind(s"no input attribute with the exprId of ${rootAttr.name}")
-    }
-    val attribute = input.attrs(rootIndex)
-    // Same layout as the one the expression was resolved against, so its own ordinal is right.
-    // It is also the only right answer when the struct has duplicate field names.
-    if (attribute.dataType == rootAttr.dataType) {
-      return BoundReference(structField.ordinal, structField.dataType, structField.nullable)
-    }
-    // The input struct type differs (e.g. nested nullability merged by a union): look each level
-    // up by name from the root down, and fall back instead of guessing on a duplicate name.
-    val (_, ordinal) = names.reverseIterator.foldLeft[(DataType, Int)]((attribute.dataType, -1)) {
-      case ((struct: StructType, _), name) =>
-        struct.fields.indexWhere(_.name == name) match {
-          case -1 => cannotBind(s"no field $name")
-          case idx if struct.fields.lastIndexWhere(_.name == name) != idx =>
-            cannotBind(s"ambiguous field $name")
-          case idx => (struct.fields(idx).dataType, idx)
-        }
-      case ((other, _), name) => cannotBind(s"field $name looked up in non-struct $other")
-    }
-    BoundReference(ordinal, structField.dataType, structField.nullable)
-  }
 }
