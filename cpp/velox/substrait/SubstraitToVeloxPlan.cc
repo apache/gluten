@@ -23,6 +23,7 @@
 #include "compute/delta/DeltaSplitInfo.h"
 #include "compute/iceberg/IcebergPlanConverter.h"
 #include "jni/JniHashTable.h"
+#include "operators/functions/IncrementMetricFunction.h"
 #include "operators/hashjoin/HashTableBuilder.h"
 #include "operators/plannodes/RowVectorStream.h"
 #ifdef ENABLE_KAFKA
@@ -1944,13 +1945,16 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   // In fact, only one RelRoot or Rel is expected here.
   VELOX_CHECK_EQ(substraitPlan.relations_size(), 1);
   const auto& rel = substraitPlan.relations(0);
+  core::PlanNodePtr plan;
   if (rel.has_root()) {
-    return toVeloxPlan(rel.root());
+    plan = toVeloxPlan(rel.root());
   } else if (rel.has_rel()) {
-    return toVeloxPlan(rel.rel());
+    plan = toVeloxPlan(rel.rel());
   } else {
     VELOX_FAIL("RelRoot or Rel is expected in Plan.");
   }
+  checkIncrementMetricFunctionsInProjects(functionMap_, *plan);
+  return plan;
 }
 
 std::string SubstraitToVeloxPlanConverter::nextPlanNodeId() {
