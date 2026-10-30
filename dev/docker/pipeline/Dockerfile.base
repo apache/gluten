@@ -1,0 +1,392 @@
+FROM quay.io/centos/centos:stream9 AS jupyter-base
+
+WORKDIR /
+
+USER root
+
+RUN --mount=type=bind,source=requirements.txt,target=/requirements.txt \
+    set -ex; \
+    useradd spark; \
+    dnf install -y bash vim libssh hostname java-17-openjdk-devel less net-tools procps sudo util-linux wget which libxslt-devel libxml2-devel; \
+    dnf install -y python3.12 python3.12-pip python3.12-devel || dnf install -y python3 python3-pip python3-devel; \
+    dnf install -y epel-release; \
+    dnf install -y jemalloc; \
+    test $(command -v mamba) && mamba install -y python==3.12; \
+    ln -sf $(which python3.12) /usr/bin/python; \
+    ln -sf $(which python3.12) /usr/bin/python3; \
+    pip3.12 install --upgrade pip; \
+    pip3.12 install -r /requirements.txt; \
+    python3.12 -m pip install --upgrade jsonschema; \
+    pip3.12 install urllib3==2.5.0 ; \
+    pip3.12 install "setuptools<82.0"; \
+    dnf clean all; \
+    rm -rf /opt/spark; \
+    mkdir -p /opt/spark/work-dir; \
+    mkdir -p /opt/spark/work-dir/ipython/output; \
+    mkdir -p /opt/spark/work-dir/ipython/result; \
+    mkdir -p /opt/spark/work-dir/ipython/analysis; \
+    chmod g+w /opt/spark/work-dir; \
+    mkdir -p /opt/spark/events; \
+    chmod g+w /opt/spark/events; \
+    cd /opt/spark; \
+    chown -R spark:spark .; \
+    grep -q '^spark ALL=' /etc/sudoers || echo 'spark ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers; \
+    grep -q "^alias ll=" /etc/bashrc || echo 'alias ll="ls -alh"' >> /etc/bashrc; \
+    pip3.12 cache purge;
+
+COPY entrypoint.sh /opt/
+# Anything landing under /opt/spark is copied in already owned by spark, so no image-doubling
+# `RUN chown -R spark:spark /opt/spark` layer is needed in the deploy stages downstream.
+# COPY --chown=spark:spark spark/ipython /opt/spark/work-dir/ipython
+
+ENV SPARK_HOME=/opt/spark \
+    SPARK_NO_DAEMONIZE=true \
+    PATH=$SPARK_HOME/bin:$PATH
+
+WORKDIR /opt/spark/work-dir
+
+USER spark
+RUN jupyter notebook --generate-config; \
+    mkdir -p ~/.jupyter/custom/; \
+    echo '.container { width:100% !important; }' >> ~/.jupyter/custom/custom.css; \
+    echo 'div.output_stderr { background: #ffdd; display: none; }'  >> ~/.jupyter/custom/custom.css; \
+    echo '.CodeMirror{font-family: "Courier New";font-size: 12pt;}' >> ~/.jupyter/custom/custom.css; \
+    echo '.rendered_html table, .rendered_html td, .rendered_html th {font-size: 20px;}' >> ~/.jupyter/custom/custom.css; \
+    jupyter nbextension install --py jupyter_highlight_selected_word --user; \
+    jupyter nbextension enable highlight_selected_word/main; \
+    jupyter nbextension install --py widgetsnbextension --user; \
+    jupyter contrib nbextension install --user; \
+    jupyter nbextension enable codefolding/main; \
+    jupyter nbextension enable code_prettify/code_prettify; \
+    jupyter nbextension enable codefolding/edit; \
+    jupyter nbextension enable code_font_size/code_font_size; \
+    jupyter nbextension enable collapsible_headings/main; \
+    jupyter nbextension enable highlight_selected_word/main; \
+    jupyter nbextension enable ipyparallel/main; \
+    jupyter nbextension enable move_selected_cells/main; \
+    jupyter nbextension enable nbTranslate/main; \
+    jupyter nbextension enable scratchpad/main; \
+    jupyter nbextension enable tree-filter/index; \
+    jupyter nbextension enable comment-uncomment/main; \
+    jupyter nbextension enable export_embedded/main; \
+    jupyter nbextension enable hide_header/main; \
+    jupyter nbextension enable highlighter/highlighter; \
+    jupyter nbextension enable scroll_down/main; \
+    jupyter nbextension enable snippets/main; \
+    jupyter nbextension enable toc2/main; \
+    jupyter nbextension enable varInspector/main; \
+    jupyter nbextension enable codefolding/edit; \
+    jupyter nbextension enable contrib_nbextensions_help_item/main; \
+    jupyter nbextension enable freeze/main; \
+    jupyter nbextension enable hide_input/main; \
+    jupyter nbextension enable jupyter-js-widgets/extension; \
+    jupyter nbextension enable snippets_menu/main; \
+    jupyter nbextension enable table_beautifier/main; \
+    jupyter nbextension enable hide_input_all/main; \
+    jupyter nbextension enable spellchecker/main; \
+    jupyter nbextension enable toggle_all_line_numbers/main; \
+    jupyter nbextensions_configurator enable --user;
+
+USER root
+
+
+#//////////////////////////////////////////////////////
+#          gluten-cpp-base-images
+#//////////////////////////////////////////////////////
+# The Gluten build environment, built straight on the OS image and published as
+# vcpkg_base-{static,dynamic}-${ARCH}: the single build base that the gluten-cpp-image stages of
+# both DockerfileNative.static and DockerfileNative.dynamic build Gluten on. No Spark runtime is
+# baked in here -- the deploy stages of those two files lay down the distribution they need, which
+# is what removed the old spark-*-*_base_without_run root of this chain.
+#
+# The environment is built in three stages so that the Gluten/Velox source trees never reach the
+# shipped image:
+#   intermediate-1: the toolchain (dnf packages, maven, flex, bison, cmake). No source trees.
+#   intermediate-2: FROM intermediate-1 + the source trees, builds the Velox deps and warms
+#                   /root/.m2. All of it -- including the multi-GB COPY layers for ./gluten and
+#                   ./velox -- is thrown away with the stage.
+#   final:          FROM intermediate-1 + only the artifacts COPY'd out of intermediate-2.
+# A `rm -rf /incubator-gluten` inside a RUN cannot shrink the COPY layer that put it there, which
+# is why the copies have to live in a discarded stage rather than in this stage.
+FROM jupyter-base AS gluten-cpp-base-images-intermediate-1
+
+USER root
+
+# Build the toolchain from /root so the tarballs below do not land in /opt/spark/work-dir, which
+# DockerfileNative.base later turns into the Spark runtime work-dir.
+WORKDIR /root
+
+ENV SHARED_LIBS=/shared-libs
+ENV GCC_TOOL=/opt/rh/gcc-toolset-12
+ENV CCACHE_DIR=/root/.cache/ccache
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+ENV PATH=$JAVA_HOME/bin:$PATH
+ENV PATH=/usr/lib/maven/bin:${PATH}
+ENV MVN_VERSION=3.9.13
+ENV LD_LIBRARY_PATH=/usr/local/lib64:$LD_LIBRARY_PATH
+ENV VCPKG_PATH=/var/cache/vcpkg
+ENV VCPKG_BINARY_SOURCES="clear;files,${VCPKG_PATH},readwrite"
+ENV FLEX_VERSION=2.6.4
+ENV BISON_VERSION="bison-3.8.2"
+ENV CMAKE_VERSION=3.31.4
+
+RUN set -ex; \
+    dnf install -y dnf-plugins-core; \
+    dnf config-manager --set-enabled crb; \
+    dnf install -y sudo maven patch perl-core vim java-17-openjdk-devel glibc-static zip unzip which &>/dev/null ; \
+    dnf install -y --setopt=install_weak_deps=False gcc-toolset-12 &>/dev/null ; \
+    dnf install -y patch wget git perl xz cmake autoconf libtool &>/dev/null ; \
+    dnf install -y autoconf-archive ninja-build &>/dev/null ; \
+    dnf install -y npm curl-devel perl-IPC-Cmd openssl-devel libxml2-devel ccache &>/dev/null ; \
+    wget --no-check-certificate https://repo1.maven.org/maven2/org/apache/maven/apache-maven/${MVN_VERSION}/apache-maven-${MVN_VERSION}-bin.tar.gz  &>/dev/null ; \
+    tar -xvf apache-maven-${MVN_VERSION}-bin.tar.gz  &>/dev/null ; \
+    mv apache-maven-${MVN_VERSION} /usr/lib/maven ; \
+    rm -f /usr/bin/mvn; \
+    wget https://github.com/westes/flex/releases/download/v${FLEX_VERSION}/flex-${FLEX_VERSION}.tar.gz &>/dev/null ; \
+    tar zxvf flex-${FLEX_VERSION}.tar.gz &>/dev/null ; \
+    cd flex-${FLEX_VERSION}; \
+    ./configure --prefix=/usr/ &>/dev/null ; \
+    make -j &>/dev/null  && make install &>/dev/null ; \
+    rm -rf flex-${FLEX_VERSION}*; \
+    wget https://toolchains.bootlin.com/downloads/releases/sources/${BISON_VERSION}/${BISON_VERSION}.tar.xz &>/dev/null ; \
+    tar -xf ${BISON_VERSION}.tar.xz &>/dev/null ; \
+    cd ${BISON_VERSION}; \
+    ./configure --prefix=/usr/local &>/dev/null ; \
+    make -j &>/dev/null  && make install &>/dev/null ; \
+    rm -rf ${BISON_VERSION}*; \
+    pip3 install --upgrade pip; \
+    pip3 install cmake==${CMAKE_VERSION}; \
+    alternatives --set java /usr/lib/jvm/$(rpm -q java-17-openjdk)/bin/java; \
+    alternatives --set javac /usr/lib/jvm/$(rpm -q java-17-openjdk)/bin/javac; \
+    source ${GCC_TOOL}/enable ; \
+    rm -rf apache-maven-${MVN_VERSION}-bin.tar.gz ; \
+    mkdir -p ${VCPKG_PATH} ; \
+    rm -rf /root/flex-${FLEX_VERSION}* /root/${BISON_VERSION}* /root/apache-maven-${MVN_VERSION}-bin.tar.gz ; \
+    dnf clean all; \
+    rm -rf /var/cache/dnf
+
+#//////////////////////////////////////////////////////
+#   gluten-cpp-base-images-intermediate-2
+#//////////////////////////////////////////////////////
+# Throw-away stage: it holds the Gluten/Velox source trees and builds the Velox dependencies and
+# the offline maven repository. Only /usr/local, ${VCPKG_PATH} and /root/.m2 are copied out of it
+# below, so nothing here has to be cleaned up to keep the shipped image small.
+FROM gluten-cpp-base-images-intermediate-1 AS gluten-cpp-base-images-intermediate-2
+
+USER root
+
+# Build Gluten Jar
+COPY ./gluten /incubator-gluten
+COPY ./velox /velox
+
+RUN --mount=type=bind,source=cache/ccache,target=${CCACHE_DIR},rw \
+    set -ex; \
+    source ${GCC_TOOL}/enable ; \
+    cd /velox ; \
+    git log -n 3 ; \
+    cd /incubator-gluten ; \
+    git log -n 3 ; \
+    grep "^VELOX_" ep/build-velox/src/get-velox.sh ; \
+    if [ "$(uname -m)" = "aarch64" ]; then \
+        export CPU_TARGET="aarch64"; \
+        export VCPKG_FORCE_SYSTEM_BINARIES=1; \
+        export ARM_BUILD_TARGET=false; \
+    fi; \
+    mkdir -p ${VCPKG_PATH}; \
+    bash ./dev/builddeps-veloxbe.sh --velox_home=/velox --enable_enhanced_features=ON --enable_vcpkg=ON --build_tests=OFF --enable_s3=ON --enable_gcs=ON \
+                                    --enable_hdfs=ON --enable_abfs=ON; \
+    ./build/mvn dependency:go-offline -Pbackends-velox -Piceberg -Pdelta -Pdisaggregated-shuffle -Pspark-3.4 -DskipTests -Dorg.slf4j.simpleLogger.defaultLogLevel=warn || true; \
+    ./build/mvn dependency:go-offline -Pbackends-velox -Piceberg -Pdelta -Pdisaggregated-shuffle -Pspark-3.5 -DskipTests -Dorg.slf4j.simpleLogger.defaultLogLevel=warn|| true; \
+    ./build/mvn dependency:go-offline -Pbackends-velox -Piceberg -Pdelta -Pdisaggregated-shuffle  -Pscala-2.13 -Pspark-4.0 -DskipTests -Dorg.slf4j.simpleLogger.defaultLogLevel=warn|| true; \
+    du -sh ${VCPKG_PATH} /root/.m2; \
+    mkdir -p $SHARED_LIBS ; \
+    cp /usr/lib64/libjemalloc.so.2 $SHARED_LIBS/ ;
+    
+
+#//////////////////////////////////////////////////////
+#          gluten-cpp-base-images
+#//////////////////////////////////////////////////////
+# The shipped build/runtime base: the toolchain from intermediate-1 plus only the artifacts the
+# heavy build in intermediate-2 leaves outside the source trees.
+FROM gluten-cpp-base-images-intermediate-1 AS gluten-cpp-base-images
+
+USER root
+
+# dev/vcpkg/vcpkg_installed and dev/vcpkg/.vcpkg live inside the (discarded) Gluten tree, so this
+# binary cache is what lets later stages re-create them without rebuilding every port from source.
+COPY --from=gluten-cpp-base-images-intermediate-2 /var/cache/vcpkg /var/cache/vcpkg
+COPY --from=gluten-cpp-base-images-intermediate-2 /root/.m2 /root/.m2
+COPY --from=gluten-cpp-base-images-intermediate-2 /usr/local/lib/libfl* /usr/local/lib/
+COPY --from=gluten-cpp-base-images-intermediate-2 /usr/local/lib/liby.a /usr/local/lib/
+COPY --from=gluten-cpp-base-images-intermediate-2 /usr/local/include /usr/local/include
+
+WORKDIR /opt/spark/work-dir
+
+ARG SPARK_VERSION
+ARG ARCH
+
+#/////////////////////////////////////////////
+#          gluten-cpp-image-with-cache
+#//////////////////////////////////////////////
+FROM gluten-cpp-base-images AS gluten-cpp-image-with-cache
+
+USER root
+
+ENV VCPKG_DYNAMIC_OPENSSL=ON
+
+# Build Gluten Jar
+COPY ./gluten /incubator-gluten
+COPY ./velox /velox
+COPY cache/ccache ${CCACHE_DIR}
+
+RUN set -ex; \
+    source ${GCC_TOOL}/enable ; \
+    cd /velox ; \
+    git log -n 3 ; \
+    cd /incubator-gluten && java --version ; \
+    du -s /root/.cache/ccache ; \
+    ls -l /root/.cache/ccache ; \
+    ccache -s -z; \
+    ccache -M 2G; \
+    git log -n 3 ; \
+    grep "^VELOX_" ep/build-velox/src/get-velox.sh ; \
+    if [ "$(uname -m)" = "aarch64" ]; then \
+        export CPU_TARGET="aarch64"; \
+        export VCPKG_FORCE_SYSTEM_BINARIES=1; \
+        export ARM_BUILD_TARGET=false; \
+    fi; \
+    ./dev/builddeps-veloxbe.sh --run_setup_script=OFF --enable_vcpkg=ON --enable_s3=ON --enable_gcs=ON --enable_abfs=ON --build_arrow=OFF --enable_enhanced_features=ON --velox_home=/velox; \
+    echo '' >> dev/vcpkg/init.sh; \
+    echo 'find vcpkg_installed -exec touch -h -d "2000-01-01 00:00:00" {} +' >> dev/vcpkg/init.sh; \
+    rm -rf dev/vcpkg/vcpkg_installed; \
+    rm -rf dev/vcpkg/.vcpkg; \
+    ldd ./cpp/build/releases/libvelox.so; \
+    ldd ./cpp/build/releases/libgluten.so; \
+    du -s /root/.cache/ccache; \
+    ccache -s -v
+
+#/////////////////////////////////////////////
+#          gluten-cpp-image
+#//////////////////////////////////////////////
+
+FROM gluten-cpp-image-with-cache AS gluten-cpp-image
+
+USER root
+
+ENV VCPKG_DYNAMIC_OPENSSL=ON
+
+COPY --from=gluten-cpp-image-with-cache:latest /incubator-gluten /incubator-gluten
+COPY --from=gluten-cpp-image-with-cache:latest /velox /velox
+
+#/////////////////////////////////////////////
+#          gluten-jar-imageg-spark3.4
+#//////////////////////////////////////////////
+FROM gluten-cpp-image AS gluten-imageg-spark3.4
+
+ARG SPARK_VERSION
+
+USER root
+
+RUN if [ "${SPARK_VERSION}" = "4.0" ]; then SCALA_VERSION=2.13; else SCALA_VERSION=2.12; fi; \
+    set -ex; \
+    echo "Spark version: ${SPARK_VERSION}"; \
+    ls -l; \
+    source ${GCC_TOOL}/enable; \
+    cd /incubator-gluten && java --version; \
+    ./build/mvn clean package -Pbackends-velox -Piceberg -Pdelta -Phudi -Pspark-${SPARK_VERSION} -Pscala-${SCALA_VERSION} -DskipTests -Dorg.slf4j.simpleLogger.defaultLogLevel=warn; \
+    ls /incubator-gluten/package/target/gluten-velox-bundle-*.jar; \
+    mv package/target/gluten-velox-bundle-*.jar ./; \
+    ./build/mvn clean; \
+    mkdir -p package/target/; \
+    mv ./gluten-velox-bundle-*.jar package/target/
+
+#/////////////////////////////////////////////
+#          gluten-jar-imageg-spark3.5
+#//////////////////////////////////////////////
+FROM gluten-imageg-spark3.4 AS gluten-imageg-spark3.5
+ARG SPARK_VERSION
+
+    # 3.5 reuse 3.4 script
+
+#/////////////////////////////////////////////
+#          gluten-jar-imageg-spark4.0
+#//////////////////////////////////////////////
+FROM gluten-imageg-spark3.4 AS gluten-imageg-spark4.0
+ARG SPARK_VERSION
+
+#/////////////////////////////////////////////
+#          gluten-runtimeg-spark
+#//////////////////////////////////////////////
+
+# The Gluten build image *is* the runtime image: the bundle jar is symlinked out of the build
+# tree rather than copied into a fresh base, so the toolchain, /root/.m2 and the Velox/Gluten
+# build tree all survive into the shipped image and Gluten can be rebuilt in place.
+FROM gluten-imageg-spark${SPARK_VERSION} AS deploy-image-oss-spark
+
+ARG SPARK_VERSION
+
+USER root
+
+ARG ARG_OSS_SPARK=spark-3.5.2-bin-hadoop3
+ARG ARG_HADOOP_AWS=hadoop-aws-3.3.4.jar
+ARG ARG_AWS_JAVA_SDK_BUNDLE=aws-java-sdk-bundle-1.12.262.jar
+ARG ARG_AWS_BUNDLE=aws-java-sdk-bundle-1.12.262.jar
+ARG ARG_ICEBERG_URL
+ARG ARG_DELTA_STORAGE_URL
+ARG ARG_DELTA_SPARK_URL
+ARG ARG_HADOOP_CLOUD
+
+RUN --mount=type=bind,source=${ARG_OSS_SPARK},target=/oss_spark \
+    set -ex; \
+    mkdir -p /opt/gluten/jars/; \
+    ln -s "$(ls -d /incubator-gluten/package/target/gluten-velox-bundle-*.jar)" /opt/gluten/jars/"$(basename "$(ls -d /incubator-gluten/package/target/gluten-velox-bundle-*.jar)")"; \
+    cp /oss_spark/RELEASE  /opt/spark/RELEASE; \
+    cp -r /oss_spark/conf  /opt/spark/conf; \
+    cp -r /oss_spark/jars /opt/spark/jars; \
+    cp -r /oss_spark/bin /opt/spark/bin; \
+    cp -r /oss_spark/data /opt/spark/data; \
+    cp -r /oss_spark/python /opt/spark/python; \
+    cp -r /oss_spark/sbin /opt/spark/sbin; \
+    cp -r /oss_spark/yarn /opt/spark/yarn; \
+    cp -r /oss_spark/kubernetes /opt/spark/kubernetes; \
+    chown -R spark:spark /opt/spark
+
+# Everything below is copied in already owned by spark (--chown on COPY, explicit chown on the
+# root-run cp above). A trailing `RUN chown -R spark:spark /opt/spark` would instead re-write
+# every inode in a new layer and duplicate the whole multi-GB /opt/spark tree in the image.
+COPY --chown=spark:spark ${ARG_HADOOP_AWS} /opt/spark/jars/
+COPY --chown=spark:spark ${ARG_AWS_JAVA_SDK_BUNDLE} /opt/spark/jars/
+RUN --mount=type=bind,source=${ARG_AWS_BUNDLE},target=/tmp/aws_bundle.jar \
+    if [ "${ARG_AWS_BUNDLE}" != "${ARG_AWS_JAVA_SDK_BUNDLE}" ]; then \
+        install -m 644 -o spark -g spark /tmp/aws_bundle.jar /opt/spark/jars/; \
+    fi
+COPY --chown=spark:spark ${ARG_HADOOP_CLOUD} /opt/spark/jars/
+
+ENV SPARK_HOME=/opt/spark \
+    SPARK_NO_DAEMONIZE=true \
+    PATH=$SPARK_HOME/bin:$PATH
+
+WORKDIR /opt/spark/work-dir
+
+# Auto-source the GCC toolchain for all users on docker exec / ssh
+RUN echo "export PS1='\[\033[01;32m\]\u@docker\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]# '" >> /root/.bashrc && \
+    echo "source ${GCC_TOOL}/enable" >> /etc/profile.d/gcc-tool.sh && \
+    printf 'export PS1="\\[\\033[01;32m\\]\\u@docker\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]# "\n' \
+        >> /etc/profile.d/gcc-tool.sh && \
+    echo "source ${GCC_TOOL}/enable" >> /root/.bashrc
+
+RUN /bin/bash -c ': > /etc/environment; : > /etc/profile.d/container-env.sh; \
+    for v in $(compgen -e); do \
+        case $v in \
+        HOME|HOSTNAME|PWD|OLDPWD|SHLVL|TERM|USER|LOGNAME|_|SPARK_VERSION|ARG_*) continue;; \
+        esac; \
+        printf "%s=%s\n"        "$v" "${!v}" >> /etc/environment; \
+        printf "export %s=%q\n" "$v" "${!v}" >> /etc/profile.d/container-env.sh; \
+    done'
+
+USER spark
+
+RUN echo "export PS1='\[\033[01;32m\]\u@docker\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '" >> /home/spark/.bashrc && \
+    echo "source ${GCC_TOOL}/enable" >> /home/spark/.bashrc
+
+ENTRYPOINT ["/opt/entrypoint.sh"]
