@@ -92,7 +92,7 @@ bolt-recipe:
 	@echo "Bolt recipe has been installed"
 
 build:
-	mkdir -p ${BUILD_DIR} && mkdir -p ${BUILD_DIR}/releases &&\
+	mkdir -p ${BUILD_DIR}/${BUILD_TYPE} ${BUILD_DIR}/releases &&\
 	cd  ${CONAN_FILE_DIR} && export BOLT_BUILD_VERSION=${BOLT_BUILD_VERSION} &&\
 	ALL_CONAN_OPTIONS=" -o gluten/*:shared=${SHARED_LIBRARY} \
 			-o gluten/*:enable_hdfs=${ENABLE_HDFS} \
@@ -101,7 +101,7 @@ build:
 			-o gluten/*:build_benchmarks=${BUILD_BENCHMARKS} \
 			-o gluten/*:build_tests=${BUILD_TESTS} \
 			-o gluten/*:build_examples=${BUILD_EXAMPLES} " && \
-	conan graph info . --name=gluten --version=${GLUTEN_BUILD_VERSION} --user=${BUILD_USER} --channel=${BUILD_CHANNEL} -c "arrow/*:tools.build:download_source=True" $${ALL_CONAN_OPTIONS} --format=html > gluten.conan.graph.html  && \
+	conan graph info . --name=gluten --version=${GLUTEN_BUILD_VERSION} --user=${BUILD_USER} --channel=${BUILD_CHANNEL} -c "arrow/*:tools.build:download_source=True" $${ALL_CONAN_OPTIONS} --format=html > ${BUILD_DIR}/${BUILD_TYPE}/gluten.conan.graph.html  && \
 	NUM_THREADS=$(NUM_THREADS) conan install . --name=gluten --version=${GLUTEN_BUILD_VERSION} --user=${BUILD_USER} --channel=${BUILD_CHANNEL}  \
 			-s llvm-core/*:build_type=Release -s build_type=${BUILD_TYPE} --build=missing $${ALL_CONAN_OPTIONS} && \
 	cmake --preset `echo conan-${BUILD_TYPE} | tr A-Z a-z` && \
