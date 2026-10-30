@@ -358,8 +358,6 @@ org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownS
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Single deletion at the second row group. vectorizedReaderEnabled: false readColumnarBatchAsRows: false
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Single deletion at the second row group. vectorizedReaderEnabled: true readColumnarBatchAsRows: false
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Single deletion at the second row group. vectorizedReaderEnabled: true readColumnarBatchAsRows: true
-org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#huge table: delete a small number of rows from tables of 2B rows with DVs
-org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#huge table: read from tables of 2B rows with existing DV of many zeros
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2JsonSuite#data skipping flags
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2JsonSuite#data skipping flags - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2JsonSuite#data skipping stats before and after optimize
