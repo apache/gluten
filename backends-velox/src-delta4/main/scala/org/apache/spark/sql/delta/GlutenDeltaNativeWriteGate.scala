@@ -82,6 +82,7 @@ object GlutenDeltaNativeWriteGate {
       StructType(dataSchema.filterNot(field => partitionColumns.exists(_.name == field.name)))
     }
     unsupportedSchema(dataSchema)
+      .orElse(unsupportedPartitionColumns(partitionColumns, isTrue(options, writePartitionColumns)))
       .orElse(unsupportedOption(options))
       .orElse(Option(hadoopConf.get(cryptoFactoryClass)).map {
         // parquet-mr encrypts the files when the job conf names a crypto factory.
@@ -95,9 +96,6 @@ object GlutenDeltaNativeWriteGate {
       })
       .orElse(unsupportedDatetimeEncoding(sqlConf, hadoopConf, options, fileSchema))
       .orElse(unsupportedLegacyFormat(sqlConf, hadoopConf, fileSchema))
-      .orElse(Option.when(partitionColumns.nonEmpty && isTrue(options, writePartitionColumns)) {
-        "Partition columns in data files are not written by the Velox writer"
-      })
       .orElse(Option.when(partitionColumns.nonEmpty && sqlConf.maxConcurrentOutputFileWriters > 0) {
         "Concurrent output file writers are not supported by the native Delta writer"
       })
@@ -121,6 +119,18 @@ object GlutenDeltaNativeWriteGate {
   private val supportedCodecs = Set("UNCOMPRESSED", "SNAPPY", "GZIP", "LZ4", "ZSTD")
   private val cryptoFactoryClass = EncryptionPropertiesFactory.CRYPTO_FACTORY_CLASS_PROPERTY_NAME
   private val parquetV1 = WriterVersion.PARQUET_1_0
+
+  private def unsupportedPartitionColumns(
+      partitionColumns: Seq[Attribute],
+      materialize: Boolean): Option[String] =
+    partitionColumns.collectFirst {
+      case column if column.dataType == FloatType || column.dataType == DoubleType =>
+        s"${column.dataType.sql} partition columns are not supported by the native Delta writer"
+      // PartitionIdGenerator cannot represent sub-millisecond timestamps. Keep the existing
+      // materialized-timestamp fallback until splitting preserves their full precision.
+      case column if materialize && column.dataType == TimestampType =>
+        "Materialized TIMESTAMP partition columns are not supported by the native Delta writer"
+    }
 
   private def unsupportedOption(options: Map[String, String]): Option[String] =
     options.collectFirst {
