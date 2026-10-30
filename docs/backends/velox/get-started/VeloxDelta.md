@@ -163,8 +163,9 @@ On Spark 3.5, native write does not check the codec, the path scheme or the part
 
 On Spark 4.x, native Delta write writes what Delta Lake's own writer would write: the same rows, schema, Parquet physical types, field IDs and partition columns, honoring the compression codec, `maxRecordsPerFile`, Parquet version and encryption. Row group and page sizes, encodings and other Parquet tuning are Velox's own. Settings are read where Delta Lake's writer reads them: the session, the writer options, and the job's Hadoop configuration, which includes the table properties. Writes the Velox writer cannot match fall back to Delta Lake's writer. These are:
 
-- partitioned tables whose data files store the partition columns, which is Delta Lake 4.4's default
-  (`delta.writePartitionColumnsToParquet`) and required by `materializePartitionColumns`;
+- `FLOAT` and `DOUBLE` partition columns, which the native partition splitter does not support;
+- `TIMESTAMP` partition columns when written into the data files, since the native partition
+  splitter cannot represent sub-millisecond values;
 - column mapping (`name` or `id`), and other columns with `parquet.field.id` metadata, since
   Delta Lake writes Parquet field IDs;
 - timestamps, unless `spark.sql.parquet.outputTimestampType` (and the writer option or table
@@ -182,6 +183,14 @@ On Spark 4.x, native Delta write writes what Delta Lake's own writer would write
 - Iceberg compatibility, variant shredding and any writer option the gate does not know.
 
 These checks are in `GlutenDeltaNativeWriteGate` (from code).
+
+Otherwise-supported partitioned writes can store partition columns in their Parquet files.
+On Spark 4.x, Gluten follows Delta's `delta.writePartitionColumnsToParquet` setting, which defaults
+to `true` in Delta Lake 4.4. The `materializePartitionColumns` writer feature requires those columns
+in every newly added data file, even when the property is `false`. File-level Delta statistics
+still exclude partition columns, and readers continue to obtain partition values from `AddFile`
+metadata. Enabling the feature does not rewrite older files. Column mapping and Iceberg compatibility
+still fall back as described above.
 
 ### Checking the plan
 
@@ -347,7 +356,7 @@ The Read column covers Spark 3.5 to 4.2. It covers Spark 3.4 only where the row 
 | TIMESTAMP_NTZ | PartialOffload, also on Spark 3.4 | Offload on Spark 3.5, Exception for some writes. Fallback on Spark 4.x. Both are from code. | See [DataType](#datatype). |
 | Variant, including shredding | Fallback | Fallback | Spark 4.x. From code. See [DataType](#datatype). |
 | Collations | Fallback | | Spark 4.x. From code. See [DataType](#datatype). |
-| materializePartitionColumns | | Fallback | Spark 4.x. The feature makes the data files store partition columns, and those partitioned writes fall back (from code). |
+| materializePartitionColumns | | Offload | Spark 4.x. Supported partition columns are stored in the Parquet data files, even when `delta.writePartitionColumnsToParquet=false`. Other native-write restrictions still apply; see [Native write on Spark 4.x](#native-write-on-spark-4x). |
 
 ## DataType
 
@@ -357,7 +366,7 @@ The Read column applies to Spark 3.4 to 4.1. On all of them, Gluten's tests read
 |---|---|---|---|---|
 | BOOLEAN | Offload | Offload | Offload | |
 | TINYINT, SMALLINT, INT, BIGINT | Offload | Offload | Offload | |
-| FLOAT, DOUBLE | Offload | Offload | Exception on Spark 3.5. On Spark 4.x only with `delta.writePartitionColumnsToParquet=false`; otherwise the write falls back (from code). | See [Write problems](#write-problems). |
+| FLOAT, DOUBLE | Offload | Offload | Exception on Spark 3.5. Fallback on Spark 4.x (from code). | See [Write problems](#write-problems). |
 | DECIMAL | Offload | Offload | Offload | Precision above 18 included. |
 | STRING | Offload | Offload | Offload | |
 | CHAR, VARCHAR | Offload | Offload | | Stored as STRING. Delta checks the length on the JVM before the native write. Both statuses are from code. Reads return correct results (seen on 4.1). |
@@ -443,7 +452,7 @@ These need native write on, unless a row says otherwise. On Spark 4.x, many of t
 
 | Problem | Status | Versions | Issue |
 |---|---|---|---|
-| A write partitioned by a FLOAT or DOUBLE column fails with `Unsupported partition type`. | Exception | 3.5, from code. Spark 4.x only with `delta.writePartitionColumnsToParquet=false` (from code) | [#13138](https://github.com/apache/gluten/issues/13138) |
+| A write partitioned by a FLOAT or DOUBLE column fails with `Unsupported partition type`. | Exception | 3.5, from code. Spark 4.x falls back (from code). | [#13138](https://github.com/apache/gluten/issues/13138) |
 | A write to a path scheme the native library cannot write fails at task time. This covers custom Hadoop file systems, and S3, GCS, HDFS or ABFS in a build without that connector. | Exception | 3.5 and 4.x, seen on 4.1 (custom file system), from code (missing connector) | [#4963](https://github.com/apache/gluten/issues/4963) |
 | Files written for a column mapping table, in name or id mode, have no Parquet field IDs, which the Delta Lake protocol requires. Delta Lake and Gluten read name-mode files by physical name. Readers that match by field ID cannot. | ResultMismatch | 3.5, from code. Spark 4.x falls back | |
 | Spark's own reader fails on natively written id-mode files with `Spark read schema expects field Ids, but Parquet file schema doesn't contain any field Ids`. Spark uses this reader when a scan falls back or Gluten is off. With `spark.sql.parquet.fieldId.read.ignoreMissing=true`, Spark skips this check and returns NULL for the data columns of these files (from code). That setting is not tested with these files. | Exception | 3.5, from code. Spark 4.x falls back | |

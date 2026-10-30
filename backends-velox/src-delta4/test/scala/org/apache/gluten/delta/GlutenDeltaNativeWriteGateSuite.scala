@@ -85,12 +85,35 @@ class GlutenDeltaNativeWriteGateSuite extends SharedSparkSession {
     assert(unsupported(partitionedLimited, partitioned = true).isEmpty)
   }
 
-  test("partition columns in data files fall back") {
-    assert(unsupported(partitioned = true).isDefined)
-    assert(unsupported(deltaOptions(writePartitionColumns = false), partitioned = true).isEmpty)
-    withSQLConf(SQLConf.MAX_CONCURRENT_OUTPUT_FILE_WRITERS.key -> "2") {
+  test("partition columns can be written to data files, without concurrent output writers") {
+    for (materialize <- Seq(false, true)) {
+      val options = deltaOptions(writePartitionColumns = materialize)
+      val schema = plainSchema.add(partitionColumn.name, IntegerType)
+      assert(unsupported(options, schema, partitioned = true).isEmpty)
+      withSQLConf(SQLConf.MAX_CONCURRENT_OUTPUT_FILE_WRITERS.key -> "2") {
+        assert(unsupported(options, schema, partitioned = true).isDefined)
+      }
+    }
+  }
+
+  test("unsupported partition key types still fall back when materialization is enabled") {
+    for (dataType <- Seq(FloatType, DoubleType); materialize <- Seq(false, true)) {
+      val column = AttributeReference("part", dataType)()
       assert(
-        unsupported(deltaOptions(writePartitionColumns = false), partitioned = true).isDefined)
+        unsupported(
+          deltaOptions(writePartitionColumns = materialize),
+          plainSchema.add(column.name, dataType),
+          partitioned = true,
+          partitionColumns = Seq(column)).isDefined)
+    }
+    withSQLConf(SQLConf.PARQUET_OUTPUT_TIMESTAMP_TYPE.key -> "TIMESTAMP_MICROS") {
+      val column = AttributeReference("part", TimestampType)()
+      assert(
+        unsupported(
+          deltaOptions(),
+          plainSchema.add(column.name, TimestampType),
+          partitioned = true,
+          partitionColumns = Seq(column)).isDefined)
     }
   }
 
