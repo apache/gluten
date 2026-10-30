@@ -26,7 +26,7 @@ import org.apache.spark.sql.delta.util.DeltaFileOperations
 import org.apache.spark.sql.execution.{QueryExecution, SparkPlan}
 import org.apache.spark.sql.execution.command.ExecutedCommandExec
 import org.apache.spark.sql.test.SharedSparkSession
-import org.apache.spark.sql.types.{IntegerType, LongType, StructType}
+import org.apache.spark.sql.types.{IntegerType, LongType, StringType, StructType}
 import org.apache.spark.sql.util.QueryExecutionListener
 
 import org.apache.parquet.hadoop.ParquetFileReader
@@ -58,19 +58,29 @@ class GlutenDeltaNativePartitionWriteSuite extends GlutenQueryTest with SharedSp
       .set(GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key, "false")
       .set("spark.sql.adaptive.enabled", "false")
       .set("spark.sql.maxConcurrentOutputFileWriters", "0")
-      // Delta 4.4+ writes partition columns into the data files by default, which makes the write
-      // fall back to vanilla Delta. Older Delta ignores this unknown table property default.
+      // Exercise omitted partition columns unless the writer feature overrides this property.
+      // Older Delta ignores this unknown table property default.
       .set("spark.databricks.delta.properties.defaults.writePartitionColumnsToParquet", "false")
   }
 
   // Small batches cross partition boundaries; a large batch requires splitting a single stripe.
-  for ((batchSize, limit, collectStats) <- Seq((4, 4, false), (16, 4, true), (4, 0, true))) {
-    test(s"native Delta partitioned files: batch=$batchSize, limit=$limit, stats=$collectStats") {
+  for (
+    (batchSize, limit, collectStats) <- Seq((4, 4, false), (16, 4, true), (4, 0, true));
+    materialize <- Seq(false, true)
+  ) {
+    test(s"native Delta partitioned files: batch=$batchSize, limit=$limit, " +
+      s"stats=$collectStats, materialize=$materialize") {
       assume(BackendTestUtils.isVeloxBackendLoaded())
-      val schema = new StructType().add("id", LongType).add("part", IntegerType)
-      val expected = Seq((null, 3), (Int.box(0), 4), (Int.box(1), 9)).flatMap {
+      assume(!materialize || spark.version.startsWith("4."))
+      val schema = new StructType()
+        .add("part", IntegerType).add("id", LongType).add("region", StringType)
+      val input = Seq((null, 3), (Int.box(0), 4), (Int.box(1), 9)).flatMap {
         case (part, count) =>
-          (0 until count).map(i => Row(if (i % 3 == 0) null else Long.box(i / 2), part))
+          val region = if (part == null) "" else if (part == 0) "east/region=0" else null
+          (0 until count).map(i => Row(part, if (i % 3 == 0) null else Long.box(i / 2), region))
+      }
+      val expected = input.map {
+        row => Row(row(0), row(1), Option(row.getString(2)).filter(_.nonEmpty).orNull)
       }
       withSQLConf(
         GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> batchSize.toString,
@@ -88,9 +98,13 @@ class GlutenDeltaNativePartitionWriteSuite extends GlutenQueryTest with SharedSp
             }
             spark.listenerManager.register(listener)
             try {
-              spark.createDataFrame(spark.sparkContext.parallelize(expected, 1), schema)
-                .write.format("delta").partitionBy("part")
-                .option("maxRecordsPerFile", limit.toString).save(path)
+              val writer = spark.createDataFrame(spark.sparkContext.parallelize(input, 1), schema)
+                .write.format("delta").partitionBy("region", "part")
+                .option("maxRecordsPerFile", limit.toString)
+              if (materialize) {
+                writer.option("delta.feature.materializePartitionColumns", "supported")
+              }
+              writer.save(path)
               spark.sparkContext.listenerBus.waitUntilEmpty(10000)
             } finally {
               spark.listenerManager.unregister(listener)
@@ -108,7 +122,14 @@ class GlutenDeltaNativePartitionWriteSuite extends GlutenQueryTest with SharedSp
 
             // Read the physical files with Spark to independently check layout and per-file stats.
             withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
-              val files = DeltaLog.forTable(spark, path).update().allFiles.collect()
+              val snapshot = DeltaLog.forTable(spark, path).update()
+              if (materialize) {
+                assert(snapshot.protocol.writerFeatures.exists(_.contains(
+                  "materializePartitionColumns")))
+                assert(snapshot.metadata.configuration("delta.writePartitionColumnsToParquet") ==
+                  "false")
+              }
+              val files = snapshot.allFiles.collect()
               val fileSizes = files.toSeq.map {
                 file =>
                   val filePath = DeltaFileOperations.absolutePath(path, file.path).toString
@@ -121,12 +142,31 @@ class GlutenDeltaNativePartitionWriteSuite extends GlutenQueryTest with SharedSp
                     assert(
                       !reader.getFooter.getFileMetaData.getCreatedBy.startsWith("parquet-mr"),
                       s"${file.path} was not written by the native writer")
+                    val expectedColumns =
+                      if (materialize) Seq("id", "region", "part") else Seq("id")
+                    assert(reader.getFooter.getFileMetaData.getSchema.getFields.asScala
+                      .map(_.getName).toSeq == expectedColumns)
                   } finally {
                     reader.close()
                   }
-                  val rows = spark.read.parquet(filePath).select("id").collect().toSeq
+                  val data = spark.read.option("recursiveFileLookup", "true").parquet(filePath)
+                  if (materialize) {
+                    data.select("region", "part").collect().foreach {
+                      row =>
+                        assert(row.getString(0) == file.partitionValues("region"))
+                        val part = if (row.isNullAt(1)) null else row.getInt(1).toString
+                        assert(part == file.partitionValues("part"))
+                    }
+                  }
+                  val rows = data.select("id").collect().toSeq
                   if (collectStats) {
                     val stats = parse(file.stats)
+                    for (
+                      field <- Seq("minValues", "maxValues", "nullCount");
+                      partition <- Seq("region", "part")
+                    ) {
+                      assert(stats \ field \ partition == JNothing, file.stats)
+                    }
                     val values = rows.filterNot(_.isNullAt(0)).map(_.getLong(0))
                     assert((stats \ "numRecords") == JInt(rows.size), file.stats)
                     assert(
@@ -152,7 +192,9 @@ class GlutenDeltaNativePartitionWriteSuite extends GlutenQueryTest with SharedSp
                 (null, Seq(3)),
                 "0" -> Seq(4),
                 "1" -> (if (limit == 0) Seq(9) else Seq(1, 4, 4))))
-              checkAnswer(spark.read.format("delta").load(path).select("id", "part"), expected)
+              checkAnswer(
+                spark.read.format("delta").load(path).select("part", "id", "region"),
+                expected)
             }
         }
       }

@@ -16,8 +16,10 @@
  */
 package org.apache.gluten.execution
 
+import org.apache.gluten.config.{GlutenConfig, VeloxDeltaConfig}
+
 import org.apache.spark.sql.Row
-import org.apache.spark.sql.delta.DeltaLog
+import org.apache.spark.sql.delta.{DeltaLog, MaterializePartitionColumnsTableFeature}
 import org.apache.spark.sql.delta.actions.AddFile
 import org.apache.spark.sql.delta.test.DeltaSQLCommandTest
 import org.apache.spark.sql.delta.util.DeltaFileOperations
@@ -121,46 +123,135 @@ class VeloxDelta4WriteSuite extends DeltaSQLCommandTest {
     }
   }
 
-  test("a partitioned table falls back, since Delta writes the partition columns") {
-    withTempDir {
-      dir =>
-        val path = dir.getCanonicalPath
-        createTable(path, partitioned = true)
-        writeRows(path)
+  for (feature <- Seq(false, true); property <- Seq(None, Some(false), Some(true))) {
+    test(s"native partition materialization: feature=$feature, property=$property") {
+      withTempDir {
+        dir =>
+          val path = dir.getCanonicalPath
+          val properties = property.map(v => "delta.writePartitionColumnsToParquet" -> v.toString)
+            .toSeq ++ (if (feature) {
+                         Seq("delta.feature.materializePartitionColumns" -> "supported")
+                       } else {
+                         Seq.empty
+                       })
+          createTable(path, partitioned = true, properties: _*)
+          writeRows(path)
 
-        assertWrittenBy(path, velox = false, Seq("id", "value", "part"))
-        footers(path).foreach {
-          case (file, _) => assert(parse(file.stats) \ "minValues" \ "part" == JNothing)
-        }
-        assertRows(path)
+          val snapshot = DeltaLog.forTable(spark, path).update()
+          assert(snapshot.protocol.isFeatureSupported(MaterializePartitionColumnsTableFeature) ==
+            feature)
+          assert(snapshot.metadata.configuration.get("delta.writePartitionColumnsToParquet") ==
+            property.map(_.toString))
+          val materialize = feature || property.getOrElse(true)
+          val columns = if (materialize) Seq("id", "value", "part") else Seq("id", "value")
+          assertWrittenBy(path, velox = true, columns)
+          withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+            footers(path).foreach {
+              case (file, _) =>
+                val stats = parse(file.stats)
+                for (field <- Seq("minValues", "maxValues", "nullCount")) {
+                  assert(stats \ field \ "part" == JNothing, file.stats)
+                }
+                if (materialize) {
+                  val filePath = DeltaFileOperations.absolutePath(path, file.path).toString
+                  val rows = spark.read.option("recursiveFileLookup", "true")
+                    .parquet(filePath).select("part").collect()
+                  assert(rows.nonEmpty)
+                  assert(rows.forall(_.getInt(0).toString == file.partitionValues("part")))
+                }
+            }
+          }
+          assertRows(path)
+      }
     }
   }
 
-  test("a partitioned table without partition columns in its files is written natively") {
+  test("enabling materialization preserves reads of older files without partition columns") {
     withTempDir {
       dir =>
         val path = dir.getCanonicalPath
         createTable(path, partitioned = true, "delta.writePartitionColumnsToParquet" -> "false")
         writeRows(path)
+        val oldFiles = footers(path).map(_._1.path).toSet
 
-        assertWrittenBy(path, velox = true, Seq("id", "value"))
-        assertRows(path)
+        sql(s"ALTER TABLE delta.`$path` SET TBLPROPERTIES " +
+          "('delta.feature.materializePartitionColumns' = 'supported')")
+        writeRows(path)
+
+        val files = footers(path)
+        assert(files.exists { case (file, _) => !oldFiles.contains(file.path) })
+        files.foreach {
+          case (file, footer) =>
+            assert(writtenByVelox(footer), file.path)
+            val columns = if (oldFiles.contains(file.path)) {
+              Seq("id", "value")
+            } else {
+              Seq("id", "value", "part")
+            }
+            assert(fieldNames(footer) == columns, file.path)
+        }
+        val expected = (0 until 10).flatMap(i => Seq.fill(2)(Row(i.toLong, i.toString, i % 2)))
+        for (gluten <- Seq("false", "true")) {
+          withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> gluten) {
+            assert(spark.read.format("delta").load(path).orderBy("id").collect().toSeq == expected)
+          }
+        }
     }
   }
 
-  test("materializePartitionColumns falls back") {
+  test("native updates and deletes materialize partition columns like vanilla Delta") {
     withTempDir {
-      dir =>
-        val path = dir.getCanonicalPath
-        createTable(
-          path,
-          partitioned = true,
-          "delta.writePartitionColumnsToParquet" -> "false",
-          "delta.enableMaterializePartitionColumnsFeature" -> "true")
-        writeRows(path)
-
-        assertWrittenBy(path, velox = false, Seq("id", "value", "part"))
-        assertRows(path)
+      nativeDir =>
+        withTempDir {
+          vanillaDir =>
+            val nativePath = nativeDir.getCanonicalPath
+            val vanillaPath = vanillaDir.getCanonicalPath
+            val paths = Seq(nativePath -> "true", vanillaPath -> "false")
+            paths.foreach {
+              case (path, native) =>
+                withSQLConf(VeloxDeltaConfig.ENABLE_NATIVE_WRITE.key -> native) {
+                  createTable(
+                    path,
+                    partitioned = true,
+                    "delta.feature.materializePartitionColumns" -> "supported",
+                    "delta.writePartitionColumnsToParquet" -> "false",
+                    "delta.enableDeletionVectors" -> "false"
+                  )
+                  writeRows(path)
+                }
+            }
+            val commands = Seq(
+              "UPDATE delta.`%s` SET part = part + 2, value = 'updated' WHERE id = 0",
+              "DELETE FROM delta.`%s` WHERE id = 1")
+            commands.foreach {
+              command =>
+                val oldFiles = footers(nativePath).map(_._1.path).toSet
+                paths.foreach {
+                  case (path, native) =>
+                    withSQLConf(VeloxDeltaConfig.ENABLE_NATIVE_WRITE.key -> native) {
+                      sql(command.format(path)).collect()
+                    }
+                }
+                val newFiles = footers(nativePath).filterNot {
+                  case (file, _) => oldFiles.contains(file.path)
+                }
+                assert(newFiles.nonEmpty)
+                newFiles.foreach {
+                  case (file, footer) =>
+                    assert(writtenByVelox(footer), file.path)
+                    assert(fieldNames(footer) == Seq("id", "value", "part"), file.path)
+                    val stats = parse(file.stats)
+                    for (field <- Seq("minValues", "maxValues", "nullCount")) {
+                      assert(stats \ field \ "part" == JNothing, file.stats)
+                    }
+                }
+                withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+                  assert(
+                    spark.read.format("delta").load(nativePath).orderBy("id").collect().toSeq ==
+                      spark.read.format("delta").load(vanillaPath).orderBy("id").collect().toSeq)
+                }
+            }
+        }
     }
   }
 
@@ -286,12 +377,16 @@ class VeloxDelta4WriteSuite extends DeltaSQLCommandTest {
     }
   }
 
-  for (mode <- Seq("name", "id")) {
-    test(s"$mode column mapping falls back and writes Parquet field IDs") {
+  for (mode <- Seq("name", "id"); partitioned <- Seq(false, true)) {
+    test(s"$mode column mapping falls back and writes field IDs: partitioned=$partitioned") {
       withTempDir {
         dir =>
           val path = dir.getCanonicalPath
-          createTable(path, partitioned = false, "delta.columnMapping.mode" -> mode)
+          createTable(
+            path,
+            partitioned,
+            "delta.columnMapping.mode" -> mode,
+            "delta.feature.materializePartitionColumns" -> "supported")
           writeRows(path)
 
           footers(path).foreach {

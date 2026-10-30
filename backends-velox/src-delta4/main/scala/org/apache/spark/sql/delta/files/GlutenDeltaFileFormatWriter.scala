@@ -18,7 +18,7 @@ package org.apache.spark.sql.delta.files
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.backendsapi.velox.VeloxBatchType
-import org.apache.gluten.columnarbatch.VeloxColumnarBatches
+import org.apache.gluten.columnarbatch.{ColumnarBatches, VeloxColumnarBatches}
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution._
 import org.apache.gluten.execution.datasource.GlutenFormatFactory
@@ -564,6 +564,14 @@ object GlutenDeltaFileFormatWriter extends Logging {
           }
       }.toArray
 
+    private val writePartitionColumns =
+      description.partitionColumns.exists(description.dataColumns.contains)
+
+    private val statsColumnIndices: Array[Int] =
+      description.dataColumns.zipWithIndex.collect {
+        case (column, index) if !description.partitionColumns.contains(column) => index
+      }.toArray
+
     private def beforeWrite(record: InternalRow): Unit = {
       val nextPartitionValues = if (isPartitioned) Some(getPartitionValues(record)) else None
       val nextBucketId = if (isBucketed) Some(getBucketId(record)) else None
@@ -604,7 +612,19 @@ object GlutenDeltaFileFormatWriter extends Logging {
     private def writeCurrentBatch(terminalRow: TerminalRow, rowCount: Int): Unit = {
       assert(rowCount > 0)
       currentWriter.write(terminalRow)
-      statsTrackers.foreach(_.newRow(currentWriter.path, terminalRow))
+      if (writePartitionColumns && statsTrackers.nonEmpty) {
+        // Delta's statistics schema excludes partition columns even when the file contains them.
+        val statsBatch = ColumnarBatches.select(
+          BackendsApiManager.getBackendName, terminalRow.batch(), statsColumnIndices)
+        Utils.tryWithSafeFinally {
+          val statsRow = terminalRow.withNewBatch(statsBatch)
+          statsTrackers.foreach(_.newRow(currentWriter.path, statsRow))
+        } {
+          statsBatch.close()
+        }
+      } else {
+        statsTrackers.foreach(_.newRow(currentWriter.path, terminalRow))
+      }
       recordsInFile += rowCount
     }
 
@@ -657,7 +677,8 @@ object GlutenDeltaFileFormatWriter extends Logging {
       val numRows = terminalRow.batch().numRows()
       if (numRows > 0) {
         val blockStripes = GlutenFormatFactory.rowSplitter
-          .splitBlockByPartitionAndBucket(terminalRow.batch(), partitionColIndice, isBucketed)
+          .splitBlockByPartitionAndBucket(
+            terminalRow.batch(), partitionColIndice, isBucketed, writePartitionColumns)
         val iter = blockStripes.iterator()
         Utils.tryWithSafeFinally {
           while (iter.hasNext) {

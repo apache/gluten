@@ -118,6 +118,10 @@ class VeloxRowSplitter extends GlutenRowSplitter {
     val datasourceJniWrapper = VeloxDataSourceJniWrapper.create(runtime)
     new VeloxBlockStripes(
       datasourceJniWrapper
-        .splitBlockByPartitionAndBucket(handler, partitionColIndice, hasBucket))
+        .splitBlockByPartitionAndBucket(
+          handler,
+          partitionColIndice,
+          hasBucket,
+          reservePartitionColumns))
   }
 }
