@@ -77,6 +77,10 @@ import scala.collection.mutable.ArrayBuffer
 class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
   import VeloxSparkPlanExecApi._
 
+  /** Velox/Bolt evaluate regexes with RE2, so Java patterns must be translated first. */
+  override def rewriteRegexPattern(pattern: Expression): Expression =
+    Re2PatternUtils.rewriteRegexPattern(pattern)
+
   /** Transform GetArrayItem to Substrait. */
   override def genGetArrayItemTransformer(
       substraitExprName: String,

@@ -365,6 +365,15 @@ trait SparkPlanExecApi {
     throw new GlutenNotSupportException("make_timestamp is not supported")
   }
 
+  /**
+   * Rewrites the pattern argument of a regex expression before it is written into the Substrait
+   * plan. Backends whose native engine does not use Java regex syntax (e.g. RE2 in Velox and Bolt)
+   * override this to translate the pattern, and throw [[GlutenNotSupportException]] for patterns
+   * they cannot express so that the expression falls back to Spark. The default leaves the pattern
+   * unchanged.
+   */
+  def rewriteRegexPattern(pattern: Expression): Expression = pattern
+
   def genRegexpReplaceTransformer(
       substraitExprName: String,
       children: Seq[ExpressionTransformer],
