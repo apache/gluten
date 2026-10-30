@@ -27,7 +27,7 @@ import org.apache.gluten.substrait.plan.PlanNode
 import org.apache.gluten.validate.NativePlanValidationInfo
 import org.apache.gluten.vectorized.NativePlanEvaluator
 
-import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression}
+import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.types._
@@ -40,10 +40,6 @@ import scala.collection.mutable.ArrayBuffer
 
 class VeloxValidatorApi extends ValidatorApi {
   import VeloxValidatorApi._
-
-  /** For velox backend, key validation is on native side. */
-  override def doExprValidate(substraitExprName: String, expr: Expression): Boolean =
-    true
 
   override def doNativeValidateWithFailureReason(plan: PlanNode): ValidationResult = {
     TaskResources.runUnsafe {
