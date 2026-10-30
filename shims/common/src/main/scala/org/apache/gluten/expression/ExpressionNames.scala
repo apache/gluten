@@ -260,6 +260,15 @@ object ExpressionNames {
   final val JSON_TUPLE = "json_tuple"
   final val JSON_OBJECT_KEYS = "json_object_keys"
 
+  // Variant functions
+  final val PARSE_JSON = "parse_json"
+  final val TRY_PARSE_JSON = "try_parse_json"
+  final val IS_VARIANT_NULL = "is_variant_null"
+  final val SCHEMA_OF_VARIANT = "schema_of_variant"
+  final val VARIANT_GET = "variant_get"
+  final val TRY_VARIANT_GET = "try_variant_get"
+  final val TO_VARIANT_OBJECT = "to_variant_object"
+
   // Hash functions
   final val MURMUR3HASH = "murmur3hash"
   final val XXHASH64 = "xxhash64"

@@ -20,7 +20,7 @@ import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.test.TestStats
-import org.apache.gluten.utils.DecimalArithmeticUtil
+import org.apache.gluten.utils.{DecimalArithmeticUtil, VariantTypeUtil}
 
 import org.apache.spark.{SPARK_REVISION, SPARK_VERSION_SHORT}
 import org.apache.spark.internal.Logging
@@ -271,6 +271,29 @@ object ExpressionConverter extends SQLConfHelper with Logging {
 
         case fn if staticInvokeMap.contains(fn) =>
           validateAndTransform(staticInvokeMap(fn), i.arguments.map(doTransform))
+
+        // Variant functions, see Spark's variantExpressions.scala.
+        case "parseJson" if objName.endsWith("VariantExpressionEvalUtils$") =>
+          // Arguments are (input, allowDuplicateKeys, failOnError).
+          val Seq(input, allowDuplicateKeys, failOnError) = i.arguments
+          if (allowDuplicateKeys != Literal.FalseLiteral) {
+            throw new GlutenNotSupportException(
+              s"Not supported to transform parse_json with allowDuplicateKeys: $allowDuplicateKeys")
+          }
+          val exprName = failOnError match {
+            case Literal.TrueLiteral => ExpressionNames.PARSE_JSON
+            case Literal.FalseLiteral => ExpressionNames.TRY_PARSE_JSON
+            case other =>
+              throw new GlutenNotSupportException(
+                s"Not supported to transform parse_json with failOnError: $other")
+          }
+          validateAndTransform(exprName, Seq(doTransform(input)))
+
+        case "isVariantNull" if objName.endsWith("VariantExpressionEvalUtils$") =>
+          validateAndTransform(ExpressionNames.IS_VARIANT_NULL, i.arguments.map(doTransform))
+
+        case "schemaOfVariant" if objName.endsWith("SchemaOfVariant$") =>
+          validateAndTransform(ExpressionNames.SCHEMA_OF_VARIANT, i.arguments.map(doTransform))
 
         case _ =>
           throw new GlutenNotSupportException(
@@ -531,6 +554,30 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           i)
       case s: ScalarSubquery =>
         ScalarSubqueryTransformer(substraitExprName, s)
+      case v if substraitExprName == ExpressionNames.VARIANT_GET =>
+        // VariantGet is Spark 4.0+ only. try_variant_get is the same class with failOnError off.
+        val exprName =
+          if (v.prettyName == ExpressionNames.TRY_VARIANT_GET) ExpressionNames.TRY_VARIANT_GET
+          else ExpressionNames.VARIANT_GET
+        GenericExpressionTransformer(
+          exprName,
+          v.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
+          v)
+      case c: Cast if VariantTypeUtil.isVariantType(c.dataType) =>
+        throw new GlutenNotSupportException(s"Not supported to cast to variant: $c")
+      case c: Cast if VariantTypeUtil.isVariantType(c.child.dataType) =>
+        // Velox has no cast from VARIANT. It is variant_get(v, '$') with the cast's result type,
+        // which fails on invalid values unless this is a try_cast, as Spark does.
+        val exprName =
+          if (c.evalMode == EvalMode.TRY) ExpressionNames.TRY_VARIANT_GET
+          else ExpressionNames.VARIANT_GET
+        GenericExpressionTransformer(
+          exprName,
+          Seq(
+            replaceWithExpressionTransformer0(c.child, attributeSeq, expressionsMap),
+            replaceWithExpressionTransformer0(Literal("$"), attributeSeq, expressionsMap)),
+          c
+        )
       case c: Cast =>
         // Gluten uses session-level timezone for cast. If the per-expression timezone
         // differs from session timezone and the cast involves timestamp type, we must

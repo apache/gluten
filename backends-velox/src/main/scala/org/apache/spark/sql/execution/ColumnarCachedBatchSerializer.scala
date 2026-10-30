@@ -24,7 +24,7 @@ import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
 import org.apache.gluten.runtime.Runtimes
 import org.apache.gluten.sql.shims.SparkShimLoader
-import org.apache.gluten.utils.ArrowAbiUtil
+import org.apache.gluten.utils.{ArrowAbiUtil, VariantTypeUtil}
 import org.apache.gluten.vectorized.ColumnarBatchSerializerJniWrapper
 
 import org.apache.spark.SparkEnv
@@ -778,7 +778,14 @@ class ColumnarCachedBatchSerializer extends SimpleMetricsCachedBatchSerializer
   }
 
   private def validateSchema(schema: StructType): Boolean = {
-    val reason = BackendsApiManager.getValidatorApiInstance.doSchemaValidate(schema)
+    val reason = BackendsApiManager.getValidatorApiInstance
+      .doSchemaValidate(schema)
+      .orElse(
+        if (VariantTypeUtil.containsVariantType(schema)) {
+          Some("Variant type is not supported in columnar cache")
+        } else {
+          None
+        })
     if (reason.isDefined) {
       logInfo(s"Columnar cache does not support schema $schema, due to ${reason.get}")
       false

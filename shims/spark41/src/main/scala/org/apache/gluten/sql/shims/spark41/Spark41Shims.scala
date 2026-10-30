@@ -26,6 +26,7 @@ import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.{ExtendedAnalysisException, InternalRow}
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
+import org.apache.spark.sql.catalyst.expressions.variant.{ToVariantObject, VariantGet}
 import org.apache.spark.sql.catalyst.plans.{JoinType, LeftSingle}
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
@@ -77,7 +78,9 @@ class Spark41Shims extends SparkShims {
       Sig[RandStr](ExpressionNames.RANDSTR),
       Sig[RegExpInStr](ExpressionNames.REGEXP_INSTR),
       Sig[DayName](ExpressionNames.DAY_NAME),
-      Sig[MonthName](ExpressionNames.MONTH_NAME)
+      Sig[MonthName](ExpressionNames.MONTH_NAME),
+      Sig[VariantGet](ExpressionNames.VARIANT_GET),
+      Sig[ToVariantObject](ExpressionNames.TO_VARIANT_OBJECT)
     )
   }
 

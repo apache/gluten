@@ -33,6 +33,11 @@ namespace gluten {
 
 typedef ::facebook::velox::connector::hive::HiveColumnHandle::ColumnType ColumnType;
 
+/// Type variation of a Substrait struct<metadata: binary, value: binary> that
+/// carries Spark's VariantType, parsed as Velox VARIANT. Keep in sync with
+/// VariantTypeNode.TYPE_VARIATION in gluten-substrait.
+constexpr uint32_t kVariantTypeVariation = 1;
+
 /// This class contains some common functions used to parse Substrait
 /// components, and convert them into recognizable representations.
 class SubstraitParser {

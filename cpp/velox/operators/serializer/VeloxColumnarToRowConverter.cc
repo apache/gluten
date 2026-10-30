@@ -21,6 +21,7 @@
 
 #include "memory/VeloxColumnarBatch.h"
 #include "utils/Exception.h"
+#include "utils/VeloxVariantUtils.h"
 #include "velox/row/UnsafeRowFast.h"
 
 using namespace facebook;
@@ -67,7 +68,10 @@ void VeloxColumnarToRowConverter::refreshStates(facebook::velox::RowVectorPtr ro
 
 void VeloxColumnarToRowConverter::convert(std::shared_ptr<ColumnarBatch> cb, int64_t startRow) {
   auto veloxBatch = VeloxColumnarBatch::from(veloxPool_.get(), cb);
-  refreshStates(veloxBatch->getRowVector(), startRow);
+  // UnsafeRowFast writes Variant values as VARBINARY in Spark's layout.
+  auto rowVector = std::dynamic_pointer_cast<velox::RowVector>(
+      variantToUnsafeRowBinary(veloxBatch->getRowVector(), veloxPool_.get()));
+  refreshStates(rowVector, startRow);
 
   // Initialize the offsets_ , lengths_
   lengths_.clear();

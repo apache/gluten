@@ -17,6 +17,8 @@
 
 #include "VeloxRowToColumnarConverter.h"
 #include "memory/VeloxColumnarBatch.h"
+#include "utils/VeloxArrowUtils.h"
+#include "utils/VeloxVariantUtils.h"
 #include "velox/row/UnsafeRowFast.h"
 #include "velox/vector/FlatVector.h"
 #include "velox/vector/arrow/Bridge.h"
@@ -262,7 +264,7 @@ VeloxRowToColumnarConverter::VeloxRowToColumnarConverter(
     struct ArrowSchema* cSchema,
     std::shared_ptr<memory::MemoryPool> memoryPool)
     : RowToColumnarConverter(), pool_(memoryPool) {
-  rowType_ = importFromArrow(*cSchema); // otherwise the c schema leaks memory
+  rowType_ = gluten::importVeloxTypeFromArrow(*cSchema); // otherwise the c schema leaks memory
   ArrowSchemaRelease(cSchema);
 }
 
@@ -277,7 +279,9 @@ VeloxRowToColumnarConverter::convert(int64_t numRows, int64_t* rowLength, uint8_
     data.emplace_back(reinterpret_cast<char*>(memoryAddress + offset));
     offset += rowLength[i];
   }
-  auto vp = row::UnsafeRowFast::deserialize(data, asRowType(rowType_), pool_.get());
+  // UnsafeRowFast reads Variant values as VARBINARY in Spark's layout.
+  VectorPtr vp = row::UnsafeRowFast::deserialize(data, asRowType(variantToUnsafeRowType(rowType_)), pool_.get());
+  vp = unsafeRowBinaryToVariant(std::move(vp), rowType_, pool_.get());
   return std::make_shared<VeloxColumnarBatch>(std::dynamic_pointer_cast<RowVector>(vp));
 }
 

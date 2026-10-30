@@ -17,6 +17,7 @@
 
 #include "VeloxSubstraitSignature.h"
 #include "velox/functions/FunctionRegistry.h"
+#include "velox/type/variant/VariantType.h"
 
 namespace gluten {
 
@@ -26,6 +27,9 @@ std::string VeloxSubstraitSignature::toSubstraitSignature(const TypePtr& type) {
   }
   if (type->equivalent(*TIMESTAMP_UTC())) {
     return "tsntz";
+  }
+  if (isVariantType(type)) {
+    return "variant";
   }
 
   switch (type->kind()) {
@@ -168,6 +172,10 @@ TypePtr VeloxSubstraitSignature::fromSubstraitSignature(const std::string& signa
 
   if (signature == "nothing") {
     return UNKNOWN();
+  }
+
+  if (signature == "variant") {
+    return VARIANT();
   }
 
   auto startWith = [](const std::string& str, const std::string& prefix) {

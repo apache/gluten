@@ -19,6 +19,7 @@ package org.apache.gluten.expression
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.substrait.`type`._
+import org.apache.gluten.utils.VariantTypeUtil
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.expressions._
@@ -187,6 +188,10 @@ object ConverterUtils extends Logging {
         val precision = decimal.getPrecision
         val scale = decimal.getScale
         (DecimalType(precision, scale), isNullable(decimal.getNullability))
+      case Type.KindCase.STRUCT
+          if substraitType.getStruct.getTypeVariationReference ==
+            VariantTypeNode.TYPE_VARIATION =>
+        (VariantTypeUtil.variantType, isNullable(substraitType.getStruct.getNullability))
       case Type.KindCase.STRUCT =>
         val struct_ = substraitType.getStruct
         val fields = struct_.getTypesList.asScala.zip(structFieldNames(struct_)).map {
@@ -273,6 +278,8 @@ object ConverterUtils extends Logging {
         TypeBuilder.makeStruct(nullable, fieldNodes.asJava, fieldNames.asJava)
       case _: NullType =>
         TypeBuilder.makeNothing()
+      case v if VariantTypeUtil.isVariantType(v) =>
+        TypeBuilder.makeVariant(nullable)
       case unknown =>
         throw new GlutenNotSupportException(s"Type $unknown not supported.")
     }
@@ -463,6 +470,8 @@ object ConverterUtils extends Logging {
         "fchar"
       case NullType =>
         "nothing"
+      case v if VariantTypeUtil.isVariantType(v) =>
+        "variant"
       case other =>
         throw new GlutenNotSupportException(s"Type $other not supported.")
     }

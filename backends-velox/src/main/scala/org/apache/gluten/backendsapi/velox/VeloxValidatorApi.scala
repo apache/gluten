@@ -24,6 +24,7 @@ import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.expression.ExpressionNode
 import org.apache.gluten.substrait.extensions.ExtensionBuilder
 import org.apache.gluten.substrait.plan.PlanNode
+import org.apache.gluten.utils.VariantTypeUtil
 import org.apache.gluten.validate.NativePlanValidationInfo
 import org.apache.gluten.vectorized.NativePlanEvaluator
 
@@ -113,6 +114,8 @@ object VeloxValidatorApi {
         true
       case dt if !enableTimestampNtzValidation && dt.catalogString == "timestamp_ntz" =>
         // Allow TimestampNTZ when validation is disabled (for development/testing)
+        true
+      case dt if VariantTypeUtil.isVariantType(dt) =>
         true
       case _ => false
     }

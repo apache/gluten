@@ -27,6 +27,7 @@
 
 #include "memory/ArrowMemory.h"
 #include "memory/VeloxColumnarBatch.h"
+#include "utils/VeloxArrowUtils.h"
 #include "velox/common/compression/Compression.h"
 #include "velox/common/memory/Memory.h"
 #include "velox/vector/FlatVector.h"
@@ -57,7 +58,7 @@ VeloxColumnarBatchSerializer::VeloxColumnarBatchSerializer(
     : ColumnarBatchSerializer(arrowPool), veloxPool_(std::move(veloxPool)) {
   // serializeColumnarBatches don't need rowType_
   if (cSchema != nullptr) {
-    rowType_ = asRowType(importFromArrow(*cSchema));
+    rowType_ = asRowType(gluten::importVeloxTypeFromArrow(*cSchema));
     ArrowSchemaRelease(cSchema); // otherwise the c schema leaks memory
   }
   arena_ = std::make_unique<StreamArena>(veloxPool_.get());

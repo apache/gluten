@@ -16,6 +16,8 @@
  */
 package org.apache.spark.sql.utils
 
+import org.apache.gluten.utils.VariantTypeUtil
+
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
@@ -29,6 +31,19 @@ import scala.collection.JavaConverters._
 
 /** Originated from org.apache.spark.sql.util.ArrowUtils. */
 object SparkArrowUtil {
+
+  /**
+   * Arrow has no Variant type. A Spark Variant is sent as the canonical Arrow extension type
+   * `arrow.parquet.variant` over struct<metadata: binary, value: binary>, so that the native side
+   * can restore Velox's VARIANT. Keep in sync with cpp/velox/utils/VeloxArrowUtils.cc.
+   */
+  private val ExtensionNameKey = "ARROW:extension:name"
+  private val ExtensionMetadataKey = "ARROW:extension:metadata"
+  private val VariantExtensionName = "arrow.parquet.variant"
+
+  private def isVariantField(field: Field): Boolean =
+    field.getType == ArrowType.Struct.INSTANCE &&
+      Option(field.getMetadata).exists(_.get(ExtensionNameKey) == VariantExtensionName)
 
   /** Maps data type from Spark to Arrow. NOTE: timeZoneId required for TimestampTypes */
   def toArrowType(dt: DataType, timeZoneId: String): ArrowType = dt match {
@@ -95,6 +110,20 @@ object SparkArrowUtil {
   /** Maps field from Spark to Arrow. NOTE: timeZoneId required for TimestampType */
   def toArrowField(name: String, dt: DataType, nullable: Boolean, timeZoneId: String): Field = {
     dt match {
+      case _ if VariantTypeUtil.isVariantType(dt) =>
+        val fieldType = new FieldType(
+          nullable,
+          ArrowType.Struct.INSTANCE,
+          null,
+          Map(ExtensionNameKey -> VariantExtensionName, ExtensionMetadataKey -> "").asJava)
+        val children = Seq("metadata", "value").map {
+          childName =>
+            new Field(
+              childName,
+              new FieldType(false, ArrowType.Binary.INSTANCE, null),
+              Seq.empty[Field].asJava)
+        }
+        new Field(name, fieldType, children.asJava)
       case ArrayType(elementType, containsNull) =>
         val fieldType = new FieldType(nullable, ArrowType.List.INSTANCE, null)
         new Field(
@@ -141,6 +170,7 @@ object SparkArrowUtil {
 
   def fromArrowField(field: Field): DataType = {
     field.getType match {
+      case _ if isVariantField(field) => VariantTypeUtil.variantType
       case _: ArrowType.Map =>
         val elementField = field.getChildren.get(0)
         val keyType = fromArrowField(elementField.getChildren.get(0))

@@ -26,6 +26,7 @@
 #include "velox/expression/Expr.h"
 #include "velox/expression/SignatureBinder.h"
 #include "velox/type/TypeCoercer.h"
+#include "velox/type/variant/VariantType.h"
 
 namespace gluten {
 namespace {
@@ -244,6 +245,12 @@ bool SubstraitToVeloxPlanValidator::isAllowedCast(const TypePtr& fromType, const
 
   // Don't support isIntervalYearMonth.
   if (fromType->isIntervalYearMonth() || toType->isIntervalYearMonth()) {
+    return false;
+  }
+
+  // Velox has no cast to or from VARIANT. The JVM side maps casts from Variant
+  // to variant_get.
+  if (velox::isVariantType(fromType) || velox::isVariantType(toType)) {
     return false;
   }
 

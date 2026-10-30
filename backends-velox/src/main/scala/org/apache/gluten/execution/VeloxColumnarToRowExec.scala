@@ -21,6 +21,7 @@ import org.apache.gluten.columnarbatch.{ColumnarBatches, VeloxColumnarBatches}
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.runtime.Runtimes
+import org.apache.gluten.utils.VariantTypeUtil
 import org.apache.gluten.vectorized.{NativeColumnarToRowInfo, NativeColumnarToRowJniWrapper}
 
 import org.apache.spark.broadcast.Broadcast
@@ -59,6 +60,7 @@ case class VeloxColumnarToRowExec(child: SparkPlan) extends ColumnarToRowExecBas
         case _: StructType =>
         case YearMonthIntervalType.DEFAULT =>
         case _: NullType =>
+        case other if VariantTypeUtil.isVariantType(other) =>
         case _ =>
           throw new GlutenNotSupportException(
             s"${field.dataType} is unsupported in " +

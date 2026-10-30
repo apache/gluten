@@ -246,10 +246,24 @@ object VeloxBackendSettings extends BackendSettingsApi {
         None
       }
     }
+    def validateVariantShredding(): Option[String] = {
+      if (
+        format != ParquetReadFormat || rootPaths.isEmpty ||
+        !fields.exists(f => VariantTypeUtil.containsVariantType(f.dataType))
+      ) {
+        return None
+      }
+      ParquetMetadataUtils.validateVariantShredding(
+        rootPaths,
+        hadoopConf,
+        GlutenConfig.get.parquetMetadataFallbackFileLimit)
+    }
+
     val validationChecks = Seq(
       validateScheme(),
       validateFormats(),
       validateMetadata(),
+      validateVariantShredding(),
       validateDataSchema()
     )
 
@@ -362,6 +376,8 @@ object VeloxBackendSettings extends BackendSettingsApi {
     def validateDataTypes(): Option[String] = {
       def hasUnsupportedType(dt: DataType): Boolean = dt match {
         case _: YearMonthIntervalType => true
+        // The Velox Parquet writer cannot write Variant yet.
+        case _ if VariantTypeUtil.isVariantType(dt) => true
         case st: StructType => st.fields.exists(f => hasUnsupportedType(f.dataType))
         case at: ArrayType => hasUnsupportedType(at.elementType)
         case mt: MapType => hasUnsupportedType(mt.keyType) || hasUnsupportedType(mt.valueType)

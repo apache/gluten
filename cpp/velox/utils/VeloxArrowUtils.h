@@ -53,6 +53,12 @@ std::shared_ptr<arrow::Schema> toArrowSchema(
 
 facebook::velox::TypePtr fromArrowSchema(const std::shared_ptr<arrow::Schema>& schema);
 
+/// Same as facebook::velox::importFromArrow, but also restores Velox VARIANT
+/// from struct fields that carry the `arrow.parquet.variant` extension type.
+/// Velox's Arrow bridge ignores extension types. The JVM side sends Spark's
+/// VariantType that way, see SparkArrowUtil.
+facebook::velox::TypePtr importVeloxTypeFromArrow(const struct ArrowSchema& arrowSchema);
+
 arrow::Result<std::shared_ptr<arrow::Buffer>> toArrowBuffer(facebook::velox::BufferPtr buffer, arrow::MemoryPool* pool);
 
 /**

@@ -17,7 +17,9 @@
 
 #include "VeloxToSubstraitType.h"
 
+#include "SubstraitParser.h"
 #include "velox/expression/Expr.h"
+#include "velox/type/variant/VariantType.h"
 
 namespace gluten {
 
@@ -122,6 +124,9 @@ const ::substrait::Type& VeloxToSubstraitTypeConvertor::toSubstraitType(
     case velox::TypeKind::ROW: {
       ::substrait::Type_Struct* substraitStruct =
           google::protobuf::Arena::CreateMessage<::substrait::Type_Struct>(&arena);
+      if (velox::isVariantType(type)) {
+        substraitStruct->set_type_variation_reference(kVariantTypeVariation);
+      }
       const auto& rowType = type->asRow();
       for (uint32_t i = 0; i < rowType.size(); ++i) {
         substraitStruct->add_types()->MergeFrom(toSubstraitType(arena, rowType.childAt(i)));

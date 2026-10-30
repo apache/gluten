@@ -28,6 +28,9 @@ import org.apache.hadoop.fs.{FileSystem, LocatedFileStatus, Path}
 import org.apache.parquet.crypto.ParquetCryptoRuntimeException
 import org.apache.parquet.format.converter.ParquetMetadataConverter
 import org.apache.parquet.hadoop.metadata.ParquetMetadata
+import org.apache.parquet.schema.GroupType
+
+import scala.collection.JavaConverters._
 
 object ParquetMetadataUtils extends Logging {
 
@@ -80,6 +83,50 @@ object ParquetMetadataUtils extends Logging {
       }
       None
     }
+  }
+
+  /**
+   * Velox reads unshredded Variant columns only. Checks the footers of the first `fileLimit` files
+   * under each root path for a shredded Variant group, which has a `typed_value` field next to
+   * `metadata`. Unlike [[validateMetadata]], this always runs, since reading such a file fails.
+   */
+  def validateVariantShredding(
+      rootPaths: Seq[String],
+      hadoopConf: Configuration,
+      fileLimit: Int): Option[String] = {
+    def isShredded(group: GroupType): Boolean = {
+      val names = group.getFields.asScala.map(_.getName).toSet
+      (names.contains("metadata") && names.contains("typed_value")) ||
+      group.getFields.asScala.exists(f => !f.isPrimitive && isShredded(f.asGroupType()))
+    }
+    rootPaths.foreach {
+      rootPath =>
+        try {
+          val path = new Path(rootPath)
+          val filesIterator = path.getFileSystem(hadoopConf).listFiles(path, true)
+          var checkedFileCount = 0
+          while (filesIterator.hasNext && checkedFileCount < fileLimit) {
+            val fileStatus = filesIterator.next()
+            if (
+              !fileStatus.getPath.getName.startsWith("_") &&
+              !fileStatus.getPath.getName.startsWith(".")
+            ) {
+              checkedFileCount += 1
+              val footer = ParquetFooterReaderShim.readFooter(
+                hadoopConf,
+                fileStatus,
+                ParquetMetadataConverter.NO_FILTER)
+              if (isShredded(footer.getFileMetaData.getSchema)) {
+                return Some(s"Shredded Variant detected in Parquet file ${fileStatus.getPath}.")
+              }
+            }
+          }
+        } catch {
+          case e: Exception =>
+            logWarning("Catch exception when checking parquet files for shredded Variant", e)
+        }
+    }
+    None
   }
 
   /**

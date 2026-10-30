@@ -20,6 +20,7 @@
 #include "TypeUtils.h"
 #include "VeloxSubstraitSignature.h"
 #include "velox/common/base/Exceptions.h"
+#include "velox/type/variant/VariantType.h"
 
 namespace gluten {
 
@@ -45,6 +46,9 @@ TypePtr SubstraitParser::parseType(const ::substrait::Type& substraitType, bool 
       return VARBINARY();
     case ::substrait::Type::KindCase::kStruct: {
       const auto& substraitStruct = substraitType.struct_();
+      if (substraitStruct.type_variation_reference() == kVariantTypeVariation) {
+        return VARIANT();
+      }
       const auto& structTypes = substraitStruct.types();
       const auto& structNames = substraitStruct.names();
       bool nameProvided = structTypes.size() == structNames.size();
