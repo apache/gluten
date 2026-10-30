@@ -70,6 +70,15 @@ abstract class GlutenDecimalRoundSuiteBase extends GlutenSQLTestsTrait {
     }
   }
 
+  private def checkNativeScaleError(scale: String): Unit = {
+    val df = sql(s"SELECT round(value, $scale) FROM decimal_round_input")
+    assertExecution(df, native = true)
+    val error = intercept[Exception](df.collect())
+    assert(Iterator.iterate[Throwable](error)(_.getCause).takeWhile(_ != null).exists {
+      cause => Option(cause.getMessage).exists(_.contains("Scale must be in [-400, 400]"))
+    })
+  }
+
   testGluten("decimal ROUND preserves schemas and HALF_UP results across storage boundaries") {
     val cases = Seq(
       (DecimalType(3, 1), Seq("2.5", "-2.5", "0")),
@@ -122,15 +131,14 @@ abstract class GlutenDecimalRoundSuiteBase extends GlutenSQLTestsTrait {
     }
   }
 
-  testGluten(
-    "decimal ROUND retains NULL scales and guards extreme scales without native validation") {
+  testGluten("decimal ROUND debug mode bypasses fallback for unsupported scales") {
     withInput(DecimalType(3, 1), Seq("2.5", "-2.5", "0")) {
       withSQLConf(
         GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> "false",
         SQLConf.OPTIMIZER_EXCLUDED_RULES.key -> NullPropagation.ruleName) {
         checkRound("CAST(NULL AS INT)")
-        checkRound("-401", native = false)
-        checkRound("401", native = false)
+        checkNativeScaleError("-401")
+        checkNativeScaleError("401")
       }
     }
   }
@@ -153,8 +161,13 @@ abstract class GlutenDecimalRoundSuiteBase extends GlutenSQLTestsTrait {
           checkRound("-200 - 200")
           checkRound("200 + 200")
           checkRound("CAST(NULL AS INT)")
-          checkRound("400 + 1", native = false)
-          checkRound("-400 - 1", native = false)
+          if (nativeValidation == "true") {
+            checkRound("400 + 1", native = false)
+            checkRound("-400 - 1", native = false)
+          } else {
+            checkNativeScaleError("400 + 1")
+            checkNativeScaleError("-400 - 1")
+          }
         }
       }
     }
