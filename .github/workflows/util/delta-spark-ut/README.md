@@ -136,6 +136,12 @@ and installs equivalent hooks for `DeltaHiveTest`, `DeltaSessionQueryTest`, Java
 The helper sources live under `gluten-ut/src-delta-validation`; no production
 Gluten classes or dependency JARs are modified.
 
+Generated declarations and factory calls respect Delta's 100-character line
+limit. Copied helper files keep their original ASF license headers; only Delta's
+copyright-specific `header.matches` rule is exempted in those copies. Their
+remaining Delta style checks still run, and the original sources remain subject
+to Gluten's formatting and license checks.
+
 Each checked test verifies the actual context's plugin configuration, installed
 Gluten columnar rules, `spark.gluten.enabled`, and
 `gluten.enabledForCurrentThread`. Direct-factory tests check each wrapped

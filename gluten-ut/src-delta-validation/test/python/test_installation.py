@@ -55,6 +55,28 @@ class InstallationTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             installation.add_hook(source, "Missing")
 
+    def test_long_hook_declarations_obey_delta_line_limit(self):
+        source = (
+            "class DeltaCommitLockSuite extends SparkFunSuite "
+            "with LocalSparkSession with SQLHelper {\n}\n"
+        )
+        result = installation.add_hook(source, "DeltaCommitLockSuite")
+        self.assertTrue(all(len(line) <= 100 for line in result.splitlines()))
+        self.assertEqual(result, installation.add_hook(result, "DeltaCommitLockSuite"))
+
+    def test_factory_wrapping_obeys_delta_line_limit_and_is_idempotent(self):
+        source = (
+            "      withSparkSession(SparkSession.builder.config(sparkConf)"
+            ".getOrCreate().glutenChecked) { spark =>\n"
+            "    val sc = checkedContext(SparkContext.getOrCreate("
+            'new SparkConf().setAppName("test").setMaster("local")))\n'
+        )
+        result = installation.wrap_validation_calls(source)
+        self.assertTrue(all(len(line) <= 100 for line in result.splitlines()))
+        self.assertEqual(result, installation.wrap_validation_calls(result))
+        self.assertIn(".getOrCreate()\n        .glutenChecked)", result)
+        self.assertIn("checkedContext(\n      SparkContext.getOrCreate", result)
+
     def test_unexpected_source_context_fails_instead_of_skipping(self):
         with self.assertRaises(ValueError):
             installation.replace_once(
@@ -153,6 +175,27 @@ class InstallationTest(unittest.TestCase):
                 "import org.apache.spark.sql.test.SharedSparkSession",
                 (copied / "GlutenActivationSuite.scala").read_text(encoding="utf-8"),
             )
+            for kind in ("main", "test"):
+                source_root = installation.SOURCES / kind / "scala"
+                for source in source_root.rglob("*.scala"):
+                    destination = (
+                        root
+                        / "spark-unified/src/test/scala"
+                        / source.relative_to(source_root)
+                    )
+                    self.assertEqual(
+                        installation.FOREIGN_HEADER_DIRECTIVE
+                        + source.read_text(encoding="utf-8"),
+                        destination.read_text(encoding="utf-8"),
+                    )
+            for source in (root / "spark/src/test/scala").rglob("*.scala"):
+                for number, line in enumerate(
+                    source.read_text(encoding="utf-8").splitlines(), 1
+                ):
+                    if not line.startswith("import "):
+                        self.assertLessEqual(
+                            len(line), 100, "{}:{}".format(source, number)
+                        )
 
 
 if __name__ == "__main__":

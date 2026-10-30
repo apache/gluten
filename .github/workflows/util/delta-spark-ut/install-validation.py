@@ -30,6 +30,7 @@ CHECKED = PACKAGE + ".GlutenValidation"
 SHARED_IMPORT = (
     "import " + PACKAGE + ".{GlutenSharedSparkSession => SharedSparkSession}"
 )
+FOREIGN_HEADER_DIRECTIVE = "// scalastyle:off header.matches\n"
 
 
 def replace_once(text, old, new, description):
@@ -83,14 +84,36 @@ def add_hook(text, class_name):
     matches = list(re.finditer(pattern, text))
     if len(matches) != 1:
         raise ValueError("Expected one declaration of " + class_name)
-    header = matches[0][1]
-    if PACKAGE + ".GlutenCheckedTest" in header:
-        return text
+    header = re.sub(
+        r"\s+with\s+" + re.escape(PACKAGE + ".GlutenCheckedTest"),
+        "",
+        matches[0][1],
+    )
+    suffix = text[matches[0].end() :]
     return (
         text[: matches[0].start()]
-        + (header.rstrip() + " with " + PACKAGE + ".GlutenCheckedTest {\n")
-        + text[matches[0].end() :]
+        + (header.rstrip() + "\n  with " + PACKAGE + ".GlutenCheckedTest {")
+        + ("" if suffix.startswith("\n") else "\n")
+        + suffix
     )
+
+
+def wrap_validation_calls(text):
+    """Keep the added calls within Delta's line limit without reformatting test bodies."""
+    lines = []
+    for line in text.splitlines():
+        if len(line) > 100:
+            split = -1
+            if "checkedContext(" in line:
+                split = line.index("checkedContext(") + len("checkedContext(")
+            elif ".glutenChecked" in line:
+                split = line.index(".glutenChecked")
+            if split >= 0:
+                indent = re.match(r"[ \t]*", line)[0]
+                lines.extend((line[:split], indent + "  " + line[split:]))
+                continue
+        lines.append(line)
+    return "\n".join(lines) + "\n"
 
 
 def install(delta, sources=SOURCES, support=SUPPORT):
@@ -146,21 +169,24 @@ def install(delta, sources=SOURCES, support=SUPPORT):
         if name.endswith(".SparkThreadLocalForwardingSuite"):
             original = 'SparkContext.getOrCreate(new SparkConf().setAppName("test").setMaster("local"))'
             wrapped = "checkedContext(" + original + ")"
-            if wrapped not in text:
-                if text.count(original) != 4:
-                    raise ValueError(
-                        "Expected four thread-forwarding SparkContext factories"
-                    )
+            wrapped_count = len(
+                re.findall(r"checkedContext\(\s*" + re.escape(original) + r"\)", text)
+            )
+            if text.count(original) != 4 or wrapped_count not in (0, 4):
+                raise ValueError(
+                    "Expected four consistently wrapped thread-forwarding SparkContext factories"
+                )
+            if not wrapped_count:
                 text = text.replace(original, wrapped)
         else:
             text = re.sub(
-                r"\.getOrCreate\(\)(?!\.glutenChecked)",
+                r"\.getOrCreate\(\)(?!\s*\.glutenChecked)",
                 ".getOrCreate().glutenChecked",
                 text,
             )
-            if ".getOrCreate().glutenChecked" not in text:
+            if not re.search(r"\.getOrCreate\(\)\s*\.glutenChecked", text):
                 raise ValueError("No checked SparkSession factory found in " + name)
-        path.write_text(text, encoding="utf-8")
+        path.write_text(wrap_validation_calls(text), encoding="utf-8")
 
     java_root = spark_tests / "java"
     java_fixture = java_root / "org/apache/spark/sql/delta/DeltaSQLCommandJavaTest.java"
@@ -212,7 +238,11 @@ def install(delta, sources=SOURCES, support=SUPPORT):
         for path in source_root.rglob("*.scala"):
             target = destination / path.relative_to(source_root)
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(path, target)
+            # Delta requires its own copyright. Retain the foreign ASF header and all other checks.
+            target.write_text(
+                FOREIGN_HEADER_DIRECTIVE + path.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
             copied += 1
     if copied != 3:
         raise ValueError(
