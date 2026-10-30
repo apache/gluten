@@ -16,6 +16,8 @@
  */
 package org.apache.spark.sql.gluten
 
+import org.apache.spark.sql.QueryTest
+
 import org.scalatest.funsuite.AnyFunSuite
 
 import java.nio.charset.StandardCharsets.UTF_8
@@ -28,6 +30,7 @@ class GlutenValidationSuite extends AnyFunSuite {
     intercept[IllegalArgumentException] {
       GlutenValidation.assertSettings("", true, None, true)
     }
+
     intercept[IllegalArgumentException] {
       GlutenValidation.assertSettings(plugin, true, None, false)
     }
@@ -50,7 +53,7 @@ class GlutenValidationSuite extends AnyFunSuite {
     GlutenValidation.assertSettings(plugin, true, None, true)
   }
 
-  test("test keys use the same newline normalization as the baseline gate") {
+  test("exemption keys retain the legacy text normalization") {
     assert(GlutenValidation.testKey("Suite", "a\r\nb ") == "Suite#a  b")
   }
 
@@ -75,5 +78,33 @@ class GlutenValidationSuite extends AnyFunSuite {
     } finally {
       Files.delete(path)
     }
+  }
+}
+
+class GlutenValidationIdentitySuite extends QueryTest with GlutenSharedSparkSession {
+  private def checkDefault(): Unit =
+    assert(spark.conf.get("spark.gluten.enabled", "true").toBoolean)
+
+  Seq(" ", "\n", "\r", "\t", 0x2028.toChar.toString).foreach {
+    character =>
+      test(s"partition column names and values contain '$character'") {
+        checkDefault()
+      }
+  }
+
+  test("GlutenValidationIdentitySuite with nested struct and mixed types") {
+    checkDefault()
+  }
+
+  test("org.apache.spark.sql.gluten.GlutenValidationIdentitySuite.case") {
+    checkDefault()
+  }
+
+  test("case") {
+    checkDefault()
+  }
+
+  test(" leading and trailing ") {
+    checkDefault()
   }
 }

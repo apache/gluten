@@ -246,6 +246,7 @@ WATCHDOG_PID=$!
   "++ ${DELTA_SCALA_VERSION}" \
   'set spark / Test / javaOptions ++= Seq("-Xmx2G", "-XX:+HeapDumpOnOutOfMemoryError", "-XX:HeapDumpPath=/tmp/")' \
   'set spark / Test / testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-u", "target/test-reports")' \
+  'set org.apache.gluten.ci.GlutenTestGrouping.results' \
   'set org.apache.gluten.ci.GlutenTestGrouping.setting' \
   "spark/test" 2>&1 | tee "$SBT_LOG"
 SBT_EXIT=${PIPESTATUS[0]}

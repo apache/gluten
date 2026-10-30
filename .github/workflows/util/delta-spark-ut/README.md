@@ -156,6 +156,14 @@ than silently turning that suite into an unchecked success. Suites outside the
 recognized fixtures/factories are listed explicitly as **uncovered**, not
 automatically assumed to be Spark-free.
 
+Its sbt listener records lossless framework result identities separately from
+JUnit XML. Names are Base64-encoded in completed, counted per-suite records, so
+spaces, tabs, newlines, and suite-name prefixes remain distinct. The activation
+gate matches those raw results to the JVM evidence. JUnit is cross-checked for
+suite presence and test counts, not display-name equality: XML normalizes
+attribute whitespace, and sbt's JUnit writer can strip a suite-name prefix.
+Missing/truncated execution records and listener errors fail the gate.
+
 The runner applies these settings with sbt's `set` command after the build loads.
 Merely adding a root `.sbt` file is insufficient: Delta's project-level test
 settings can override it, leaving the validation inventory and per-fork canary
@@ -175,13 +183,15 @@ self-tests cannot turn an otherwise empty Delta run green.
 or malformed evidence, violations, and failing harness tests always fail the
 shard, including with `update_baseline=true` or `fail_on_fixed=false`. Neither
 known failures nor flaky quarantine can suppress them. The workflow uploads the
-compiled inventory, per-JVM JSONL records, and coverage summary as
-`delta-spark-ut-validation-shard-<id>`.
+compiled inventory, lossless execution records, per-JVM JSONL records, and coverage
+summary as `delta-spark-ut-validation-shard-<id>`.
 
 Intentional default-disabled tests require an entry in
 `validation-exemptions.txt`: `<exact suite>#<exact test><TAB><reason>`. An exact
 suite followed by `#*` exempts that whole suite. Exempted tests must still emit
 matching lifecycle evidence, and the validation harness cannot be exempted.
+An exact exemption whose normalized text matches multiple distinct raw test
+names is rejected instead of silently exempting all of them.
 Temporary `withSQLConf("spark.gluten.enabled" -> "false")` scopes need no entry
 when the enabled default is restored.
 
@@ -409,6 +419,7 @@ export GLUTEN_VALIDATION_DIR="$(mktemp -d)"
 export GLUTEN_VALIDATION_EXEMPTIONS="$GLUTEN_REPO/.github/workflows/util/delta-spark-ut/validation-exemptions.txt"
 ./build/sbt -DsparkVersion=4.1 "++ 2.13.17" \
   'set spark / Test / testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-u", "target/test-reports")' \
+  'set org.apache.gluten.ci.GlutenTestGrouping.results' \
   'set org.apache.gluten.ci.GlutenTestGrouping.setting' \
   spark/test
 

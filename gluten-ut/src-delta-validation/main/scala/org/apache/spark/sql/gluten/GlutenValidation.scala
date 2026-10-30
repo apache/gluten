@@ -57,6 +57,7 @@ object GlutenValidation {
     val checks: ArrayBuffer[() => Unit] = ArrayBuffer.empty
   }
 
+  // Only the legacy text exemption format is normalized; evidence keeps the raw test identity.
   private[gluten] def testKey(suite: String, test: String): String =
     s"$suite#${test.replace('\r', ' ').replace('\n', ' ')}".trim
 

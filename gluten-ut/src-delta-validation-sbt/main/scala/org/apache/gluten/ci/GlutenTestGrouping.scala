@@ -18,8 +18,97 @@ package org.apache.gluten.ci
 
 import sbt._
 import sbt.Keys._
+import sbt.testing.{AnnotatedFingerprint, Event, NestedSuiteSelector, NestedTestSelector, SubclassFingerprint, SuiteSelector, TestSelector}
+
+import java.nio.charset.StandardCharsets.UTF_8
+import java.nio.file.Files
+import java.util.{Base64, UUID}
+
+import scala.collection.mutable.ArrayBuffer
+import scala.util.control.NonFatal
 
 object GlutenTestGrouping {
+  val results = LocalProject("spark") / Test / testListeners +=
+    new ExecutionResults(file(sys.env("GLUTEN_VALIDATION_DIR")))
+
+  private class ExecutionResults(directory: File) extends TestReportListener {
+    private case class Group(name: String) {
+      val events: ArrayBuffer[Event] = ArrayBuffer.empty
+    }
+
+    private val active = new InheritableThreadLocal[Group]()
+
+    private def encoded(value: String): String = {
+      val bytes = value.getBytes(UTF_8)
+      require(new String(bytes, UTF_8) == value, "Invalid UTF-8 test identity")
+      Base64.getEncoder.encodeToString(bytes)
+    }
+
+    private def guarded(body: => Unit): Unit = {
+      try {
+        body
+      } catch {
+        case NonFatal(error) =>
+          IO.write(directory / s"execution-error-${UUID.randomUUID()}.txt", error.toString)
+          throw error
+      }
+    }
+
+    private def current: Group =
+      Option(active.get()).getOrElse(sys.error("Missing execution-results group"))
+
+    override def startGroup(name: String): Unit = guarded {
+      require(active.get() == null, s"Overlapping execution-results groups: $name")
+      active.set(Group(name))
+    }
+
+    override def testEvent(event: TestEvent): Unit = guarded {
+      current.events ++= event.detail
+    }
+
+    private def eventLine(group: Group, event: Event): String = {
+      val fingerprint = event.fingerprint match {
+        case value: AnnotatedFingerprint => "annotation:" + value.annotationName
+        case value: SubclassFingerprint => "subclass:" + value.superclassName
+        case other => sys.error(s"Unsupported execution-results fingerprint: $other")
+      }
+      val (kind, suite, test) = event.selector match {
+        case value: TestSelector => ("test", group.name, value.testName())
+        case value: NestedTestSelector => ("test", value.suiteId(), value.testName())
+        case _: SuiteSelector => ("suite", group.name, "")
+        case value: NestedSuiteSelector => ("suite", value.suiteId(), "")
+        case other => sys.error(s"Unsupported execution-results selector: $other")
+      }
+      Seq(kind, event.status.toString, encoded(suite), encoded(test), encoded(fingerprint))
+        .mkString("\t")
+    }
+
+    private def finish(name: String, result: TestResult, aborted: Boolean): Unit = guarded {
+      val group = current
+      try {
+        require(group.name == name, s"Mismatched execution-results group: $name")
+        val events = group.events.map(event => eventLine(group, event))
+        if (aborted) {
+          events += Seq("suite", "Error", encoded(name), "", "").mkString("\t")
+        }
+        // JUnit attribute normalization and sbt's display-name rewriting are intentionally avoided.
+        val lines = Seq("version\t1\t" + encoded(name)) ++ events ++
+          Seq(s"complete\t$result\t${events.size}")
+        Files.write(
+          (directory / s"execution-${UUID.randomUUID()}.tsv").toPath,
+          lines.mkString("", "\n", "\n").getBytes(UTF_8))
+      } finally {
+        active.remove()
+      }
+    }
+
+    override def endGroup(name: String, result: TestResult): Unit =
+      finish(name, result, aborted = false)
+
+    override def endGroup(name: String, error: Throwable): Unit =
+      finish(name, TestResult.Error, aborted = true)
+  }
+
   val setting = LocalProject("spark") / Test / testGrouping := {
     val groups = (LocalProject("spark") / Test / testGrouping).value
     val definitions = (LocalProject("spark") / Test / definedTests).value
@@ -78,8 +167,8 @@ object GlutenTestGrouping {
           val parents = hierarchy(clazz)
           val role =
             if (test.name == canaryName) "canary"
-            else if (test.name.startsWith("org.apache.spark.sql.gluten.")) "self-test"
             else if (factories(test.name) || parents.exists(sparkFixtures)) "required"
+            else if (test.name.startsWith("org.apache.spark.sql.gluten.")) "self-test"
             else "uncovered"
           s"$role\t${test.name}"
       }
