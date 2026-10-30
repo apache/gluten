@@ -21,6 +21,7 @@
 #include <limits>
 #include "jni/JavaException.h"
 #include "jni/JniCommon.h"
+#include "velox/expression/ExpressionExceptionProperties.h"
 
 namespace gluten {
 namespace {
