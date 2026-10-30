@@ -157,6 +157,35 @@ public class IntervalArithmeticConverterTest {
   }
 
   @Test
+  public void datePlusIntervalDayTimeToTimestamp() {
+    // Flink: TIMESTAMPADD(HOUR, 5, DATE '2025-03-15') returns a TIMESTAMP.
+    // The converter should cast the DATE to TIMESTAMP before calling plus.
+    RexCall call =
+        (RexCall)
+            rexBuilder.makeCall(
+                org.apache.calcite.sql.fun.SqlStdOperatorTable.PLUS,
+                dateInputRef(),
+                hourInterval(5 * 3600000));
+    // Override the result type to TIMESTAMP (what Calcite would infer).
+    org.apache.calcite.rex.RexCall resultCall =
+        (org.apache.calcite.rex.RexCall)
+            rexBuilder.makeCall(
+                typeFactory.createSqlType(SqlTypeName.TIMESTAMP, 3),
+                org.apache.calcite.sql.fun.SqlStdOperatorTable.PLUS,
+                java.util.List.of(dateInputRef(), hourInterval(5 * 3600000)));
+    RexCallConverter converter = RexCallConverterFactory.getConverter(resultCall, context);
+    CallTypedExpr expr = (CallTypedExpr) converter.toTypedExpr(resultCall, context);
+    assertThat(expr.getFunctionName()).isEqualTo("plus");
+    assertThat(expr.getReturnType()).isInstanceOf(TimestampType.class);
+    // First operand should be CAST(DATE AS TIMESTAMP).
+    assertThat(expr.getInputs().get(0))
+        .isInstanceOf(io.github.zhztheplayer.velox4j.expression.CastTypedExpr.class);
+    assertThat(expr.getInputs().get(0).getReturnType()).isInstanceOf(TimestampType.class);
+    // Second operand stays as the interval.
+    assertThat(expr.getInputs().get(1).getReturnType()).isInstanceOf(IntervalDayTimeType.class);
+  }
+
+  @Test
   public void datePlusInterval() {
     RexCall call =
         (RexCall)

@@ -21,6 +21,7 @@ import org.apache.gluten.rexnode.RexNodeConverter;
 import org.apache.gluten.rexnode.ValidationResult;
 
 import io.github.zhztheplayer.velox4j.expression.CallTypedExpr;
+import io.github.zhztheplayer.velox4j.expression.CastTypedExpr;
 import io.github.zhztheplayer.velox4j.expression.TypedExpr;
 import io.github.zhztheplayer.velox4j.type.DateType;
 import io.github.zhztheplayer.velox4j.type.IntervalDayTimeType;
@@ -83,6 +84,18 @@ public class IntervalArithmeticRexCallConverter extends BaseRexCallConverter {
     // here (plus is commutative for these types).
     if (isInterval(params.get(0).getReturnType())) {
       params = List.of(params.get(1), params.get(0));
+    }
+    // Flink's TIMESTAMPADD with sub-day units on a DATE returns a TIMESTAMP
+    // (e.g. TIMESTAMPADD(HOUR, 5, DATE '2025-03-15') = TIMESTAMP
+    // '2025-03-15 05:00:00'). Velox only has plus(Date, IntervalDayTime) ->
+    // Date, so when the expected result type is TIMESTAMP and the datetime
+    // operand is a DATE, cast it to TIMESTAMP before the plus/minus call.
+    // The cast is pure arithmetic (days * micros_per_day, no timezone) and
+    // semantically equivalent to Flink's result.
+    if (params.get(0).getReturnType() instanceof DateType
+        && getResultType(callNode) instanceof TimestampType) {
+      params =
+          List.of(CastTypedExpr.create(new TimestampType(), params.get(0), false), params.get(1));
     }
     return new CallTypedExpr(getResultType(callNode), params, functionName);
   }
