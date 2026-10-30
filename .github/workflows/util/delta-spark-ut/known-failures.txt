@@ -103,18 +103,26 @@ org.apache.spark.sql.delta.DeltaSuite#SC-8810: skip deleted file
 org.apache.spark.sql.delta.DeltaSuite#SC-8810: skipping deleted file still throws on corrupted file
 org.apache.spark.sql.delta.DeltaSuite#all operations with special characters in path
 org.apache.spark.sql.delta.DeltaSuite#deleted files cause failure by default
+org.apache.spark.sql.delta.DeltaSuite#invalid replaceWhere
+org.apache.spark.sql.delta.DeltaSuite#replaceArbitrary should enforce proper usage of backtick
 org.apache.spark.sql.delta.DeltaTableCreationSuite#Default column values: CONVERT TO DELTA keeps EXISTS_DEFAULT
 org.apache.spark.sql.delta.DeltaVacuumSuite#vacuum for cdc - delete tombstones
 org.apache.spark.sql.delta.DeltaVacuumSuite#vacuum for cdc - update/merge
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch100Suite#SC-8810: skip deleted file
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch100Suite#SC-8810: skipping deleted file still throws on corrupted file
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch100Suite#deleted files cause failure by default
+org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch100Suite#invalid replaceWhere
+org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch100Suite#replaceArbitrary should enforce proper usage of backtick
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch1Suite#SC-8810: skip deleted file
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch1Suite#SC-8810: skipping deleted file still throws on corrupted file
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch1Suite#deleted files cause failure by default
+org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch1Suite#invalid replaceWhere
+org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch1Suite#replaceArbitrary should enforce proper usage of backtick
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch2Suite#SC-8810: skip deleted file
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch2Suite#SC-8810: skipping deleted file still throws on corrupted file
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch2Suite#deleted files cause failure by default
+org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch2Suite#invalid replaceWhere
+org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch2Suite#replaceArbitrary should enforce proper usage of backtick
 org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only - Partitioned = false, CDF = false
 org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only - Partitioned = false, CDF = true
 org.apache.spark.sql.delta.DescribeDeltaHistorySuite#merge-metrics: delete-only - Partitioned = true, CDF = false
@@ -479,6 +487,8 @@ org.apache.spark.sql.delta.generatedsuites.update.UpdateBaseTempViewSQLPathBased
 org.apache.spark.sql.delta.generatedsuites.update.UpdateBaseTempViewSQLPathBasedRowTrackingOffSuite#test update on temp view - nontrivial projection - SQL TempView
 org.apache.spark.sql.delta.generatedsuites.update.UpdateBaseTempViewSQLPathBasedSuite#test update on temp view - nontrivial projection - Dataset TempView
 org.apache.spark.sql.delta.generatedsuites.update.UpdateBaseTempViewSQLPathBasedSuite#test update on temp view - nontrivial projection - SQL TempView
+org.apache.spark.sql.delta.optimize.OptimizeCompactionSQLSuite#optimize - multiple jobs start executing at once
+org.apache.spark.sql.delta.optimize.OptimizeCompactionScalaSuite#optimize - multiple jobs start executing at once
 org.apache.spark.sql.delta.optimize.OptimizeMetricsSuite#optimize ZOrderBy operation metrics in Delta table history
 org.apache.spark.sql.delta.optimize.OptimizeMetricsSuite#optimize metrics on idempotent operations
 org.apache.spark.sql.delta.perf.OptimizeGeneratedColumnSuite#end-to-end test of behaviors of write/read null on partition column
