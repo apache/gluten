@@ -20,6 +20,7 @@ import org.apache.spark.SparkConf
 import org.apache.spark.sql.catalyst.expressions.{Alias, Literal}
 import org.apache.spark.sql.catalyst.optimizer.{ConstantFolding, NullPropagation}
 import org.apache.spark.sql.classic.ClassicColumn
+import org.apache.spark.sql.execution.GlutenImplicits._
 import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.types.StringType
 
@@ -516,6 +517,27 @@ class VeloxStringFunctionsSuite extends VeloxWholeStageTransformerSuite {
       s"""select rlike(l_returnflag, "(?<!N)") from $LINEITEM_TABLE limit 5""",
       true,
       false)(_ => {})
+  }
+
+  test("regex with character class intersection falls back") {
+    // Java reads "&&" inside a character class as intersection, RE2 as two literal '&'.
+    // The last pattern also covers a ']' right after "[^", which is a class member.
+    Seq(
+      s"select l_orderkey, rlike(l_comment, '[a&&d]') from $LINEITEM_TABLE limit $LENGTH",
+      s"select l_orderkey, regexp_extract(l_comment, '[a-z&&l-p]', 0) " +
+        s"from $LINEITEM_TABLE limit $LENGTH",
+      s"select l_orderkey, regexp_replace(l_comment, '[^]&&x]', '') " +
+        s"from $LINEITEM_TABLE limit $LENGTH"
+    ).foreach {
+      query =>
+        val df = runQueryAndCompare(query, noFallBack = false)(_ => {})
+        val reasons = df.fallbackSummary().fallbackNodeToReason.flatMap(_.values)
+        assert(reasons.exists(_.contains("Not support character class")), reasons.mkString("\n"))
+    }
+    // A single '&' is an ordinary class member in both engines, so this stays native.
+    runQueryAndCompare(
+      s"select l_orderkey, rlike(l_comment, '[a&d]') from $LINEITEM_TABLE limit $LENGTH")(
+      checkGlutenPlan[ProjectExecTransformer])
   }
 
   test("replace") {
