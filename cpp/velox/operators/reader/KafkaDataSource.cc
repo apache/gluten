@@ -194,14 +194,42 @@ std::optional<RowVectorPtr> KafkaDataSource::next(uint64_t size, ContinueFuture&
   return nullptr;
 }
 
+std::chrono::steady_clock::time_point KafkaDataSource::pollTime() const {
+  return std::chrono::steady_clock::now();
+}
+
+RdKafka::Message* KafkaDataSource::consume(int timeoutMs) {
+  return consumer_->consume(timeoutMs);
+}
+
 std::vector<std::unique_ptr<RdKafka::Message>> KafkaDataSource::poll(uint64_t maxRows) {
   std::vector<std::unique_ptr<RdKafka::Message>> messages;
   const auto pollTimeoutMs = split_->pollTimeoutMs > 0 ? split_->pollTimeoutMs : kDefaultPollTimeoutMs;
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(pollTimeoutMs);
+  const auto deadline = pollTime() + std::chrono::milliseconds(pollTimeoutMs);
+  const auto failOnTimeout = [&]() {
+    VELOX_FAIL(
+        "Timed out after {} ms fetching offset {} of {}-{}",
+        pollTimeoutMs,
+        nextOffset_,
+        split_->topic,
+        split_->partition);
+  };
+  // Bound record-consumption waits by the time left in this poll. Metadata and recovery
+  // operations retain their separate timeout allowances.
+  const auto remainingTimeoutMs = [this, &deadline]() {
+    return static_cast<int>(std::clamp<int64_t>(
+        std::chrono::ceil<std::chrono::milliseconds>(deadline - pollTime()).count(),
+        0,
+        std::numeric_limits<int>::max()));
+  };
 
   while (!splitDone_ && messages.size() < maxRows) {
+    const auto timeoutMs = remainingTimeoutMs();
+    if (timeoutMs == 0) {
+      break;
+    }
     // Only wait for more records while the batch is empty.
-    std::unique_ptr<RdKafka::Message> msg(consumer_->consume(messages.empty() ? kConsumeTimeoutMs : 0));
+    std::unique_ptr<RdKafka::Message> msg(consume(messages.empty() ? std::min(kConsumeTimeoutMs, timeoutMs) : 0));
     switch (msg->err()) {
       case RdKafka::ERR_NO_ERROR: {
         const auto offset = msg->offset();
@@ -283,17 +311,12 @@ std::vector<std::unique_ptr<RdKafka::Message>> KafkaDataSource::poll(uint64_t ma
         break;
     }
 
-    if (!splitDone_ && std::chrono::steady_clock::now() >= deadline) {
-      if (!messages.empty()) {
-        return messages;
-      }
-      VELOX_FAIL(
-          "Timed out after {} ms fetching offset {} of {}-{}",
-          pollTimeoutMs,
-          nextOffset_,
-          split_->topic,
-          split_->partition);
+    if (!splitDone_ && pollTime() >= deadline) {
+      break;
     }
+  }
+  if (!splitDone_ && messages.empty()) {
+    failOnTimeout();
   }
   return messages;
 }
