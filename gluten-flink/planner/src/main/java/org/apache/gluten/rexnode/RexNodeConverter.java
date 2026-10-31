@@ -52,6 +52,7 @@ import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.util.NlsString;
+import org.apache.calcite.util.TimeString;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -63,12 +64,115 @@ import java.util.stream.Collectors;
 /** Convertor to convert RexNode to velox TypedExpr */
 public class RexNodeConverter {
 
+  // Flink TIME-typed values ride on the INTEGER milliseconds-of-day carrier.
+  // The designed carrier surfaces — the LOCALTIME / CURRENT_TIME direct
+  // projections, comparisons and other carrier predicates (IS [NOT] NULL,
+  // SEARCH) on the carrier, CAST between TIME-typed values and TIME literals
+  // (INTEGER constants) — keep consistent carrier semantics. Any other call
+  // whose own type or a direct operand is TIME would either fail against the
+  // velox signatures or silently evaluate the integer carrier as a plain
+  // number, so it is rejected here instead.
+  private static final Set<String> CARRIER_PROJECTION_OPERATORS =
+      Set.of("LOCALTIME", "CURRENT_TIME");
+
+  private static final Set<String> COMPARISON_OPERATORS = Set.of("=", "<>", "<", "<=", ">", ">=");
+
+  // IS [NOT] NULL only checks the carrier's nullability and SEARCH compares
+  // carrier values (the Calcite form of IN / LIKE over a point or range set);
+  // both are carrier-isomorphic and lower to existing converters (isnull /
+  // isnotnull, and the SearchRexCallConverter).
+  private static final Set<String> CARRIER_PREDICATE_OPERATORS =
+      Set.of("IS NULL", "IS NOT NULL", "SEARCH");
+
+  private static final String TIME_UNSUPPORTED_SUFFIX =
+      "gluten-flink supports TIME-typed values only on the INTEGER milliseconds-of-day"
+          + " carrier: the LOCALTIME / CURRENT_TIME direct projections, comparisons"
+          + " and other carrier predicates (IS [NOT] NULL, SEARCH) on the carrier,"
+          + " CAST between TIME-typed values and TIME literals keep carrier"
+          + " semantics; other TIME expressions (arithmetic, EXTRACT, CAST to or"
+          + " away from TIME across other types, CASE, ...) lose TIME semantics"
+          + " on the INTEGER carrier and are rejected.";
+
+  /**
+   * Rejects a RexCall that would silently integer-ize TIME semantics. Rules: the LOCALTIME /
+   * CURRENT_TIME carrier projections, comparisons and other carrier predicates (IS [NOT] NULL,
+   * SEARCH) and CAST between TIME-typed values pass (they keep carrier semantics); any other call
+   * whose result type or any direct operand type is TIME fails with an explicit planner-time error.
+   */
+  private static void maybeRejectTimeTypedCall(RexCall rexCall) {
+    String operatorName = rexCall.getOperator().getName();
+    if (CARRIER_PROJECTION_OPERATORS.contains(operatorName)) {
+      return;
+    }
+    boolean resultIsTime = rexCall.getType().getSqlTypeName() == SqlTypeName.TIME;
+    boolean hasTimeOperand = hasTimeOperand(rexCall);
+    if ("CAST".equals(operatorName)) {
+      // CAST between TIME-typed values keeps the carrier semantics (e.g.
+      // CAST(CURRENT_TIME AS TIME)); CAST to TIME from another type would
+      // lower to a velox cast(<type> AS INTEGER) that neither computes the
+      // milliseconds-of-day nor parses a time-of-day string, and CAST away
+      // from TIME (e.g. to VARCHAR) would expose the raw integer as the
+      // rendered value.
+      if (resultIsTime && !hasTimeOperand) {
+        throw new RuntimeException(
+            "Operator '"
+                + operatorName
+                + "' casts a non-TIME operand to TIME, which is not supported: "
+                + TIME_UNSUPPORTED_SUFFIX
+                + " Offending node: "
+                + rexCall);
+      }
+      if (hasTimeOperand && !resultIsTime) {
+        throw new RuntimeException(
+            "Operator '"
+                + operatorName
+                + "' casts a TIME-typed operand away from TIME, which is not supported: "
+                + TIME_UNSUPPORTED_SUFFIX
+                + " Offending node: "
+                + rexCall);
+      }
+      return;
+    }
+    if (COMPARISON_OPERATORS.contains(operatorName)
+        || CARRIER_PREDICATE_OPERATORS.contains(operatorName)) {
+      return;
+    }
+    if (resultIsTime) {
+      throw new RuntimeException(
+          "Operator '"
+              + operatorName
+              + "' produces a TIME-typed result, which is not supported: "
+              + TIME_UNSUPPORTED_SUFFIX
+              + " Offending node: "
+              + rexCall);
+    }
+    if (hasTimeOperand) {
+      throw new RuntimeException(
+          "Operator '"
+              + operatorName
+              + "' has a TIME-typed operand, which is not supported: "
+              + TIME_UNSUPPORTED_SUFFIX
+              + " Offending node: "
+              + rexCall);
+    }
+  }
+
+  private static boolean hasTimeOperand(RexCall rexCall) {
+    for (RexNode operand : rexCall.getOperands()) {
+      if (operand.getType().getSqlTypeName() == SqlTypeName.TIME) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   public static TypedExpr toTypedExpr(RexNode rexNode, RexConversionContext context) {
     if (rexNode instanceof RexLiteral) {
       RexLiteral literal = (RexLiteral) rexNode;
       return new ConstantTypedExpr(toType(literal.getType()), toVariant(literal), null);
     } else if (rexNode instanceof RexCall) {
       RexCall rexCall = (RexCall) rexNode;
+      maybeRejectTimeTypedCall(rexCall);
       if (rexCall.getOperator().getKind() == SqlKind.CAST && rexCall.getOperands().size() == 1) {
         RexNode operand = rexCall.getOperands().get(0);
         // An identity cast (types equal ignoring only nullability, e.g. around folded
@@ -305,6 +409,11 @@ public class RexNodeConverter {
         return new VarCharValue(comparable.toString());
       case CHAR:
         return new VarCharValue(((NlsString) comparable).getValue());
+      case TIME:
+        // Calcite holds TIME range bounds as TimeString — the raw form TIME
+        // RexLiterals store (see makeTimeLiteral); convert to the
+        // millisecond-of-day value the INTEGER carrier uses.
+        return new IntegerValue(((TimeString) comparable).getMillisOfDay());
       default:
         throw new RuntimeException("Unsupported range type: " + typeName);
     }
