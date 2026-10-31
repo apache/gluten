@@ -64,8 +64,17 @@ class GlutenDeltaNativePartitionWriteSuite extends GlutenQueryTest with SharedSp
   }
 
   // Small batches cross partition boundaries; a large batch requires splitting a single stripe.
-  for ((batchSize, limit, collectStats) <- Seq((4, 4, false), (16, 4, true), (4, 0, true))) {
-    test(s"native Delta partitioned files: batch=$batchSize, limit=$limit, stats=$collectStats") {
+  for (
+    (batchSize, limit, collectStats, nativeStats) <- Seq(
+      (4, 4, false, true),
+      (16, 4, true, true),
+      (4, 0, true, true),
+      (4, 4, true, false),
+      (16, 4, true, false))
+  ) {
+    test(
+      s"native Delta partitioned files: batch=$batchSize, limit=$limit, " +
+        s"stats=$collectStats, nativeStats=$nativeStats") {
       assume(BackendTestUtils.isVeloxBackendLoaded())
       val schema = new StructType().add("id", LongType).add("part", IntegerType)
       val expected = Seq((null, 3), (Int.box(0), 4), (Int.box(1), 9)).flatMap {
@@ -74,6 +83,7 @@ class GlutenDeltaNativePartitionWriteSuite extends GlutenQueryTest with SharedSp
       }
       withSQLConf(
         GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> batchSize.toString,
+        GlutenConfig.COLUMNAR_HASHAGG_ENABLED.key -> nativeStats.toString,
         "spark.databricks.delta.stats.collect" -> collectStats.toString,
         "spark.sql.jsonGenerator.ignoreNullFields" -> "true"
       ) {
