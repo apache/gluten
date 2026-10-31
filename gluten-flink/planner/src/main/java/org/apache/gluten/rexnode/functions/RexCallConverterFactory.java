@@ -111,6 +111,11 @@ public class RexCallConverterFactory {
           Map.entry("count_char", Arrays.asList(() -> new DefaultRexCallConverter("count_char"))),
           Map.entry("EXTRACT", Arrays.asList(() -> new DefaultRexCallConverter("extract"))),
           Map.entry("IS TRUE", Arrays.asList(() -> new IsTrueRexCallConverter())),
+          Map.entry("IS FALSE", Arrays.asList(() -> new DefaultRexCallConverter("is_false"))),
+          Map.entry("IS NOT TRUE", Arrays.asList(() -> new DefaultRexCallConverter("is_not_true"))),
+          Map.entry(
+              "IS NOT FALSE", Arrays.asList(() -> new DefaultRexCallConverter("is_not_false"))),
+          Map.entry("NOT", Arrays.asList(() -> new DefaultRexCallConverter("not"))),
           Map.entry("CONCAT", Arrays.asList(() -> new DefaultRexCallConverter("concat"))),
           Map.entry("CONCAT_WS", Arrays.asList(() -> new DefaultRexCallConverter("concat_ws"))),
           // A literal negative length is rejected by SubstringRexCallConverter
