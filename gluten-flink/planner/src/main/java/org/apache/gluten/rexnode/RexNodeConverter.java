@@ -43,11 +43,13 @@ import org.apache.flink.table.planner.calcite.FlinkTypeFactory;
 import org.apache.flink.util.Preconditions;
 
 import org.apache.calcite.rel.type.RelDataType;
+import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexFieldAccess;
 import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.util.NlsString;
 
@@ -67,6 +69,14 @@ public class RexNodeConverter {
       return new ConstantTypedExpr(toType(literal.getType()), toVariant(literal), null);
     } else if (rexNode instanceof RexCall) {
       RexCall rexCall = (RexCall) rexNode;
+      if (rexCall.getOperator().getKind() == SqlKind.CAST && rexCall.getOperands().size() == 1) {
+        RexNode operand = rexCall.getOperands().get(0);
+        // An identity cast (types equal ignoring only nullability, e.g. around folded
+        // literals) carries no semantics; velox rejects same-type casts, so pass through.
+        if (isSameTypeIgnoringNullability(rexCall.getType(), operand.getType())) {
+          return toTypedExpr(operand, context);
+        }
+      }
       RexCallConverter converter = RexCallConverterFactory.getConverter(rexCall, context);
       return converter.toTypedExpr(rexCall, context);
     } else if (rexNode instanceof RexInputRef) {
@@ -97,6 +107,48 @@ public class RexNodeConverter {
     return LogicalTypeConverter.toVLType(FlinkTypeFactory.toLogicalType(relDataType));
   }
 
+  /**
+   * Structural equality ignoring nullability only: name, precision, scale, and every component type
+   * recursively (field names included). ANY is opaque and never qualifies.
+   */
+  private static boolean isSameTypeIgnoringNullability(RelDataType a, RelDataType b) {
+    if (a == b) {
+      return true;
+    }
+    SqlTypeName kind = a.getSqlTypeName();
+    if (kind != b.getSqlTypeName()
+        || a.getPrecision() != b.getPrecision()
+        || a.getScale() != b.getScale()) {
+      return false;
+    }
+    if (kind == SqlTypeName.ARRAY || kind == SqlTypeName.MULTISET) {
+      return isSameTypeIgnoringNullability(a.getComponentType(), b.getComponentType());
+    }
+    if (kind == SqlTypeName.MAP) {
+      return isSameTypeIgnoringNullability(a.getKeyType(), b.getKeyType())
+          && isSameTypeIgnoringNullability(a.getValueType(), b.getValueType());
+    }
+    if (kind == SqlTypeName.ANY) {
+      return false;
+    }
+    if (a.isStruct()) {
+      if (a.getFieldCount() != b.getFieldCount()) {
+        return false;
+      }
+      for (int i = 0; i < a.getFieldCount(); i++) {
+        RelDataTypeField fieldA = a.getFieldList().get(i);
+        RelDataTypeField fieldB = b.getFieldList().get(i);
+        if (!fieldA.getName().equals(fieldB.getName())
+            || !isSameTypeIgnoringNullability(fieldA.getType(), fieldB.getType())) {
+          return false;
+        }
+      }
+      return true;
+    }
+    // Scalars: name + precision + scale carry the identity (charset/collation are factory-wide).
+    return true;
+  }
+
   private static Variant toNullVariant(SqlTypeName sqlTypeName) {
     // A typed null needs no per-type carrier: the velox-side
     // ConstantTypedExpr renders a null variant as a null constant of the
@@ -120,6 +172,7 @@ public class RexNodeConverter {
       case INTERVAL_SECOND:
       case SYMBOL:
       case TIMESTAMP:
+      case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
         return new VarCharValue(null);
       default:
         throw new RuntimeException("Unsupported null rex node type: " + sqlTypeName);
@@ -167,13 +220,27 @@ public class RexNodeConverter {
         }
       case SYMBOL:
         return new VarCharValue(literal.getValue().toString());
+      case DATE:
+        // Calcite keeps a DATE literal as int epoch days — the velox DATE representation; NULL
+        // maps to a null variant (folded NULLs of any type still fail velox4j serialization).
+        Integer dateValue = literal.getValueAs(Integer.class);
+        return dateValue == null ? new VarCharValue(null) : new IntegerValue(dateValue);
       case TIMESTAMP:
-        // RexLiteral#getValueAs does not support java.sql.Timestamp, so take the
-        // epoch millis directly. It keeps the wall time as UTC, which is the same
-        // base as TimestampData#getMillisecond used by the row serializer.
-        long epochMillis = literal.getValueAs(Long.class);
-        return TimestampValue.create(
-            Math.floorDiv(epochMillis, 1000L), Math.floorMod(epochMillis, 1000L) * 1_000_000L);
+      case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+        // Calcite 1.32 resolves both names through the same branch
+        // (TimestampString.getMillisSinceEpoch()); Flink's folding round-trip
+        // stores an LTZ literal as a GMT-frame TimestampString and reads it
+        // back atOffset(UTC) — the same epoch-millis base as TIMESTAMP.
+        // RexLiteral#getValueAs does not support java.sql.Timestamp, so take
+        // the epoch millis directly. It keeps the wall time as UTC, which is
+        // the same base as TimestampData#getMillisecond used by the row
+        // serializer. A NULL literal maps to a null variant (planner no
+        // longer NPEs; velox4j serialization of inner nulls is a known gap).
+        Long epochMillis = literal.getValueAs(Long.class);
+        return epochMillis == null
+            ? new VarCharValue(null)
+            : TimestampValue.create(
+                Math.floorDiv(epochMillis, 1000L), Math.floorMod(epochMillis, 1000L) * 1_000_000L);
       default:
         throw new RuntimeException(
             "Unsupported rex node type: " + literal.getType().getSqlTypeName());

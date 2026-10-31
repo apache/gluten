@@ -107,6 +107,18 @@ public class RexCallConverterFactory {
           Map.entry("IS NULL", Arrays.asList(() -> new DefaultRexCallConverter("isnull"))),
           Map.entry(
               "REGEXP_EXTRACT", Arrays.asList(() -> new DefaultRexCallConverter("regexp_extract"))),
+          // Direct name mapping: both arities are covered by the flinksql to_date signatures.
+          Map.entry("TO_DATE", Arrays.asList(() -> new DefaultRexCallConverter("to_date"))),
+          // Direct name mapping: both arities are covered by the flinksql to_timestamp
+          // signatures; the returned TIMESTAMP(3) maps to the velox TimestampType.
+          Map.entry(
+              "TO_TIMESTAMP", Arrays.asList(() -> new DefaultRexCallConverter("to_timestamp"))),
+          // Direct name mapping: the only SQL form is (numeric, precision) — the first
+          // operand's type is routed by the velox signature set, the returned
+          // TIMESTAMP_LTZ(3) maps to the velox TimestampType.
+          Map.entry(
+              "TO_TIMESTAMP_LTZ",
+              Arrays.asList(() -> new DefaultRexCallConverter("to_timestamp_ltz"))),
           Map.entry("LOWER", Arrays.asList(() -> new DefaultRexCallConverter("lower"))),
           Map.entry("count_char", Arrays.asList(() -> new DefaultRexCallConverter("count_char"))),
           Map.entry("EXTRACT", Arrays.asList(() -> new DefaultRexCallConverter("extract"))),
