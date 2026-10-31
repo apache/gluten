@@ -414,20 +414,6 @@ org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoExtendedSyntaxSQLInMem
 org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoExtendedSyntaxSQLInMemoryTableNameBasedSuite#extended syntax - only conditional delete with multiple matches
 org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoExtendedSyntaxSQLInMemoryTableNameBasedSuite#extended syntax - only conditional update with multiple matches
 org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoExtendedSyntaxSQLInMemoryTableNameBasedSuite#extended syntax - only update with multiple matches
-org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoNestedStructInMapEvolutionSQLNameBasedSuite#schema evolution - new source column in map struct key
-org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoNestedStructInMapEvolutionSQLNameBasedSuite#schema evolution - source nested map struct key contains less columns than target
-org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoNestedStructInMapEvolutionSQLPathBasedCDCOnDVsPredPushOffSuite#schema evolution - new source column in map struct key
-org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoNestedStructInMapEvolutionSQLPathBasedCDCOnDVsPredPushOffSuite#schema evolution - source nested map struct key contains less columns than target
-org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoNestedStructInMapEvolutionSQLPathBasedCDCOnDVsPredPushOnSuite#schema evolution - new source column in map struct key
-org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoNestedStructInMapEvolutionSQLPathBasedCDCOnDVsPredPushOnSuite#schema evolution - source nested map struct key contains less columns than target
-org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoNestedStructInMapEvolutionSQLPathBasedCDCOnSuite#schema evolution - new source column in map struct key
-org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoNestedStructInMapEvolutionSQLPathBasedCDCOnSuite#schema evolution - source nested map struct key contains less columns than target
-org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoNestedStructInMapEvolutionSQLPathBasedDVsPredPushOffSuite#schema evolution - source nested map struct key contains less columns than target
-org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoNestedStructInMapEvolutionSQLPathBasedDVsPredPushOnSuite#schema evolution - source nested map struct key contains less columns than target
-org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoNestedStructInMapEvolutionSQLPathBasedSuite#schema evolution - new source column in map struct key
-org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoNestedStructInMapEvolutionSQLPathBasedSuite#schema evolution - source nested map struct key contains less columns than target
-org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoNestedStructInMapEvolutionScalaSuite#schema evolution - new source column in map struct key
-org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoNestedStructInMapEvolutionScalaSuite#schema evolution - source nested map struct key contains less columns than target
 org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoNotMatchedBySourceCDCPart2SQLNameBasedSuite#not matched by source - all 3 clauses - no changes - isPartitioned: false - cdcEnabled: true
 org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoNotMatchedBySourceCDCPart2SQLNameBasedSuite#not matched by source - all 3 clauses - no changes - isPartitioned: true - cdcEnabled: true
 org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoNotMatchedBySourceCDCPart2SQLPathBasedCDCOnSuite#not matched by source - all 3 clauses - no changes - isPartitioned: false - cdcEnabled: true
