@@ -17,6 +17,8 @@
 
 #include <gtest/gtest.h>
 
+#include <functional>
+
 #include "compute/VeloxBackend.h"
 #include "compute/WholeStageResultIterator.h"
 #include "config/GlutenConfig.h"
@@ -30,6 +32,30 @@ namespace gluten {
 namespace {
 
 using namespace facebook::velox;
+
+class CallbackAllocationListener final : public AllocationListener {
+ public:
+  explicit CallbackAllocationListener(std::function<void(int64_t)> callback) : callback_(std::move(callback)) {}
+
+  void allocationChanged(int64_t diff) override {
+    callback_(diff);
+    currentBytes_ += diff;
+    peakBytes_ = std::max(currentBytes_, peakBytes_);
+  }
+
+  int64_t currentBytes() override {
+    return currentBytes_;
+  }
+
+  int64_t peakBytes() override {
+    return peakBytes_;
+  }
+
+ private:
+  std::function<void(int64_t)> callback_;
+  int64_t currentBytes_{0};
+  int64_t peakBytes_{0};
+};
 
 class VeloxJavaExceptionTest : public ::testing::Test {
  protected:
@@ -165,6 +191,85 @@ TEST_F(VeloxJavaExceptionTest, lazyOutputRestoresOriginalOutsideDriver) {
   EXPECT_FALSE(loadedInDriver);
   EXPECT_EQ(jni.pending, &jni.original);
   EXPECT_EQ(jni.createdGlobalRefs, jni.deletedGlobalRefs);
+}
+
+TEST_F(VeloxJavaExceptionTest, reservationsAreWrappedForBothNativeAllocators) {
+  for (const bool useArrow : {false, true}) {
+    SCOPED_TRACE(useArrow);
+    TestJniEnvironment jni;
+    auto listener = std::make_unique<CallbackAllocationListener>([&](int64_t diff) {
+      if (diff > 0) {
+        throw JavaException(jni.env(), &jni.original);
+      }
+    });
+    VeloxMemoryManager memoryManager(kVeloxBackendKind, std::move(listener), *VeloxBackend::get()->getBackendConf());
+    try {
+      if (useArrow) {
+        void* buffer = nullptr;
+        if (memoryManager.allocator()->allocate(64, &buffer)) {
+          memoryManager.allocator()->free(buffer, 64);
+        }
+      } else {
+        auto* pool = memoryManager.getLeafMemoryPool().get();
+        auto* buffer = pool->allocate(64);
+        pool->free(buffer, 64);
+      }
+      FAIL() << "Expected wrapped JavaException";
+    } catch (const VeloxException& error) {
+      EXPECT_EQ(error.exceptionType(), VeloxException::Type::kSystem);
+      EXPECT_TRUE(JavaException::throwNestedToJava(jni.env(), error));
+    }
+    EXPECT_EQ(jni.pending, &jni.original);
+    EXPECT_EQ(jni.createdGlobalRefs, 1);
+    EXPECT_EQ(jni.deletedGlobalRefs, 1);
+    EXPECT_EQ(memoryManager.getListener()->currentBytes(), 0);
+  }
+}
+
+TEST_F(VeloxJavaExceptionTest, unreservePreservesJavaExceptionAndDelegatedMetrics) {
+  TestJniEnvironment jni;
+  bool fail = false;
+  auto listener = std::make_unique<CallbackAllocationListener>([&](int64_t diff) {
+    if (fail && diff < 0) {
+      throw JavaException(jni.env(), &jni.original);
+    }
+  });
+  VeloxMemoryManager memoryManager(kVeloxBackendKind, std::move(listener), *VeloxBackend::get()->getBackendConf());
+  auto* wrapped = memoryManager.getListener();
+  wrapped->allocationChanged(64);
+  EXPECT_EQ(wrapped->currentBytes(), 64);
+  EXPECT_EQ(wrapped->peakBytes(), 64);
+  fail = true;
+  try {
+    wrapped->allocationChanged(-64);
+    FAIL() << "Expected wrapped JavaException";
+  } catch (const VeloxException& error) {
+    EXPECT_TRUE(JavaException::throwNestedToJava(jni.env(), error));
+  }
+  EXPECT_EQ(jni.pending, &jni.original);
+  EXPECT_EQ(jni.deletedGlobalRefs, 1);
+  fail = false;
+  wrapped->allocationChanged(-64);
+  EXPECT_EQ(wrapped->currentBytes(), 0);
+  EXPECT_EQ(wrapped->peakBytes(), 64);
+}
+
+TEST_F(VeloxJavaExceptionTest, nativeReservationErrorsAreUnchanged) {
+  const auto original = std::make_exception_ptr(std::runtime_error("native reservation failure"));
+  auto listener = std::make_unique<CallbackAllocationListener>([&](int64_t diff) {
+    if (diff > 0) {
+      std::rethrow_exception(original);
+    }
+  });
+  VeloxMemoryManager memoryManager(kVeloxBackendKind, std::move(listener), *VeloxBackend::get()->getBackendConf());
+  try {
+    auto* pool = memoryManager.getLeafMemoryPool().get();
+    auto* buffer = pool->allocate(64);
+    pool->free(buffer, 64);
+    FAIL() << "Expected native reservation failure";
+  } catch (const std::runtime_error&) {
+    EXPECT_EQ(std::current_exception(), original);
+  }
 }
 
 } // namespace
