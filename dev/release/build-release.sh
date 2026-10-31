@@ -46,6 +46,6 @@ do
                     -Piceberg,delta,hudi,paimon -DskipTests
 done
 
-${GLUTEN_HOME}/build/mvn clean install -Pjava-17 -Pscala-2.13 -Pbackends-velox -Pspark-4.0 -Piceberg,paimon -DskipTests
+${GLUTEN_HOME}/build/mvn clean install -Pjava-17 -Pscala-2.13 -Pbackends-velox -Pspark-4.0 -Piceberg,delta,paimon -DskipTests
 
-${GLUTEN_HOME}/build/mvn clean install -Pjava-17 -Pscala-2.13 -Pbackends-velox -Pspark-4.1 -Piceberg -DskipTests
+${GLUTEN_HOME}/build/mvn clean install -Pjava-17 -Pscala-2.13 -Pbackends-velox -Pspark-4.1 -Piceberg,delta -DskipTests
