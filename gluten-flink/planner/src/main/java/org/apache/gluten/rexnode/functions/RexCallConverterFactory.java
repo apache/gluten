@@ -72,6 +72,7 @@ public class RexCallConverterFactory {
           Map.entry(
               "-",
               Arrays.asList(
+                  () -> new UnaryMinusRexCallConverter("negate"),
                   () -> new SubtractRexCallConverter(),
                   () -> new DecimalArithmeticOperatorRexCallConverters("subtract"))),
           Map.entry(
@@ -119,6 +120,14 @@ public class RexCallConverterFactory {
           // substring returns an empty string. Start semantics (0 counts as 1,
           // negative counts from the end) already match Flink.
           Map.entry("SUBSTRING", Arrays.asList(() -> new SubstringRexCallConverter())),
+          // Offload targets implemented in velox's flinksql namespace. ABS/
+          // FLOOR/CEIL/ROUND arrive upper-cased from the operator table;
+          // unary minus arrives as a one-operand "-" (see above).
+          Map.entry("ABS", Arrays.asList(() -> new DefaultRexCallConverter("abs"))),
+          Map.entry("FLOOR", Arrays.asList(() -> new NumericOnlyRexCallConverter("floor"))),
+          Map.entry("CEIL", Arrays.asList(() -> new NumericOnlyRexCallConverter("ceil"))),
+          Map.entry("CEILING", Arrays.asList(() -> new DefaultRexCallConverter("ceil"))),
+          Map.entry("ROUND", Arrays.asList(() -> new DecimalPostCastRexCallConverter("round"))),
           Map.entry("IFNULL", Arrays.asList(() -> new ScalarOnlyRexCallConverter("ifnull"))),
           Map.entry("COALESCE", Arrays.asList(() -> new DefaultRexCallConverter("coalesce"))));
 
@@ -135,7 +144,17 @@ public class RexCallConverterFactory {
             .map(RexCallConverterBuilder::build)
             .filter(
                 c -> {
-                  ValidationResult validationResult = c.isSuitable(callNode, context);
+                  ValidationResult validationResult;
+                  try {
+                    validationResult = c.isSuitable(callNode, context);
+                  } catch (RuntimeException e) {
+                    // A converter blowing up while probing operand types
+                    // (e.g. toType on an unmapped interval) counts as not
+                    // suitable so the decision stays a planning-time
+                    // rejection instead of a hard failure.
+                    failureMessages.add(c.getClass().getName() + ": " + e.getMessage());
+                    return false;
+                  }
                   if (!validationResult.isOk()) {
                     failureMessages.add(
                         c.getClass().getName() + ": " + validationResult.getMessage());
