@@ -294,20 +294,9 @@ object BoltBackendSettings extends BackendSettingsApi {
 
     // Validate if HiveFileFormat write is supported based on output file type
     def validateHiveFileFormat(hiveFileFormat: HiveFileFormat): Option[String] = {
-      // Reflect to get access to fileSinkConf which contains the output file format
-      val fileSinkConfField = format.getClass.getDeclaredField("fileSinkConf")
-      fileSinkConfField.setAccessible(true)
-      val fileSinkConf = fileSinkConfField.get(hiveFileFormat)
-      val tableInfoField = fileSinkConf.getClass.getDeclaredField("tableInfo")
-      tableInfoField.setAccessible(true)
-      val tableInfo = tableInfoField.get(fileSinkConf)
-      val getOutputFileFormatClassNameMethod = tableInfo.getClass
-        .getDeclaredMethod("getOutputFileFormatClassName")
-      val outputFileFormatClassName = getOutputFileFormatClassNameMethod.invoke(tableInfo)
-
       // Match based on the output file format class name
-      outputFileFormatClassName match {
-        case "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat" =>
+      HiveFileFormatUtil.outputFileFormatClassName(hiveFileFormat) match {
+        case HiveFileFormatUtil.PARQUET_OUTPUT_FORMAT =>
           None
         case _ =>
           Some(
