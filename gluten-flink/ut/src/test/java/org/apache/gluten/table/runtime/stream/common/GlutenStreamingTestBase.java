@@ -131,6 +131,15 @@ public class GlutenStreamingTestBase extends StreamingTestBase {
   }
 
   protected void runAndCheck(String query, List<String> expected) {
+    assertThat(runQuery(query)).isEqualTo(expected);
+  }
+
+  /**
+   * Runs a query through the embedded gluten stack and returns the print rows — each line is one
+   * changelog row, e.g. "+I[value]". Callers that need tolerance-based checks on time-varying
+   * expressions compare the returned rows themselves instead of using {@link #runAndCheck}.
+   */
+  protected List<String> runQuery(String query) {
     String printResultDirPath = System.getProperty("user.dir") + "/log/";
     new File(printResultDirPath).mkdirs();
     String printResultFilePath = printResultDirPath + "taskmanager.out";
@@ -191,7 +200,7 @@ public class GlutenStreamingTestBase extends StreamingTestBase {
           result.add(line);
         }
       }
-      assertThat(result).isEqualTo(expected);
+      return result;
     } catch (Exception e) {
       throw new FlinkRuntimeException(e);
     } finally {
