@@ -139,18 +139,18 @@ jobs:
         run: |
           ./build/mvn -B -ntp install -Pbackends-velox -Pspark-3.5 -Pscala-2.12 \
             -Pjava-17 -Pkafka -Pspark-ut -Pfast-build -DskipTests
-      # TODO: Re-enable when VeloxKafkaScanValidationSuite is added.
-      # - name: Check Kafka schema validation without a broker
-      #   run: |
-      #     ./build/mvn -B -ntp test -pl gluten-ut/spark35 -Pbackends-velox -Pspark-3.5 \
-      #       -Pscala-2.12 -Pjava-17 -Pspark-ut -Pfast-build \
-      #       -Dsuites=org.apache.gluten.execution.VeloxKafkaScanValidationSuite
-      # TODO: Re-enable when VeloxGlutenKafkaScanSuite is added in #13237.
-      # - name: Check native micro-batch reads and headers fallback
-      #   run: |
-      #     ./build/mvn -B -ntp test -pl backends-velox -Pbackends-velox -Pspark-3.5 \
-      #       -Pscala-2.12 -Pjava-17 -Pkafka -Pfast-build \
-      #       -Dsuites=org.apache.gluten.execution.kafka.VeloxGlutenKafkaScanSuite
+
+      - name: Check Kafka schema validation without a broker
+        run: |
+          ./build/mvn -B -ntp test -pl gluten-ut/spark35 -Pbackends-velox -Pspark-3.5 \
+            -Pscala-2.12 -Pjava-17 -Pspark-ut -Pfast-build \
+            -Dsuites=org.apache.gluten.execution.VeloxKafkaScanValidationSuite
+
+      - name: Check native micro-batch reads and headers fallback
+        run: |
+          ./build/mvn -B -ntp test -pl backends-velox -Pbackends-velox -Pspark-3.5 \
+            -Pscala-2.12 -Pjava-17 -Pkafka -Pfast-build \
+            -Dsuites=org.apache.gluten.execution.kafka.VeloxGlutenKafkaScanSuite
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v7

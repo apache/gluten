@@ -27,7 +27,7 @@ import org.apache.gluten.extension.columnar.cost.{LegacyCoster, LongCoster, Roug
 import org.apache.gluten.extension.columnar.transition.{Convention, ConventionFunc}
 import org.apache.gluten.substrait.rel.LocalFilesNode
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
-import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat.{DwrfReadFormat, OrcReadFormat, ParquetReadFormat}
+import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat.{DwrfReadFormat, KafkaReadFormat, OrcReadFormat, ParquetReadFormat}
 import org.apache.gluten.utils._
 
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
@@ -47,6 +47,8 @@ import org.apache.spark.sql.types._
 
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
+
+import java.util.Locale
 
 import scala.util.control.Breaks.breakable
 
@@ -99,6 +101,17 @@ object VeloxBackendSettings extends BackendSettingsApi {
     VeloxBackend.CONF_PREFIX + ("broadcast.cache.expired.time")
   // unit: SECONDS, default 1 day
   val GLUTEN_VELOX_BROADCAST_CACHE_EXPIRED_TIME_DEFAULT: Int = 86400
+
+  // Columns produced by the native Kafka reader. Kafka headers are not supported.
+  private val kafkaColumns = Map(
+    "key" -> BinaryType,
+    "value" -> BinaryType,
+    "topic" -> StringType,
+    "partition" -> IntegerType,
+    "offset" -> LongType,
+    "timestamp" -> TimestampType,
+    "timestamptype" -> IntegerType
+  )
 
   override def primaryBatchType: Convention.BatchType = VeloxBatchType
 
@@ -188,6 +201,10 @@ object VeloxBackendSettings extends BackendSettingsApi {
             validateTypes(fieldTypeValidator, fields)
               .orElse(validateTypes(schemaTypeValidator, dataSchema.fields))
           }
+        case KafkaReadFormat =>
+          fields
+            .find(f => !kafkaColumns.get(f.name.toLowerCase(Locale.ROOT)).contains(f.dataType))
+            .map(f => s"Unsupported Kafka column ${f.name}: ${f.dataType.simpleString}.")
         case _ => Some(s"Unsupported file format $format.")
       }
     }
