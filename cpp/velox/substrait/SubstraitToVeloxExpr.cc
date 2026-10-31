@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-#include <glog/logging.h>
 #include "SubstraitToVeloxExpr.h"
+#include <glog/logging.h>
 #include "TypeUtils.h"
 #include "velox/functions/sparksql/specialforms/SparkCastExpr.h"
 #include "velox/type/Timestamp.h"
@@ -521,9 +521,8 @@ VectorPtr SubstraitVeloxExprConverter::literalsToVector(
     vector_size_t childSize,
     std::function<::substrait::Expression::Literal(vector_size_t /* idx */)> elementAtFunc) {
   auto childTypeCase = childLiteral.literal_type_case();
-  auto child = elementAtFunc(0);
-  if (child.has_null()) {
-    auto nullType = SubstraitParser::parseType(child.null());
+  if (childLiteral.has_null()) {
+    auto nullType = SubstraitParser::parseType(childLiteral.null());
     if (nullType) {
       switch (nullType->kind()) {
         case TypeKind::ARRAY:
@@ -545,7 +544,7 @@ VectorPtr SubstraitVeloxExprConverter::literalsToVector(
       return constructFlatVector<TypeKind::BIGINT>(elementAtFunc, childSize, INTERVAL_DAY_TIME(), pool_);
     // Handle EmptyList and List together since the children could be either case.
     case ::substrait::Expression_Literal::LiteralTypeCase::kEmptyList:
-        case ::substrait::Expression_Literal::LiteralTypeCase::kList: {
+    case ::substrait::Expression_Literal::LiteralTypeCase::kList: {
       ArrayVectorPtr arrayVector;
       for (int i = 0; i < childSize; i++) {
         auto child = elementAtFunc(i);
@@ -615,8 +614,8 @@ VectorPtr SubstraitVeloxExprConverter::literalsToVector(
       // if null, get null type instead of next element type
       auto veloxType = getScalarType(elementAtFunc(0));
       if (veloxType) {
-        // Handle UNKNOWN type (untyped nulls like array(null)) by creating
-        // an all-null vector.
+        // Handle UNKNOWN elements (mapped from Spark NullType, as in array(null))
+        // by creating an all-null vector.
         if (veloxType->kind() == TypeKind::UNKNOWN) {
           return BaseVector::createNullConstant(UNKNOWN(), childSize, pool_);
         }
@@ -637,10 +636,10 @@ RowVectorPtr SubstraitVeloxExprConverter::literalsToRowVector(const ::substrait:
   if (numFields == 0) {
     auto is_null = structLiteral.literal_type_case() == ::substrait::Expression_Literal::LiteralTypeCase::kNull;
     if (!is_null) {
-        return makeEmptyRowVector(pool_);
+      return makeEmptyRowVector(pool_);
     } else {
-        auto veloxType = SubstraitParser::parseType(structLiteral.null());
-        return makeNullRowVector(pool_, veloxType);
+      auto veloxType = SubstraitParser::parseType(structLiteral.null());
+      return makeNullRowVector(pool_, veloxType);
     }
   }
   std::vector<VectorPtr> vectors;
