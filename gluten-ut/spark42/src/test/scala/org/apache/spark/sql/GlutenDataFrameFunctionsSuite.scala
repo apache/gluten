@@ -17,13 +17,19 @@
 package org.apache.spark.sql
 
 import org.apache.gluten.exception.GlutenException
+import org.apache.gluten.execution.ProjectExecTransformer
 
 import org.apache.spark.SparkException
+import org.apache.spark.sql.catalyst.expressions.ArrayJoin
+import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{IntegerType, MapType, StringType, StructField, StructType}
 
-class GlutenDataFrameFunctionsSuite extends DataFrameFunctionsSuite with GlutenSQLTestsTrait {
+class GlutenDataFrameFunctionsSuite
+  extends DataFrameFunctionsSuite
+  with GlutenSQLTestsTrait
+  with AdaptiveSparkPlanHelper {
   import testImplicits._
 
   testGluten("map with arrays") {
@@ -407,6 +413,41 @@ class GlutenDataFrameFunctionsSuite extends DataFrameFunctionsSuite with GlutenS
     }
     intercept[AnalysisException] {
       oneRowDF.selectExpr("flatten(null)")
+    }
+  }
+
+  testGluten("array_join with nullable nullReplacement under whole-stage codegen") {
+    withTempView("array_join_codegen") {
+      Seq(
+        (Seq[String]("a", null, "b"), ",", "NR"),
+        (Seq[String]("a", null, "b"), ",", null),
+        (Seq[String]("x", "y"), "-", "NR")
+      ).toDF("arr", "delim_col", "repl_col").createOrReplaceTempView("array_join_codegen")
+      spark.catalog.cacheTable("array_join_codegen")
+
+      val query =
+        "SELECT array_join(arr, delim_col, repl_col) FROM array_join_codegen " +
+          "WHERE arr IS NOT NULL AND delim_col IS NOT NULL"
+
+      withSQLConf(SQLConf.CODEGEN_FACTORY_MODE.key -> "CODEGEN_ONLY") {
+        val df = sql(query)
+        // Gluten offloads array_join instead of running it in WholeStageCodegenExec.
+        assert(
+          find(df.queryExecution.executedPlan) {
+            case p: ProjectExecTransformer =>
+              p.projectList.exists(_.find(_.isInstanceOf[ArrayJoin]).isDefined)
+            case _ => false
+          }.isDefined,
+          "expected array_join to be offloaded"
+        )
+        checkAnswer(df, Seq(Row("a,NR,b"), Row(null), Row("x-y")))
+      }
+
+      withSQLConf(
+        SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "false",
+        SQLConf.CODEGEN_FACTORY_MODE.key -> "NO_CODEGEN") {
+        checkAnswer(sql(query), Seq(Row("a,NR,b"), Row(null), Row("x-y")))
+      }
     }
   }
 }

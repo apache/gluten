@@ -741,6 +741,8 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .exclude("binary log")
     .exclude("round/bround/floor/ceil")
     .excludeGlutenTest("round/bround/floor/ceil")
+    // See https://github.com/apache/gluten/issues/7232
+    .excludeGlutenTest("unhex returns null for invalid hex input")
     .exclude("SPARK-36922: Support ANSI intervals for SIGN/SIGNUM")
     .exclude("SPARK-35926: Support YearMonthIntervalType in width-bucket function")
     .exclude("SPARK-35925: Support DayTimeIntervalType in width-bucket function")

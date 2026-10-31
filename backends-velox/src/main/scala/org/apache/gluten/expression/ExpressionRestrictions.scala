@@ -23,18 +23,6 @@ trait ExpressionRestrictions {
   val restrictionMessages: Array[String]
 }
 
-object StrToMapRestrictions extends ExpressionRestrictions {
-  val ONLY_SUPPORT_MAP_KEY_DEDUP_POLICY: String =
-    s"Only ${SQLConf.MAP_KEY_DEDUP_POLICY.key} = " +
-      s"${SQLConf.MapKeyDedupPolicy.EXCEPTION.toString} is supported for Velox backend"
-
-  override val functionName: String = ExpressionNames.STR_TO_MAP
-
-  override val restrictionMessages: Array[String] = Array(
-    ONLY_SUPPORT_MAP_KEY_DEDUP_POLICY
-  )
-}
-
 object FromJsonRestrictions extends ExpressionRestrictions {
   val MUST_ENABLE_PARTIAL_RESULTS: String =
     s"${ExpressionNames.FROM_JSON} with 'spark.sql.json.enablePartialResults = false' " +
@@ -120,7 +108,6 @@ object ExpressionRestrictions {
   // Called by gen-function-support-docs.py to get all restrictions.
   def listAllRestrictions(): Array[ExpressionRestrictions] = {
     Array(
-      StrToMapRestrictions,
       FromJsonRestrictions,
       ToJsonRestrictions,
       Unbase64Restrictions,

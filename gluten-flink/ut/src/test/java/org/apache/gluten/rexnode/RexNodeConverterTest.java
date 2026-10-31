@@ -23,13 +23,15 @@ import org.apache.flink.table.planner.calcite.FlinkRexBuilder;
 import org.apache.flink.table.planner.calcite.FlinkTypeFactory;
 import org.apache.flink.table.planner.calcite.FlinkTypeSystem;
 
+import org.apache.calcite.avatica.util.TimeUnit;
+import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexLiteral;
+import org.apache.calcite.sql.SqlIntervalQualifier;
+import org.apache.calcite.sql.parser.SqlParserPos;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -66,24 +68,42 @@ public class RexNodeConverterTest {
     assertThat(((VarCharValue) variant).getValue()).isEqualTo("banana");
   }
 
-  /**
-   * Typed-null literals (CAST(NULL AS T)) convert to the null-accepting VarCharValue carrier
-   * instead of throwing an NPE from the value dispatch; velox's ConstantTypedExpr renders a null
-   * variant as a null constant of the expression type.
-   */
   @Test
-  public void testNumericNullLiteralConvertsToNullCarrier() {
-    for (SqlTypeName typeName : List.of(SqlTypeName.BIGINT, SqlTypeName.DOUBLE)) {
-      RexLiteral literal =
-          (RexLiteral) rexBuilder.makeNullLiteral(typeFactory.createSqlType(typeName));
+  public void testNullLiteralConvertsToNullCarrier() {
+    RexLiteral intervalLiteral =
+        (RexLiteral)
+            rexBuilder.makeNullLiteral(
+                typeFactory.createSqlIntervalType(
+                    new SqlIntervalQualifier(
+                        TimeUnit.SECOND,
+                        RelDataType.PRECISION_NOT_SPECIFIED,
+                        TimeUnit.SECOND,
+                        RelDataType.PRECISION_NOT_SPECIFIED,
+                        SqlParserPos.ZERO)));
+    assertThat(((VarCharValue) RexNodeConverter.toVariant(intervalLiteral)).getValue()).isNull();
+    SqlTypeName[] names = {
+      SqlTypeName.VARCHAR,
+      SqlTypeName.INTEGER,
+      SqlTypeName.BIGINT,
+      SqlTypeName.DOUBLE,
+      SqlTypeName.TIMESTAMP,
+      SqlTypeName.DATE,
+      SqlTypeName.SYMBOL,
+    };
+    for (SqlTypeName name : names) {
+      RexLiteral literal = (RexLiteral) rexBuilder.makeNullLiteral(typeFactory.createSqlType(name));
       Variant variant = RexNodeConverter.toVariant(literal);
       assertThat(variant).isInstanceOf(VarCharValue.class);
       assertThat(((VarCharValue) variant).getValue()).isNull();
     }
-    RexLiteral decimal =
+  }
+
+  @Test
+  public void testDecimalNullLiteralConvertsToNullCarrier() {
+    RexLiteral literal =
         (RexLiteral)
             rexBuilder.makeNullLiteral(typeFactory.createSqlType(SqlTypeName.DECIMAL, 10, 2));
-    Variant variant = RexNodeConverter.toVariant(decimal);
+    Variant variant = RexNodeConverter.toVariant(literal);
     assertThat(variant).isInstanceOf(VarCharValue.class);
     assertThat(((VarCharValue) variant).getValue()).isNull();
   }

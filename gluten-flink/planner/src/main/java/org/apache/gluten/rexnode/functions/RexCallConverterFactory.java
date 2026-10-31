@@ -128,6 +128,7 @@ public class RexCallConverterFactory {
           Map.entry("CEIL", Arrays.asList(() -> new NumericOnlyRexCallConverter("ceil"))),
           Map.entry("CEILING", Arrays.asList(() -> new DefaultRexCallConverter("ceil"))),
           Map.entry("ROUND", Arrays.asList(() -> new DecimalPostCastRexCallConverter("round"))),
+          Map.entry("IFNULL", Arrays.asList(() -> new ScalarOnlyRexCallConverter("ifnull"))),
           Map.entry("COALESCE", Arrays.asList(() -> new DefaultRexCallConverter("coalesce"))));
 
   public static RexCallConverter getConverter(RexCall callNode, RexConversionContext context) {

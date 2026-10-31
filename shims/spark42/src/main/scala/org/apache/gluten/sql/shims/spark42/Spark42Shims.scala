@@ -63,6 +63,9 @@ class Spark42Shims extends SparkShims {
   override def getLocalTableScanStream(plan: LocalTableScanExec): Option[SparkDataStream] =
     plan.stream
 
+  override def isOneRowRelationExec(plan: SparkPlan): Boolean =
+    plan.isInstanceOf[OneRowRelationExec]
+
   override def scalarExpressionMappings: Seq[Sig] = {
     Seq(
       Sig[Empty2Null](ExpressionNames.EMPTY2NULL),

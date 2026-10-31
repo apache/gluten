@@ -1298,7 +1298,7 @@ arrow::Status VeloxHashShuffleWriter::resizePartitionBuffer(uint32_t partitionId
           binaryBuf.lengthPtr = lengthBuffer->mutable_data();
           break;
         }
-        auto valueOffset = 0;
+        uint64_t valueOffset = 0;
         // If preserve data, the new valueBufferSize should not be smaller than the current offset.
         if (preserveData) {
           valueBufferSize = std::max(binaryBuf.valueOffset, valueBufferSize);
@@ -1513,7 +1513,7 @@ arrow::Result<int64_t> VeloxHashShuffleWriter::shrinkPartitionBuffersMinSize(int
   std::sort(pidToSize.begin(), pidToSize.end(), [&](const auto& a, const auto& b) { return a.second > b.second; });
 
   auto beforeShrink = partitionBufferPool_->bytes_allocated();
-  auto shrunken = 0;
+  int64_t shrunken = 0;
   auto iter = pidToSize.begin();
 
   // Shrink in order to reclaim the largest amount of space with fewer resizes.

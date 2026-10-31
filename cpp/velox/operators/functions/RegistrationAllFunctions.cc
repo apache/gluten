@@ -40,7 +40,6 @@ namespace facebook::velox::functions {
 void registerPrestoVectorFunctions() {
   // Presto function. To be removed.
   VELOX_REGISTER_VECTOR_FUNCTION(udf_arrays_overlap, "arrays_overlap");
-  VELOX_REGISTER_VECTOR_FUNCTION(udf_transform_keys, "transform_keys");
   VELOX_REGISTER_VECTOR_FUNCTION(udf_transform_values, "transform_values");
 }
 } // namespace facebook::velox::functions

@@ -61,21 +61,29 @@ graph.
 |---|---|---|---|
 | `VanillaRowType` | `gluten-core` | Spark `InternalRow` | |
 | `VanillaBatchType` | `gluten-core` | Spark `ColumnarBatch` of any `ColumnVector` | Transitions are Spark's `RowToColumnarExec` / `ColumnarToRowExec` |
-| `ArrowJavaBatchType` | `gluten-arrow` `ArrowBatchTypes` | *Heavy* batch: every column is an `ArrowWritableColumnVector`, whose data is in Java Arrow vectors | Readable from the JVM through the `ColumnVector` getters |
+| `ArrowJavaBatchType` | `gluten-arrow` `ArrowBatchTypes` | *Heavy* batch: every column is a `RefCountedArrowColumnVector`, Spark's `ArrowColumnVector` with a reference count | Readable from the JVM through Spark's `ArrowColumnVector` getters |
 | `ArrowNativeBatchType` | `gluten-arrow` `ArrowBatchTypes` | *Light* batch: column 0 is an `IndicatorVector` holding the handle of a native `ColumnarBatch` (e.g. `ArrowCStructColumnarBatch`), the other columns are `PlaceholderVector`s | Not readable from the JVM |
 | `VeloxBatchType` | `backends-velox` `VeloxBatchType` | Light batch whose native object is a `VeloxColumnarBatch` (a Velox `RowVector`) | |
 | `VeloxCarrierRowType` | `backends-velox` `VeloxCarrierRowType` | Rows that carry a Velox batch | Used for row-based outputs that keep Velox data, e.g. for writes |
 
 `ColumnarBatches` (`gluten-arrow/.../columnarbatch/ColumnarBatches.java`) tells heavy and light
 batches apart, and holds the reference counts of both: `IndicatorVector` for light batches and
-`ArrowWritableColumnVector` for heavy ones.
+`RefCountedArrowColumnVector` for heavy ones. `ArrowColumnVectors`
+(`gluten-arrow/.../vectorized/ArrowColumnVectors.scala`) builds heavy batches:
+
+| Method | Use |
+|---|---|
+| `allocateRoot(schema)` | Allocates an empty `VectorSchemaRoot` from Gluten's task allocator, to fill directly |
+| `toBatch(root)` / `wrap(vectors)` | Wraps Arrow vectors into `RefCountedArrowColumnVector`s, which take ownership of them |
+| `fromRows(schema, rows)` | Writes `InternalRow`s into a new batch with Spark's `ArrowWriter` |
+| `adopt(vector, allocator)` | Takes ownership of a vector: moved if it shares the allocator's root, copied otherwise |
 
 ### Transition graph
 
 ![Gluten batch type transition graph](../../../image/GlutenBatchTypeTransition.png)
 
-- **`ArrowJavaBatchType` → `VanillaBatchType` is empty** because `ArrowWritableColumnVector` is a
-  Spark `ColumnVector`. A vanilla consumer such as `ColumnarToRowExec` reads Gluten's Java Arrow
+- **`ArrowJavaBatchType` → `VanillaBatchType` is empty** because `RefCountedArrowColumnVector` is a
+  Spark `ArrowColumnVector`. A vanilla consumer such as `ColumnarToRowExec` reads Gluten's Java Arrow
   batches directly.
 - **`VeloxBatchType` → `ArrowNativeBatchType` is empty** because a `VeloxColumnarBatch` is a native
   `ColumnarBatch` that can export itself as Arrow C data, which is all that `ArrowNativeBatchType`
@@ -95,11 +103,11 @@ Composite paths that the planner builds from these edges:
 
 | Transition | Implementation | What happens to the data |
 |---|---|---|
-| `LoadArrowDataExec` (native → Java Arrow) | `ColumnarBatches.load` | The native batch exports Arrow C structs (`ColumnarBatchJniWrapper.exportToArrow`). For a Velox batch, `VeloxColumnarBatch::exportArrowArray` first flattens dictionary and constant vectors (`ensureFlattened`), then calls `velox::exportToArrow`. Java imports the arrays into `ArrowWritableColumnVector`s (`ArrowAbiUtil.importToSparkColumnarBatch`) |
-| `OffloadArrowDataExec` (Java Arrow → native) | `ColumnarBatches.offload` | Java exports the vectors as Arrow C structs (`ArrowAbiUtil.exportFromSparkColumnarBatch`), and native wraps them as an `ArrowCStructColumnarBatch` (`createWithArrowArray`). No copy |
+| `LoadArrowDataExec` (native → Java Arrow) | `ColumnarBatches.load` | The native batch exports Arrow C structs (`ColumnarBatchJniWrapper.exportToArrow`). For a Velox batch, `VeloxColumnarBatch::exportArrowArray` first flattens dictionary and constant vectors (`ensureFlattened`), then calls `velox::exportToArrow`. Java imports the arrays and wraps them as `RefCountedArrowColumnVector`s (`ArrowAbiUtil.importToSparkColumnarBatch` → `ArrowColumnVectors.toBatch`) |
+| `OffloadArrowDataExec` (Java Arrow → native) | `ColumnarBatches.offload` | Java exports the vectors as Arrow C structs (`ArrowAbiUtil.exportFromSparkColumnarBatch`), and native wraps them as an `ArrowCStructColumnarBatch` (`createWithArrowArray`). No copy. A batch of plain Spark `ArrowColumnVector`s (not reference-counted, e.g. from a Spark Arrow operator) is first adopted into a new Gluten batch (`ArrowColumnVectors.adopt`), and the input is left to its producer |
 | `ArrowColumnarToVeloxColumnarExec` (native Arrow → Velox) | `VeloxColumnarBatches.toVeloxBatch` → `VeloxColumnarBatch::from` | `velox::importFromArrowAsOwner` builds a Velox `RowVector` that owns the Arrow buffers |
 | `RowToVeloxColumnarExec` / `VeloxColumnarToRowExec` | `backends-velox` | Converts between rows and Velox vectors (always copies) |
-| `ColumnarToRowExec` over Java Arrow | Spark | Reads rows through `ArrowWritableColumnVector`'s getters |
+| `ColumnarToRowExec` over Java Arrow | Spark | Reads rows through Spark's `ArrowColumnVector` getters |
 
 ### Copies on the Arrow path
 
@@ -107,6 +115,7 @@ Composite paths that the planner builds from these edges:
 |---|---|---|---|
 | Velox → Java Arrow (`load`) | No copy | Copied: Velox's `StringView` layout is exported as an Arrow string array, since Arrow string views aren't enabled | Flattened (copied) |
 | Java Arrow → native Arrow (`offload`) | No copy | No copy | Not used |
+| Plain Spark `ArrowColumnVector`s → Gluten batch (`adopt`, before `offload`) | Moved if the vectors share the root of Gluten's task allocator, copied otherwise | Same | Not used |
 | Native Arrow → Velox | No copy | A new `StringView` buffer is built (strings of 12 bytes or less are inlined) | Not used |
 
 ### Batch lifecycle
@@ -138,7 +147,7 @@ Three counts are involved, and none of them crosses JNI:
 - **Velox buffer references** (`BufferPtr`), held by Velox vectors and by an exported `ArrowArray`.
 - **Arrow Java `ArrowBuf` references**. An imported array is released through its C `release`
   callback once its last `ArrowBuf` is released.
-- **Gluten's `refCnt`** on `ArrowWritableColumnVector`. It only decides when Gluten closes the Java
+- **Gluten's `refCnt`** on `RefCountedArrowColumnVector`. It only decides when Gluten closes the Java
   vector.
 
 The Arrow C Data interface has no reference count. Ownership of an `ArrowArray` moves once, and the
@@ -147,7 +156,7 @@ holder calls `release` exactly once.
 | Step | Velox buffer refs | `x.refCnt` | What happens |
 |---|---|---|---|
 | 1. Export | 2 | – | `VeloxColumnarBatch::exportArrowArray` exports `ArrowArray` A, which keeps a reference to the buffer. No copy for a flat fixed-width vector |
-| 2. Import | 2 | 1 | `Data.importIntoVectorSchemaRoot` wraps the Velox memory as `ArrowBuf`s, and `loadColumns` creates `x` |
+| 2. Import | 2 | 1 | `Data.importIntoVectorSchemaRoot` wraps the Velox memory as `ArrowBuf`s, and `ArrowColumnVectors.toBatch` creates `x` |
 | 3. Close the Velox batch | 1 | 1 | `load` closes the input batch: `ObjectStore::release` frees the `RowVector`. A keeps the buffer alive |
 | 4. Retain for the UDF | 1 | 2 | `ColumnarArrowEvalPythonExec` retains the input batch until the result comes back |
 | 5. Send to Python | 1 | 2 | `ArrowStreamWriter` serializes the UDF columns into the socket. The Python worker reads its own copy; when pyarrow releases it, only Python's memory is freed |
@@ -180,7 +189,7 @@ participant "Velox\n(downstream op)" as VD
 end box
 box "JVM" #E8F0FB
 participant "LoadArrowDataExec\nColumnarBatches.load" as Load
-participant "ArrowWritableColumnVector x\n(Arrow BigIntVector)" as X
+participant "RefCountedArrowColumnVector x\n(Arrow BigIntVector)" as X
 participant "ColumnarArrowEvalPythonExec" as Py
 participant "OffloadArrowDataExec\n+ ArrowColumnarToVelox" as Off
 end box
@@ -191,7 +200,7 @@ Load -> VB : JNI exportToArrow(handle)
 VB -> VB : ensureFlattened()\nvelox::exportToArrow()
 VB -> Buf : ArrowArray A keeps a buffer ref\n<b>Velox refs: 2</b> (vector + A)
 VB --> Load : ArrowArrayMove(A)
-Load -> X : Data.importIntoVectorSchemaRoot(A)\nArrowBuf wraps Velox memory\nloadColumns()  <b>x.refCnt = 1</b>
+Load -> X : Data.importIntoVectorSchemaRoot(A)\nArrowBuf wraps Velox memory\nArrowColumnVectors.toBatch()  <b>x.refCnt = 1</b>
 Load -> VB : input.close() -> ObjectStore::release\nRowVector freed
 VB -> Buf : <b>Velox refs: 1</b> (only A)
 
@@ -219,7 +228,7 @@ X -> Buf : A.release()  (Velox export callback)\n<b>Velox refs: 0</b>, buffer re
 
 ### Buffer release
 
-Neither `ArrowWritableColumnVector.close()` nor `B.release()` checks where a buffer came from.
+Neither `RefCountedArrowColumnVector.close()` nor `B.release()` checks where a buffer came from.
 Both drop one reference on each `ArrowBuf`, and when the last one goes, the buffer's
 `AllocationManager`, chosen when the buffer was created, does the rest:
 
@@ -276,8 +285,8 @@ participant "Native producer\n(Velox export)" as N
 
 note over C
   Two callers, same path:
-  - ArrowWritableColumnVector.close(), when refCnt reaches 0
-    -> FieldVector.close()
+  - RefCountedArrowColumnVector.close(), when refCnt reaches 0
+    -> ArrowColumnVector.close() -> FieldVector.close()
   - B.release() -> ExportedArrayPrivateData.close()
     (drops the reference the export retained)
 end note
@@ -318,10 +327,10 @@ end note
 | Operator | Batch type in → out | How it's planned |
 |---|---|---|
 | `ColumnarArrowEvalPythonExec` (Arrow / pandas UDFs) | Java Arrow → Java Arrow | Gluten's own operator and Python runner, from `OffloadSingleNodeRules` |
-| `ColumnarPartialProjectExec`, `ColumnarPartialGenerateExec` | Velox → Velox | Load to Java Arrow inside the operator, evaluate the Spark expressions row by row, and write the results with `ArrowProjection` |
-| `ColumnarRangeExec` | – → Java Arrow | Builds `ArrowWritableColumnVector`s in the JVM |
-| `VeloxRDDScanTransformer`, `VeloxLocalTableScanTransformer` | – → Velox | Write rows into `ArrowWritableColumnVector`s, then convert them to Velox inside the operator |
-| `LanceScanTransformer` (`-Plance`) | – → Java Arrow | Imports an Arrow C stream from lance-spark |
+| `ColumnarPartialProjectExec`, `ColumnarPartialGenerateExec` | Velox → Velox | Load to Java Arrow inside the operator, evaluate the Spark expressions row by row (`MutableProjection` / the generator), and write the results with Spark's `ArrowWriter` (`ArrowColumnVectors.fromRows`) |
+| `ColumnarRangeExec` | – → Java Arrow | Fills a `BigIntVector` from `ArrowColumnVectors.allocateRoot` and wraps it with `toBatch` |
+| `VeloxRDDScanTransformer`, `VeloxLocalTableScanTransformer` | – → Velox | Convert rows to Velox inside the operator, through the same JNI path as `RowToVeloxColumnarExec` (`toColumnarBatchIterator`) |
+| `LanceScanTransformer` (`-Plance`) | – → Java Arrow | Imports an Arrow C stream from lance-spark and wraps the vectors with `ArrowColumnVectors.wrap` |
 
 Any other Spark operator that wants Arrow, such as `MapInArrowExec` or `FlatMapGroupsInArrowExec`,
 is a vanilla row-based plan to Gluten, so Gluten plans `VeloxColumnarToRow → Spark operator →
@@ -374,8 +383,10 @@ yourself. With these declarations `InsertTransitions` produces, for example:
 The batches you emit are offloaded and closed by the transitions downstream, so each batch must
 own its data:
 
-- **Build the columns as `ArrowWritableColumnVector`s** (`ArrowWritableColumnVector.loadColumns`
-  over `FieldVector`s). `ColumnarBatches` rejects other vectors in a Java Arrow batch.
+- **Build the columns as `RefCountedArrowColumnVector`s** with `ArrowColumnVectors`: fill a root
+  from `allocateRoot` and call `toBatch`, wrap existing `FieldVector`s with `wrap`, or write rows
+  with `fromRows`. `offload` also accepts plain Spark `ArrowColumnVector`s, but has to adopt them
+  first, which copies the buffers when they come from another allocator root.
 - **Allocate from `ArrowBufferAllocators.contextInstance()`.** This keeps the memory accounted by
   Spark, and keeps the vectors in the allocator tree that `offload` expects.
 - **Don't emit vectors that a reader reuses.** An `ArrowReader` (e.g. from `Data.importArrayStream`)
@@ -458,7 +469,8 @@ Add the profile to the CI job that runs the suite, and a page under
 
 - [ ] `batchType()` / `rowType()` / `requiredChildConvention()` declared; no transitions inserted
       by hand
-- [ ] Columns are `ArrowWritableColumnVector`s from `ArrowBufferAllocators.contextInstance()`
+- [ ] Columns are `RefCountedArrowColumnVector`s (`ArrowColumnVectors`) from
+      `ArrowBufferAllocators.contextInstance()`
 - [ ] Emitted batches own their buffers; reused reader vectors are transferred first
 - [ ] Input batches kept beyond the next call are retained and released
 - [ ] Resources released on exhaustion and on task completion
@@ -470,12 +482,14 @@ Add the profile to the CI job that runs the suite, and a page under
 
 These change parts of the above once merged:
 
-- [#13280](https://github.com/apache/gluten/pull/13280) replaces `ArrowWritableColumnVector` with
-  `RefCountedArrowColumnVector`, a subclass of Spark's `ArrowColumnVector`, and replaces
-  `ArrowProjection` with Spark's `ArrowWriter`. New operators then build columns with
-  `ArrowColumnVectors.toBatch(root)` / `ArrowColumnVectors.fromRows(...)`. `offload` also accepts
-  batches of plain Spark `ArrowColumnVector`s, which it moves (same allocator root) or copies into
-  Gluten's allocator.
+- Gluten's task allocator is its own `RootAllocator`, so `adopt` copies vectors that Spark
+  allocated (from `ArrowUtils.rootAllocator`). Allocating Gluten's task buffers as a child of
+  Spark's root allocator would turn that copy into a move.
+- A DSv2 scan whose columnar reader emits Spark `ArrowColumnVector`s, such as an Arrow output mode
+  in lance-spark ([discussion](https://github.com/apache/gluten/pull/12958#issuecomment-6304202853))
+  or Spark's native data sources ([apache/spark#59313](https://github.com/apache/spark/pull/59313)),
+  can then be offloaded without a Gluten scan operator: a rule marks its `BatchScanExec` as
+  `ArrowJavaBatchType`, and `offload` adopts the batches.
 - SPARK-57468 ([apache/spark#59154](https://github.com/apache/spark/pull/59154)) adds conventions to
   Spark itself, with an `ArrowBatchType`. With the prototype bridge in
   [#13140](https://github.com/apache/gluten/issues/13140), `ArrowJavaBatchType` is bound to Spark's
