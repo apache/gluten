@@ -20,4 +20,5 @@ add_test_case(ffor_codec_test SOURCES FForCodecTest.cc)
 add_test_case(print_config_test SOURCES PrintConfigTest.cc)
 add_test_case(payload_test SOURCES PayloadTest.cc)
 add_test_case(java_exception_test SOURCES JavaExceptionTest.cc)
-add_test_case(java_exception_allocation_test SOURCES JavaExceptionAllocationTest.cc)
+add_test_case(java_exception_allocation_test SOURCES
+              JavaExceptionAllocationTest.cc)
