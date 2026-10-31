@@ -146,6 +146,7 @@ set(SPARK_COLUMNAR_PLUGIN_SRCS
     utils/tac/TypeAwareCompressCodec.cc
     utils/StringUtil.cc
     utils/ObjectStore.cc
+    jni/JavaException.cc
     jni/JniError.cc
     jni/JniCommon.cc
     jni/TaskContextJniWrapper.cc)

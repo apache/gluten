@@ -94,6 +94,24 @@ To format Java/Scala code using the [Spotless](https://github.com/diffplug/spotl
 ./dev/format-scala-code.sh
 ```
 
+### Java exceptions crossing native code
+
+JNI callbacks must call `checkException(env)` after invoking Java. It throws
+`gluten::JavaException`, which owns a shared global reference to the original Java
+throwable. `JNI_METHOD_END` restores that same object with JNI `Throw`, retaining
+its class, cause, suppressed exceptions, stack trace, and structured Spark error
+metadata. Native diagnostic formatting is best-effort after capturing the throwable.
+Do not replace this carrier with an exception constructed from `what()`.
+
+Velox input-stream and memory-reservation callbacks use `wrapJavaException` before returning to the
+driver, whose generic native-exception handler otherwise keeps only the message.
+At the output boundary, including lazy-vector loading, `rethrowJavaException`
+recovers the carrier through Velox and standard nested exception wrappers. Standard
+nesting also preserves allocation callbacks returning directly through core JNI,
+without introducing a backend dependency there. Other
+native errors keep their existing handling; this mechanism does not classify or
+translate native cast failures.
+
 ### C++ code development
 
 This guide is for remote debugging by connecting to the remote Linux server using `SSH`.
