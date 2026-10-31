@@ -46,9 +46,9 @@ As some features have not been committed to upstream, you have to use the follow
 
 ```bash
 ## fetch velox4j code
-git clone -b pin-velox-arithmetic https://github.com/wud-if/velox4j.git
+git clone -b ci-stack-arithmetic https://github.com/wud-if/velox4j.git
 cd velox4j
-git reset --hard a74f4a477397555e6c081793ac45aa87cfc1e6b4
+git reset --hard 90ad0cbbd60d7018f07bf416a3c7e98dc2175d21
 mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
 ```
 **Get gluten**

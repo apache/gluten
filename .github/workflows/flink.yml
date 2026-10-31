@@ -87,9 +87,9 @@ jobs:
           export VELOX_DEPENDENCY_SOURCE=BUNDLED
           export fmt_SOURCE=BUNDLED
           export folly_SOURCE=BUNDLED
-          git clone -b pin-velox-arithmetic https://github.com/wud-if/velox4j.git
+          git clone -b ci-stack-arithmetic https://github.com/wud-if/velox4j.git
           cd velox4j
-          git reset --hard a74f4a477397555e6c081793ac45aa87cfc1e6b4
+          git reset --hard 90ad0cbbd60d7018f07bf416a3c7e98dc2175d21
           git apply $GITHUB_WORKSPACE/gluten-flink/patches/fix-velox4j.patch
           $GITHUB_WORKSPACE/build/mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
           cd ..
