@@ -24,8 +24,8 @@ VELOX_HOME=""
 RUN_SETUP_SCRIPT=ON
 ENABLE_ENHANCED_FEATURES=OFF
 
-# Developer use only for testing Velox PR.
-UPSTREAM_VELOX_PR_ID=""
+# Temporary DATE widening validation; clear once the IBM pin includes Velox PR #19203.
+UPSTREAM_VELOX_PR_ID="19203"
 
 OS=`uname -s`
 
