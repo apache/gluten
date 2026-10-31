@@ -98,6 +98,15 @@ public class RexNodeConverter {
   }
 
   public static Variant toVariant(RexLiteral literal) {
+    if (literal.isNull()) {
+      // A typed-null literal (CAST(NULL AS T)): dispatching on the value would
+      // NPE, since the numeric carriers dereference it (toString() /
+      // bigDecimal.precision()). Fall back to the null-accepting VarCharValue
+      // carrier — velox's ConstantTypedExpr renders a null variant as a null
+      // constant of the expression type, and the velox serde treats an absent
+      // "value" member as the typed null.
+      return new VarCharValue(null);
+    }
     switch (literal.getType().getSqlTypeName()) {
       case BOOLEAN:
         return new BooleanValue((boolean) literal.getValue());

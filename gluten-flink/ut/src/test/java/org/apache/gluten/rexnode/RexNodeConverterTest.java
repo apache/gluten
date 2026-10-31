@@ -29,6 +29,8 @@ import org.apache.calcite.sql.type.SqlTypeName;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class RexNodeConverterTest {
@@ -62,5 +64,27 @@ public class RexNodeConverterTest {
     Variant variant = RexNodeConverter.toVariant(literal);
     assertThat(variant).isInstanceOf(VarCharValue.class);
     assertThat(((VarCharValue) variant).getValue()).isEqualTo("banana");
+  }
+
+  /**
+   * Typed-null literals (CAST(NULL AS T)) convert to the null-accepting VarCharValue carrier
+   * instead of throwing an NPE from the value dispatch; velox's ConstantTypedExpr renders a null
+   * variant as a null constant of the expression type.
+   */
+  @Test
+  public void testNumericNullLiteralConvertsToNullCarrier() {
+    for (SqlTypeName typeName : List.of(SqlTypeName.BIGINT, SqlTypeName.DOUBLE)) {
+      RexLiteral literal =
+          (RexLiteral) rexBuilder.makeNullLiteral(typeFactory.createSqlType(typeName));
+      Variant variant = RexNodeConverter.toVariant(literal);
+      assertThat(variant).isInstanceOf(VarCharValue.class);
+      assertThat(((VarCharValue) variant).getValue()).isNull();
+    }
+    RexLiteral decimal =
+        (RexLiteral)
+            rexBuilder.makeNullLiteral(typeFactory.createSqlType(SqlTypeName.DECIMAL, 10, 2));
+    Variant variant = RexNodeConverter.toVariant(decimal);
+    assertThat(variant).isInstanceOf(VarCharValue.class);
+    assertThat(((VarCharValue) variant).getValue()).isNull();
   }
 }
