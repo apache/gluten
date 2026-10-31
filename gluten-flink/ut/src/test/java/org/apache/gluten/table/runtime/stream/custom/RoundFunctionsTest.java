@@ -80,12 +80,19 @@ class RoundFunctionsTest extends GlutenStreamingTestBase {
             "+I[56, 55.7, 60]", "+I[29, 28.6, 30]", "+I[45, 45.0, 50]", "+I[null, null, null]"));
   }
 
-  /** The tie cases that separate HALF_UP-in-decimal-domain from binary-domain rounding. */
+  /**
+   * The tie cases that separate HALF_UP-in-decimal-domain from binary-domain rounding. The result
+   * is asserted through CAST(... AS STRING): the velox print sink formats DOUBLE columns with the
+   * C++ ostream default of 6 significant digits (StringFormatter.h: DefaultFormatter<double> does
+   * {@code ss << t}), which would print 647568.82 as 647569; the cast renders the double through
+   * its shortest round-trip representation, printed verbatim, so the rounded scale survives.
+   */
   @Test
   void testRoundHalfUpTieInDecimalDomain() {
     List<Row> rows = Arrays.asList(Row.of(2.675d), Row.of(647568.815d), Row.of(-2.5d));
     createSimpleBoundedValuesTable("tblRoundTie", "x double", rows);
-    String query = "select ROUND(x, 2) from tblRoundTie";
-    runAndCheck(query, Arrays.asList("+I[2.68]", "+I[647568.82]", "+I[-3.0]"));
+    String query = "select CAST(ROUND(x, 2) AS STRING) from tblRoundTie";
+    // ROUND(-2.5, 2) keeps the value: no tie at scale 2 (Flink returns -2.5).
+    runAndCheck(query, Arrays.asList("+I[2.68]", "+I[647568.82]", "+I[-2.5]"));
   }
 }
