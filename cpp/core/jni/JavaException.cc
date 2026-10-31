@@ -115,16 +115,41 @@ struct JavaException::State {
 };
 
 JavaException::JavaException(JNIEnv* env, jthrowable throwable) : state_(std::make_shared<State>(env, throwable)) {
-  state_->message = describe(env, throwable);
+  try {
+    state_->message = describe(env, throwable);
+  } catch (const std::exception&) {
+    // Keep the captured throwable even if diagnostics fail. what() must not allocate a fallback.
+    env->ExceptionClear();
+  }
 }
 
 const char* JavaException::what() const noexcept {
-  return state_->message.c_str();
+  return state_->message.empty()
+      ? "Error during calling Java code from native code: Java stack trace unavailable (native diagnostic failure)"
+      : state_->message.c_str();
 }
 
 void JavaException::throwToJava(JNIEnv* env) const noexcept {
   if (env->Throw(state_->ref) != JNI_OK) {
     LOG(ERROR) << "Unable to restore original Java exception";
+  }
+}
+
+bool JavaException::throwNestedToJava(JNIEnv* env, const std::exception& error) noexcept {
+  const auto* nested = dynamic_cast<const std::nested_exception*>(&error);
+  if (nested == nullptr || nested->nested_ptr() == nullptr) {
+    return false;
+  }
+  try {
+    std::rethrow_exception(nested->nested_ptr());
+  } catch (const JavaException& original) {
+    original.throwToJava(env);
+    return true;
+  } catch (const std::exception& cause) {
+    return throwNestedToJava(env, cause);
+  } catch (...) {
+    // Not a Java exception. Leave the enclosing native error to the existing JNI fallback.
+    return false;
   }
 }
 

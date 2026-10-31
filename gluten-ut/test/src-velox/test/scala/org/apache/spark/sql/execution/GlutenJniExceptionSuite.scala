@@ -19,21 +19,29 @@ package org.apache.spark.sql.execution
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.exception.GlutenException
-import org.apache.gluten.substrait.`type`.TypeBuilder
+import org.apache.gluten.memory.{NativeMemoryManager, NativeMemoryManagerJniWrapper}
+import org.apache.gluten.memory.listener.ReservationListener
+import org.apache.gluten.memory.memtarget.Spiller
+import org.apache.gluten.runtime.{Runtime, RuntimeJniWrapper, Runtimes}
+import org.apache.gluten.substrait.`type`.{TypeBuilder, TypeNode}
 import org.apache.gluten.substrait.SubstraitContext
+import org.apache.gluten.substrait.expression.{ExpressionBuilder, ExpressionNode}
 import org.apache.gluten.substrait.plan.PlanBuilder
 import org.apache.gluten.substrait.rel.RelBuilder
-import org.apache.gluten.utils.BackendTestUtils
-import org.apache.gluten.vectorized.{ColumnarBatchInIterator, ColumnarBatchOutIterator, NativePlanEvaluator}
+import org.apache.gluten.threads.NativeThreadManager
+import org.apache.gluten.utils.{BackendTestUtils, ConfigUtil}
+import org.apache.gluten.vectorized.{ColumnarBatchInIterator, ColumnarBatchOutIterator, NativePlanEvaluator, PlanEvaluatorJniWrapper}
 
 import org.apache.spark.{QueryContext, SparkArithmeticException, SparkConf, SparkNumberFormatException, SparkThrowable}
 import org.apache.spark.sql.GlutenQueryTest
 import org.apache.spark.sql.test.SharedSparkSession
-import org.apache.spark.sql.vectorized.ColumnarBatch
+import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
 import org.apache.spark.task.TaskResources
 
 import java.io.PrintWriter
 import java.util.{Collections, Iterator => JIterator}
+
+import scala.collection.JavaConverters._
 
 class GlutenJniExceptionSuite extends GlutenQueryTest with SharedSparkSession {
   override protected def sparkConf: SparkConf = {
@@ -93,6 +101,124 @@ class GlutenJniExceptionSuite extends GlutenQueryTest with SharedSparkSession {
 
       override def next(): ColumnarBatch = throw original
     }
+  }
+
+  private def withReservationRuntime(listener: ReservationListener)(f: Runtime => Unit): Unit = {
+    TaskResources.runUnsafe {
+      val backend = BackendsApiManager.getBackendName
+      val threadOwner = Runtimes.contextInstance(backend, "jni-reservation-test")
+      val conf = ConfigUtil.serialize(
+        Map(
+          "spark.sql.session.timeZone" -> "UTC",
+          "spark.gluten.memory.backtrace.allocation" -> "false").asJava)
+      val memoryHandle = NativeMemoryManagerJniWrapper.create(backend, listener, conf)
+      try {
+        val runtimeHandle = RuntimeJniWrapper.createRuntime(
+          backend,
+          memoryHandle,
+          threadOwner.threadManager().getHandle(),
+          conf)
+        try {
+          val nativeMemory = new NativeMemoryManager {
+            override def addSpiller(spiller: Spiller): Unit =
+              throw new UnsupportedOperationException("This test does not install spillers")
+            override def hold(): Unit = NativeMemoryManagerJniWrapper.hold(memoryHandle)
+            override def getHandle(): Long = memoryHandle
+            override def release(): Unit = NativeMemoryManagerJniWrapper.release(memoryHandle)
+          }
+          f(new Runtime {
+            override def memoryManager(): NativeMemoryManager = nativeMemory
+            override def threadManager(): NativeThreadManager = threadOwner.threadManager()
+            override def getHandle(): Long = runtimeHandle
+          })
+        } finally {
+          RuntimeJniWrapper.releaseRuntime(runtimeHandle)
+        }
+      } finally {
+        NativeMemoryManagerJniWrapper.release(memoryHandle)
+      }
+    }
+  }
+
+  private def withNativeCount(runtime: Runtime)(f: ColumnarBatchOutIterator => Unit): Unit = {
+    withTempDir {
+      spillDir =>
+        val context = new SubstraitContext
+        val read = RelBuilder.makeReadRelForInputIterator(
+          Collections.emptyList[TypeNode](),
+          Collections.emptyList[String](),
+          context,
+          context.nextOperatorId("reservation-input"))
+        val count = ExpressionBuilder.makeAggregateFunction(
+          context.registerFunction("count"),
+          Collections.emptyList[ExpressionNode](),
+          "COMPLETE",
+          TypeBuilder.makeI64(false))
+        val aggregate = RelBuilder.makeAggregateRel(
+          read,
+          Collections.emptyList[ExpressionNode](),
+          Collections.singletonList(count),
+          Collections.singletonList[ExpressionNode](null),
+          null,
+          context,
+          context.nextOperatorId("reservation-aggregate")
+        )
+        val plan = PlanBuilder.makePlan(
+          context,
+          Collections.singletonList(aggregate),
+          Collections.singletonList("count"))
+        val input = new ColumnarBatch(Array.empty[ColumnVector], 1)
+        val handle = PlanEvaluatorJniWrapper
+          .create(runtime)
+          .nativeCreateKernelWithIterator(
+            plan.toProtobuf.toByteArray,
+            Array.empty[Array[Byte]],
+            Array(new ColumnarBatchInIterator(
+              BackendsApiManager.getBackendName,
+              Collections.singletonList(input).iterator())),
+            0,
+            0,
+            0L,
+            false,
+            spillDir.getCanonicalPath
+          )
+        val out = new ColumnarBatchOutIterator(runtime, handle)
+        try {
+          out.noMoreSplits()
+          f(out)
+        } finally {
+          out.close()
+          input.close()
+        }
+    }
+  }
+
+  private class FailingReservationListener(val original: RuntimeException)
+    extends ReservationListener {
+    var failReserve = false
+    var failUnreserve = false
+    var failures = 0
+    private var used = 0L
+
+    override def reserve(size: Long): Long = {
+      if (failReserve) {
+        failures += 1
+        throw original
+      }
+      used += size
+      size
+    }
+
+    override def unreserve(size: Long): Long = {
+      used -= size
+      if (failUnreserve) {
+        failures += 1
+        throw original
+      }
+      size
+    }
+
+    override def getUsedBytes: Long = used
   }
 
   for (failInHasNext <- Seq(true, false)) {
@@ -195,6 +321,55 @@ class GlutenJniExceptionSuite extends GlutenQueryTest with SharedSparkSession {
   test("normal end of input is unchanged") {
     withNativeIterator(Collections.emptyList[ColumnarBatch]().iterator()) {
       out => assert(!out.hasNext())
+    }
+  }
+
+  test("native operator reservations preserve the actual Java throwable") {
+    val cause = new ArithmeticException("reservation cause")
+    val original = new IllegalStateException("reservation failure", cause)
+    val listener = new FailingReservationListener(original)
+    withReservationRuntime(listener) {
+      runtime =>
+        withNativeCount(runtime) {
+          out =>
+            listener.failReserve = true
+            try {
+              val actual = intercept[IllegalStateException] {
+                out.hasNext0()
+              }
+              assert(listener.failures > 0)
+              assert(actual eq original)
+              assert(actual.getCause eq cause)
+            } finally {
+              listener.failReserve = false
+            }
+        }
+    }
+  }
+
+  test("direct JNI unreserve preserves the actual Java throwable") {
+    val original = new IllegalStateException("unreserve failure")
+    val listener = new FailingReservationListener(original)
+    withReservationRuntime(listener) {
+      runtime =>
+        withNativeCount(runtime) {
+          out =>
+            assert(out.hasNext0())
+            val batch = out.next0()
+            batch.close()
+            assert(!out.hasNext0())
+        }
+        assert(listener.getUsedBytes > 0)
+        listener.failUnreserve = true
+        try {
+          val actual = intercept[IllegalStateException] {
+            NativeMemoryManagerJniWrapper.shrink(runtime.memoryManager().getHandle(), 0)
+          }
+          assert(listener.failures > 0)
+          assert(actual eq original)
+        } finally {
+          listener.failUnreserve = false
+        }
     }
   }
 }

@@ -34,6 +34,8 @@ class JavaException final : public std::exception {
 
   void throwToJava(JNIEnv* env) const noexcept;
 
+  static bool throwNestedToJava(JNIEnv* env, const std::exception& error) noexcept;
+
   static void check(JNIEnv* env);
 
  private:
