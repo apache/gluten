@@ -61,12 +61,64 @@ import java.util.stream.Collectors;
 /** Convertor to convert RexNode to velox TypedExpr */
 public class RexNodeConverter {
 
+  // Flink TIME-typed values ride on the INTEGER milliseconds-of-day carrier,
+  // and only the LOCALTIME direct projection keeps TIME semantics on that
+  // carrier. Any other call whose own type or a direct operand is TIME would
+  // either fail against the velox signatures or silently evaluate the
+  // integer carrier as a plain number, so it is rejected here instead.
+  private static final String LOCALTIME_OPERATOR = "LOCALTIME";
+
+  private static final String TIME_UNSUPPORTED_SUFFIX =
+      "gluten-flink supports TIME-typed values only as the LOCALTIME direct"
+          + " projection on the INTEGER milliseconds-of-day carrier; other TIME"
+          + " expressions (comparisons, arithmetic, EXTRACT, CAST, CASE, ..."
+          + " ) lose TIME semantics on the INTEGER carrier and are rejected.";
+
+  /**
+   * Rejects a RexCall that would silently integer-ize TIME semantics. Rules: the LOCALTIME call
+   * itself passes (it is the designed carrier projection); any other call whose result type or any
+   * direct operand type is TIME fails with an explicit planner-time error.
+   */
+  private static void maybeRejectTimeTypedCall(RexCall rexCall) {
+    String operatorName = rexCall.getOperator().getName();
+    if (LOCALTIME_OPERATOR.equals(operatorName)) {
+      return;
+    }
+    if (rexCall.getType().getSqlTypeName() == SqlTypeName.TIME) {
+      throw new RuntimeException(
+          "Operator '"
+              + operatorName
+              + "' produces a TIME-typed result, which is not supported: "
+              + TIME_UNSUPPORTED_SUFFIX
+              + " Offending node: "
+              + rexCall);
+    }
+    for (RexNode operand : rexCall.getOperands()) {
+      if (operand.getType().getSqlTypeName() == SqlTypeName.TIME) {
+        throw new RuntimeException(
+            "Operator '"
+                + operatorName
+                + "' has a TIME-typed operand, which is not supported: "
+                + TIME_UNSUPPORTED_SUFFIX
+                + " Offending node: "
+                + rexCall);
+      }
+    }
+  }
+
   public static TypedExpr toTypedExpr(RexNode rexNode, RexConversionContext context) {
     if (rexNode instanceof RexLiteral) {
       RexLiteral literal = (RexLiteral) rexNode;
+      if (literal.getType().getSqlTypeName() == SqlTypeName.TIME) {
+        // A bare TIME literal (e.g. TIME '12:00:00') has no carrier mapping;
+        // reject with the TIME-specific message instead of the generic
+        // unsupported-variant error.
+        throw new RuntimeException("TIME literal is not supported: " + TIME_UNSUPPORTED_SUFFIX);
+      }
       return new ConstantTypedExpr(toType(literal.getType()), toVariant(literal), null);
     } else if (rexNode instanceof RexCall) {
       RexCall rexCall = (RexCall) rexNode;
+      maybeRejectTimeTypedCall(rexCall);
       RexCallConverter converter = RexCallConverterFactory.getConverter(rexCall, context);
       return converter.toTypedExpr(rexCall, context);
     } else if (rexNode instanceof RexInputRef) {
