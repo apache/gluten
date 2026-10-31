@@ -92,7 +92,7 @@ jobs:
           # flinksql temporal functions land there.
           git clone -b flinksql-temporal-expressions https://github.com/sunshone/velox4j.git
           cd velox4j
-          git reset --hard 0d422307a04ae8c430f84b15190b3dd524a815f3
+          git reset --hard cb6150dd16afff74ccf66ae607e985573a0992b9
           git apply $GITHUB_WORKSPACE/gluten-flink/patches/fix-velox4j.patch
           $GITHUB_WORKSPACE/build/mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
           cd ..

@@ -51,7 +51,7 @@ As some features have not been committed to upstream, you have to use the follow
 # flinksql temporal functions land there.
 git clone -b flinksql-temporal-expressions https://github.com/sunshone/velox4j.git
 cd velox4j
-git reset --hard 0d422307a04ae8c430f84b15190b3dd524a815f3
+git reset --hard cb6150dd16afff74ccf66ae607e985573a0992b9
 mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
 ```
 **Get gluten**
