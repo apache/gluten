@@ -21,12 +21,17 @@ import org.apache.gluten.execution.BoltWholeStageTransformerSuite
 import org.apache.gluten.test.FallbackUtil
 
 import org.apache.spark.SparkConf
+import org.apache.spark.internal.io.FileCommitProtocol.TaskCommitMessage
+import org.apache.spark.internal.io.HadoopMapReduceCommitProtocol
 import org.apache.spark.util.Utils
 
 import org.apache.hadoop.fs.Path
+import org.apache.hadoop.mapreduce.TaskAttemptContext
 import org.apache.parquet.hadoop.ParquetFileReader
 import org.apache.parquet.hadoop.util.HadoopInputFile
 import org.junit.Assert
+
+import java.io.IOException
 
 class BoltParquetWriteSuite extends BoltWholeStageTransformerSuite {
   override protected val resourcePath: String = "/tpch-data-parquet"
@@ -68,6 +73,33 @@ class BoltParquetWriteSuite extends BoltWholeStageTransformerSuite {
 
   override protected def sparkConf: SparkConf = {
     super.sparkConf.set(GlutenConfig.NATIVE_WRITER_ENABLED.key, "true")
+  }
+
+  test("native write failure preserves the commit error and output path") {
+    withTempPath {
+      input =>
+        withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+          spark.range(4).coalesce(1).write.parquet(input.getCanonicalPath)
+        }
+        withTempPath {
+          output =>
+            withSQLConf(
+              "spark.sql.sources.commitProtocolClass" ->
+                classOf[BoltFailingCommitProtocol].getName) {
+              val error = intercept[Exception] {
+                spark.read.parquet(input.getCanonicalPath).write.parquet(output.getCanonicalPath)
+              }
+              val causes = Iterator.iterate[Throwable](error)(_.getCause)
+                .takeWhile(_ != null).toList
+              assert(causes.exists(
+                t => Option(t.getMessage).exists(_.contains("injected Bolt commit failure"))))
+              assert(causes.exists(
+                t => Option(t.getMessage).exists(_.contains(output.getCanonicalPath))))
+              assert(causes.exists(_.getStackTrace.exists(
+                _.getClassName == classOf[BoltColumnarWriteFilesRDD].getName)))
+            }
+        }
+    }
   }
 
   test("test Array(Struct) fallback") {
@@ -164,4 +196,10 @@ class BoltParquetWriteSuite extends BoltWholeStageTransformerSuite {
       Assert.assertTrue(FallbackUtil.hasFallback(df.queryExecution.executedPlan))
     }
   }
+}
+
+class BoltFailingCommitProtocol(jobId: String, path: String, dynamicPartitionOverwrite: Boolean)
+  extends HadoopMapReduceCommitProtocol(jobId, path, dynamicPartitionOverwrite) {
+  override def commitTask(context: TaskAttemptContext): TaskCommitMessage =
+    throw new IOException("injected Bolt commit failure")
 }

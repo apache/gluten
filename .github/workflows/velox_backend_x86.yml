@@ -41,6 +41,8 @@ on:
       - 'tools/gluten-it/**'
       - 'ep/build-velox/**'
       - 'cpp/**'
+      - '!cpp/bolt/**'
+      - '!cpp/bolt.CMakeLists.cmake'
       - 'dev/**'
       - 'build/mvn'
   # Nightly full run. PR runs trim the TPC matrices to representative JDKs and

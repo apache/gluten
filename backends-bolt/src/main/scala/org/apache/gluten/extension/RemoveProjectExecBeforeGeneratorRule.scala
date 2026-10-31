@@ -17,9 +17,9 @@
 package org.apache.gluten.extension
 
 import org.apache.gluten.config.BoltConfig
-import org.apache.gluten.execution.{GenerateExecTransformer, ProjectExecTransformer}
+import org.apache.gluten.execution.{FilterExecTransformer, GenerateExecTransformer, ProjectExecTransformer}
 
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Expression, Generator}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.SparkPlan
 object RemoveProjectExecBeforeGeneratorRule extends Rule[SparkPlan] {
@@ -29,41 +29,80 @@ object RemoveProjectExecBeforeGeneratorRule extends Rule[SparkPlan] {
     }
     plan.transformUp {
       case project @ ProjectExecTransformer(_, generate: GenerateExecTransformer) =>
-        if (project.output.size != generate.output.size) {
-          return plan
-        }
-        val generateOut = generate.generatorOutput.toSet
-        val genInputProject =
-          project.projectList
-            .filterNot(p => p.references.toSet.intersect(generateOut).isEmpty)
-            .filter(
-              p =>
-                (p.isInstanceOf[Alias] && p.asInstanceOf[Alias].child.isInstanceOf[Attribute]) || p
-                  .isInstanceOf[Attribute])
-        if (genInputProject.isEmpty) {
-          return plan
-        }
-        var newGeneratorOutput = generate.generatorOutput
-        if (genInputProject.flatMap(p => p.references).equals(generate.generatorOutput)) {
-          newGeneratorOutput = genInputProject.map(p => p.toAttribute)
-        } else {
-          return plan
-        }
-        val newGeneratorExec = generate.copy(
-          generator = generate.generator,
-          requiredChildOutput = generate.requiredChildOutput,
-          outer = generate.outer,
-          generatorOutput = newGeneratorOutput,
-          child = generate.child
-        )
-        val newProject =
-          ProjectExecTransformer(project.projectList.map(pj => pj.toAttribute), newGeneratorExec)
-        val validationResult = newProject.doValidate()
-        if (validationResult.ok() && newGeneratorExec.output.equals(newProject.output)) {
-          newGeneratorExec
-        } else {
-          project
-        }
+        removeProject(project, generate, None)
+      case project @ ProjectExecTransformer(
+            _,
+            filter @ FilterExecTransformer(_, generate: GenerateExecTransformer)) =>
+        removeProject(project, generate, Some(filter))
+    }
+  }
+
+  private def removeProject(
+      project: ProjectExecTransformer,
+      generate: GenerateExecTransformer,
+      filter: Option[FilterExecTransformer]): SparkPlan = {
+    val references = project.projectList.map {
+      case attribute: Attribute => Some(attribute)
+      case Alias(attribute: Attribute, _) => Some(attribute)
+      case _ => None
+    }
+    val originalOutput = references.flatten
+    val output = project.output
+    // Only a one-to-one rename in the generator's original output order is removable.
+    // Reordering, duplication, or computation needs its original projection.
+    if (
+      references.exists(_.isEmpty) || originalOutput != generate.output ||
+      originalOutput.map(_.exprId).distinct.size != originalOutput.size ||
+      output.map(_.exprId).distinct.size != output.size
+    ) {
+      return project
+    }
+    val renamed = originalOutput.zip(output).map { case (from, to) => from.exprId -> to }.toMap
+    if (filter.exists(f => f.condition.references.exists(a => !renamed.contains(a.exprId)))) {
+      return project
+    }
+    def renameReferences(expression: Expression): Expression = expression.transform {
+      case attribute: Attribute => renamed.getOrElse(attribute.exprId, attribute)
+    }
+
+    val inputProjects = project.projectList.take(generate.requiredChildOutput.size)
+    val inputAliases = generate.requiredChildOutput.zip(inputProjects)
+      .collect { case (from, to: Alias) => from.exprId -> to }.toMap
+    val inputProject = if (inputAliases.isEmpty) {
+      None
+    } else {
+      Some(ProjectExecTransformer(
+        generate.child.output.map(a => inputAliases.getOrElse(a.exprId, a)),
+        generate.child))
+    }
+    val rewrittenGenerator = generate.copy(
+      generator = renameReferences(generate.generator).asInstanceOf[Generator],
+      requiredChildOutput = inputProjects.map(_.toAttribute),
+      generatorOutput = output.drop(generate.requiredChildOutput.size),
+      child = inputProject.getOrElse(generate.child)
+    )
+    val replacement: SparkPlan = filter match {
+      case Some(original) =>
+        original.copy(renameReferences(original.condition), rewrittenGenerator)
+      case None => rewrittenGenerator
+    }
+    val sameOutput = replacement.output == output && replacement.output.zip(output).forall {
+      case (actual, expected) =>
+        actual.name == expected.name && actual.dataType == expected.dataType &&
+        actual.nullable == expected.nullable && actual.exprId == expected.exprId &&
+        actual.qualifier == expected.qualifier && actual.metadata == expected.metadata
+    }
+    val validFilter = replacement match {
+      case rewritten: FilterExecTransformer => rewritten.doValidate().ok()
+      case _ => true
+    }
+    if (
+      sameOutput && inputProject.forall(_.doValidate().ok()) &&
+      rewrittenGenerator.doValidate().ok() && validFilter
+    ) {
+      replacement
+    } else {
+      project
     }
   }
 }

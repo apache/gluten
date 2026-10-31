@@ -572,4 +572,8 @@ object BoltBackendSettings extends BackendSettingsApi {
   override def supportOverwriteByExpression(): Boolean = enableEnhancedFeatures()
 
   override def supportOverwritePartitionsDynamic(): Boolean = enableEnhancedFeatures()
+
+  // Shuffle validation already rejects empty schemas. This capability also prevents
+  // CollectLimitTransformerRule from introducing a native empty-schema CollectLimit.
+  override def supportEmptySchemaColumnarShuffle(): Boolean = false
 }

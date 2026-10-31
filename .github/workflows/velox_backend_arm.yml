@@ -36,6 +36,8 @@ on:
       - 'tools/gluten-it/**'
       - 'ep/build-velox/**'
       - 'cpp/**'
+      - '!cpp/bolt/**'
+      - '!cpp/bolt.CMakeLists.cmake'
       - 'dev/**'
       - 'build/mvn'
 

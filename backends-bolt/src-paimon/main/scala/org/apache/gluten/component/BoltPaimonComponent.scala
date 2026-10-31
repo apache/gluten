@@ -20,9 +20,12 @@ import org.apache.gluten.backendsapi.bolt.BoltBackend
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.OffloadPaimonScan
 import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
+import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
 import org.apache.gluten.extension.columnar.validator.Validators
 import org.apache.gluten.extension.injector.Injector
 
+import org.apache.spark.sql.execution.SparkPlan
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.util.SparkReflectionUtil
 
 class BoltPaimonComponent extends Component {
@@ -37,11 +40,22 @@ class BoltPaimonComponent extends Component {
   override def injectRules(injector: Injector): Unit = {
     injector.gluten.legacy.injectTransform {
       c =>
-        val offload = Seq(OffloadPaimonScan())
+        val offload = Seq(OffloadBoltPaimonScan(OffloadPaimonScan()))
         HeuristicTransform.Simple(
           Validators.newValidator(new GlutenConfig(c.sqlConf), offload),
           offload
         )
+    }
+  }
+}
+
+private[component] case class OffloadBoltPaimonScan(delegate: OffloadSingleNode)
+  extends OffloadSingleNode {
+  override def offload(plan: SparkPlan): SparkPlan = {
+    if (SQLConf.get.getConfString("spark.gluten.paimon.native.source.enabled", "true").toBoolean) {
+      delegate.offload(plan)
+    } else {
+      plan
     }
   }
 }

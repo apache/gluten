@@ -27,6 +27,8 @@ on:
       - 'gluten-ut/**'
       - 'shims/**'
       - 'cpp/**'
+      - '!cpp/bolt/**'
+      - '!cpp/bolt.CMakeLists.cmake'
       - 'ep/build-velox/**'
       - 'dev/**'
       - 'build/mvn'

@@ -16,11 +16,12 @@
  */
 package org.apache.gluten.execution.python
 
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.WholeStageTransformerSuite
 
 import org.apache.spark.SparkConf
 import org.apache.spark.api.python.ColumnarArrowEvalPythonExec
-import org.apache.spark.sql.IntegratedUDFTestUtils
+import org.apache.spark.sql.{IntegratedUDFTestUtils, Row}
 import org.apache.spark.sql.types.{DataType, LongType, StringType}
 import org.apache.spark.util.SparkVersionUtil
 
@@ -125,6 +126,36 @@ class ArrowEvalPythonExecSuite extends WholeStageTransformerSuite {
       .withColumn("p_a", pyarrowTestUDFString(base("a")))
       .withColumn("p_b", pyarrowTestUDFLong(base("b") * 2))
     checkAnswer(df, expected)
+  }
+
+  testWithMaxSparkVersion("arrow_udf test: independent output ownership across batches", "4.0") {
+    withSQLConf(GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> "2") {
+      withTempPath {
+        path =>
+          Seq(("one", 1L), ("two", 2L), ("three", 3L), ("four", 4L), ("five", 5L), ("six", 6L))
+            .toDF("value", "id")
+            .coalesce(1)
+            .write
+            .parquet(path.getCanonicalPath)
+          val input = spark.read.parquet(path.getCanonicalPath)
+          val result = input.withColumn("copied", pyarrowTestUDFString(input("value")))
+          checkSparkPlan[ColumnarArrowEvalPythonExec](result)
+          checkAnswer(
+            result,
+            Seq(
+              Row("one", 1L, "one"),
+              Row("two", 2L, "two"),
+              Row("three", 3L, "three"),
+              Row("four", 4L, "four"),
+              Row("five", 5L, "five"),
+              Row("six", 6L, "six")))
+          val pythonNodes = collect(result.queryExecution.executedPlan) {
+            case p: ColumnarArrowEvalPythonExec => p
+          }
+          assert(pythonNodes.size == 1)
+          assert(pythonNodes.head.metrics("numOutputBatches").value >= 2)
+      }
+    }
   }
 
   private def newTestScalarPandasUDF(

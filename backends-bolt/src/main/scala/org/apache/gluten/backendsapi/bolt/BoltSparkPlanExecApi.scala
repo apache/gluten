@@ -47,7 +47,7 @@ import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.datasources.FileFormat
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
-import org.apache.spark.sql.execution.joins.{BuildSideRelation, HashedRelationBroadcastMode}
+import org.apache.spark.sql.execution.joins.BuildSideRelation
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.execution.python.ArrowEvalPythonExec
 import org.apache.spark.sql.execution.unsafe.UnsafeColumnarBuildSideRelation
@@ -62,8 +62,6 @@ import org.apache.spark.task.TaskResources
 import org.apache.spark.unsafe.Platform
 
 import org.apache.commons.lang3.ClassUtils
-
-import javax.ws.rs.core.UriBuilder
 
 import java.util.{ArrayList => JArrayList, List => JList, Locale}
 
@@ -774,19 +772,6 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
     }
   }
 
-  override def doCanonicalizeForBroadcastMode(mode: BroadcastMode): BroadcastMode = {
-    mode match {
-      case hash: HashedRelationBroadcastMode =>
-        // Node: It's different with vanilla Spark.
-        // Vanilla Spark build HashRelation at driver side, so it is build keys sensitive.
-        // But we broadcast byte array and build HashRelation at executor side,
-        // the build keys are actually meaningless for the broadcast value.
-        // This change allows us reuse broadcast exchange for different build keys with same table.
-        hash.copy(key = Seq.empty)
-      case _ => mode.canonicalized
-    }
-  }
-
   /**
    * * Expressions.
    */
@@ -893,7 +878,7 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
         ExpressionNames.FROM_JSON,
         FromJsonRestrictions.NOT_SUPPORT_COLUMN_CORRUPT_RECORD)
     }
-    GenericExpressionTransformer(substraitExprName, children, expr)
+    BoltFromJsonTransformer(substraitExprName, children, expr)
   }
 
   /** Generate an expression transformer to transform StructsToJson to Substrait. */
@@ -935,11 +920,18 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
       substraitExprName: String,
       child: ExpressionTransformer,
       expr: StaticInvoke): ExpressionTransformer = {
-    if (!SQLConf.get.getConfString("spark.sql.chunkBase64String.enabled", "true").toBoolean) {
-      GlutenExceptionUtil
-        .throwsNotFullySupported(
-          ExpressionNames.BASE64,
-          Base64Restrictions.NOT_SUPPORT_DISABLE_CHUNK_BASE64_STRING)
+    val key = BoltConfig.SPARK_CHUNK_BASE64_STRING_ENABLED_KEY
+    val nativeChunking = !BoltConfig.EXTRA_NATIVE_SESSION_CONF_KEYS.contains(key) ||
+      SQLConf.get.getConfString(key).toBoolean
+    val boundChunking = expr.arguments.lift(1) match {
+      case Some(Literal(value: Boolean, _)) => value
+      case None => true
+      case _ =>
+        throw new GlutenNotSupportException("Base64 requires a literal chunking option")
+    }
+    if (boundChunking != nativeChunking) {
+      throw new GlutenNotSupportException(
+        "Base64 expression chunking option differs from the native query configuration")
     }
     GenericExpressionTransformer(
       ExpressionNames.BASE64,
@@ -1057,11 +1049,9 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
       case "local" =>
         path
       case "heap-over-local" =>
-        val rewritten = UriBuilder
-          .fromPath(path)
-          .scheme("jol")
-          .toString
-        rewritten
+        // Native FileSystemWrapper strips this routing prefix without URI decoding.
+        // Preserve the filesystem path, including literal percent sequences.
+        s"jol:$path"
       case other =>
         throw new IllegalStateException(s"Unsupported fs: $other")
     }
@@ -1082,8 +1072,11 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
 
   override def genPostProjectForGenerate(generate: GenerateExec): SparkPlan = {
     generate.generator match {
-      case _: JsonTuple =>
-        PullOutGenerateProjectHelper.pullOutPostProject(generate)
+      case _: JsonTupleExplode =>
+        // The json_tuple pre-project always produces array(struct(...)) with one element,
+        // even for null or invalid JSON. Non-outer generation therefore preserves every row
+        // and unpacks the struct without the isPresent column that Bolt does not produce.
+        PullOutGenerateProjectHelper.pullOutPostProject(generate.copy(outer = false))
       case _ =>
         generate
     }
