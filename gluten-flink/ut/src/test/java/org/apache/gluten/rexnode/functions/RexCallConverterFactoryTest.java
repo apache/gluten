@@ -110,6 +110,43 @@ public class RexCallConverterFactoryTest {
   }
 
   /**
+   * FLOOR over a DECIMAL resolves through the numeric-only converter: the operand guard accepts
+   * DECIMAL (velox's flinksql floor/ceil cover decimal(p, s) -> decimal(p, 0)), so the decimal form
+   * is no longer rejected at planning time.
+   */
+  @Test
+  public void testFloorDecimalResolvesToNumericOnlyConverter() {
+    RexNode operand =
+        rexBuilder.makeExactLiteral(
+            new BigDecimal("55.67"), typeFactory.createSqlType(SqlTypeName.DECIMAL, 10, 2));
+    RexCall call = (RexCall) rexBuilder.makeCall(SqlStdOperatorTable.FLOOR, operand);
+    RexCallConverter converter = RexCallConverterFactory.getConverter(call, context);
+    assertThat(converter).isInstanceOf(NumericOnlyRexCallConverter.class);
+    TypedExpr expr = converter.toTypedExpr(call, context);
+    assertThat(expr).isInstanceOf(CallTypedExpr.class);
+    assertThat(((CallTypedExpr) expr).getFunctionName()).isEqualTo("floor");
+  }
+
+  /** Unary minus over a DECIMAL resolves through the negate converter (guard accepts DECIMAL). */
+  @Test
+  public void testUnaryMinusDecimalResolvesToNegateConverter() {
+    SqlFunction minus =
+        new SqlFunction(
+            "-",
+            SqlKind.OTHER_FUNCTION,
+            ReturnTypes.ARG0,
+            null,
+            OperandTypes.NUMERIC,
+            SqlFunctionCategory.NUMERIC);
+    RexNode operand =
+        rexBuilder.makeExactLiteral(
+            new BigDecimal("-12.34"), typeFactory.createSqlType(SqlTypeName.DECIMAL, 10, 2));
+    RexCall call = (RexCall) rexBuilder.makeCall(minus, operand);
+    RexCallConverter converter = RexCallConverterFactory.getConverter(call, context);
+    assertThat(converter).isInstanceOf(UnaryMinusRexCallConverter.class);
+  }
+
+  /**
    * ROUND over a decimal narrows the scale by the (value-dependent) second argument, which a velox
    * signature cannot express; the converter must emit a same-typed round call wrapped in a cast to
    * Flink's inferred result type.

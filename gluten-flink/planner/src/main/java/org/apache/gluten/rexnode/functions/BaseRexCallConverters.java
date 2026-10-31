@@ -110,8 +110,9 @@ class UnaryMinusRexCallConverter extends BaseRexCallConverter {
     // Numeric operand only: the interval form of unary minus would
     // otherwise be accepted by the arity guard and fail later at
     // toType (no interval type mapping); reject it at planning time.
+    // Decimals are accepted: velox's flinksql negate covers them.
     try {
-      if (!org.apache.gluten.rexnode.TypeUtils.isNumericType(
+      if (!org.apache.gluten.rexnode.TypeUtils.isNumericOrDecimalType(
           org.apache.gluten.rexnode.RexNodeConverter.toType(
               callNode.getOperands().get(0).getType()))) {
         return ValidationResult.failure(
