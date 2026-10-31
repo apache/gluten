@@ -177,6 +177,9 @@ public class ExpressionBuilder {
     if (typeNode instanceof TimestampTypeNode) {
       return makeTimestampLiteral((Long) obj, typeNode);
     }
+    if (typeNode instanceof TimestampNTZTypeNode) {
+      return new TimestampNTZLiteralNode((Long) obj, typeNode);
+    }
     if (typeNode instanceof StringTypeNode) {
       return makeStringLiteral(obj.toString(), typeNode);
     }
