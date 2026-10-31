@@ -22,6 +22,7 @@ import org.apache.gluten.columnarbatch.ColumnarBatches
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution._
 import org.apache.gluten.expression.{ConverterUtils, TransformerState}
+import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
 import org.apache.gluten.extension.columnar.offload.OffloadOthers
 import org.apache.gluten.extension.columnar.rewrite.PullOutPreProject
@@ -39,12 +40,12 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, EmptyRow, Expression, Projection, SortOrder, SpecificInternalRow, UnsafeProjection}
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, Complete, DeclarativeAggregate}
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateMutableProjection
-import org.apache.spark.sql.execution.{ColumnarCollapseTransformStages, LeafExecNode, ProjectExec, SparkPlan}
+import org.apache.spark.sql.execution.{ColumnarCollapseTransformStages, ColumnarInputAdapter, LeafExecNode, ProjectExec, SparkPlan}
 import org.apache.spark.sql.execution.aggregate.SortAggregateExec
 import org.apache.spark.sql.execution.datasources.{BasicWriteJobStatsTracker, WriteJobStatsTracker, WriteTaskStats, WriteTaskStatsTracker}
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.vectorized.ColumnarBatch
-import org.apache.spark.util.{SerializableConfiguration, SparkDirectoryUtil, Utils}
+import org.apache.spark.util.{SparkDirectoryUtil, Utils}
 
 import com.google.common.collect.Lists
 import org.apache.hadoop.conf.Configuration
@@ -58,7 +59,8 @@ import scala.collection.mutable
 
 /** Gluten's stats tracker with vectorized aggregation inside to produce statistics efficiently. */
 private[stats] class GlutenDeltaJobStatsTracker(val delegate: DeltaJobStatisticsTracker)
-  extends WriteJobStatsTracker {
+  extends WriteJobStatsTracker
+  with Logging {
   import GlutenDeltaJobStatsTracker._
 
   @transient private val hadoopConf: Configuration = {
@@ -71,13 +73,31 @@ private[stats] class GlutenDeltaJobStatsTracker(val delegate: DeltaJobStatistics
   private val dataCols = delegate.dataCols
   private val statsColExpr = delegate.statsColExpr
 
-  private val srlHadoopConf = new SerializableConfiguration(hadoopConf)
   private val rootUri = path.getFileSystem(hadoopConf).makeQualified(path).toUri
 
   override def newTaskInstance(): WriteTaskStatsTracker = {
-    val rootPath = new Path(rootUri)
-    val hadoopConf = srlHadoopConf.value
-    new GlutenDeltaTaskStatsTracker(dataCols, statsColExpr, rootPath, hadoopConf)
+    val aggregates = statsColExpr.collect {
+      case ae: AggregateExpression if ae.aggregateFunction.isInstanceOf[DeclarativeAggregate] =>
+        assert(ae.mode == Complete)
+        ae
+    }
+    val plan = createStatsPlan(dataCols, aggregates)
+    plan match {
+      case WholeStageTransformer(child: TransformSupport, _) if supportsNativeStats(child) =>
+        if (Utils.isTesting) {
+          statsPlanObserver.foreach(_(new Path(rootUri), child))
+        }
+        new GlutenDeltaTaskStatsTracker(statsColExpr, aggregates, child)
+      case _ =>
+        val reasons = plan
+          .flatMap(node => FallbackTags.getOption(node).map(_.reason()))
+          .distinct
+          .mkString("; ")
+        logWarning(
+          "Gluten Delta: Statistics plan could not be fully offloaded. Falling back to " +
+            s"row-based Delta statistics with columnar-to-row conversion. $reasons")
+        new GlutenDeltaJobStatsFallbackTracker(delegate).newTaskInstance()
+    }
   }
 
   override def processStats(stats: Seq[WriteTaskStats], jobCommitTime: Long): Unit = {
@@ -89,7 +109,9 @@ object GlutenDeltaJobStatsTracker extends Logging {
   private val statsPlanObserverLock = new Object
   @volatile private var statsPlanObserver: Option[(Path, SparkPlan) => Unit] = None
 
-  /** Observes task-local statistics plans in local-mode tests; callbacks run on task threads. */
+  /**
+   * Observes task-local native statistics plans in local-mode tests; callbacks run on task threads.
+   */
   private[delta] def withStatsPlanObserver[T](observer: (Path, SparkPlan) => Unit)(f: => T): T =
     statsPlanObserverLock.synchronized {
       require(Utils.isTesting, "Statistics plan observation is only available in tests")
@@ -115,12 +137,46 @@ object GlutenDeltaJobStatsTracker extends Logging {
       new GlutenDeltaJobStatsFallbackTracker(tracker)
   }
 
+  private def createStatsPlan(
+      dataCols: Seq[Attribute],
+      aggregates: Seq[AggregateExpression]): SparkPlan = {
+    val statsAttrs = aggregates.flatMap(_.aggregateFunction.aggBufferAttributes)
+    val statsResultAttrs = aggregates.flatMap(_.aggregateFunction.inputAggBufferAttributes)
+    val aggOp = SortAggregateExec(
+      None,
+      isStreaming = false,
+      None,
+      Seq.empty,
+      aggregates,
+      statsAttrs,
+      0,
+      statsResultAttrs,
+      StatisticsInputNode(dataCols)
+    )
+    val projOp = ProjectExec(statsResultAttrs, aggOp)
+    val offloads = Seq(OffloadOthers()).map(_.toStrcitRule())
+    val validatorBuilder: GlutenConfig => Validator = conf =>
+      Validators.newValidator(conf, offloads)
+    val config = GlutenConfig.get
+    val transformRule =
+      HeuristicTransform.WithRewrites(validatorBuilder(config), Seq(PullOutPreProject), offloads)
+    ColumnarCollapseTransformStages(config)(transformRule(projOp))
+  }
+
+  private def supportsNativeStats(plan: SparkPlan): Boolean = {
+    // A native root can still have a Spark aggregate behind an input adapter. The local
+    // evaluator consumes the original data batches, not the output of such a Spark subtree.
+    !plan.exists {
+      case _: TransformSupport | _: ColumnarInputAdapter | _: StatisticsInputNode => false
+      case _ => true
+    }
+  }
+
   /** A columnar-based statistics collection for Gluten + Delta Lake. */
   private class GlutenDeltaTaskStatsTracker(
-      dataCols: Seq[Attribute],
       statsColExpr: Expression,
-      rootPath: Path,
-      hadoopConf: Configuration)
+      aggregates: Seq[AggregateExpression],
+      wholeStageTransformer: TransformSupport)
     extends WriteTaskStatsTracker {
     // We use one single thread to ensure the statistic files are written in serial.
     // Do not increase the thread number, otherwise sanity will not be guaranteed.
@@ -130,11 +186,6 @@ object GlutenDeltaJobStatsTracker extends Logging {
       Map.empty[String, String].asJava)
     private val c2r = new VeloxColumnarToRowExec.Converter(new SQLMetric("convertTime"))
     private val inputBatchQueue = new SynchronousQueue[Option[ColumnarBatch]]()
-    private val aggregates: Seq[AggregateExpression] = statsColExpr.collect {
-      case ae: AggregateExpression if ae.aggregateFunction.isInstanceOf[DeclarativeAggregate] =>
-        assert(ae.mode == Complete)
-        ae
-    }
     private val declarativeAggregates: Seq[DeclarativeAggregate] = aggregates.map {
       ae => ae.aggregateFunction.asInstanceOf[DeclarativeAggregate]
     }
@@ -158,38 +209,7 @@ object GlutenDeltaJobStatsTracker extends Logging {
       inputSchema = aggBufferAttrs
     )
     private val taskContext = TaskContext.get()
-    private val statsAttrs = aggregates.flatMap(_.aggregateFunction.aggBufferAttributes)
-    private val statsResultAttrs = aggregates.flatMap(_.aggregateFunction.inputAggBufferAttributes)
     private val veloxAggTask: ColumnarBatchOutIterator = {
-      val inputNode = StatisticsInputNode(dataCols)
-      val aggOp = SortAggregateExec(
-        None,
-        isStreaming = false,
-        None,
-        Seq.empty,
-        aggregates,
-        statsAttrs,
-        0,
-        statsResultAttrs,
-        inputNode
-      )
-      val projOp = ProjectExec(statsResultAttrs, aggOp)
-      // Invoke the legacy transform rule to get a local Velox aggregation query plan.
-      val offloads = Seq(OffloadOthers()).map(_.toStrcitRule())
-      val validatorBuilder: GlutenConfig => Validator = conf =>
-        Validators.newValidator(conf, offloads)
-      val rewrites = Seq(PullOutPreProject)
-      val config = GlutenConfig.get
-      val transformRule =
-        HeuristicTransform.WithRewrites(validatorBuilder(config), rewrites, offloads)
-      val veloxTransformer = transformRule(projOp)
-      val wholeStageTransformer = ColumnarCollapseTransformStages(config)(veloxTransformer)
-        .asInstanceOf[WholeStageTransformer]
-        .child
-        .asInstanceOf[TransformSupport]
-      if (Utils.isTesting) {
-        statsPlanObserver.foreach(_(rootPath, wholeStageTransformer))
-      }
       val substraitContext = new SubstraitContext
       TransformerState.enterValidation
       val transformedNode =
