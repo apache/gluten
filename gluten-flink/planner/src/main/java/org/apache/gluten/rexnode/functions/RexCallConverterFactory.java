@@ -120,7 +120,9 @@ public class RexCallConverterFactory {
           // negative counts from the end) already match Flink.
           Map.entry("SUBSTRING", Arrays.asList(() -> new SubstringRexCallConverter())),
           Map.entry("IFNULL", Arrays.asList(() -> new ScalarOnlyRexCallConverter("ifnull"))),
-          Map.entry("COALESCE", Arrays.asList(() -> new DefaultRexCallConverter("coalesce"))));
+          Map.entry("COALESCE", Arrays.asList(() -> new DefaultRexCallConverter("coalesce"))),
+          Map.entry("MD5", Arrays.asList(() -> new DefaultRexCallConverter("md5"))),
+          Map.entry("SHA1", Arrays.asList(() -> new DefaultRexCallConverter("sha1"))));
 
   public static RexCallConverter getConverter(RexCall callNode, RexConversionContext context) {
     String operatorName = callNode.getOperator().getName();
