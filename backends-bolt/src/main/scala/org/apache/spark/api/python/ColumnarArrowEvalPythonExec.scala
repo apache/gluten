@@ -23,7 +23,7 @@ import org.apache.gluten.extension.columnar.transition.{Convention, ConventionRe
 import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
 import org.apache.gluten.utils.PullOutProjectHelper
-import org.apache.gluten.vectorized.ArrowWritableColumnVector
+import org.apache.gluten.vectorized.{ArrowColumnVectors, RefCountedArrowColumnVector}
 
 import org.apache.spark.{ContextAwareIterator, SparkEnv, TaskContext}
 import org.apache.spark.rdd.RDD
@@ -33,11 +33,11 @@ import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.execution.python.{ArrowEvalPythonExec, BasePythonRunnerShim, EvalPythonExecBase}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DataType, StructField, StructType}
-import org.apache.spark.sql.utils.{SparkArrowUtil, SparkSchemaUtil, SparkVectorUtil}
+import org.apache.spark.sql.utils.{SparkSchemaUtil, SparkVectorUtil}
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
 import org.apache.spark.util.{SparkVersionUtil, Utils}
 
-import org.apache.arrow.vector.{VectorLoader, VectorSchemaRoot}
+import org.apache.arrow.vector.{VectorLoader, VectorSchemaRoot, VectorUnloader}
 import org.apache.arrow.vector.ipc.{ArrowStreamReader, ArrowStreamWriter}
 
 import java.io.{DataInputStream, DataOutputStream}
@@ -80,8 +80,6 @@ class ColumnarArrowPythonRunner(
 
       private var reader: ArrowStreamReader = _
       private var root: VectorSchemaRoot = _
-      private var schema: StructType = _
-      private var vectors: Array[ColumnVector] = _
 
       context.addTaskCompletionListener[Unit] {
         _ =>
@@ -103,9 +101,20 @@ class ColumnarArrowPythonRunner(
           if (reader != null && batchLoaded) {
             batchLoaded = reader.loadNextBatch()
             if (batchLoaded) {
-              val batch = new ColumnarBatch(vectors)
-              batch.setNumRows(root.getRowCount)
-              batch
+              // The reader reuses root across batches. Give each result its own vectors and
+              // retained buffer references so prefetch and reader.close cannot invalidate it.
+              val recordBatch = new VectorUnloader(root).getRecordBatch
+              val outputRoot = VectorSchemaRoot.create(root.getSchema, allocator)
+              try {
+                new VectorLoader(outputRoot).load(recordBatch)
+                ArrowColumnVectors.toBatch(outputRoot)
+              } catch {
+                case t: Throwable =>
+                  outputRoot.close()
+                  throw t
+              } finally {
+                recordBatch.close()
+              }
             } else {
               reader.close(false)
               read()
@@ -115,10 +124,6 @@ class ColumnarArrowPythonRunner(
               case SpecialLengths.START_ARROW_STREAM =>
                 reader = new ArrowStreamReader(stream, allocator)
                 root = reader.getVectorSchemaRoot()
-                schema = SparkArrowUtil.fromArrowSchema(root.getSchema())
-                vectors = ArrowWritableColumnVector
-                  .loadColumns(root.getRowCount, root.getFieldVectors)
-                  .toArray[ColumnVector]
                 read()
               case SpecialLengths.TIMING_DATA =>
                 handleTimingData()
@@ -181,7 +186,7 @@ class ColumnarArrowPythonRunner(
                 nextBatch
                   .asInstanceOf[ColumnarBatch]
                   .column(i)
-                  .asInstanceOf[ArrowWritableColumnVector]
+                  .asInstanceOf[RefCountedArrowColumnVector]
                   .getValueVector)
             val nextRecordBatch =
               SparkVectorUtil.toArrowRecordBatch(nextBatch.numRows, cols)
@@ -368,42 +373,27 @@ case class ColumnarArrowEvalPythonExec(
               val joinedVectors = (0 until inputCb.numCols).toArray.map(
                 i => inputCb.column(i)) ++ (0 until outputCb.numCols).toArray.map(
                 i => outputCb.column(i))
-              (0 until joinedVectors.length).foreach(
-                i => {
-                  adjustRefCnt(joinedVectors(i).asInstanceOf[ArrowWritableColumnVector], 1)
-                })
               val numRows = inputCb.numRows
               numOutputBatches += 1
               numOutputRows += numRows
               val batch = new ColumnarBatch(joinedVectors, numRows)
               ColumnarBatches.checkLoaded(batch)
+              // Transfer the cache's input reference and outputCb's columns to the result.
+              // Iterator cleanup only releases inputs that have not produced a result yet.
+              inputCbCache(batchId) = null
               procTime += (System.nanoTime() - start_time) / 1000000
               batch
           }
         Iterators
           .wrap(res)
           .recycleIterator {
-            inputCbCache.foreach(ColumnarBatches.release(_))
+            inputCbCache.foreach {
+              batch => if (batch != null) ColumnarBatches.release(batch)
+            }
           }
           .recyclePayload(_.close())
           .create()
     }
-  }
-
-  private def adjustRefCnt(vector: ArrowWritableColumnVector, to: Long): Unit = {
-    val from = vector.refCnt()
-    if (from == to) {
-      return
-    }
-    if (from > to) {
-      do {
-        vector.close()
-      } while (vector.refCnt() != to)
-      return
-    }
-    do {
-      vector.retain()
-    } while (vector.refCnt() != to)
   }
 
   override protected def withNewChildInternal(newChild: SparkPlan): ColumnarArrowEvalPythonExec =

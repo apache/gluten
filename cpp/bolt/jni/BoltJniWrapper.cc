@@ -479,9 +479,8 @@ static inline std::vector<std::string> FromByteArrToStringVector(JNIEnv* env, jo
   for (int i = 0; i < length; i++) {
     jbyteArray byte_array = reinterpret_cast<jbyteArray>(env->GetObjectArrayElement(str_array, i));
     int bytes_len = env->GetArrayLength(byte_array);
-    signed char array[bytes_len];
-    env->GetByteArrayRegion(byte_array, 0, bytes_len, array);
-    std::string j_string(reinterpret_cast<char*>(array), sizeof(array));
+    std::string j_string(bytes_len, '\0');
+    env->GetByteArrayRegion(byte_array, 0, bytes_len, reinterpret_cast<jbyte*>(j_string.data()));
     vector.push_back(j_string);
   }
   return vector;

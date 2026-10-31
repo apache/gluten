@@ -63,8 +63,7 @@ import org.apache.spark.unsafe.Platform
 
 import org.apache.commons.lang3.ClassUtils
 
-import javax.ws.rs.core.UriBuilder
-
+import java.net.{URI, URLEncoder}
 import java.util.{ArrayList => JArrayList, List => JList, Locale}
 
 import scala.collection.JavaConverters._
@@ -1057,10 +1056,18 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
       case "local" =>
         path
       case "heap-over-local" =>
-        val rewritten = UriBuilder
-          .fromPath(path)
-          .scheme("jol")
-          .toString
+        // Preserve fromPath's existing escapes and literal URI template sections.
+        val templateOrPath = "\\{[^}]*\\}?|\\}|[^{}]+".r
+        val nonAscii = "[^\\x00-\\x7F]+".r
+        val rewritten = "jol:" + templateOrPath.findAllIn(path).map {
+          case template if template.startsWith("{") || template == "}" => template
+          case part =>
+            // A path prefix prevents URI from interpreting a scheme or authority in this part.
+            val encoded = new URI(null, null, "/_" + part, null, null)
+              .toString.substring(2).replaceAll("%25([0-9a-fA-F]{2})", "%$1")
+            // toASCIIString normalizes Unicode; encode it without changing the path's code points.
+            nonAscii.replaceAllIn(encoded, m => URLEncoder.encode(m.matched, "UTF-8"))
+        }.mkString
         rewritten
       case other =>
         throw new IllegalStateException(s"Unsupported fs: $other")

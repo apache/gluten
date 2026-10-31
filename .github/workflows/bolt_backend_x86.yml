@@ -1,0 +1,265 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Bolt Backend Build (x86)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/bolt_backend_x86.yml'
+      - 'pom.xml'
+      - 'backends-bolt/**'
+      - 'gluten-*/**'
+      - 'package/**'
+      - 'shims/**'
+      - 'cpp/**'
+      - 'dev/**'
+      - 'build/mvn'
+  workflow_dispatch:
+    inputs:
+      bolt_ref:
+        description: 'Bolt revision to compile; empty uses the pinned revision'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+env:
+  BOLT_REF: ${{ inputs.bolt_ref || 'c3548fe37ce90e3fb9ae2fb8e11d59ede5e9fb48' }}
+  # Provided by bytedance/bolt's .github/runners/Dockerfile.ci.
+  CC: clang-22
+  CXX: clang++-22
+
+jobs:
+  native:
+    runs-on: [self-hosted, Linux, X64, bolt-medium]
+    # Execution limit; queue timeout enforcement requires the external ECS monitor.
+    timeout-minutes: 360
+    env:
+      CI_NUM_THREADS: '16'
+      CCACHE_DIR: /data/ccache-data
+      CCACHE_MAXSIZE: 100G
+    container:
+      image: bolt-registry:5000/bolt-ci:20260921-source-cache-v3
+      options: --user root --init
+      volumes:
+        - /data/ccache-data:/data/ccache-data
+    services:
+      conanserver:
+        image: bolt-registry:5000/conan-server:latest
+        volumes:
+          - /data/conan-server-data:/var/conan/data
+    outputs:
+      bolt_sha: ${{ steps.bolt.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: bytedance/bolt
+          ref: ${{ env.BOLT_REF }}
+          path: bolt-source
+      - name: Pin the Bolt revision for downstream builds
+        id: bolt
+        run: echo "sha=$(git -C bolt-source rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Configure Bolt's dependency repository
+        shell: bash
+        run: |
+          export CONAN_HOME="$RUNNER_TEMP/conan2-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-native"
+          echo "CONAN_HOME=$CONAN_HOME" >> "$GITHUB_ENV"
+          bash bolt-source/scripts/install-bolt-deps.sh
+          configure-bolt-conan-cache
+          conan remote add ci http://conanserver:9300 --index 0
+      - name: Compile native libraries, examples, benchmarks and test executables
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash dev/ci-bolt-build.sh bolt-source 2>&1 | tee bolt-native-build.log
+          tar -czf bolt-native.tar.gz cpp/build/package/bolt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bolt-native-${{ github.sha }}
+          path: |
+            bolt-native.tar.gz
+      - name: Upload native build evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: bolt-native-build-logs-${{ github.sha }}
+          path: |
+            bolt-native-build.log
+            bolt-ci-reports/native/**
+
+  jvm:
+    name: Compile and package ${{ matrix.id }}
+    needs: native
+    runs-on: [self-hosted, Linux, X64, bolt-medium]
+    # Execution limit; queue timeout enforcement requires the external ECS monitor.
+    timeout-minutes: 360
+    container:
+      image: bolt-registry:5000/bolt-ci:20260921
+      options: --user root --init
+    strategy:
+      fail-fast: false
+      matrix:
+        # Build the supported Spark/JDK combinations from velox_backend_x86.
+        # Spark and connector test projects are enabled in the next stage.
+        include:
+          - id: spark34
+            spark: '3.4'
+            scala: '2.12'
+            java: '17'
+            profiles: iceberg,delta,hudi,paimon
+          - id: spark35
+            spark: '3.5'
+            scala: '2.12'
+            java: '17'
+            profiles: iceberg,delta,hudi,paimon,lance,celeborn,uniffle
+          - id: spark35-scala213
+            spark: '3.5'
+            scala: '2.13'
+            java: '17'
+            profiles: iceberg,delta
+          - id: spark35-java8
+            spark: '3.5'
+            scala: '2.12'
+            java: '8'
+            profiles: ''
+          - id: spark34-java8
+            spark: '3.4'
+            scala: '2.12'
+            java: '8'
+            profiles: ''
+          - id: spark35-java11
+            spark: '3.5'
+            scala: '2.12'
+            java: '11'
+            profiles: ''
+          - id: spark40
+            spark: '4.0'
+            scala: '2.13'
+            java: '17'
+            profiles: delta,paimon,lance
+          - id: spark40-fast-build
+            spark: '4.0'
+            scala: '2.13'
+            java: '17'
+            profiles: iceberg,delta,paimon,fast-build
+          - id: spark41
+            spark: '4.1'
+            scala: '2.13'
+            java: '17'
+            profiles: delta
+          - id: spark40-java21
+            spark: '4.0'
+            scala: '2.13'
+            java: '21'
+            profiles: ''
+          - id: spark40-java25
+            spark: '4.0'
+            scala: '2.13'
+            java: '25'
+            profiles: ''
+          - id: spark41-java21
+            spark: '4.1'
+            scala: '2.13'
+            java: '21'
+            profiles: ''
+          - id: spark41-java25
+            spark: '4.1'
+            scala: '2.13'
+            java: '25'
+            profiles: ''
+          - id: spark42
+            spark: '4.2'
+            scala: '2.13'
+            java: '17'
+            profiles: delta
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: bytedance/bolt
+          ref: ${{ needs.native.outputs.bolt_sha }}
+          path: ep/build-bolt/build/bolt_ep
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+          cache-dependency-path: '**/pom.xml'
+      - uses: actions/download-artifact@v8
+        with:
+          name: bolt-native-${{ github.sha }}
+      - name: Restore native libraries
+        run: |
+          tar -xzf bolt-native.tar.gz
+      - name: Compile main and test sources and package the Gluten JAR
+        env:
+          SPARK_VERSION: ${{ matrix.spark }}
+          SPARK_SCALA_VERSION: ${{ matrix.scala }}
+          JAVA_VERSION: ${{ matrix.java }}
+          EXTRA_PROFILES: ${{ matrix.profiles }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROFILES=(-Pbackends-bolt "-Pspark-$SPARK_VERSION"
+            "-Pscala-$SPARK_SCALA_VERSION" "-Pjava-$JAVA_VERSION")
+          if [[ -n "$EXTRA_PROFILES" ]]; then PROFILES+=("-P$EXTRA_PROFILES"); fi
+          build/mvn -ntp clean install "${PROFILES[@]}" -DskipTests 2>&1 | tee bolt-jvm-build.log
+      - name: Verify native libraries are embedded in the packaged JAR
+        env:
+          BOLT_SHA: ${{ needs.native.outputs.bolt_sha }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          from zipfile import ZipFile
+          jars = list(Path("package/target").glob("gluten-bolt-bundle-*.jar"))
+          if len(jars) != 1:
+              raise RuntimeError(f"Expected one packaged Gluten JAR: {jars}")
+          with ZipFile(jars[0]) as jar:
+              for name in ("libgluten.so", "libbolt_backend.so", "libglutenlibloader.so"):
+                  data = jar.read(f"linux/amd64/{name}")
+                  expected = Path(f"cpp/build/package/bolt/linux/amd64/{name}").read_bytes()
+                  if not data or hashlib.sha256(data).digest() != hashlib.sha256(expected).digest():
+                      raise RuntimeError(f"Packaged native library mismatch: {name}")
+              info = jar.read("gluten-build-info.properties").decode()
+              if f"bolt_revision={os.environ['BOLT_SHA']}" not in info.splitlines():
+                  raise RuntimeError("Packaged Bolt revision does not match the native build")
+          print(f"Verified {jars[0]}")
+          PY
+      - name: Upload packaged JAR and build log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: bolt-${{ matrix.id }}-build-${{ github.sha }}
+          path: |
+            package/target/gluten-bolt-bundle-*.jar
+            bolt-jvm-build.log

@@ -376,7 +376,7 @@ TEST_F(MultiMemoryManagerTest, spill) {
         pool->setReclaimer(std::make_unique<MockMemoryReclaimer>(buffs[i], allocateSize));
         listener->set(tmm.newListener(
             [](uint64_t bytes) -> uint64_t { return 0; },
-            [i, &vmms, &mutex, &pool](uint64_t bytes) -> uint64_t {
+            [i, &vmms, &mutex](uint64_t bytes) -> uint64_t {
               std::unique_lock<std::recursive_mutex> l(mutex);
               return vmms[i]->getMemoryManager()->arbitrator()->shrinkCapacity(bytes, true);
             }));

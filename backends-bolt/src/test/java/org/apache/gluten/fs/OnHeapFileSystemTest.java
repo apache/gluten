@@ -35,22 +35,30 @@ public class OnHeapFileSystemTest {
     JniFilesystem.WriteFile writeFile = fs.openFileForWrite(path);
     try {
       byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
-      ByteBuffer buf = PlatformDependent.allocateDirectNoCleaner(bytes.length);
-      buf.put(bytes);
-      writeFile.append(bytes.length, PlatformDependent.directBufferAddress(buf));
-      writeFile.flush();
-      fileSize = writeFile.size();
-      Assert.assertEquals(bytes.length, fileSize);
+      ByteBuffer buf = ByteBuffer.allocateDirect(bytes.length);
+      try {
+        buf.put(bytes);
+        writeFile.append(bytes.length, PlatformDependent.directBufferAddress(buf));
+        writeFile.flush();
+        fileSize = writeFile.size();
+        Assert.assertEquals(bytes.length, fileSize);
+      } finally {
+        PlatformDependent.freeDirectBuffer(buf);
+      }
     } finally {
       writeFile.close();
     }
 
     JniFilesystem.ReadFile readFile = fs.openFileForRead(path);
     Assert.assertEquals(fileSize, readFile.size());
-    ByteBuffer buf = PlatformDependent.allocateDirectNoCleaner((int) fileSize);
-    readFile.pread(0, fileSize, PlatformDependent.directBufferAddress(buf));
+    ByteBuffer buf = ByteBuffer.allocateDirect((int) fileSize);
     byte[] out = new byte[(int) fileSize];
-    buf.get(out);
+    try {
+      readFile.pread(0, fileSize, PlatformDependent.directBufferAddress(buf));
+      buf.get(out);
+    } finally {
+      PlatformDependent.freeDirectBuffer(buf);
+    }
     String decoded = new String(out, StandardCharsets.UTF_8);
 
     Assert.assertEquals(text, decoded);
