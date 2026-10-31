@@ -110,7 +110,7 @@ public class RexCallConverterFactory {
           Map.entry("LOWER", Arrays.asList(() -> new DefaultRexCallConverter("lower"))),
           Map.entry("count_char", Arrays.asList(() -> new DefaultRexCallConverter("count_char"))),
           Map.entry("EXTRACT", Arrays.asList(() -> new DefaultRexCallConverter("extract"))),
-          Map.entry("IS TRUE", Arrays.asList(() -> new IsTrueRexCallConverter())),
+          Map.entry("IS TRUE", Arrays.asList(() -> new DefaultRexCallConverter("is_true"))),
           Map.entry("IS FALSE", Arrays.asList(() -> new DefaultRexCallConverter("is_false"))),
           Map.entry("IS NOT TRUE", Arrays.asList(() -> new DefaultRexCallConverter("is_not_true"))),
           Map.entry(
