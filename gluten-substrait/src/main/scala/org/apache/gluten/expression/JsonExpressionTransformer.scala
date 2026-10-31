@@ -21,9 +21,11 @@ import org.apache.gluten.substrait.`type`.ListNode
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.expression.{ExpressionBuilder, ExpressionNode}
 
-import org.apache.spark.sql.catalyst.expressions.{Expression, StructsToJson}
+import org.apache.spark.sql.catalyst.expressions.{Expression, JsonToStructs, StructsToJson}
 
 import com.google.common.collect.Lists
+
+import scala.collection.JavaConverters._
 
 case class JsonTupleExpressionTransformer(
     substraitExprName: String,
@@ -51,6 +53,31 @@ case class JsonTupleExpressionTransformer(
       case _ =>
         ExpressionBuilder.makeScalarFunction(functionId, expressNodes, typeNode)
     }
+  }
+}
+
+/**
+ * Spark's from_json matches JSON keys against schema field names case-sensitively, regardless of
+ * spark.sql.caseSensitive, and the native from_json does the same. So the output struct type must
+ * carry the field names exactly as written, instead of lowercased as for other expressions. See
+ * apache/gluten#13251.
+ */
+case class FromJsonTransformer(
+    substraitExprName: String,
+    children: Seq[ExpressionTransformer],
+    original: JsonToStructs)
+  extends ExpressionTransformer {
+
+  override def doTransform(context: SubstraitContext): ExpressionNode = {
+    val functionName =
+      ConverterUtils.makeFuncName(substraitExprName, original.children.map(_.dataType))
+    val functionId = context.registerFunction(functionName)
+    val childNodes = children.map(_.doTransform(context)).asJava
+    val typeNode = ConverterUtils.getTypeNode(
+      original.dataType,
+      original.nullable,
+      lowerCaseStructFieldNames = false)
+    ExpressionBuilder.makeScalarFunction(functionId, childNodes, typeNode)
   }
 }
 

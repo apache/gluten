@@ -156,6 +156,23 @@ function apply_provided_velox_patch {
   fi
 }
 
+# Gluten-carried Velox patches. Remove once the pinned Velox commit includes them.
+#  - velox-from-json-case-sensitive.patch: Spark's from_json matches JSON keys against schema
+#    field names case-sensitively (apache/gluten#13251).
+function apply_gluten_velox_patches {
+  local patch="$CURRENT_DIR/velox-from-json-case-sensitive.patch"
+  pushd $VELOX_HOME
+  if git apply --reverse --check "$patch" 2>/dev/null; then
+    echo "$(basename $patch) is already applied."
+  else
+    git apply --check "$patch" && git apply "$patch" || {
+      echo "Failed to apply $patch"
+      exit 1
+    }
+  fi
+  popd
+}
+
 function setup_linux {
   local LINUX_DISTRIBUTION=$(. /etc/os-release && echo ${ID})
   local LINUX_VERSION_ID=$(. /etc/os-release && echo ${VERSION_ID})
@@ -233,6 +250,7 @@ if [[ "$RUN_SETUP_SCRIPT" == "ON" ]]; then
 fi
 
 apply_provided_velox_patch
+apply_gluten_velox_patches
 
 
 echo "Finished getting Velox code"
