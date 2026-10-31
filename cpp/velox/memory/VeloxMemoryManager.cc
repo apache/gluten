@@ -28,6 +28,7 @@
 #include "velox/exec/MemoryReclaimer.h"
 
 #include "config/VeloxConfig.h"
+#include "jni/VeloxJavaException.h"
 #include "memory/ArrowMemoryPool.h"
 #include "utils/Exception.h"
 
@@ -51,6 +52,27 @@ std::unordered_map<std::string, std::string> getExtraArbitratorConfigs(
 }
 
 namespace {
+class JavaExceptionWrappingAllocationListener final : public AllocationListener {
+ public:
+  explicit JavaExceptionWrappingAllocationListener(std::unique_ptr<AllocationListener> delegate)
+      : delegate_(std::move(delegate)) {}
+
+  void allocationChanged(int64_t diff) override {
+    wrapJavaException([&]() { delegate_->allocationChanged(diff); });
+  }
+
+  int64_t currentBytes() override {
+    return delegate_->currentBytes();
+  }
+
+  int64_t peakBytes() override {
+    return delegate_->peakBytes();
+  }
+
+ private:
+  std::unique_ptr<AllocationListener> delegate_;
+};
+
 template <typename T>
 T getConfig(
     const std::unordered_map<std::string, std::string>& configs,
@@ -222,7 +244,7 @@ VeloxMemoryManager::VeloxMemoryManager(
     const std::string& kind,
     std::unique_ptr<AllocationListener> listener,
     const facebook::velox::config::ConfigBase& backendConf)
-    : MemoryManager(kind), listener_(std::move(listener)) {
+    : MemoryManager(kind), listener_(std::make_unique<JavaExceptionWrappingAllocationListener>(std::move(listener))) {
   auto reservationBlockSize =
       backendConf.get<uint64_t>(kMemoryReservationBlockSize, kMemoryReservationBlockSizeDefault);
   blockListener_ = std::make_unique<BlockAllocationListener>(listener_.get(), reservationBlockSize);

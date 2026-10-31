@@ -100,12 +100,15 @@ JNI callbacks must call `checkException(env)` after invoking Java. It throws
 `gluten::JavaException`, which owns a shared global reference to the original Java
 throwable. `JNI_METHOD_END` restores that same object with JNI `Throw`, retaining
 its class, cause, suppressed exceptions, stack trace, and structured Spark error
-metadata. Do not replace this carrier with an exception constructed from `what()`.
+metadata. Native diagnostic formatting is best-effort after capturing the throwable.
+Do not replace this carrier with an exception constructed from `what()`.
 
-Velox input-stream callbacks use `wrapJavaException` before returning to the
+Velox input-stream and memory-reservation callbacks use `wrapJavaException` before returning to the
 driver, whose generic native-exception handler otherwise keeps only the message.
 At the output boundary, including lazy-vector loading, `rethrowJavaException`
-recovers the carrier through Velox and standard nested exception wrappers. Other
+recovers the carrier through Velox and standard nested exception wrappers. Standard
+nesting also preserves allocation callbacks returning directly through core JNI,
+without introducing a backend dependency there. Other
 native errors keep their existing handling; this mechanism does not classify or
 translate native cast failures.
 

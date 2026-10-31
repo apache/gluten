@@ -127,3 +127,48 @@ TEST(JavaExceptionTest, globalRefFailureRetainsPendingAllocationError) {
   EXPECT_EQ(jni.createdGlobalRefs, 0);
   EXPECT_EQ(jni.deletedGlobalRefs, 0);
 }
+
+TEST(JavaExceptionTest, standardNestedWrappersRestoreOriginal) {
+  TestJniEnvironment jni;
+  try {
+    throw JavaException(jni.env(), &jni.original);
+  } catch (...) {
+    try {
+      std::throw_with_nested(std::runtime_error("inner native wrapper"));
+    } catch (...) {
+      try {
+        std::throw_with_nested(std::runtime_error("outer native wrapper"));
+      } catch (const std::exception& error) {
+        EXPECT_TRUE(JavaException::throwNestedToJava(jni.env(), error));
+      }
+    }
+  }
+  EXPECT_EQ(jni.pending, &jni.original);
+  EXPECT_EQ(jni.createdGlobalRefs, 1);
+  EXPECT_EQ(jni.deletedGlobalRefs, 1);
+}
+
+TEST(JavaExceptionTest, nativeOnlyWrappersRetainExistingFallback) {
+  TestJniEnvironment jni;
+  EXPECT_FALSE(JavaException::throwNestedToJava(jni.env(), std::runtime_error("native error")));
+  try {
+    throw std::runtime_error("native cause");
+  } catch (...) {
+    try {
+      std::throw_with_nested(std::runtime_error("native wrapper"));
+    } catch (const std::exception& error) {
+      EXPECT_FALSE(JavaException::throwNestedToJava(jni.env(), error));
+    }
+  }
+  try {
+    throw 42;
+  } catch (...) {
+    try {
+      std::throw_with_nested(std::runtime_error("nonstandard native cause"));
+    } catch (const std::exception& error) {
+      EXPECT_FALSE(JavaException::throwNestedToJava(jni.env(), error));
+    }
+  }
+  EXPECT_EQ(jni.pending, nullptr);
+  EXPECT_EQ(jni.createdGlobalRefs, 0);
+}
