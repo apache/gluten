@@ -82,11 +82,10 @@ jobs:
             --enable_s3=OFF --enable_gcs=OFF --enable_hdfs=OFF --enable_abfs=OFF
       - name: Run native Kafka connector tests
         run: ./cpp/build/velox/tests/velox_kafka_connector_test
-      # TODO: Re-enable when the Kafka plan-conversion tests are added in #13236.
-      # - name: Run Kafka and file plan conversion tests
-      #   run: |
-      #     ./cpp/build/velox/tests/velox_plan_conversion_test \
-      #       --gtest_filter='Substrait2VeloxPlanConversionTest.serializedFileSplit:Substrait2VeloxPlanConversionTest.kafkaReadValidation:Substrait2VeloxPlanConversionTest.mixedKafkaAndFileSplits:Substrait2VeloxPlanValidatorTest.kafkaReadRequiresNativeSupport'
+      - name: Run Kafka and file plan conversion tests
+        run: |
+          ./cpp/build/velox/tests/velox_plan_conversion_test \
+            --gtest_filter='Substrait2VeloxPlanConversionTest.serializedFileSplit:Substrait2VeloxPlanConversionTest.kafka*:Substrait2VeloxPlanConversionTest.mixedKafkaAndFileSplits:Substrait2VeloxPlanValidatorTest.kafkaReadRequiresNativeSupport'
       - uses: actions/upload-artifact@v7
         with:
           name: velox-kafka-native-${{ github.sha }}

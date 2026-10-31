@@ -30,16 +30,27 @@ Fallback
 Fallback
 
 ## Writing
-Fallback
-````
+Supported Parquet writes can offload when
+`spark.gluten.sql.enable.enhancedFeatures` and
+`spark.gluten.sql.columnar.iceberg.enableNativeWrite` are enabled.
+```sql
 INSERT INTO local.db.table VALUES (1, 'a'), (2, 'b'), (3, 'c');
-````
-PartialOffload
-
-The write is fallback while read is offload.
-````
 INSERT INTO local.db.table SELECT id, data FROM source WHERE length(data) = 1;
-````
+```
+
+### Sorted native writes
+
+With `spark.gluten.sql.enable.enhancedFeatures` and
+`spark.gluten.sql.columnar.iceberg.enableNativeWrite` enabled, the Velox writer
+supports Iceberg table sort orders. Spark plans the required distribution and
+ordering before the native write:
+
+```sql
+ALTER TABLE local.db.table WRITE ORDERED BY category ASC NULLS LAST, id DESC;
+-- Sort within each task without requiring global range distribution:
+ALTER TABLE local.db.table WRITE LOCALLY ORDERED BY category, id;
+ALTER TABLE local.db.table SET TBLPROPERTIES ('write.distribution-mode' = 'none');
+```
 
 ## Reading
 ### Read data

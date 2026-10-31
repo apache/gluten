@@ -25,6 +25,11 @@
 #include "jni/JniHashTable.h"
 #include "operators/hashjoin/HashTableBuilder.h"
 #include "operators/plannodes/RowVectorStream.h"
+#ifdef ENABLE_KAFKA
+#include "kafka.pb.h"
+#include "operators/reader/KafkaConnector.h"
+#include "operators/reader/KafkaSplitInfo.h"
+#endif
 #include "velox/connectors/hive/HiveDataSink.h"
 #include "velox/connectors/hive/iceberg/IcebergColumnHandle.h"
 #include "velox/exec/TableWriter.h"
@@ -52,12 +57,15 @@ using namespace cudf_velox::connector::hive;
 namespace gluten {
 namespace {
 
-bool useCudfTableHandle(const std::vector<std::shared_ptr<SplitInfo>>& splitInfos) {
+#ifdef ENABLE_KAFKA
+bool isKafkaRead(const ::substrait::ReadRel& readRel) {
+  return readRel.has_extension_table() && readRel.extension_table().detail().Is<StreamKafka>();
+}
+#endif
+
+bool useCudfTableHandle(const std::shared_ptr<SplitInfo>& splitInfo) {
 #ifdef GLUTEN_ENABLE_GPU
-  if (splitInfos.empty()) {
-    return false;
-  }
-  return splitInfos[0]->canUseCudfConnector();
+  return splitInfo->canUseCudfConnector();
 #else
   return false;
 #endif
@@ -1511,6 +1519,52 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::constructCudfValueStreamNode(
 }
 #endif
 
+#ifdef ENABLE_KAFKA
+core::PlanNodePtr SubstraitToVeloxPlanConverter::constructKafkaStreamNode(const ::substrait::ReadRel& readRel) {
+  VELOX_USER_CHECK(!readRel.has_filter(), "Filter pushdown is not supported for Kafka reads.");
+  // File and Kafka scans consume the same typed split sequence in scan traversal order.
+  auto splitInfo = std::make_shared<KafkaSplitInfo>();
+  splitInfo->leafType = SplitInfo::LeafType::TABLE_SCAN;
+  if (!validationMode_) {
+    VELOX_CHECK_LT(splitInfoIdx_, splitInfos_.size(), "Plan must have readRel and related split info.");
+    splitInfo = std::dynamic_pointer_cast<KafkaSplitInfo>(splitInfos_[splitInfoIdx_++]);
+    VELOX_CHECK_NOT_NULL(splitInfo, "Kafka read requires Kafka split info");
+  }
+
+  std::vector<std::string> colNameList;
+  std::vector<TypePtr> veloxTypeList;
+  bool asLowerCase = !veloxCfg_->get<bool>(kCaseSensitive, false);
+  if (readRel.has_base_schema()) {
+    const auto& baseSchema = readRel.base_schema();
+    colNameList.reserve(baseSchema.names().size());
+    for (const auto& name : baseSchema.names()) {
+      std::string fieldName = name;
+      if (asLowerCase) {
+        folly::toLowerAscii(fieldName);
+      }
+      colNameList.emplace_back(fieldName);
+    }
+    veloxTypeList = SubstraitParser::parseNamedStruct(baseSchema, asLowerCase);
+  }
+
+  std::vector<std::string> outNames;
+  outNames.reserve(colNameList.size());
+  connector::ColumnHandleMap assignments;
+  for (int idx = 0; idx < colNameList.size(); idx++) {
+    auto outName = SubstraitParser::makeNodeName(planNodeId_, idx);
+    assignments[outName] = std::make_shared<KafkaColumnHandle>(colNameList[idx], veloxTypeList[idx]);
+    outNames.emplace_back(outName);
+  }
+  auto outputType = ROW(std::move(outNames), std::move(veloxTypeList));
+
+  auto tableHandle = std::make_shared<KafkaTableHandle>(connectorIds_.kafka);
+  auto tableScanNode = std::make_shared<core::TableScanNode>(
+      nextPlanNodeId(), std::move(outputType), std::move(tableHandle), assignments);
+  splitInfoMap_[tableScanNode->id()] = splitInfo;
+  return tableScanNode;
+}
+#endif
+
 core::PlanNodePtr SubstraitToVeloxPlanConverter::constructValuesNode(
     const ::substrait::ReadRel& readRel,
     int32_t streamIdx) {
@@ -1539,6 +1593,16 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         !readRel.common().has_emit(), "Emit not supported for ValuesNode and TableScanNode related Substrait plans.");
   }
 
+#ifdef ENABLE_KAFKA
+  if (isKafkaRead(readRel)) {
+    return constructKafkaStreamNode(readRel);
+  }
+#else
+  if (readRel.has_extension_table()) {
+    VELOX_USER_FAIL("The plan contains an extension table read, but Gluten was built without ENABLE_KAFKA.");
+  }
+#endif
+
   auto streamIdx = getStreamIndex(readRel);
   if (streamIdx >= 0) {
     // Check if the ReadRel specifies an input of stream. If yes, build TableScanNode with iterator connector.
@@ -1561,6 +1625,9 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   if (!validationMode_) {
     VELOX_CHECK_LT(splitInfoIdx_, splitInfos_.size(), "Plan must have readRel and related split info.");
     splitInfo = splitInfos_[splitInfoIdx_++];
+#ifdef ENABLE_KAFKA
+    VELOX_CHECK(!std::dynamic_pointer_cast<KafkaSplitInfo>(splitInfo), "File read requires local file split info");
+#endif
   }
 
   // Get output names and types.
@@ -1589,34 +1656,48 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   auto names = colNameList;
   auto types = veloxTypeList;
 
-  // The columns we project from the file.
+  // The logical scan schema includes columns supplied by the connector, not just the file.
   auto baseSchema = ROW(std::move(names), std::move(types));
-  // The columns present in the table, if not available default to the baseSchema.
-  auto tableSchema = splitInfo->tableSchema ? splitInfo->tableSchema : baseSchema;
 
-  // Build dataColumns from tableSchema, excluding partition columns.
   // HiveTableHandle::dataColumns() is used as fileSchema for the reader.
-  // Partition columns should not be validated against the file's physical types
-  // (their values come from the partition path, not from the file).
-  std::unordered_set<std::string> partitionColNames;
-  for (int idx = 0; idx < colNameList.size(); idx++) {
-    if (columnTypes[idx] == ColumnType::kPartitionKey) {
-      partitionColNames.insert(colNameList[idx]);
-    }
-  }
   RowTypePtr dataColumns;
-  if (partitionColNames.empty()) {
-    dataColumns = tableSchema;
-  } else {
+  if (!splitInfo->tableSchema) {
+    // Scan outputs include connector-generated columns, not just physical fields.
+    // For example, _metadata.file_name is VARCHAR even if the file contains a
+    // file_name BIGINT column. Exclude metadata here to avoid Parquet type-checking
+    // that unrelated field before the connector supplies the metadata constant.
     std::vector<std::string> dataColNames;
     std::vector<TypePtr> dataColTypes;
-    for (int idx = 0; idx < tableSchema->size(); idx++) {
-      if (partitionColNames.find(tableSchema->nameOf(idx)) == partitionColNames.end()) {
-        dataColNames.push_back(tableSchema->nameOf(idx));
-        dataColTypes.push_back(tableSchema->childAt(idx));
+    for (int idx = 0; idx < colNameList.size(); idx++) {
+      if (columnTypes[idx] == ColumnType::kRegular) {
+        dataColNames.push_back(colNameList[idx]);
+        dataColTypes.push_back(veloxTypeList[idx]);
       }
     }
     dataColumns = ROW(std::move(dataColNames), std::move(dataColTypes));
+  } else {
+    // An explicit schema describes physical fields and their ordinals. A field
+    // must not be removed just because a synthetic output has the same name.
+    const auto& tableSchema = splitInfo->tableSchema;
+    std::unordered_set<std::string> partitionColNames;
+    for (int idx = 0; idx < colNameList.size(); idx++) {
+      if (columnTypes[idx] == ColumnType::kPartitionKey) {
+        partitionColNames.insert(colNameList[idx]);
+      }
+    }
+    if (partitionColNames.empty()) {
+      dataColumns = tableSchema;
+    } else {
+      std::vector<std::string> dataColNames;
+      std::vector<TypePtr> dataColTypes;
+      for (int idx = 0; idx < tableSchema->size(); idx++) {
+        if (partitionColNames.find(tableSchema->nameOf(idx)) == partitionColNames.end()) {
+          dataColNames.push_back(tableSchema->nameOf(idx));
+          dataColTypes.push_back(tableSchema->childAt(idx));
+        }
+      }
+      dataColumns = ROW(std::move(dataColNames), std::move(dataColTypes));
+    }
   }
 
   connector::ConnectorTableHandlePtr tableHandle;
@@ -1625,8 +1706,8 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   if (std::dynamic_pointer_cast<IcebergSplitInfo>(splitInfo)) {
     connectorId = connectorIds_.iceberg;
   }
-  if ((connectorId == connectorIds_.hive || connectorId == connectorIds_.iceberg) && useCudfTableHandle(splitInfos_) &&
-      veloxCfg_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault) &&
+  if (!validationMode_ && (connectorId == connectorIds_.hive || connectorId == connectorIds_.iceberg) &&
+      useCudfTableHandle(splitInfo) && veloxCfg_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault) &&
       veloxCfg_->get<bool>(kCudfEnabled, kCudfEnabledDefault)) {
 #ifdef GLUTEN_ENABLE_GPU
     connectorId = connectorIds_.cudfHive;

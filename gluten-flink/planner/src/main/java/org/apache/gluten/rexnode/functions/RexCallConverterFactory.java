@@ -125,6 +125,7 @@ public class RexCallConverterFactory {
               "CURRENT_DATE", Arrays.asList(() -> new DefaultRexCallConverter("current_date"))),
           Map.entry(
               "CURRENT_TIME", Arrays.asList(() -> new DefaultRexCallConverter("current_time"))),
+          Map.entry("IFNULL", Arrays.asList(() -> new ScalarOnlyRexCallConverter("ifnull"))),
           Map.entry("COALESCE", Arrays.asList(() -> new DefaultRexCallConverter("coalesce"))));
 
   public static RexCallConverter getConverter(RexCall callNode, RexConversionContext context) {

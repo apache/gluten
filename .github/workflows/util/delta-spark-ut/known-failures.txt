@@ -20,9 +20,6 @@
 # Velox forks x ~4G run close to the ~16G runner limit) -- so a baseline captured
 # at a different parallelism spuriously flags them as regressions.
 # ---------------------------------------------------------------------------
-io.delta.sql.DeltaExtensionAndCatalogSuite#activate Delta SQL parser using SQL conf
-io.delta.sql.DeltaExtensionAndCatalogSuite#activate Delta SQL parser using withExtensions
-io.delta.sql.JavaDeltaSparkSessionExtensionSuite#testSQLConf
 io.delta.tables.DeltaTableHadoopOptionsSuite#delete - with filesystem options
 io.delta.tables.DeltaTableHadoopOptionsSuite#details - with filesystem options.
 io.delta.tables.DeltaTableHadoopOptionsSuite#forPath - with filesystem options
@@ -63,24 +60,9 @@ org.apache.spark.sql.delta.CloneTableSQLWithCatalogOwnedBatch2Suite#shallow clon
 org.apache.spark.sql.delta.CloneTableScalaDeletionVectorSuite#shallow clone across file systems
 org.apache.spark.sql.delta.CloneTableScalaSuite#shallow clone across file systems
 org.apache.spark.sql.delta.ConvertToDeltaSQLSuite#CONVERT keeps NaN rows for finite-threshold predicate (NaN-excluding writer)
-org.apache.spark.sql.delta.ConvertToDeltaSQLSuite#external tables use correct path scheme
 org.apache.spark.sql.delta.ConvertToDeltaScalaSuite#CONVERT keeps NaN rows for finite-threshold predicate (NaN-excluding writer)
-org.apache.spark.sql.delta.ConvertToDeltaScalaSuite#external tables use correct path scheme
 org.apache.spark.sql.delta.DeleteMetricsSuite#delete-metrics: delete one row per file - Partitioned = false, cdfEnabled = false
 org.apache.spark.sql.delta.DeleteMetricsSuite#delete-metrics: delete one row per file - Partitioned = false, cdfEnabled = true
-org.apache.spark.sql.delta.DeltaCDCIdColumnMappingSuite#filters with special characters in name should be pushed down - column mapping id mode
-org.apache.spark.sql.delta.DeltaCDCNameColumnMappingSuite#filters with special characters in name should be pushed down - column mapping name mode
-org.apache.spark.sql.delta.DeltaCDCSQLIdColumnMappingSuite#filters with special characters in name should be pushed down - column mapping id mode
-org.apache.spark.sql.delta.DeltaCDCSQLNameColumnMappingSuite#filters with special characters in name should be pushed down - column mapping name mode
-org.apache.spark.sql.delta.DeltaCDCSQLSuite#select individual column should push down filters
-org.apache.spark.sql.delta.DeltaCDCSQLWithCatalogOwnedBatch100Suite#select individual column should push down filters
-org.apache.spark.sql.delta.DeltaCDCSQLWithCatalogOwnedBatch1Suite#select individual column should push down filters
-org.apache.spark.sql.delta.DeltaCDCSQLWithCatalogOwnedBatch2Suite#select individual column should push down filters
-org.apache.spark.sql.delta.DeltaCDCScalaSuite#filters should be pushed down
-org.apache.spark.sql.delta.DeltaCDCScalaWithCatalogOwnedBatch100Suite#filters should be pushed down
-org.apache.spark.sql.delta.DeltaCDCScalaWithCatalogOwnedBatch1Suite#filters should be pushed down
-org.apache.spark.sql.delta.DeltaCDCScalaWithCatalogOwnedBatch2Suite#filters should be pushed down
-org.apache.spark.sql.delta.DeltaCDCScalaWithDeletionVectorsSuite#filters should be pushed down
 org.apache.spark.sql.delta.DeltaCDCStreamDeletionVectorSuite#cdc streams with noop merge
 org.apache.spark.sql.delta.DeltaCDCStreamSuite#cdc streams with noop merge
 org.apache.spark.sql.delta.DeltaCDCStreamWithCatalogManagedBatch100Suite#cdc streams with noop merge
@@ -122,8 +104,6 @@ org.apache.spark.sql.delta.DeltaSuite#SC-8810: skipping deleted file still throw
 org.apache.spark.sql.delta.DeltaSuite#all operations with special characters in path
 org.apache.spark.sql.delta.DeltaSuite#deleted files cause failure by default
 org.apache.spark.sql.delta.DeltaTableCreationSuite#Default column values: CONVERT TO DELTA keeps EXISTS_DEFAULT
-org.apache.spark.sql.delta.DeltaUpdateCatalogSuite#convert to delta with partitioning change
-org.apache.spark.sql.delta.DeltaUpdateCatalogSuite#partitioned convert to delta with schema change
 org.apache.spark.sql.delta.DeltaVacuumSuite#vacuum for cdc - delete tombstones
 org.apache.spark.sql.delta.DeltaVacuumSuite#vacuum for cdc - update/merge
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch100Suite#SC-8810: skip deleted file
@@ -382,14 +362,10 @@ org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownS
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#PredicatePushdown: Single deletion at the second row group. vectorizedReaderEnabled: true readColumnarBatchAsRows: true
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#huge table: delete a small number of rows from tables of 2B rows with DVs
 org.apache.spark.sql.delta.deletionvectors.DeletionVectorsWithPredicatePushdownSuite#huge table: read from tables of 2B rows with existing DV of many zeros
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2JsonSuite#Data skipping handles aliasing for _metadata fields
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2JsonSuite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2JsonSuite#data skipping flags
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2JsonSuite#data skipping flags - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2JsonSuite#data skipping stats before and after optimize
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2JsonSuite#data skipping stats before and after optimize - old behavior with DataFrame schema
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2ParquetSuite#Data skipping handles aliasing for _metadata fields
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2ParquetSuite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2ParquetSuite#data skipping flags
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2ParquetSuite#data skipping flags - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1CheckpointV2ParquetSuite#data skipping stats before and after optimize
@@ -398,22 +374,14 @@ org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1ColMa
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1ColMapNameModeSuite#data skipping flags - column mapping name mode - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1ColMapNameModeSuite#data skipping stats before and after optimize - column mapping name mode
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1ColMapNameModeSuite#data skipping stats before and after optimize - column mapping name mode - old behavior with DataFrame schema
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1Suite#Data skipping handles aliasing for _metadata fields
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1Suite#data skipping flags
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1Suite#data skipping flags - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1Suite#data skipping stats before and after optimize
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1Suite#data skipping stats before and after optimize - old behavior with DataFrame schema
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#Data skipping handles aliasing for _metadata fields
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#data skipping flags
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch100Suite#data skipping flags - old behavior with DataFrame schema
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#Data skipping handles aliasing for _metadata fields
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#data skipping flags
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch1Suite#data skipping flags - old behavior with DataFrame schema
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#Data skipping handles aliasing for _metadata fields
-org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#Data skipping handles aliasing for _metadata fields - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#data skipping flags
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#data skipping flags - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.delete.DeleteTempViewSQLNameBasedSuite#test delete on temp view - nontrivial projection - Dataset TempView
@@ -537,15 +505,3 @@ org.apache.spark.sql.delta.typewidening.TypeWideningInsertSchemaEvolutionBasicSu
 org.apache.spark.sql.delta.typewidening.TypeWideningInsertSchemaEvolutionBasicSuite#INSERT - automatic type widening DATE -> TIMESTAMP_NTZ
 org.apache.spark.sql.delta.typewidening.TypeWideningMergeIntoSchemaEvolutionSuite#MERGE - automatic type widening DATE -> TIMESTAMP_NTZ
 org.apache.spark.sql.delta.typewidening.TypeWideningTableFeatureAdvancedSuite#drop feature after type change DATE -> TIMESTAMP_NTZ
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - Portable
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - invalid Int ids - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - invalid Int ids - Portable
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - invalid unsigned Int ids - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate no duplicates - invalid unsigned Int ids - Portable
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - Portable
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - invalid Int ids - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - invalid Int ids - Portable
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - invalid unsigned Int ids - Native
-org.apache.spark.sql.delta.util.BitmapAggregatorE2ESuite#DataFrame bitmap groupBy aggregate with duplicates - invalid unsigned Int ids - Portable
