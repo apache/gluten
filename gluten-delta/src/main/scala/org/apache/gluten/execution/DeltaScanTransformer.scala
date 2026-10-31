@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.execution
 
-import org.apache.gluten.delta.{DeletionVectorReadMetrics, DeltaDeletionVectorScanInfo}
+import org.apache.gluten.delta.{DeletionVectorReadMetrics, DeltaDeletionVectorScanInfo, DeltaRowTrackingScanInfo}
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.rel.{DeltaLocalFilesBuilder, LocalFilesNode, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ColumnMappingMode
@@ -24,7 +24,7 @@ import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.Partition
 import org.apache.spark.sql.catalyst.TableIdentifier
-import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Expression}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Expression, FileSourceConstantMetadataAttribute}
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.connector.read.streaming.SparkDataStream
 import org.apache.spark.sql.delta.{DeltaParquetFileFormat, NameMapping, NoMapping}
@@ -97,6 +97,18 @@ case class DeltaScanTransformer(
     if (cdfFilesHaveDeletionVectors) {
       return ValidationResult.failed(DeltaScanTransformer.DELETION_VECTOR_UNSUPPORTED)
     }
+    // Delta's reader fails a read of a non-nullable `_metadata.base_row_id` or
+    // `_metadata.default_row_commit_version` from a file that has no value for it, where the
+    // native reader would return NULL. Fall back so the read fails as in Delta. Delta assigns both
+    // values to every file once row tracking is on, so only an inconsistent table gets here.
+    if (
+      DeltaRowTrackingScanInfo.missingRequiredRowTrackingMetadata(
+        relation,
+        output,
+        partitionFilters)
+    ) {
+      return ValidationResult.failed(DeltaScanTransformer.MISSING_ROW_TRACKING_METADATA)
+    }
     super.doValidateInternal()
   }
 
@@ -127,13 +139,20 @@ case class DeltaScanTransformer(
   // fields stay logical vs. become physical, and the longer-term cleanup direction (do all
   // physical translation at substrait emission time so this override and the alias-back
   // ProjectExec both go away).
-  override lazy val scanFilters: Seq[Expression] = relation.fileFormat match {
-    case d: DeltaParquetFileFormat if d.columnMappingMode != NoMapping =>
-      val physicalByExprId = output.collect { case ar: AttributeReference => ar.exprId -> ar }.toMap
-      dataFilters.map(_.transformDown {
-        case ar: AttributeReference => physicalByExprId.getOrElse(ar.exprId, ar)
-      })
-    case _ => dataFilters
+  //
+  // Filters on constant `_metadata` fields, such as `base_row_id` or `file_name`, are not pushed
+  // into the native scan (see `isNativeScanFilter`).
+  override lazy val scanFilters: Seq[Expression] = {
+    val filters = relation.fileFormat match {
+      case d: DeltaParquetFileFormat if d.columnMappingMode != NoMapping =>
+        val physicalByExprId =
+          output.collect { case ar: AttributeReference => ar.exprId -> ar }.toMap
+        dataFilters.map(_.transformDown {
+          case ar: AttributeReference => physicalByExprId.getOrElse(ar.exprId, ar)
+        })
+      case _ => dataFilters
+    }
+    filters.filter(DeltaScanTransformer.isNativeScanFilter)
   }
 
   /**
@@ -264,7 +283,7 @@ case class DeltaScanTransformer(
   }
 
   override def withNewPushdownFilters(filters: Seq[Expression]): BasicScanExecTransformer =
-    copy(pushDownFilters = Some(filters))
+    copy(pushDownFilters = Some(filters.filter(DeltaScanTransformer.isNativeScanFilter)))
 
   // Under name or id column mapping the scan reads physical `col-<uuid>` names, which the rule
   // renders from the logical schema; the paths would not match the file. Only a Delta Parquet
@@ -282,6 +301,22 @@ case class DeltaScanTransformer(
 object DeltaScanTransformer {
 
   val DELETION_VECTOR_UNSUPPORTED = "Deletion vector is not supported in native."
+
+  val MISSING_ROW_TRACKING_METADATA =
+    "Reading Delta row tracking metadata that a scanned file lacks is not supported in native."
+
+  /**
+   * Whether a filter can be pushed into the native Delta scan. Velox reads constant `_metadata`
+   * fields as synthesized split columns and fails the scan when a pushed filter on one of them
+   * rejects a split, since it expects the planner to have pruned such splits already. Delta's file
+   * index does not prune files by these fields, so the filter must stay in the Filter above the
+   * scan, which evaluates it natively.
+   */
+  private def isNativeScanFilter(filter: Expression): Boolean =
+    !filter.references.exists {
+      case FileSourceConstantMetadataAttribute(_) => true
+      case _ => false
+    }
 
   def apply(scanExec: FileSourceScanExec): DeltaScanTransformer = {
     new DeltaScanTransformer(
