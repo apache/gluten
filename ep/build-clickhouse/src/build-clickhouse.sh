@@ -17,6 +17,7 @@
 export GLUTEN_SOURCE=$(builtin cd $(dirname $0)/../../..; pwd)
 export CH_SOURCE_DIR=${GLUTEN_SOURCE}/cpp-ch/ClickHouse
 CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE:-RelWithDebInfo}
+GLUTEN_ENABLE_NATIVE_PAIMON=${GLUTEN_ENABLE_NATIVE_PAIMON:-OFF}
 
 for arg in "$@"
 do
@@ -40,5 +41,8 @@ echo ${GLUTEN_SOURCE}
 
 export CC=${CC:-clang-18}
 export CXX=${CXX:-clang++-18}
-cmake -G Ninja -S ${GLUTEN_SOURCE}/cpp-ch -B ${GLUTEN_SOURCE}/cpp-ch/build_ch -DCH_SOURCE_DIR=${CH_SOURCE_DIR} "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+cmake -G Ninja -S ${GLUTEN_SOURCE}/cpp-ch -B ${GLUTEN_SOURCE}/cpp-ch/build_ch \
+  -DCH_SOURCE_DIR=${CH_SOURCE_DIR} \
+  "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}" \
+  "-DGLUTEN_ENABLE_NATIVE_PAIMON=${GLUTEN_ENABLE_NATIVE_PAIMON}"
 cmake --build ${GLUTEN_SOURCE}/cpp-ch/build_ch --target build_ch

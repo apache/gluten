@@ -17,7 +17,7 @@
 # ref: https://clickhouse.com/docs/en/development/build
 
 echo "Install Prerequisites"
-sudo apt-get install git cmake ccache python3 ninja-build nasm yasm gawk lsb-release wget software-properties-common gnupg
+sudo apt-get install git cmake ccache patch python3 ninja-build nasm yasm gawk lsb-release wget software-properties-common gnupg
 
 echo "Install and Use the Clang compiler"
 sudo bash -c "$(wget -O - https://apt.llvm.org/llvm.sh)"

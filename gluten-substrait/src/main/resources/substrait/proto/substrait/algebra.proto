@@ -251,6 +251,12 @@ message ReadRel {
       }
 
       message PaimonReadOptions {
+        message PaimonCppSplit {
+          bytes serialized_data_split = 1;
+          string table_path = 2;
+          string branch = 3;
+          map<string, string> read_options = 4;
+        }
         int32 bucket = 1;
         int64 first_row_id = 2;
         int64 max_sequence_number = 3;
@@ -262,6 +268,8 @@ message ReadRel {
         bool use_hive_split = 7;
         bool raw_convertible = 8;
         repeated string primary_keys = 9;
+        // Native Paimon reader input.
+        optional PaimonCppSplit cpp_split = 10;
       }
 
       // File reading options

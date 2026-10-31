@@ -112,6 +112,17 @@
 
   <profiles>
     <profile>
+      <id>paimon</id>
+      <dependencies>
+        <dependency>
+          <groupId>org.apache.gluten</groupId>
+          <artifactId>gluten-paimon</artifactId>
+          <version>${project.version}</version>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+    </profile>
+    <profile>
       <id>backends-clickhouse</id>
       <activation>
         <activeByDefault>false</activeByDefault>

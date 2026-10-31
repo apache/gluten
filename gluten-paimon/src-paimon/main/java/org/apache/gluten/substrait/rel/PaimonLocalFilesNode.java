@@ -16,11 +16,18 @@
  */
 package org.apache.gluten.substrait.rel;
 
+import com.google.protobuf.ByteString;
+import io.substrait.proto.ReadRel;
+
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
 public class PaimonLocalFilesNode extends LocalFilesNode {
+  private final List<byte[]> serializedSplits;
+  private final String branch;
+  private final Map<String, String> readOptions;
 
   public PaimonLocalFilesNode(
       Integer index,
@@ -44,5 +51,50 @@ public class PaimonLocalFilesNode extends LocalFilesNode {
         preferredLocations,
         properties,
         new ArrayList<>());
+    this.serializedSplits = null;
+    this.branch = null;
+    this.readOptions = Collections.emptyMap();
+  }
+
+  public PaimonLocalFilesNode(
+      Integer index,
+      String tablePath,
+      String branch,
+      Map<String, String> readOptions,
+      List<byte[]> splits,
+      List<String> preferredLocations) {
+    super(
+        index,
+        Collections.nCopies(splits.size(), tablePath),
+        Collections.nCopies(splits.size(), 0L),
+        Collections.nCopies(splits.size(), 1L),
+        new ArrayList<>(),
+        new ArrayList<>(),
+        Collections.nCopies(splits.size(), Collections.emptyMap()),
+        new ArrayList<>(),
+        ReadFileFormat.UnknownFormat,
+        preferredLocations,
+        Collections.emptyMap(),
+        new ArrayList<>());
+    this.serializedSplits = splits;
+    this.branch = branch;
+    this.readOptions = readOptions;
+  }
+
+  @Override
+  protected void processFileBuilder(ReadRel.LocalFiles.FileOrFiles.Builder fileBuilder, int index) {
+    if (serializedSplits != null) {
+      ReadRel.LocalFiles.FileOrFiles.PaimonReadOptions.PaimonCppSplit cppSplit =
+          ReadRel.LocalFiles.FileOrFiles.PaimonReadOptions.PaimonCppSplit.newBuilder()
+              .setTablePath(getPaths().get(index))
+              .setSerializedDataSplit(ByteString.copyFrom(serializedSplits.get(index)))
+              .setBranch(branch)
+              .putAllReadOptions(readOptions)
+              .build();
+      fileBuilder.setPaimon(
+          ReadRel.LocalFiles.FileOrFiles.PaimonReadOptions.newBuilder()
+              .setCppSplit(cppSplit)
+              .build());
+    }
   }
 }

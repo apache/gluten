@@ -183,6 +183,61 @@ The prerequisites are the same as the one mentioned above. Compile Gluten with C
     ls -al backends-clickhouse/target/gluten-XXXXX-spark-3.5-jar-with-dependencies.jar
 ```
 
+#### Read Paimon tables
+
+Build with the `paimon` profile in addition to the ClickHouse and Delta profiles:
+
+```shell
+./build/mvn install -Pbackends-clickhouse,delta,paimon,spark-3.5 -DskipTests
+```
+
+Put the matching `paimon-spark` runtime JAR on the Spark classpath and configure
+the Paimon Spark session extension and a catalog, for example:
+
+```text
+spark.sql.extensions=org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions
+spark.sql.catalog.paimon=org.apache.paimon.spark.SparkCatalog
+spark.sql.catalog.paimon.warehouse=file:///path/to/paimon-warehouse
+```
+
+Paimon plans the file splits in Spark. Gluten passes serialized splits to the
+ClickHouse native Paimon reader, including for primary-key tables.
+
+A native reader uses the Paimon C++ API from `libch.so` and
+links it against a separate shared
+[`paimon-cpp`](https://github.com/apache/paimon-cpp) v0.3.0 build. The build
+host needs libc++ development headers and libraries for the selected Clang
+version. The libc++, libc++abi, and libunwind runtimes are linked statically
+into `libpaimon.so`. With `-DGLUTEN_ENABLE_NATIVE_PAIMON=ON` (the default),
+the wrapper CMake first builds ClickHouse's libc++ runtime, then builds
+paimon-cpp with its file-system and format components in one `libpaimon.so`,
+copies that library next to `libch.so`, and sets
+`RPATH` to `$ORIGIN` for loading. Rebuild the native backend before building
+the JVM modules. Gluten passes serialized Paimon splits to the C++ reader by
+default. The reader requests only the columns required by the
+query. For HDFS tables, configure
+`spark.gluten.sql.columnar.backend.ch.runtime_config.hdfs.libhdfs3_conf`
+with the HDFS site XML on every executor. The optional
+`spark.gluten.sql.columnar.backend.ch.runtime_config.paimon.read_batch_size=8192`
+sets the Paimon C++ reader batch size; when omitted, the SDK default applies.
+Primary-key tables use the native Paimon reader by default.
+Ship `libch.so` and `libpaimon.so` on every executor.
+The bundled `libpaimon.so` binds the math functions used by Paimon to their
+original glibc versions and provides a fallback for `pthread_cond_clockwait`.
+The current build has a glibc 2.17 baseline; check the actual result after
+each build. Deploy both libraries from the same build; older `libpaimon.so`
+files can still require glibc 2.30.
+Build these libraries on a system whose glibc is no newer than that on the
+oldest driver or executor node. A build made on a newer system can fail before
+Spark starts with `GLIBC_*` not found errors. Rebuild libch and bundled paimon-cpp dependencies in a fresh
+build workspace on a compatible system, then deploy the newly built libraries
+together. Changing the Paimon read configuration does not resolve a binary
+compatibility error. Check the requirements before deployment with
+`readelf --version-info libch.so` and `readelf --version-info libpaimon.so`,
+then compare against the target system with `ldd --version`.
+Set `GLUTEN_TEST_NATIVE_PAIMON=1` when running `ClickHousePaimonSuite` with a
+native-enabled build to exercise the native read path.
+
 ### Gluten in local Spark Thrift Server
 
 #### Prepare working directory 
@@ -699,5 +754,3 @@ spark.celeborn.storage.hdfs.dir hdfs://<namenode>/celeborn
 # please refer to this URL (https://github.com/apache/celeborn/tree/main/assets/spark-patch) to apply the patch into your own Spark.
 spark.dynamicAllocation.enabled false
 ```
-
-
