@@ -22,15 +22,22 @@ import org.apache.gluten.rexnode.ValidationResult;
 
 import io.github.zhztheplayer.velox4j.expression.CallTypedExpr;
 import io.github.zhztheplayer.velox4j.expression.CastTypedExpr;
+import io.github.zhztheplayer.velox4j.expression.ConstantTypedExpr;
 import io.github.zhztheplayer.velox4j.expression.TypedExpr;
 import io.github.zhztheplayer.velox4j.type.DateType;
 import io.github.zhztheplayer.velox4j.type.IntervalDayTimeType;
 import io.github.zhztheplayer.velox4j.type.IntervalYearMonthType;
 import io.github.zhztheplayer.velox4j.type.TimestampType;
 import io.github.zhztheplayer.velox4j.type.Type;
+import io.github.zhztheplayer.velox4j.variant.BigIntValue;
+import io.github.zhztheplayer.velox4j.variant.IntegerValue;
 
 import org.apache.calcite.rex.RexCall;
+import org.apache.calcite.rex.RexLiteral;
+import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.sql.type.SqlTypeName;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -63,8 +70,10 @@ public class IntervalArithmeticRexCallConverter extends BaseRexCallConverter {
             .collect(Collectors.toList());
     boolean firstDateTime = isDateTime(paramTypes.get(0));
     boolean secondDateTime = isDateTime(paramTypes.get(1));
-    boolean firstInterval = isInterval(paramTypes.get(0));
-    boolean secondInterval = isInterval(paramTypes.get(1));
+    boolean firstInterval =
+        isInterval(paramTypes.get(0)) || isIntervalOperand(callNode.getOperands().get(0));
+    boolean secondInterval =
+        isInterval(paramTypes.get(1)) || isIntervalOperand(callNode.getOperands().get(1));
     boolean suitable =
         (firstDateTime && secondInterval) || (allowIntervalLeft && firstInterval && secondDateTime);
     if (!suitable) {
@@ -82,9 +91,23 @@ public class IntervalArithmeticRexCallConverter extends BaseRexCallConverter {
     // Normalize to (datetime, interval): the velox signatures only register
     // the datetime-on-left order, so an interval-on-left plus is flipped
     // here (plus is commutative for these types).
-    if (isInterval(params.get(0).getReturnType())) {
+    boolean firstIsInterval =
+        isInterval(params.get(0).getReturnType())
+            || isIntervalOperand(callNode.getOperands().get(0));
+    if (firstIsInterval) {
       params = List.of(params.get(1), params.get(0));
     }
+
+    // Re-type the interval operand from BigIntType to the proper interval
+    // velox type. LogicalTypeConverter maps intervals to BigIntType globally;
+    // we override here so velox resolves our flinksql signatures.
+    RexNode intervalRexNode =
+        firstIsInterval ? callNode.getOperands().get(0) : callNode.getOperands().get(1);
+    TypedExpr intervalExpr = retypeInterval(params.get(1), intervalRexNode);
+    List<TypedExpr> newParams = new ArrayList<>();
+    newParams.add(params.get(0));
+    newParams.add(intervalExpr);
+    params = newParams;
     // Flink's TIMESTAMPADD with sub-day units on a DATE returns a TIMESTAMP
     // (e.g. TIMESTAMPADD(HOUR, 5, DATE '2025-03-15') = TIMESTAMP
     // '2025-03-15 05:00:00'). Velox only has plus(Date, IntervalDayTime) ->
@@ -106,5 +129,52 @@ public class IntervalArithmeticRexCallConverter extends BaseRexCallConverter {
 
   static boolean isInterval(Type type) {
     return type instanceof IntervalDayTimeType || type instanceof IntervalYearMonthType;
+  }
+
+  /** Checks the Calcite SqlTypeName for interval types (catches BigInt-mapped intervals). */
+  static boolean isIntervalOperand(RexNode node) {
+    SqlTypeName name = node.getType().getSqlTypeName();
+    return name == SqlTypeName.INTERVAL_YEAR
+        || name == SqlTypeName.INTERVAL_MONTH
+        || name == SqlTypeName.INTERVAL_YEAR_MONTH
+        || name == SqlTypeName.INTERVAL_DAY
+        || name == SqlTypeName.INTERVAL_DAY_HOUR
+        || name == SqlTypeName.INTERVAL_DAY_MINUTE
+        || name == SqlTypeName.INTERVAL_DAY_SECOND
+        || name == SqlTypeName.INTERVAL_HOUR
+        || name == SqlTypeName.INTERVAL_HOUR_MINUTE
+        || name == SqlTypeName.INTERVAL_HOUR_SECOND
+        || name == SqlTypeName.INTERVAL_MINUTE
+        || name == SqlTypeName.INTERVAL_MINUTE_SECOND
+        || name == SqlTypeName.INTERVAL_SECOND;
+  }
+
+  static Type getIntervalVeloxType(RexNode node) {
+    SqlTypeName name = node.getType().getSqlTypeName();
+    if (name == SqlTypeName.INTERVAL_YEAR
+        || name == SqlTypeName.INTERVAL_MONTH
+        || name == SqlTypeName.INTERVAL_YEAR_MONTH) {
+      return new IntervalYearMonthType();
+    }
+    return new IntervalDayTimeType();
+  }
+
+  static TypedExpr retypeInterval(TypedExpr converted, RexNode rexNode) {
+    Type intervalType = getIntervalVeloxType(rexNode);
+    if (converted.getReturnType().getClass().equals(intervalType.getClass())) {
+      return converted;
+    }
+    if (rexNode instanceof RexLiteral) {
+      RexLiteral literal = (RexLiteral) rexNode;
+      if (intervalType instanceof IntervalYearMonthType) {
+        int months = literal.getValueAs(java.math.BigDecimal.class).unscaledValue().intValueExact();
+        return new ConstantTypedExpr(intervalType, new IntegerValue(months), null);
+      } else {
+        long millis =
+            literal.getValueAs(java.math.BigDecimal.class).unscaledValue().longValueExact();
+        return new ConstantTypedExpr(intervalType, new BigIntValue(millis), null);
+      }
+    }
+    return CastTypedExpr.create(intervalType, converted, false);
   }
 }

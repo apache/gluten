@@ -28,6 +28,7 @@ import io.github.zhztheplayer.velox4j.type.BigIntType;
 import io.github.zhztheplayer.velox4j.type.Type;
 
 import org.apache.calcite.rex.RexCall;
+import org.apache.calcite.rex.RexNode;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -36,7 +37,9 @@ import java.util.stream.Collectors;
 /**
  * Converts interval * numeric (TIMESTAMPADD with a column amount rewrites to {@code ts + (interval
  * * n)}) to the velox flinksql multiply. The numeric operand is cast to BIGINT and the interval is
- * passed on the left.
+ * passed on the left. The output type is the interval velox type (IntervalDayTime /
+ * IntervalYearMonth), not the BigIntType the global LogicalTypeConverter maps day-time intervals
+ * to, so the result can feed the velox flinksql plus/minus signatures directly.
  */
 public class IntervalMultiplyRexCallConverter extends BaseRexCallConverter {
 
@@ -56,8 +59,14 @@ public class IntervalMultiplyRexCallConverter extends BaseRexCallConverter {
         callNode.getOperands().stream()
             .map(param -> RexNodeConverter.toType(param.getType()))
             .collect(Collectors.toList());
-    boolean firstInterval = IntervalArithmeticRexCallConverter.isInterval(paramTypes.get(0));
-    boolean secondInterval = IntervalArithmeticRexCallConverter.isInterval(paramTypes.get(1));
+    // Day-time intervals map to BigIntType globally, so also check the
+    // Calcite type to catch them.
+    boolean firstInterval =
+        IntervalArithmeticRexCallConverter.isInterval(paramTypes.get(0))
+            || IntervalArithmeticRexCallConverter.isIntervalOperand(callNode.getOperands().get(0));
+    boolean secondInterval =
+        IntervalArithmeticRexCallConverter.isInterval(paramTypes.get(1))
+            || IntervalArithmeticRexCallConverter.isIntervalOperand(callNode.getOperands().get(1));
     boolean suitable =
         (firstInterval && TypeUtils.isNumericType(paramTypes.get(1)))
             || (secondInterval && TypeUtils.isNumericType(paramTypes.get(0)));
@@ -73,19 +82,22 @@ public class IntervalMultiplyRexCallConverter extends BaseRexCallConverter {
   @Override
   public TypedExpr toTypedExpr(RexCall callNode, RexConversionContext context) {
     List<TypedExpr> params = getParams(callNode, context);
-    Type resultType = getResultType(callNode);
     // Normalize to (interval, BIGINT): the velox signatures take the numeric
     // operand as BIGINT and keep interval on the left.
-    TypedExpr left = params.get(0);
-    TypedExpr right = params.get(1);
-    if (IntervalArithmeticRexCallConverter.isInterval(right.getReturnType())) {
-      TypedExpr tmp = left;
-      left = right;
-      right = tmp;
+    boolean firstIsInterval =
+        IntervalArithmeticRexCallConverter.isInterval(params.get(0).getReturnType())
+            || IntervalArithmeticRexCallConverter.isIntervalOperand(callNode.getOperands().get(0));
+    TypedExpr interval = params.get(firstIsInterval ? 0 : 1);
+    TypedExpr numeric = params.get(firstIsInterval ? 1 : 0);
+    RexNode intervalRexNode = callNode.getOperands().get(firstIsInterval ? 0 : 1);
+    // Re-type the interval operand from BigIntType to the proper interval
+    // velox type (literals are rebuilt as interval constants, other
+    // expressions are cast).
+    interval = IntervalArithmeticRexCallConverter.retypeInterval(interval, intervalRexNode);
+    if (!(numeric.getReturnType() instanceof BigIntType)) {
+      numeric = CastTypedExpr.create(new BigIntType(), numeric, false);
     }
-    if (!(right.getReturnType() instanceof BigIntType)) {
-      right = CastTypedExpr.create(new BigIntType(), right, false);
-    }
-    return new CallTypedExpr(resultType, new ArrayList<>(List.of(left, right)), functionName);
+    Type resultType = IntervalArithmeticRexCallConverter.getIntervalVeloxType(callNode);
+    return new CallTypedExpr(resultType, new ArrayList<>(List.of(interval, numeric)), functionName);
   }
 }

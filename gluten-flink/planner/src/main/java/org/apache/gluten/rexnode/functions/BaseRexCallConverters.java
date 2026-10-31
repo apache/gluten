@@ -99,6 +99,11 @@ class BasicArithmeticOperatorRexCallConverter extends BaseRexCallConverter {
     boolean typesValidate =
         callNode.getOperands().stream()
             .allMatch(param -> TypeUtils.isNumericType(RexNodeConverter.toType(param.getType())));
+    if (typesValidate
+        && callNode.getOperands().stream()
+            .anyMatch(IntervalArithmeticRexCallConverter::isIntervalOperand)) {
+      typesValidate = false;
+    }
     if (!typesValidate) {
       String message =
           String.format(

@@ -80,7 +80,7 @@ public class LogicalTypeConverter {
               }),
           Map.entry(
               DayTimeIntervalType.class,
-              logicalType -> new io.github.zhztheplayer.velox4j.type.IntervalDayTimeType()),
+              logicalType -> new io.github.zhztheplayer.velox4j.type.BigIntType()),
           Map.entry(
               YearMonthIntervalType.class,
               logicalType -> new io.github.zhztheplayer.velox4j.type.IntervalYearMonthType()),

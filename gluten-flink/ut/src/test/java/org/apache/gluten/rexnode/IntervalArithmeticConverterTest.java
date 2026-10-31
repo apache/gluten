@@ -20,6 +20,7 @@ import org.apache.gluten.rexnode.functions.RexCallConverter;
 import org.apache.gluten.rexnode.functions.RexCallConverterFactory;
 
 import io.github.zhztheplayer.velox4j.expression.CallTypedExpr;
+import io.github.zhztheplayer.velox4j.type.BigIntType;
 import io.github.zhztheplayer.velox4j.type.DateType;
 import io.github.zhztheplayer.velox4j.type.IntervalDayTimeType;
 import io.github.zhztheplayer.velox4j.type.IntervalYearMonthType;
@@ -87,6 +88,9 @@ public class IntervalArithmeticConverterTest {
 
   @Test
   public void logicalTypeConverterMapsIntervals() {
+    // The global mapping keeps the legacy behavior: day-time intervals map
+    // to BIGINT (millis) so existing paths stay untouched; interval velox
+    // types are only produced by the interval converters.
     org.apache.flink.table.types.logical.DayTimeIntervalType dayTime =
         new org.apache.flink.table.types.logical.DayTimeIntervalType(
             org.apache.flink.table.types.logical.DayTimeIntervalType.DayTimeResolution
@@ -97,7 +101,7 @@ public class IntervalArithmeticConverterTest {
         new org.apache.flink.table.types.logical.YearMonthIntervalType(
             org.apache.flink.table.types.logical.YearMonthIntervalType.YearMonthResolution.YEAR, 2);
     assertThat(org.apache.gluten.util.LogicalTypeConverter.toVLType(dayTime))
-        .isInstanceOf(IntervalDayTimeType.class);
+        .isInstanceOf(BigIntType.class);
     assertThat(org.apache.gluten.util.LogicalTypeConverter.toVLType(yearMonth))
         .isInstanceOf(IntervalYearMonthType.class);
   }
@@ -223,7 +227,29 @@ public class IntervalArithmeticConverterTest {
     RexCallConverter converter = RexCallConverterFactory.getConverter(multiply, context);
     CallTypedExpr expr = (CallTypedExpr) converter.toTypedExpr(multiply, context);
     assertThat(expr.getFunctionName()).isEqualTo("multiply");
+    // The interval operand is re-typed from the global BigIntType mapping to
+    // the proper interval velox type, and the result keeps the interval type
+    // so it can feed plus/minus directly.
     assertThat(expr.getInputs().get(0).getReturnType()).isInstanceOf(IntervalDayTimeType.class);
+    assertThat(expr.getInputs().get(1).getReturnType()).isInstanceOf(BigIntType.class);
+    assertThat(expr.getReturnType()).isInstanceOf(IntervalDayTimeType.class);
+  }
+
+  @Test
+  public void bigintMultiplyIntervalIsNormalized() {
+    RexCall multiply =
+        (RexCall)
+            rexBuilder.makeCall(
+                org.apache.calcite.sql.fun.SqlStdOperatorTable.MULTIPLY,
+                bigintInputRef(),
+                monthInterval(1));
+    RexCallConverter converter = RexCallConverterFactory.getConverter(multiply, context);
+    CallTypedExpr expr = (CallTypedExpr) converter.toTypedExpr(multiply, context);
+    assertThat(expr.getFunctionName()).isEqualTo("multiply");
+    // Numeric-on-left is normalized to (interval, BIGINT).
+    assertThat(expr.getInputs().get(0).getReturnType()).isInstanceOf(IntervalYearMonthType.class);
+    assertThat(expr.getInputs().get(1).getReturnType()).isInstanceOf(BigIntType.class);
+    assertThat(expr.getReturnType()).isInstanceOf(IntervalYearMonthType.class);
   }
 
   @Test
