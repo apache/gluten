@@ -1,0 +1,143 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Prebuilt static Velox image
+
+on:
+  # Native input changes should not rebuild all the unrelated Docker images.
+  push:
+    branches: [main]
+    paths:
+      - 'ep/build-velox/**'
+      - 'dev/vcpkg/**'
+      - 'dev/ci-velox-key.py'
+      - 'dev/ci-velox-buildstatic-centos-8.sh'
+      - 'dev/builddeps-veloxbe.sh'
+      - 'dev/build-helper-functions.sh'
+      - '.github/workflows/velox_image.yml'
+  pull_request:
+    paths:
+      - 'ep/build-velox/**'
+      - 'dev/vcpkg/**'
+      - 'dev/ci-velox-key.py'
+      - 'dev/ci-velox-buildstatic-centos-8.sh'
+      - 'dev/builddeps-veloxbe.sh'
+      - 'dev/build-helper-functions.sh'
+      - 'dev/docker/Dockerfile*almalinux*'
+      - 'dev/docker/install-ci-tools.sh'
+      - '.github/workflows/velox_image.yml'
+      - '.github/workflows/docker_image.yml'
+      - 'gluten-ut/src-velox-image/**'
+  workflow_dispatch:
+  # docker_image.yml calls this after publishing the refreshed base image.
+  workflow_call:
+    secrets:
+      DOCKERHUB_USER:
+        required: true
+      DOCKERHUB_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  test-key:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Test cache identity and revision resolution
+        run: python3 -m unittest discover -s gluten-ut/src-velox-image/test/python
+
+  publish:
+    needs: test-key
+    if: github.repository == 'apache/gluten' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-22.04
+    # Also serialize calls from docker_image.yml against direct native-input pushes.
+    concurrency:
+      group: velox-static-image-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Free disk for the native build tree
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Pin the base and compute the Velox key
+        id: key
+        run: |
+          base=apache/gluten:vcpkg-almalinux-8-gcc13
+          docker pull --platform linux/amd64 "$base"
+          digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$base")
+          python3 dev/ci-velox-key.py key --base-image="$digest" --github-output >> "$GITHUB_OUTPUT"
+      - name: Find the slot holding this key, or the least recently published one
+        id: slot
+        env:
+          VELOX_KEY: ${{ steps.key.outputs.key }}
+        run: |
+          slot=$(python3 dev/ci-velox-key.py slot --expected-key="$VELOX_KEY" --github-output)
+          echo "$slot" | tee -a "$GITHUB_OUTPUT"
+          if grep -qx 'found=true' <<< "$slot"; then
+            echo "Already published in $(sed -n 's/^image=//p' <<< "$slot")" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Build the native image locally before publishing
+        if: steps.slot.outputs.found != 'true'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
+        with:
+          context: .
+          file: dev/docker/Dockerfile.velox-static-almalinux8-gcc13
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ${{ steps.slot.outputs.image }}
+          labels: |
+            org.apache.gluten.velox-key=${{ steps.key.outputs.key }}
+            org.apache.gluten.velox-sequence=${{ steps.slot.outputs.sequence }}
+          build-args: |
+            BASE_IMAGE=${{ steps.key.outputs.base_image }}
+            VELOX_COMMIT=${{ steps.key.outputs.velox_commit }}
+            VELOX_KEY=${{ steps.key.outputs.key }}
+      - name: Measure size and verify the Gluten-only fast path
+        if: steps.slot.outputs.found != 'true'
+        env:
+          IMAGE: ${{ steps.slot.outputs.image }}
+        run: |
+          bytes=$(docker image inspect --format '{{.Size}}' "$IMAGE")
+          echo "Image size (uncompressed): $bytes bytes" >> "$GITHUB_STEP_SUMMARY"
+          docker run --rm "$IMAGE" du -sh /opt/velox /opt/gluten/dev/vcpkg | tee -a "$GITHUB_STEP_SUMMARY"
+          start=$SECONDS
+          docker run --rm --mount "type=bind,source=$PWD,target=/workspace" "$IMAGE" \
+            bash -c 'source /opt/rh/gcc-toolset-13/enable && python3.9 /opt/gluten/dev/ci-velox-key.py smoke --repository-root=/workspace'
+          echo "Gluten-only smoke build (including vcpkg restore): $((SECONDS - start)) seconds" >> "$GITHUB_STEP_SUMMARY"
+          df -h | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Publish the validated image
+        if: steps.slot.outputs.found != 'true'
+        env:
+          IMAGE: ${{ steps.slot.outputs.image }}
+        run: |
+          docker push "$IMAGE"
+          for tag in velox-static-latest velox-static-almalinux-8-gcc13; do
+            docker tag "$IMAGE" "apache/gluten:$tag"
+            docker push "apache/gluten:$tag"
+          done
+          echo "Published $IMAGE" >> "$GITHUB_STEP_SUMMARY"
