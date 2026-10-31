@@ -49,7 +49,9 @@ class SubtractRexCallConverter extends BaseRexCallConverter {
         callNode.getOperands().size() == 2
             && (paramTypes.stream().allMatch(TypeUtils::isNumericType)
                 || (paramTypes.get(0) instanceof TimestampType
-                    && paramTypes.get(1) instanceof BigIntType));
+                    && paramTypes.get(1) instanceof BigIntType))
+            && !IntervalArithmeticRexCallConverter.isIntervalOperand(
+                callNode.getOperands().get(callNode.getOperands().size() - 1));
     if (!validate) {
       String message =
           String.format(

@@ -68,17 +68,20 @@ public class RexCallConverterFactory {
               "*",
               Arrays.asList(
                   () -> new BasicArithmeticOperatorRexCallConverter("multiply"),
-                  () -> new DecimalArithmeticOperatorRexCallConverters("multiply"))),
+                  () -> new DecimalArithmeticOperatorRexCallConverters("multiply"),
+                  () -> new IntervalMultiplyRexCallConverter())),
           Map.entry(
               "-",
               Arrays.asList(
                   () -> new SubtractRexCallConverter(),
-                  () -> new DecimalArithmeticOperatorRexCallConverters("subtract"))),
+                  () -> new DecimalArithmeticOperatorRexCallConverters("subtract"),
+                  () -> new IntervalArithmeticRexCallConverter("minus", false))),
           Map.entry(
               "+",
               Arrays.asList(
                   () -> new BasicArithmeticOperatorRexCallConverter("add"),
-                  () -> new DecimalArithmeticOperatorRexCallConverters("add"))),
+                  () -> new DecimalArithmeticOperatorRexCallConverters("add"),
+                  () -> new IntervalArithmeticRexCallConverter("plus", true))),
           Map.entry("MOD", Arrays.asList(() -> new ModRexCallConverter())),
           Map.entry("Reinterpret", Arrays.asList(() -> new ReinterpretRexCallConverter())),
           Map.entry("CAST", Arrays.asList(() -> new DefaultRexCallConverter("cast"))),
@@ -87,6 +90,8 @@ public class RexCallConverterFactory {
           Map.entry("SPLIT_INDEX", Arrays.asList(() -> new SplitIndexRexCallConverter())),
           Map.entry("SEARCH", Arrays.asList(() -> new SearchRexCallConverter())),
           Map.entry("DATE_FORMAT", Arrays.asList(() -> new DefaultRexCallConverter("date_format"))),
+          Map.entry("FROM_UNIXTIME", Arrays.asList(() -> new FromUnixtimeRexCallConverter())),
+          Map.entry("UNIX_TIMESTAMP", Arrays.asList(() -> new UnixTimestampRexCallConverter())),
           Map.entry(
               ">=",
               Arrays.asList(

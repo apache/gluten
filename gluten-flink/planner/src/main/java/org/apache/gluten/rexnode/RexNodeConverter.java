@@ -156,15 +156,33 @@ public class RexNodeConverter {
         return VarBinaryValue.create(
             literal.getValue().toString().getBytes(StandardCharsets.UTF_8));
       case DECIMAL:
-      case INTERVAL_SECOND:
-        // interval is used as decimal.
-        // TODO: fix precision check
         BigDecimal bigDecimal = literal.getValueAs(BigDecimal.class);
         if (bigDecimal.precision() <= 18) {
           return new BigIntValue(bigDecimal.unscaledValue().longValueExact());
         } else {
           return new HugeIntValue(bigDecimal.unscaledValue());
         }
+        // Interval literals: Calcite stores day-time family values in
+        // milliseconds and year-month family values in months. The day-time
+        // value feeds plus/minus/multiply with BIGINT storage, and the
+        // year-month value feeds IntervalYearMonth (int32 storage).
+      case INTERVAL_DAY:
+      case INTERVAL_DAY_HOUR:
+      case INTERVAL_DAY_MINUTE:
+      case INTERVAL_DAY_SECOND:
+      case INTERVAL_HOUR:
+      case INTERVAL_HOUR_MINUTE:
+      case INTERVAL_HOUR_SECOND:
+      case INTERVAL_MINUTE:
+      case INTERVAL_MINUTE_SECOND:
+      case INTERVAL_SECOND:
+        return new BigIntValue(
+            literal.getValueAs(BigDecimal.class).unscaledValue().longValueExact());
+      case INTERVAL_YEAR:
+      case INTERVAL_MONTH:
+      case INTERVAL_YEAR_MONTH:
+        return new IntegerValue(
+            literal.getValueAs(BigDecimal.class).unscaledValue().intValueExact());
       case SYMBOL:
         return new VarCharValue(literal.getValue().toString());
       case TIMESTAMP:

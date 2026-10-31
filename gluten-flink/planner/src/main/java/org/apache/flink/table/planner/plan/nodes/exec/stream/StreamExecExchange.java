@@ -138,8 +138,13 @@ public class StreamExecExchange extends CommonExecExchange implements StreamExec
             KeySelectorUtil.getRowDataSelector(
                 planner.getFlinkContext().getClassLoader(), keys, inputType);
         // --- Begin Gluten-specific code changes ---
-        OneInputTransformation oneInputTransform = (OneInputTransformation) inputTransform;
-        if (oneInputTransform.getOperator() instanceof GlutenOperator) {
+        // The gluten exchange optimization below only applies when the input is
+        // already a gluten operator wrapped in a OneInputTransformation; other
+        // shapes (e.g. a SourceTransformation feeding the hash exchange in a
+        // plain GROUP BY) must take the vanilla Flink fallback instead of
+        // failing with a ClassCastException.
+        if (inputTransform instanceof OneInputTransformation
+            && ((OneInputTransformation) inputTransform).getOperator() instanceof GlutenOperator) {
           // TODO: velox's parallelism need to be set here, as some nodes need it.
           // should set it when operator init.
           parallelism = inputTransform.getParallelism();
