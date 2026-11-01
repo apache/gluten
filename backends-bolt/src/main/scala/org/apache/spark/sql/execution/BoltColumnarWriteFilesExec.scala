@@ -21,8 +21,9 @@ import org.apache.gluten.columnarbatch.ColumnarBatches
 import org.apache.gluten.execution.ValidationResult
 import org.apache.gluten.execution.WriteFilesExecTransformer
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
+import org.apache.gluten.sql.shims.SparkShimLoader
 
-import org.apache.spark.{Partition, SparkException, TaskContext, TaskOutputFileAlreadyExistException}
+import org.apache.spark.{Partition, TaskContext, TaskOutputFileAlreadyExistException}
 import org.apache.spark.internal.io.{FileCommitProtocol, FileNameSpec, SparkHadoopWriterUtils}
 import org.apache.spark.internal.io.FileCommitProtocol.TaskCommitMessage
 import org.apache.spark.rdd.RDD
@@ -237,10 +238,7 @@ class BoltColumnarWriteFilesRDD(
       case f: FileAlreadyExistsException if SQLConf.get.fastFailFileFormatOutput =>
         throw new TaskOutputFileAlreadyExistException(f)
       case t: Throwable =>
-        throw new SparkException(
-          s"Task failed while writing rows to staging path: $writePath, " +
-            s"output path: ${description.path}",
-          t)
+        SparkShimLoader.getSparkShims.throwExceptionInWrite(t, writePath, description.path)
     }
 
     assert(writeTaskResult != null)
