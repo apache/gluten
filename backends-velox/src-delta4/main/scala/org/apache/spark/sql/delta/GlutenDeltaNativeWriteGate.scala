@@ -57,10 +57,6 @@ object GlutenDeltaNativeWriteGate {
         // Delta drops VOID columns or rejects the write; the Velox writer has no VOID type.
         "VOID columns are not supported by the Velox writer"
       })
-      .orElse(Option.when(exists(schema, _ == TimestampNTZType)) {
-        // The Velox writer annotates TIMESTAMP_NTZ as isAdjustedToUTC=true; Delta requires false.
-        "TIMESTAMP_NTZ columns are not supported by the Velox writer"
-      })
   }
 
   /**
