@@ -150,8 +150,14 @@ object SparkArrowUtil {
       case udt: UserDefinedType[_] =>
         toArrowField(name, udt.sqlType, nullable, timeZoneId, largeVarTypes)
       case dataType =>
+        // Velox distinguishes NTZ from a timestamp with an omitted timezone using this metadata.
+        val metadata = if (dataType.typeName == "timestamp_ntz") {
+          Map("velox.logical_timestamp" -> "utc").asJava
+        } else {
+          null
+        }
         val fieldType =
-          new FieldType(nullable, toArrowType(dataType, timeZoneId, largeVarTypes), null)
+          new FieldType(nullable, toArrowType(dataType, timeZoneId, largeVarTypes), null, metadata)
         new Field(name, fieldType, Seq.empty[Field].asJava)
     }
   }

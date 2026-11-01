@@ -266,7 +266,8 @@ object Validators {
       def isDirectNtzProjection(expression: Expression): Boolean = expression match {
         case alias: Alias => isDirectNtzProjection(alias.child)
         case attribute: Attribute => containsNTZ(attribute.dataType)
-        case field: GetStructField => containsNTZ(field.dataType)
+        case field: GetStructField =>
+          containsNTZ(field.dataType) || isDirectNtzProjection(field.child)
         case _ => false
       }
       val hasNTZ = plan.output.exists(a => containsNTZ(a.dataType)) ||
@@ -312,8 +313,9 @@ object Validators {
                   case t: ToUnixTimestamp => containsNTZ(t.timeExp.dataType)
                   case m: MakeTimestamp if isNTZ(m.dataType) => true
                   case c: Cast if isNTZ(c.dataType) || isNTZ(c.child.dataType) => true
-                  case IsNull(child) => containsNTZ(child.dataType)
-                  case IsNotNull(child) => containsNTZ(child.dataType)
+                  case IsNull(child) => containsNTZ(child.dataType) || isDirectNtzProjection(child)
+                  case IsNotNull(child) =>
+                    containsNTZ(child.dataType) || isDirectNtzProjection(child)
                   case _ => false
                 }
             }
