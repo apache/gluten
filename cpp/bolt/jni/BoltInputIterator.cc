@@ -31,6 +31,12 @@ createBoltJniInputIterator(JNIEnv* env, jobject iterator, Runtime* runtime, int3
   const bool parallelEnabled = getBoolConfigValue(boltRuntime->getConfMap(), kGlutenEnableParallel, false);
   LOG(INFO) << "nativeCreateKernelWithIterator parallelEnabled=" << parallelEnabled;
 
+  if (runtime->getDumper() != nullptr) {
+    // The native shuffle stream bypasses next(), where JNI input batches are
+    // dumped for replay. Materialize them through the regular batch iterator.
+    return std::make_unique<BoltJniColumnarBatchIterator>(env, iterator, boltRuntime, parallelEnabled, iteratorIndex);
+  }
+
   auto shuffleReaderIter =
       ShuffleReaderWrapperedIterator::tryFrom(env, iterator, boltRuntime, parallelEnabled, iteratorIndex);
   if (shuffleReaderIter != nullptr) {

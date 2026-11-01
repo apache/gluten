@@ -33,9 +33,8 @@
 #include "config/GlutenConfig.h"
 #include "operators/reader/FileReaderIterator.h"
 #include "operators/writer/BoltColumnarBatchWriter.h"
-#include "shuffle/BoltShuffleWriter.h"
-#include "shuffle/LocalPartitionWriter.h"
-#include "shuffle/rss/RssPartitionWriter.h"
+#include "shuffle/BoltShuffleReaderWrapper.h"
+#include "shuffle/ShuffleWriterBase.h"
 #include "tests/utils/LocalRssClient.h"
 #include "tests/utils/TestAllocationListener.h"
 #include "tests/utils/TestStreamReader.h"
@@ -123,7 +122,7 @@ std::string generateUniqueSubdir(const std::string& parent, const std::string& p
   std::error_code ec{};
   while (!std::filesystem::create_directories(path, ec)) {
     if (ec) {
-      LOG(ERROR) << fmt::format("Failed to created spill directory: {}, error code: {}", path, ec.message());
+      LOG(ERROR) << fmt::format("Failed to created spill directory: {}, error code: {}", path.string(), ec.message());
       std::exit(EXIT_FAILURE);
     }
     path = std::filesystem::path(parent) / (prefix + generateUuid());
@@ -162,88 +161,103 @@ void cleanupLocalDirs(const std::vector<std::string>& localDirs) {
   }
 }
 
-void setCompressionTypeFromFlag(arrow::Compression::type& compressionType, CodecBackend& codecBackend) {
-  codecBackend = CodecBackend::NONE;
-  if (FLAGS_compression == "none") {
-    compressionType = arrow::Compression::UNCOMPRESSED;
-  } else if (FLAGS_compression == "lz4") {
-    compressionType = arrow::Compression::LZ4_FRAME;
-  } else if (FLAGS_compression == "zstd") {
-    compressionType = arrow::Compression::ZSTD;
-  } else {
-    throw GlutenException("Unrecognized compression type: " + FLAGS_compression);
+int32_t forcedShuffleWriterType() {
+  using bytedance::bolt::shuffle::sparksql::ShuffleWriterType;
+  if (FLAGS_shuffle_writer == "hash") {
+    return static_cast<int32_t>(ShuffleWriterType::V1);
   }
+  if (FLAGS_shuffle_writer == "sort" || FLAGS_shuffle_writer == "rss_sort") {
+    // Bolt's sort writer requires a partition-id column.
+    GLUTEN_CHECK(
+        FLAGS_partitioning == "hash" || FLAGS_partitioning == "range",
+        "Bolt sort shuffle requires hash or range partitioning");
+    return static_cast<int32_t>(ShuffleWriterType::RowBased);
+  }
+  throw GlutenException("Unsupported shuffle writer type: " + FLAGS_shuffle_writer);
 }
 
-std::unique_ptr<arrow::util::Codec> createCodec() {
-  // Configure compression.
+std::string compressionCodec() {
   if (FLAGS_compression == "none") {
-    return nullptr;
+    return "uncompressed";
   }
-
-  arrow::Compression::type compressionType;
-  CodecBackend codecBackend;
-
-  setCompressionTypeFromFlag(compressionType, codecBackend);
-
-  return createCompressionCodec(compressionType, codecBackend);
+  if (FLAGS_compression == "lz4") {
+    return "lz4";
+  }
+  if (FLAGS_compression == "zstd") {
+    return "zstd";
+  }
+  throw GlutenException("Unrecognized compression type: " + FLAGS_compression);
 }
 
-std::shared_ptr<PartitionWriter>
-createPartitionWriter(Runtime* runtime, const std::string& dataFile, const std::vector<std::string>& localDirs) {
-  std::unique_ptr<PartitionWriter> partitionWriter;
+std::shared_ptr<ShuffleWriterBase> createShuffleWriter(
+    BoltRuntime* runtime,
+    const std::string& dataFile,
+    const std::vector<std::string>& localDirs,
+    const std::shared_ptr<ColumnarBatch>& firstBatch) {
+  GLUTEN_CHECK(!FLAGS_shuffle_dictionary, "Bolt shuffle does not support dictionary encoding");
+  const bytedance::bolt::shuffle::sparksql::ShuffleWriterOptions defaults{};
+  const auto& partitionDefaults = defaults.partitionWriterOptions;
+  ShuffleWriterInfo info;
+  info.set_partitioning_name(FLAGS_partitioning);
+  info.set_num_partitions(FLAGS_shuffle_partitions);
+  info.set_task_attempt_id(defaults.taskAttemptId);
+  info.set_buffer_size(defaults.bufferSize);
+  info.set_merge_buffer_size(partitionDefaults.mergeBufferSize);
+  info.set_merge_threshold(partitionDefaults.mergeThreshold);
+  info.set_compression_codec(compressionCodec());
+  info.set_compression_backend(partitionDefaults.codecBackend);
+  info.set_compression_level(partitionDefaults.compressionLevel);
+  info.set_compression_threshold(partitionDefaults.compressionThreshold);
+  info.set_compression_mode(partitionDefaults.compressionMode);
+  info.set_data_file(dataFile);
+  info.set_num_sub_dirs(partitionDefaults.numSubDirs);
+  std::string joinedDirs;
+  for (const auto& dir : localDirs) {
+    if (!joinedDirs.empty()) {
+      joinedDirs += ",";
+    }
+    joinedDirs += dir;
+  }
+  info.set_local_dirs(joinedDirs);
+  info.set_realloc_threshold(defaults.bufferReallocThreshold);
+  info.set_mem_limit(ShuffleWriter::kMaxMemLimit);
+  info.set_push_buffer_max_size(partitionDefaults.pushBufferMaxSize);
+  info.set_writer_type(FLAGS_rss ? "celeborn" : "local");
+  info.set_forced_writer_type(forcedShuffleWriterType());
+  info.set_use_v2_prealloc_threshold(defaults.useV2PreallocSizeThreshold);
+  info.set_row_compression_min_cols(defaults.rowvectorModeCompressionMinColumns);
+  info.set_row_compression_max_buffer(defaults.rowvectorModeCompressionMaxBufferSize);
+  info.set_enable_vector_combination(defaults.enableVectorCombination);
+  info.set_accumulate_batch_max_columns(defaults.accumulateBatchMaxColumns);
+  info.set_accumulate_batch_max_batches(defaults.accumulateBatchMaxBatches);
+  info.set_recommended_c2r_size(defaults.recommendedColumn2RowSize);
+  info.set_shuffle_batch_byte_size(partitionDefaults.shuffleBufferSize);
+  info.set_row_format("compact");
+  std::shared_ptr<RssClient> rssClient;
   if (FLAGS_rss) {
-    auto options = std::make_shared<RssPartitionWriterOptions>();
-    auto rssClient = std::make_unique<LocalRssClient>(dataFile);
-    return std::make_shared<RssPartitionWriter>(
-        FLAGS_shuffle_partitions, createCodec(), runtime->memoryManager(), options, std::move(rssClient));
+    rssClient = std::make_shared<LocalRssClient>(dataFile);
   }
-
-  auto options = std::make_shared<LocalPartitionWriterOptions>();
-  options->enableDictionary = FLAGS_shuffle_dictionary;
-  return std::make_unique<LocalPartitionWriter>(
-      FLAGS_shuffle_partitions, createCodec(), runtime->memoryManager(), options, dataFile, localDirs);
+  return runtime->createShuffleWriter(info, std::move(rssClient), firstBatch);
 }
 
-std::shared_ptr<ShuffleWriterOptions> createShuffleWriterOptions() {
-  std::shared_ptr<ShuffleWriterOptions> options;
-
-  switch (ShuffleWriter::stringToType(FLAGS_shuffle_writer)) {
-    case ShuffleWriterType::kHashShuffle:
-      options = std::make_shared<HashShuffleWriterOptions>();
-      break;
-    case ShuffleWriterType::kSortShuffle:
-      options = std::make_shared<SortShuffleWriterOptions>();
-      break;
-    case ShuffleWriterType::kRssSortShuffle:
-      options = std::make_shared<RssSortShuffleWriterOptions>();
-      break;
-    default:
-      throw GlutenException("Unsupported shuffle writer type: " + FLAGS_shuffle_writer);
-  }
-
-  options->partitioning = toPartitioning(FLAGS_partitioning);
-  return options;
-}
-
-std::shared_ptr<BoltShuffleWriter> createShuffleWriter(
-    Runtime* runtime,
-    std::shared_ptr<PartitionWriter> partitionWriter) {
-  auto shuffleWriterOptions = createShuffleWriterOptions();
-  auto shuffleWriter =
-      runtime->createShuffleWriter(FLAGS_shuffle_partitions, std::move(partitionWriter), shuffleWriterOptions);
-  return std::dynamic_pointer_cast<BoltShuffleWriter>(shuffleWriter);
-}
-
-std::shared_ptr<ShuffleReader> createShuffleReader(Runtime* runtime, const std::shared_ptr<arrow::Schema>& schema) {
-  auto readerOptions = ShuffleReaderOptions{};
-  readerOptions.shuffleWriterType = ShuffleWriter::stringToType(FLAGS_shuffle_writer),
-  setCompressionTypeFromFlag(readerOptions.compressionType, readerOptions.codecBackend);
-  return runtime->createShuffleReader(schema, readerOptions);
+std::shared_ptr<BoltShuffleReaderWrapper> createShuffleReader(
+    BoltRuntime* runtime,
+    const std::shared_ptr<arrow::Schema>& schema) {
+  const bytedance::bolt::shuffle::sparksql::ShuffleReaderOptions defaults{};
+  ShuffleReaderInfo info;
+  info.set_compression_type(compressionCodec());
+  info.set_codec(defaults.codecBackend);
+  info.set_batch_size(defaults.batchSize);
+  info.set_shuffle_batch_byte_size(defaults.shuffleBatchByteSize);
+  info.set_num_partitions(FLAGS_shuffle_partitions);
+  info.set_partition_short_name(FLAGS_partitioning);
+  info.set_forced_writer_type(forcedShuffleWriterType());
+  info.set_row_format("compact");
+  return std::dynamic_pointer_cast<BoltShuffleReaderWrapper>(runtime->createShuffleReader(schema, info));
 }
 
 void populateWriterMetrics(
-    const std::shared_ptr<BoltShuffleWriter>& shuffleWriter,
+    const std::shared_ptr<ShuffleWriterBase>& shuffleWriter,
     int64_t totalTime,
     WriterMetrics& metrics) {
   metrics.compressTime += shuffleWriter->totalCompressTime();
@@ -270,7 +284,7 @@ void setCpu(::benchmark::State& state) {
 }
 
 void runShuffle(
-    Runtime* runtime,
+    BoltRuntime* runtime,
     TestAllocationListener* listener,
     const std::shared_ptr<gluten::ResultIterator>& resultIter,
     WriterMetrics& writerMetrics,
@@ -280,9 +294,7 @@ void runShuffle(
     const std::string& dataFileDir) {
   GLUTEN_ASSIGN_OR_THROW(auto dataFile, gluten::createTempShuffleFile(dataFileDir));
 
-  auto partitionWriter = createPartitionWriter(runtime, dataFile, localDirs);
-  auto shuffleWriter = createShuffleWriter(runtime, std::move(partitionWriter));
-  listener->setShuffleWriter(shuffleWriter.get());
+  std::shared_ptr<ShuffleWriterBase> shuffleWriter;
 
   int64_t totalTime = 0;
   std::shared_ptr<ArrowSchema> cSchema;
@@ -290,14 +302,23 @@ void runShuffle(
     gluten::ScopedTimer timer(&totalTime);
     while (resultIter->hasNext()) {
       auto cb = resultIter->next();
-      if (!cSchema) {
+      if (!shuffleWriter) {
         cSchema = cb->exportArrowSchema();
+        shuffleWriter = createShuffleWriter(runtime, dataFile, localDirs, cb);
+        listener->setShuffleWriter(shuffleWriter.get());
       }
-      GLUTEN_THROW_NOT_OK(shuffleWriter->write(cb, ShuffleWriter::kMaxMemLimit - shuffleWriter->cachedPayloadSize()));
+      GLUTEN_THROW_NOT_OK(shuffleWriter->split(cb, ShuffleWriter::kMaxMemLimit - shuffleWriter->cachedPayloadSize()));
     }
-    GLUTEN_THROW_NOT_OK(shuffleWriter->stop());
+    if (shuffleWriter) {
+      GLUTEN_THROW_NOT_OK(shuffleWriter->stop());
+    }
+    listener->setShuffleWriter(nullptr);
   }
 
+  if (!shuffleWriter) {
+    std::filesystem::remove(dataFile);
+    return;
+  }
   populateWriterMetrics(shuffleWriter, totalTime, writerMetrics);
 
   if (readAfterWrite && cSchema != nullptr) {
@@ -307,7 +328,7 @@ void runShuffle(
     GLUTEN_ASSIGN_OR_THROW(auto in, arrow::io::ReadableFile::Open(dataFile));
     auto streamReader = std::make_shared<TestStreamReader>(std::move(in));
     // Read all partitions.
-    auto iter = reader->read(streamReader);
+    auto iter = reader->readStream(streamReader);
     while (iter->hasNext()) {
       // Read and discard.
       auto cb = iter->next();
@@ -449,7 +470,7 @@ auto BM_Generic = [](::benchmark::State& state,
         runtime->parseSplitInfo(reinterpret_cast<uint8_t*>(split.data()), split.size(), i);
       }
 
-      auto resultIter = runtime->createResultIterator(boltSpillDir, std::move(inputIters), runtime->getConfMap());
+      auto resultIter = runtime->createResultIterator(boltSpillDir, std::move(inputIters));
       listenerPtr->setIterator(resultIter.get());
 
       if (FLAGS_with_shuffle) {
@@ -499,6 +520,7 @@ auto BM_Generic = [](::benchmark::State& state,
       const auto* planNode = rawIter->boltPlan();
       auto statsStr = bytedance::bolt::exec::printPlanWithStats(*planNode, task->taskStats(), true);
       LOG(WARNING) << statsStr;
+      listenerPtr->setIterator(nullptr);
     }
   }
 
@@ -627,6 +649,9 @@ int main(int argc, char** argv) {
   if (sessionConf.empty()) {
     sessionConf = backendConf;
   }
+  // This standalone executable has no Spark JVM. Use the memory manager backed
+  // by TestAllocationListener, as in the native RuntimeTest.
+  sessionConf["spark.gluten.useBoltMemoryManager"] = "false";
   setQueryTraceConfig(sessionConf);
   setQueryTraceConfig(backendConf);
 

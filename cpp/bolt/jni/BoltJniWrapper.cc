@@ -946,15 +946,14 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_shuffle_BoltShuffleWriterJniWrapp
 
   std::shared_ptr<RssClient> rssClient = nullptr;
   if (partitionPusher != nullptr) {
-    jclass celebornPartitionPusherClass =
-        createGlobalClassReferenceOrError(env, "Lorg/apache/spark/shuffle/CelebornPartitionPusher;");
-    jmethodID celebornPushPartitionDataMethod =
-        getMethodIdOrError(env, celebornPartitionPusherClass, "pushPartitionData", "(I[BI)I");
+    jclass partitionPusherClass = env->GetObjectClass(partitionPusher);
+    jmethodID pushPartitionDataMethod = getMethodIdOrError(env, partitionPusherClass, "pushPartitionData", "(I[BI)I");
+    env->DeleteLocalRef(partitionPusherClass);
     JavaVM* vm;
     if (env->GetJavaVM(&vm) != JNI_OK) {
       throw gluten::GlutenException("Unable to get JavaVM instance");
     }
-    rssClient = std::make_shared<JavaRssClient>(vm, partitionPusher, celebornPushPartitionDataMethod);
+    rssClient = std::make_shared<JavaRssClient>(vm, partitionPusher, pushPartitionDataMethod);
   }
 
   if (gluten::BoltGlutenMemoryManager::enabled()) {
@@ -984,7 +983,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_shuffle_BoltShuffleWriterJniWrapp
   JNI_METHOD_END(kInvalidObjectHandle)
 }
 
-JNIEXPORT void JNICALL Java_org_apache_gluten_shuffle_BoltShuffleWriterJniWrapper_write( // NOLINT
+JNIEXPORT jlong JNICALL Java_org_apache_gluten_shuffle_BoltShuffleWriterJniWrapper_write( // NOLINT
     JNIEnv* env,
     jobject wrapper,
     jlong shuffleWriterHandle,
@@ -1006,8 +1005,10 @@ JNIEXPORT void JNICALL Java_org_apache_gluten_shuffle_BoltShuffleWriterJniWrappe
 
   // The column batch maybe BoltColumnBatch or ArrowCStructColumnarBatch(FallbackRangeShuffleWriter)
   auto batch = ObjectStore::retrieve<ColumnarBatch>(batchHandle);
+  const auto inputBytes = batch->numBytes();
   gluten::arrowAssertOkOrThrow(shuffleWriter->split(batch, memLimit), "Native split: shuffle writer split failed");
-  JNI_METHOD_END()
+  return inputBytes;
+  JNI_METHOD_END(kInvalidObjectHandle)
 }
 
 JNIEXPORT jobject JNICALL Java_org_apache_gluten_shuffle_BoltShuffleWriterJniWrapper_stop( // NOLINT

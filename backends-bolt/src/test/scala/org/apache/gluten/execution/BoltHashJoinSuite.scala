@@ -23,7 +23,7 @@ import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.expressions.{Alias, AttributeReference}
 import org.apache.spark.sql.execution.{ColumnarBroadcastExchangeExec, ColumnarSubqueryBroadcastExec, InputIteratorTransformer}
-import org.apache.spark.sql.execution.exchange.{BroadcastExchangeExec, ReusedExchangeExec}
+import org.apache.spark.sql.execution.exchange.{BroadcastExchangeExec, ReusedExchangeExec, ValidateRequirements}
 
 class BoltHashJoinSuite extends BoltWholeStageTransformerSuite {
   override protected val resourcePath: String = "/tpch-data-parquet"
@@ -92,10 +92,10 @@ class BoltHashJoinSuite extends BoltWholeStageTransformerSuite {
 
       // The computing is combined into one single whole stage transformer.
       val wholeStages = plan.collect { case wst: WholeStageTransformer => wst }
-      if (SparkShimLoader.getSparkVersion.startsWith("3.5.")) {
-        assert(wholeStages.length == 5)
-      } else {
+      if (SparkShimLoader.getSparkVersion.startsWith("3.4.")) {
         assert(wholeStages.length == 3)
+      } else {
+        assert(wholeStages.length == 5)
       }
 
       // Join should be in `TransformContext`
@@ -109,7 +109,7 @@ class BoltHashJoinSuite extends BoltWholeStageTransformerSuite {
     }
   }
 
-  test("Reuse broadcast exchange for different build keys with same table") {
+  test("Different build keys require separate broadcast exchanges") {
     Seq("true", "false").foreach(
       enabledOffheapBroadcast =>
         withSQLConf(
@@ -139,12 +139,14 @@ class BoltHashJoinSuite extends BoltWholeStageTransformerSuite {
               df,
               Row(2, 2, 2, 2, 2, 2) :: Row(1, 1, 1, 1, 1, 1) :: Row(0, 0, 0, 0, 0, 0) :: Nil)
 
-            assert(collect(df.queryExecution.executedPlan) {
+            val plan = stripAQEPlan(df.queryExecution.executedPlan)
+            assert(ValidateRequirements.validate(plan), plan)
+            assert(collect(plan) {
               case b: ColumnarBroadcastExchangeExec => b
-            }.size == 1)
-            assert(collect(df.queryExecution.executedPlan) {
+            }.size == 2)
+            assert(collect(plan) {
               case r @ ReusedExchangeExec(_, _: ColumnarBroadcastExchangeExec) => r
-            }.size == 1)
+            }.size == 0)
           }
         })
   }
