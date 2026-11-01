@@ -228,33 +228,43 @@ class VeloxDelta4WriteSuite extends DeltaSQLCommandTest {
     }
   }
 
-  test("TIMESTAMP_NTZ falls back, at any depth") {
-    for (column <- Seq("ts", "named_struct('ts', ts)")) {
-      withTempDir {
-        dir =>
-          val path = dir.getCanonicalPath
-          val data = spark
-            .range(10)
-            .selectExpr("id", "CAST(timestamp_seconds(1704067200 + id) AS TIMESTAMP_NTZ) AS ts")
-            .selectExpr("id", s"$column AS ts")
-          // A DataFrame write, which Gluten offloads; plain INSERT INTO is never offloaded.
-          data.coalesce(1).write.format("delta").save(path)
+  test("TIMESTAMP_NTZ uses the native writer unless type validation rejects it") {
+    for (
+      validateNtz <- Seq(false, true);
+      column <- Seq("ts", "named_struct('ts', ts)")
+    ) {
+      withSQLConf(
+        "spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation" ->
+          validateNtz.toString) {
+        withTempDir {
+          dir =>
+            val path = dir.getCanonicalPath
+            val data = spark
+              .range(10)
+              .selectExpr("id", "CAST(timestamp_seconds(1704067200 + id) AS TIMESTAMP_NTZ) AS ts")
+              .selectExpr("id", s"$column AS ts")
+            // A DataFrame write, which Gluten offloads; plain INSERT INTO is never offloaded.
+            data.coalesce(1).write.format("delta").save(path)
 
-          footers(path).foreach {
-            case (file, footer) =>
-              assert(!writtenByVelox(footer), s"$column: ${file.path}")
-              // The Delta protocol stores TIMESTAMP_NTZ with isAdjustedToUTC=false.
-              def child(group: GroupType) = group.getFields.asScala.find(_.getName == "ts").get
-              val field = child(footer.getFileMetaData.getSchema)
-              val leaf = if (field.isPrimitive) field else child(field.asGroupType)
-              assert(
-                leaf.getLogicalTypeAnnotation ==
-                  LogicalTypeAnnotation.timestampType(false, TimeUnit.MICROS),
-                s"$column: $leaf")
-          }
-          assert(
-            spark.read.format("delta").load(path).collect().toSet == data.collect().toSet,
-            column)
+            val files = footers(path)
+            assert(files.nonEmpty)
+            files.foreach {
+              case (file, footer) =>
+                val writer = if (validateNtz) "parquet-mr" else "parquet-cpp-velox"
+                assert(footer.getFileMetaData.getCreatedBy.startsWith(writer), file.path)
+                // The Delta protocol stores TIMESTAMP_NTZ with isAdjustedToUTC=false.
+                def child(group: GroupType) = group.getFields.asScala.find(_.getName == "ts").get
+                val field = child(footer.getFileMetaData.getSchema)
+                val leaf = if (field.isPrimitive) field else child(field.asGroupType)
+                assert(
+                  leaf.getLogicalTypeAnnotation ==
+                    LogicalTypeAnnotation.timestampType(false, TimeUnit.MICROS),
+                  s"$column: $leaf")
+            }
+            assert(
+              spark.read.format("delta").load(path).collect().toSet == data.collect().toSet,
+              column)
+        }
       }
     }
   }

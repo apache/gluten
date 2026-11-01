@@ -169,7 +169,7 @@ On Spark 4.x, native Delta write writes what Delta Lake's own writer would write
   Delta Lake writes Parquet field IDs;
 - timestamps, unless `spark.sql.parquet.outputTimestampType` (and the writer option or table
   property of the same name, if set) is `TIMESTAMP_MICROS`; Spark's default is `INT96`;
-- `TIMESTAMP_NTZ` and `VOID` columns;
+- `VOID` columns;
 - compression codecs other than `uncompressed`, `snappy`, `gzip`, `lz4` and `zstd`;
 - `maxRecordsPerFile` (option or session conf) on unpartitioned tables;
 - Parquet format version 2 (`delta.parquet.format.version` 2.12.0 or later, or
@@ -182,6 +182,29 @@ On Spark 4.x, native Delta write writes what Delta Lake's own writer would write
 - Iceberg compatibility, variant shredding and any writer option the gate does not know.
 
 These checks are in `GlutenDeltaNativeWriteGate` (from code).
+
+`TIMESTAMP_NTZ` data is written natively as Parquet `INT64` microseconds with
+`isAdjustedToUTC=false`, including fields inside structs, arrays and map keys or values.
+The Spark-to-Arrow schema preserves Velox's NTZ logical-type metadata for both row conversion
+and the file writer. The native writer also recognizes timezone-less Arrow timestamps when
+Arrow C++ drops map-key metadata; ordinary `TIMESTAMP` fields in the same file remain
+adjusted-to-UTC. Direct field access and null checks on ordinary fields inside mixed NTZ
+structs remain eligible for native statistics, including deeper field-access chains.
+NTZ-only files do not depend on `spark.sql.parquet.outputTimestampType` or datetime rebasing.
+Mixed schemas still follow the ordinary `TIMESTAMP` and `DATE` checks above. Partitioned
+writes still require `delta.writePartitionColumnsToParquet=false`, and setting
+`spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation=true` still rejects NTZ
+native writes. This writer support does not change NTZ literal conversion or reading older
+`DATE` files after widening a column to NTZ.
+
+The regression suite compares native files and per-file statistics with independent
+Spark/Delta writes. It covers row-backed and native-scan inputs, nested and mixed schemas,
+pre-epoch values, nulls, microseconds, session timezones and NTZ partition values.
+
+Before Arrow conversion, the writer materializes top-level columns that contain null structs
+and propagates those nulls to their child vectors. This prevents conversion of unspecified
+timestamp payloads under null parents without modifying the input. Only affected columns
+are copied; scalar columns and complex columns without null structs retain their buffers.
 
 ### Checking the plan
 
@@ -343,8 +366,8 @@ The Read column covers Spark 3.5 to 4.2. It covers Spark 3.4 only where the row 
 | Row tracking | Offload, Exception for `_metadata.base_row_id` filters, ResultMismatch for `_metadata.row_id` when older files lack base row IDs | Offload | Seen on 4.1. See [Read problems](#read-problems). |
 | Liquid clustering | Offload | PartialOffload | Reads use the same native scan as other tables. Native commands write to clustered tables. `OPTIMIZE`, which clusters the data, uses Delta's writer. All three are from code. |
 | UniForm (IcebergCompatV1, V2) | | ResultMismatch on Spark 3.5, Exception when partitioned. Fallback on Spark 4.x. | The write statuses are from code. No test reads a UniForm table. |
-| Type widening | Offload, Exception for DATE to TIMESTAMP_NTZ data columns | Offload. Writes to FLOAT or DOUBLE partition columns and some TIMESTAMP_NTZ writes failed (seen on 4.1). Spark 4.x now sends those writes to Delta's writer (from code). | Seen on 4.1. Spark 3.5 and 4.0 are not covered. Delta Lake 3.3.2 on Spark 3.5 allows only TINYINT to SMALLINT to INT. |
-| TIMESTAMP_NTZ | PartialOffload, also on Spark 3.4 | Offload on Spark 3.5, Exception for some writes. Fallback on Spark 4.x. Both are from code. | See [DataType](#datatype). |
+| Type widening | Offload, Exception for DATE to TIMESTAMP_NTZ data columns | Offload. Writes to FLOAT or DOUBLE partition columns failed (seen on 4.1). Spark 4.x now sends those writes to Delta's writer (from code). | Seen on 4.1. Spark 3.5 and 4.0 are not covered. Delta Lake 3.3.2 on Spark 3.5 allows only TINYINT to SMALLINT to INT. |
+| TIMESTAMP_NTZ | PartialOffload, also on Spark 3.4 | Offload, subject to the native writer gates on Spark 4.x. | See [DataType](#datatype) and [Native write on Spark 4.x](#native-write-on-spark-4x). |
 | Variant, including shredding | Fallback | Fallback | Spark 4.x. From code. See [DataType](#datatype). |
 | Collations | Fallback | | Spark 4.x. From code. See [DataType](#datatype). |
 | materializePartitionColumns | | Fallback | Spark 4.x. The feature makes the data files store partition columns, and those partitioned writes fall back (from code). |
@@ -363,8 +386,8 @@ The Read column applies to Spark 3.4 to 4.1. On all of them, Gluten's tests read
 | CHAR, VARCHAR | Offload | Offload | | Stored as STRING. Delta checks the length on the JVM before the native write. Both statuses are from code. Reads return correct results (seen on 4.1). |
 | BINARY | Offload | Offload | Not tested | The read status is from code. One Delta Lake test writes a table with only a BINARY column, checks its file statistics and runs a DELETE that filters on that column (seen on 4.1). |
 | DATE | Offload | Offload | Offload | |
-| TIMESTAMP | Offload, ResultMismatch for sub-millisecond partition values (seen on 4.1) | Offload on Spark 3.5. On Spark 4.x only with `spark.sql.parquet.outputTimestampType=TIMESTAMP_MICROS`; otherwise the write falls back (from code). | Offload, Exception for sub-millisecond values | The partition column status is from code. On Spark 4.x, partitioned writes also fall back unless `delta.writePartitionColumnsToParquet=false` (from code). See [Known problems](#known-problems). |
-| TIMESTAMP_NTZ | PartialOffload | Offload on Spark 3.5, Exception for some writes. Fallback on Spark 4.x. Both are from code. | Offload on Spark 3.5, Exception for sub-millisecond values. Fallback on Spark 4.x. Both are from code. | Filters, sorts, joins and other operators whose input or output includes a TIMESTAMP_NTZ column fall back, even when they do not use that column. Scans, aggregates, shuffles and some projections can run in Velox. A scan whose pushed filter has a TIMESTAMP_NTZ literal falls back (from code). Gluten's tests check on Spark 3.4 to 4.1 that a scan of the column runs in Velox, and that a filter on the column and a sort on another column cause a fallback. The other operator rules are from code. |
+| TIMESTAMP | Offload, ResultMismatch for sub-millisecond partition values (seen on 4.1) | Offload on Spark 3.5. On Spark 4.x only with `spark.sql.parquet.outputTimestampType=TIMESTAMP_MICROS`; otherwise the write falls back (from code). | Offload, including microsecond keys in mixed NTZ writes. | On Spark 4.x, partitioned writes also fall back unless `delta.writePartitionColumnsToParquet=false` (from code). Native partition reading is unchanged; see [Known problems](#known-problems). |
+| TIMESTAMP_NTZ | PartialOffload | Offload, including nested and mixed TIMESTAMP/NTZ schemas. | Offload. On Spark 4.x, requires `delta.writePartitionColumnsToParquet=false`. | Filters, sorts, joins and other operators whose input or output includes a TIMESTAMP_NTZ column fall back, even when they do not use that column. Scans, aggregates, shuffles and some projections can run in Velox. A scan whose pushed filter has a TIMESTAMP_NTZ literal falls back (from code). Gluten's tests check on Spark 3.4 to 4.1 that a scan of the column runs in Velox, and that a filter on the column and a sort on another column cause a fallback. The other operator rules are from code. NTZ type validation still opts out of native writing. |
 | STRUCT, ARRAY, MAP | Offload | Offload | | |
 | VARIANT | Fallback | Fallback | | Spark 4.x. Shredded variant reads fall back too. Both statuses are from code. |
 | Collated STRING | Fallback | | | Spark 4.x. Scans that read the column fall back (from code). |
@@ -383,6 +406,7 @@ Delta data files are Parquet, and Gluten reads them with Velox's Parquet reader.
 | Compression | snappy (default), gzip, zstd (always level 3), lz4 (Hadoop framing), none. From code. Other codecs fall back on Spark 4.x; for Spark 3.5, see [Write problems](#write-problems). |
 | Row groups | Sized by `spark.gluten.sql.columnar.parquet.write.blockSize` and `spark.gluten.sql.native.parquet.write.blockRows`. `parquet.*` settings are ignored. From code. |
 | TIMESTAMP | INT64 microseconds. On Spark 3.5, `spark.sql.parquet.outputTimestampType` is ignored, and Delta Lake's writer uses INT96 by default. On Spark 4.x, writes with TIMESTAMP columns fall back unless that setting is `TIMESTAMP_MICROS`. Spark reads both. From code. |
+| TIMESTAMP_NTZ | INT64 microseconds with `isAdjustedToUTC=false`, independently of the session timezone, `spark.sql.parquet.outputTimestampType` and datetime rebase mode. Mixed files retain `isAdjustedToUTC=true` for ordinary TIMESTAMP columns. |
 | Parquet field IDs | Not written. On Spark 3.5 this includes column-mapped and UniForm tables. On Spark 4.x, writes that need field IDs fall back. Both are from code. See [Write problems](#write-problems). |
 | Spark schema footer entry | `org.apache.spark.sql.parquet.row.metadata` is not written ([#13288](https://github.com/apache/gluten/issues/13288)). Seen on 4.1. |
 | Nested field names | Lowercased below the top level when `spark.sql.caseSensitive=false`. Spark and Gluten match them case-insensitively. A case-sensitive reader can miss them. From code. |
@@ -414,7 +438,7 @@ The `mergeSchema` and `overwriteSchema` rows need native write on Spark 3.5 or 4
 | `mergeSchema` with `save(path)` | Offload | Velox writes the evolved schema (from code). On Spark 3.5 and 4.0, the copied `DeltaSuite` checks the results of a `mergeSchema` overwrite. Delta Lake's `SchemaEnforcementWithPathSuite` passes (seen on 4.1). |
 | `overwriteSchema` with `save(path)` | Offload | Delta applies the change before the write. From code. Delta Lake's `SchemaEnforcementWithPathSuite` passes (seen on 4.1). |
 | Schema evolution in SQL `INSERT` | PartialOffload | From code. |
-| Schema evolution in `MERGE` | PartialOffload, Exception for some STRUCT map key changes | The merged table contents match Delta Lake. Some STRUCT map key changes fail in Velox (see [MERGE, UPDATE and DELETE problems](#merge-update-and-delete-problems)). The two TIMESTAMP_NTZ widening tests fail before the MERGE runs, in a setup write of TIMESTAMP_NTZ values. Seen on 4.1. |
+| Schema evolution in `MERGE` | PartialOffload, Exception for some STRUCT map key changes | The merged table contents match Delta Lake. Some STRUCT map key changes fail in Velox (see [MERGE, UPDATE and DELETE problems](#merge-update-and-delete-problems)). Seen on 4.1. Native NTZ file-writing coverage does not establish support for reading old DATE files in a type-widening MERGE. |
 | `RENAME COLUMN` with column mapping | Offload | Reads after top-level and nested renames return correct results. After a top-level rename, partition pruning and file skipping still work. |
 | `DROP COLUMN` with column mapping | Offload | The drop is a metadata-only commit. Reads after the drop run in Velox. Both are from code. Delta Lake's `DeltaDropColumnSuite` passes (seen on 4.1). |
 | Type widening | Offload, Exception for DATE to TIMESTAMP_NTZ and for native writes to FLOAT or DOUBLE partition columns | Seen on 4.1. See [Table features](#table-features). |
@@ -449,8 +473,7 @@ These need native write on, unless a row says otherwise. On Spark 4.x, many of t
 | Spark's own reader fails on natively written id-mode files with `Spark read schema expects field Ids, but Parquet file schema doesn't contain any field Ids`. Spark uses this reader when a scan falls back or Gluten is off. With `spark.sql.parquet.fieldId.read.ignoreMissing=true`, Spark skips this check and returns NULL for the data columns of these files (from code). That setting is not tested with these files. | Exception | 3.5, from code. Spark 4.x falls back | |
 | Files written for a UniForm table have no Parquet field IDs, so the Iceberg metadata points at files without IDs. No error is raised. | ResultMismatch | 3.5, from code. Spark 4.x falls back | [#12957](https://github.com/apache/gluten/pull/12957) |
 | A write to a partitioned UniForm table fails with `The file schema type should be equal with the input rowvector type`. | Exception | 3.5, from code. Spark 4.x falls back | |
-| Some writes of a TIMESTAMP_NTZ data column fail with `The file schema type should be equal with the input rowvector type`. Delta Lake's type widening tests fail this way when they write `CAST(value AS TIMESTAMP_NTZ)`. Delta Lake's data skipping tests also write that cast and pass. | Exception | Seen on 4.1, from code on 3.5. Spark 4.x now falls back | |
-| A partitioned write fails in Velox's `PartitionIdGenerator` when a TIMESTAMP or TIMESTAMP_NTZ partition value has sub-millisecond digits. | Exception | 3.5, from code. On Spark 4.x, TIMESTAMP_NTZ writes fall back, and TIMESTAMP only with `outputTimestampType=TIMESTAMP_MICROS` and `delta.writePartitionColumnsToParquet=false` (from code) | |
+| A partitioned write through Velox's `PartitionIdGenerator` fails when a TIMESTAMP or TIMESTAMP_NTZ partition value has sub-millisecond digits. Delta's partitioned batch writer avoids that restriction by converting timestamp keys to lossless integer microseconds for ID generation, retaining the original values for files and partition paths. | Exception outside the Delta batch writer | The `PartitionIdGenerator` limitation is from code. Spark 4.x native Delta partitioned writes require `delta.writePartitionColumnsToParquet=false`. | |
 | A generated partition column such as `DATE_FORMAT(ts, 'yyyy-MM')` stores `12345-07` for the year 12345. Spark stores `+12345-07`. Not checked with native write off. | ResultMismatch | Seen on 4.1 | |
 | The `compression` option set to brotli or lzo fails the write. So does `spark.sql.parquet.compression.codec` when the option is unset. The write fails even with the Hadoop codec class on the classpath. Without that class, Delta's writer fails too, and Spark does not ship it. | Exception | 3.5, from code. Spark 4.x falls back | |
 | The `compression` option or `spark.sql.parquet.compression.codec` set to lz4_raw writes Snappy data into a `.lz4raw.parquet` file. | ResultMismatch | 3.5, from code. Spark 4.x falls back | |
@@ -497,7 +520,7 @@ For errors raised on the JVM, the message of the exception raised in the task st
 | spark.gluten.sql.columnar.parquet.write.blockSize | 128MB | Row-group size for native Delta writes. Velox checks it after each input batch, so a row group can be larger. From code. |
 | spark.gluten.sql.native.parquet.write.blockRows | 100000000 | Row-group row limit for native Delta writes. Seen on 4.1. |
 | spark.gluten.sql.native.writer.enabled | (unset) | Controls native writes of non-Delta Parquet files. Unset means on. No effect on Delta writes (from code). |
-| spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation | false | When true, every operator whose input or output includes TIMESTAMP_NTZ falls back. On Spark 4.x, native Delta writes with TIMESTAMP_NTZ columns use Delta's writer either way. From code. |
+| spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation | false | When true, every operator whose input or output includes TIMESTAMP_NTZ falls back, and Spark 4.x Delta writes with NTZ columns use Delta's writer. With the default false, supported NTZ schemas can be written natively. |
 | spark.gluten.sql.columnar.backend.velox.scanMapKeyPruningEnabled | false | When true, Velox skips map keys a query does not look up, if the lookups sit in filters and projections directly above the scan. Applies to Delta scans without column mapping. On Spark 3.5 to 4.1 it also applies to files with deletion vectors. Off for column-mapped tables. |
 | spark.gluten.sql.columnar.backend.velox.parquetUseColumnNames | true | Velox matches Parquet columns by name. Id-mode column mapping tables are read by physical name. When false, Velox matches Parquet columns by position, including for tables without column mapping and id-mode tables. Name-mode tables are still read by physical name. From code. |
 | spark.gluten.sql.fallbackUnexpectedMetadataParquet | false | When true, Delta scans fall back if a sampled file is encrypted, carries legacy datetime rebase metadata, uses LZO or BROTLI, or has variant annotations. LZ4_RAW also counts on Spark 4.0 and 4.1. The variant check runs on Spark 4.1 only. The sample is the first `spark.gluten.sql.fallbackUnexpectedMetadataParquet.limit` files (default 10) under the table root. `_delta_log` files count. HDFS and S3 list files in name order, and `_delta_log` sorts before `part-` files and lowercase partition directories. On those stores, a table laid out that way gets no data file in the sample once `_delta_log` holds as many files as the limit. The check is skipped when `spark.gluten.sql.scan.fileSchemeValidation.enabled=false`. From code. |
