@@ -25,7 +25,7 @@ class BoltTPCHHudiSuite extends BoltTPCHSuite {
     getClass.getResource("/").getPath + "../../../src/test/resources"
 
   override protected val resourcePath: String =
-    getClass.getResource("/tpch-data-parquet").getFile
+    "/tpch-data-parquet"
 
   override protected val queriesResults: String =
     new File(tpchBasePath, "queries-output").getCanonicalPath

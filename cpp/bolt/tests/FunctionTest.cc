@@ -47,6 +47,32 @@ class FunctionTest : public ::testing::Test, public test::VectorTestBase {
       std::make_shared<gluten::SubstraitToBoltPlanConverter>(pool(), boltCfg_.get());
 };
 
+TEST(SubstraitColumnTypesTest, preservesRowIndexAndOtherColumnKinds) {
+  substrait::NamedStruct schema;
+  for (const auto& name : {"data", "partition", "metadata", "row_index"}) {
+    schema.add_names(name);
+  }
+  schema.add_column_types(substrait::NamedStruct::NORMAL_COL);
+  schema.add_column_types(substrait::NamedStruct::PARTITION_COL);
+  schema.add_column_types(substrait::NamedStruct::METADATA_COL);
+  schema.add_column_types(substrait::NamedStruct::ROWINDEX_COL);
+  std::vector<ColumnType> actual;
+  ASSERT_NO_THROW(SubstraitParser::parseColumnTypes(schema, actual));
+  EXPECT_EQ(
+      actual,
+      (std::vector<ColumnType>{
+          ColumnType::kRegular, ColumnType::kPartitionKey, ColumnType::kSynthesized, ColumnType::kRowIndex}));
+}
+
+TEST(SubstraitColumnTypesTest, rejectsMismatchedColumnCount) {
+  substrait::NamedStruct schema;
+  schema.add_names("data");
+  schema.add_names("row_index");
+  schema.add_column_types(substrait::NamedStruct::ROWINDEX_COL);
+  std::vector<ColumnType> actual;
+  EXPECT_THROW(SubstraitParser::parseColumnTypes(schema, actual), std::exception);
+}
+
 TEST_F(FunctionTest, makeNames) {
   std::string prefix = "n";
   int size = 0;
@@ -59,6 +85,33 @@ TEST_F(FunctionTest, makeNames) {
   for (int i = 0; i < size; i++) {
     std::string expected = "n_" + std::to_string(i);
     ASSERT_EQ(names[i], expected);
+  }
+}
+
+TEST_F(FunctionTest, readFileSchemaExcludesPartitionColumns) {
+  for (bool partitioned : {false, true}) {
+    substrait::ReadRel read;
+    auto* schema = read.mutable_base_schema();
+    schema->add_names("value");
+    schema->add_names("partition");
+    schema->mutable_struct_()->add_types()->mutable_i64();
+    schema->mutable_struct_()->add_types()->mutable_i32();
+    schema->add_column_types(substrait::NamedStruct::NORMAL_COL);
+    schema->add_column_types(partitioned ? substrait::NamedStruct::PARTITION_COL : substrait::NamedStruct::NORMAL_COL);
+    SubstraitToBoltPlanConverter converter(pool(), boltCfg_.get(), std::nullopt, std::nullopt, true);
+    auto plan = converter.toBoltPlan(read);
+    auto scan = std::dynamic_pointer_cast<const core::TableScanNode>(plan);
+    ASSERT_NE(scan, nullptr);
+    auto handle = std::dynamic_pointer_cast<const connector::hive::HiveTableHandle>(scan->tableHandle());
+    ASSERT_NE(handle, nullptr);
+    ASSERT_EQ(handle->dataColumns()->size(), partitioned ? 1 : 2);
+    EXPECT_EQ(handle->dataColumns()->nameOf(0), "value");
+    EXPECT_EQ(scan->outputType()->size(), 2);
+    ASSERT_EQ(scan->assignments().size(), 2);
+    auto partitionHandle = std::dynamic_pointer_cast<const connector::hive::HiveColumnHandle>(
+        scan->assignments().at(scan->outputType()->nameOf(1)));
+    ASSERT_NE(partitionHandle, nullptr);
+    EXPECT_EQ(partitionHandle->columnType(), partitioned ? ColumnType::kPartitionKey : ColumnType::kRegular);
   }
 }
 
