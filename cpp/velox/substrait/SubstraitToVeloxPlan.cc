@@ -1195,7 +1195,8 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
       const RowTypePtr outRowType = asRowType(children[0]->outputType());
       std::vector<std::string> outNames;
       for (int32_t colIdx = 0; colIdx < outRowType->size(); ++colIdx) {
-        const auto name = outRowType->childAt(colIdx)->name();
+        // Using field names from the unified output row type instead child type names
+        const auto name = outRowType->nameOf(colIdx);
         outNames.push_back(name);
       }
 
