@@ -356,7 +356,7 @@ class GlutenParquetV2FilterSuite extends GlutenParquetFilterSuite with GlutenSQL
         case PhysicalOperation(
               _,
               filters,
-              DataSourceV2ScanRelation(_, scan: ParquetScan, _, None, None, _)) =>
+              DataSourceV2ScanRelation(_, scan: ParquetScan, _, None, None, _, _)) =>
           assert(filters.nonEmpty, "No filter is analyzed from the given query")
           val sourceFilters = filters.flatMap(DataSourceStrategy.translateFilter(_, true)).toArray
           val pushedFilters = scan.pushedFilters
