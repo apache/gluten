@@ -126,7 +126,7 @@ public class RexCallConverterFactory {
           Map.entry(
               "CURRENT_TIME", Arrays.asList(() -> new DefaultRexCallConverter("current_time"))),
           Map.entry("IFNULL", Arrays.asList(() -> new ScalarOnlyRexCallConverter("ifnull"))),
-// TRIM is normalized by Calcite to (flag, seek, str); the converter
+          // TRIM is normalized by Calcite to (flag, seek, str); the converter
           // maps the flag to ltrim/rtrim/trim and reorders to (str, seek).
           Map.entry("TRIM", Arrays.asList(() -> new TrimRexCallConverter())),
           // LTRIM/RTRIM keep the Flink argument order (str[, seek]); the

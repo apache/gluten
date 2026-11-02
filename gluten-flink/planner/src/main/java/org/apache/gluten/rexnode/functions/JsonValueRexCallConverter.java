@@ -22,11 +22,16 @@ import org.apache.gluten.rexnode.RexNodeConverter;
 import io.github.zhztheplayer.velox4j.expression.CallTypedExpr;
 import io.github.zhztheplayer.velox4j.expression.ConstantTypedExpr;
 import io.github.zhztheplayer.velox4j.expression.TypedExpr;
+import io.github.zhztheplayer.velox4j.type.BooleanType;
+import io.github.zhztheplayer.velox4j.type.DoubleType;
 import io.github.zhztheplayer.velox4j.type.IntegerType;
 import io.github.zhztheplayer.velox4j.type.Type;
 import io.github.zhztheplayer.velox4j.type.VarCharType;
+import io.github.zhztheplayer.velox4j.variant.BooleanValue;
+import io.github.zhztheplayer.velox4j.variant.DoubleValue;
 import io.github.zhztheplayer.velox4j.variant.IntegerValue;
 import io.github.zhztheplayer.velox4j.variant.VarCharValue;
+import io.github.zhztheplayer.velox4j.variant.Variant;
 
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexLiteral;
@@ -49,8 +54,9 @@ import java.util.List;
  *       default value.
  * </ul>
  *
- * <p>RETURNING is represented by the RexCall {@code getType()}; json_value returns VARCHAR in
- * velox, so a non-VARCHAR RETURNING is wrapped in a CAST.
+ * <p>RETURNING is represented by the RexCall {@code getType()}. velox registers one json_value
+ * signature per RETURNING type, so the default values and result carry that same type — no separate
+ * CAST wrapping is needed.
  */
 public class JsonValueRexCallConverter extends BaseRexCallConverter {
 
@@ -68,52 +74,58 @@ public class JsonValueRexCallConverter extends BaseRexCallConverter {
   @Override
   public TypedExpr toTypedExpr(RexCall callNode, RexConversionContext context) {
     List<RexNode> operands = callNode.getOperands();
-    // [0] input json, [1] path literal
+    Type resultType = RexNodeConverter.toType(callNode.getType());
+
+    // [0] input json, [1] path literal (always a VARCHAR).
     TypedExpr jsonExpr = RexNodeConverter.toTypedExpr(operands.get(0), context);
-    String path = literalValue(operands.get(1));
+    VarCharValue path = pathValue(operands.get(1));
 
     int onEmpty = ON_NULL;
-    String onEmptyDefault = "";
+    Variant onEmptyDefault = nullVariant();
     int onError = ON_NULL;
-    String onErrorDefault = "";
+    Variant onErrorDefault = nullVariant();
 
     int i = 2;
     while (i < operands.size()) {
+      checkIndex(i, operands.size(), "handler behavior");
       String behavior = symbolValue(operands.get(i));
       i++;
-      String defaultVal = "";
+      Variant defaultVal = nullVariant();
       if ("DEFAULT".equals(behavior)) {
-        defaultVal = literalValue(operands.get(i));
+        checkIndex(i, operands.size(), "DEFAULT value");
+        defaultVal = defaultVariant(operands.get(i), resultType);
         i++;
       }
+      checkIndex(i, operands.size(), "handler context (ON EMPTY / ON ERROR)");
       String ctx = symbolValue(operands.get(i));
       i++;
       int enc = behaviorToEnum(behavior);
       if ("ON EMPTY".equals(ctx)) {
         onEmpty = enc;
         onEmptyDefault = defaultVal;
-      } else {
+      } else if ("ON ERROR".equals(ctx)) {
         onError = enc;
         onErrorDefault = defaultVal;
+      } else {
+        throw new RuntimeException("Unknown JSON_VALUE handler context: " + ctx);
       }
     }
 
     List<TypedExpr> params = new ArrayList<>();
     params.add(jsonExpr);
-    params.add(strConst(path));
+    params.add(constant(path, VARCHAR_TYPE));
     params.add(intConst(onEmpty));
-    params.add(strConst(onEmptyDefault));
+    params.add(constant(onEmptyDefault, resultType));
     params.add(intConst(onError));
-    params.add(strConst(onErrorDefault));
+    params.add(constant(onErrorDefault, resultType));
 
-    CallTypedExpr jsonValue = new CallTypedExpr(VARCHAR_TYPE, params, FUNCTION_NAME);
+    return new CallTypedExpr(resultType, params, FUNCTION_NAME);
+  }
 
-    Type resultType = RexNodeConverter.toType(callNode.getType());
-    if (resultType instanceof VarCharType) {
-      return jsonValue;
+  private static void checkIndex(int i, int size, String what) {
+    if (i >= size) {
+      throw new RuntimeException("JSON_VALUE: missing " + what + " at operand " + i);
     }
-    // RETURNING a non-VARCHAR type: cast the extracted VARCHAR.
-    return new CallTypedExpr(resultType, List.of(jsonValue), "cast");
   }
 
   private static int behaviorToEnum(String behavior) {
@@ -137,19 +149,55 @@ public class JsonValueRexCallConverter extends BaseRexCallConverter {
     throw new RuntimeException("Expected a literal symbol for JSON_VALUE handler, got: " + node);
   }
 
-  private static String literalValue(RexNode node) {
+  private static VarCharValue pathValue(RexNode node) {
     if (node instanceof RexLiteral) {
-      Object value = ((RexLiteral) node).getValue();
+      RexLiteral literal = (RexLiteral) node;
+      Object value = literal.getValue();
       if (value instanceof NlsString) {
-        return ((NlsString) value).getValue();
+        return new VarCharValue(((NlsString) value).getValue());
       }
-      return String.valueOf(value);
+      return new VarCharValue(String.valueOf(value));
     }
-    throw new RuntimeException("Expected a literal for JSON_VALUE, got: " + node);
+    throw new RuntimeException("Expected a literal path for JSON_VALUE, got: " + node);
   }
 
-  private static ConstantTypedExpr strConst(String value) {
-    return new ConstantTypedExpr(VARCHAR_TYPE, new VarCharValue(value), null);
+  // Converts a DEFAULT literal into the variant carrying the RETURNING type; null
+  // information is retained as a typed null instead of being flattened to text.
+  private static Variant defaultVariant(RexNode node, Type resultType) {
+    RexLiteral literal = (RexLiteral) node;
+    if (literal.getValue() == null || literal.isNull()) {
+      return nullVariant();
+    }
+    Object value = literal.getValue();
+    if (resultType instanceof VarCharType) {
+      if (value instanceof NlsString) {
+        return new VarCharValue(((NlsString) value).getValue());
+      }
+      return new VarCharValue(String.valueOf(value));
+    }
+    if (resultType instanceof IntegerType) {
+      return new IntegerValue(((Number) value).intValue());
+    }
+    if (resultType instanceof BooleanType) {
+      return new BooleanValue((Boolean) value);
+    }
+    if (resultType instanceof DoubleType) {
+      return new DoubleValue(((Number) value).doubleValue());
+    }
+    throw new RuntimeException("Unsupported JSON_VALUE RETURNING type: " + resultType);
+  }
+
+  private static Variant nullVariant() {
+    // A typed null needs no per-type carrier: the velox-side ConstantTypedExpr
+    // renders a null variant as a null constant of the EXPRESSION type (the
+    // variant kind is irrelevant on the null path). VarCharValue is the natural
+    // null-accepting carrier and serializes with an explicit "value": null via
+    // the @JsonInclude(ALWAYS) on the Variant base class.
+    return new VarCharValue(null);
+  }
+
+  private static ConstantTypedExpr constant(Variant value, Type type) {
+    return new ConstantTypedExpr(type, value, null);
   }
 
   private static ConstantTypedExpr intConst(int value) {
