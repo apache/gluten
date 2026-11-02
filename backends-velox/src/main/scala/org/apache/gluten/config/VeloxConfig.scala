@@ -301,11 +301,12 @@ object VeloxConfig extends ConfigRegistry {
   val SCAN_MAP_KEY_PRUNING_ENABLED =
     buildConf("spark.gluten.sql.columnar.backend.velox.scanMapKeyPruningEnabled")
       .doc(
-        "When true, a map column read by a native Parquet scan is declared to Velox with only " +
-          "the constant keys the query looks up (m['k'], element_at(m, 'k'), null checks), so " +
-          "the reader skips the other entries. Applies when every use of the map sits in the " +
-          "filters and projections directly above the scan and the map is dropped before any " +
-          "other operator sees it; otherwise the map is read whole. See ScanMapKeyPruning.")
+        "When true, a map column read by a native Parquet, ORC or DWRF scan is declared to " +
+          "Velox with only the constant keys the query looks up (m['k'], element_at(m, 'k'), " +
+          "null checks), so the reader skips the other entries. Applies when every use of the " +
+          "map sits in the filters and projections directly above the scan and the map is " +
+          "dropped before any other operator sees it; otherwise the map is read whole. See " +
+          "ScanMapKeyPruning.")
       .booleanConf
       .createWithDefault(false)
 
