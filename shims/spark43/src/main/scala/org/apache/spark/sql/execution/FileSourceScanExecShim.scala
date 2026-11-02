@@ -60,6 +60,10 @@ abstract class FileSourceScanExecShim(
   // Note: "metrics" is made transient to avoid sending driver-side metrics to tasks.
   @transient override lazy val metrics: Map[String, SQLMetric] = Map()
 
+  // Spark 4.3 single-task execution is not supported natively: never report `SinglePartition`.
+  // Scans that Spark runs in a single task fall back (see `isSingleTaskExecutionScan`).
+  override def markedForSingleTaskExecution: Boolean = false
+
   lazy val metadataColumns: Seq[AttributeReference] = output.collect {
     case FileSourceConstantMetadataAttribute(attr) => attr
     case FileSourceGeneratedMetadataAttribute(attr, _) => attr

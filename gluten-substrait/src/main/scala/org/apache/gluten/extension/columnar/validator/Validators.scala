@@ -176,6 +176,8 @@ object Validators {
       // native scan doesn't coalesce its splits into a single task.
       case p: FileSourceScanExec if SparkShimLoader.getSparkShims.isSingleTaskExecutionScan(p) =>
         fail(s"${p.nodeName} uses single-task execution, which is not supported")
+      case p: LocalTableScanExec if p.outputPartitioning.numPartitions == 1 =>
+        fail(s"${p.nodeName} uses single-task execution, which is not supported")
       case _ => pass()
     }
   }

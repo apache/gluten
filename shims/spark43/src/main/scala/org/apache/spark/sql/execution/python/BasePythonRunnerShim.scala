@@ -18,7 +18,7 @@ package org.apache.spark.sql.execution.python
 
 import org.apache.spark.SparkEnv
 import org.apache.spark.TaskContext
-import org.apache.spark.api.python.{BasePythonRunner, ChainedPythonFunctions, PythonWorker}
+import org.apache.spark.api.python.{BasePythonRunner, ChainedPythonFunctions, PythonWorker, PythonWorkerHandle}
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.execution.python.EvalPythonExec.ArgumentMetadata
 import org.apache.spark.sql.types.StructType
@@ -38,9 +38,9 @@ abstract class BasePythonRunnerShim(
     None,
     pythonMetrics) {
 
-  // The worker handle passed to newReaderIterator: Spark 4.3 replaced the pid with a
-  // PythonWorkerHandle.
-  type WorkerHandle = Option[Int]
+  // The worker handle passed to newReaderIterator. Spark 4.3 replaced the worker pid
+  // (Option[Int]) with a PythonWorkerHandle; the alias keeps child classes version-agnostic.
+  type WorkerHandle = Option[PythonWorkerHandle]
 
   protected def createNewWriter(
       env: SparkEnv,
