@@ -24,9 +24,9 @@
     <relativePath>../pom.xml</relativePath>
   </parent>
 
-  <artifactId>gluten-ut-spark42</artifactId>
+  <artifactId>gluten-ut-spark43</artifactId>
   <packaging>jar</packaging>
-  <name>Gluten Unit Test Spark42</name>
+  <name>Gluten Unit Test Spark43</name>
 
   <properties>
     <parquet.version>1.16.0</parquet.version>

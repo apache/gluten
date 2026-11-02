@@ -27,6 +27,7 @@ import org.apache.spark.sql.catalyst.optimizer.NullPropagation
 import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
+import org.apache.spark.util.SparkVersionUtil
 
 class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
 
@@ -43,6 +44,25 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
           .getOption(p)
           .orElse(p.logicalLink.flatMap(FallbackTags.getOption))
           .map(_.reason())
+    }
+  }
+
+  /**
+   * Since Spark 4.3, the generated code of higher-order functions such as `transform`, `filter` and
+   * `forall` reads each array element before checking whether it is null. For a null element of a
+   * dictionary-encoded Parquet array read into an `OffHeapColumnVector` (the default here, as
+   * `spark.memory.offHeap.enabled` is true), the dictionary id is uninitialized memory, so vanilla
+   * Spark can fail with an `ArrayIndexOutOfBoundsException` while computing the expected answer.
+   * Gluten's native scan doesn't use Spark column vectors, so make vanilla Spark read into on-heap
+   * column vectors, whose dictionary ids are zero-initialized.
+   *
+   * TODO: Remove once Spark checks whether an array element is null before reading it.
+   */
+  private def withVanillaNullSafeArrayElements(f: => Unit): Unit = {
+    if (SparkVersionUtil.gteSpark43) {
+      withSQLConf(SQLConf.COLUMN_VECTOR_OFFHEAP_ENABLED.key -> "false")(f)
+    } else {
+      f
     }
   }
 
@@ -1142,17 +1162,19 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
 
         spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("array_tbl")
 
-        runQueryAndCompare("select filter(value, x -> x % 2 == 1) as res from array_tbl;") {
-          checkGlutenPlan[ProjectExecTransformer]
-        }
+        withVanillaNullSafeArrayElements {
+          runQueryAndCompare("select filter(value, x -> x % 2 == 1) as res from array_tbl;") {
+            checkGlutenPlan[ProjectExecTransformer]
+          }
 
-        runQueryAndCompare("select filter(value, x -> x is not null) as res from array_tbl;") {
-          checkGlutenPlan[ProjectExecTransformer]
-        }
+          runQueryAndCompare("select filter(value, x -> x is not null) as res from array_tbl;") {
+            checkGlutenPlan[ProjectExecTransformer]
+          }
 
-        runQueryAndCompare(
-          "select filter(value, (x, i) -> i < size(value) - 1) as res from array_tbl;") {
-          checkGlutenPlan[ProjectExecTransformer]
+          runQueryAndCompare(
+            "select filter(value, (x, i) -> i < size(value) - 1) as res from array_tbl;") {
+            checkGlutenPlan[ProjectExecTransformer]
+          }
         }
     }
   }
@@ -1164,11 +1186,13 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
         "insert into t values " +
           "(array(named_struct('a', 1), named_struct('a', cast(null as int))), null), " +
           "(array(named_struct('a', 2), null), 3)")
-      runQueryAndCompare("select filter(arr, x -> x.a is not null) from t") {
-        checkGlutenPlan[ProjectExecTransformer]
-      }
-      runQueryAndCompare("select filter(arr, x -> c is not null) from t") {
-        checkGlutenPlan[ProjectExecTransformer]
+      withVanillaNullSafeArrayElements {
+        runQueryAndCompare("select filter(arr, x -> x.a is not null) from t") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        runQueryAndCompare("select filter(arr, x -> c is not null) from t") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
       }
     }
   }
@@ -1194,11 +1218,13 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     withTable("t") {
       sql("create table t (arr ARRAY<INT>) using parquet")
       sql("insert into t values (array(1, 2, 3, null)), (array()), (null)")
-      runQueryAndCompare("select transform(arr, x -> x + 1) from t") {
-        checkGlutenPlan[ProjectExecTransformer]
-      }
-      runQueryAndCompare("select transform(arr, (x, i) -> x + i) from t") {
-        checkGlutenPlan[ProjectExecTransformer]
+      withVanillaNullSafeArrayElements {
+        runQueryAndCompare("select transform(arr, x -> x + 1) from t") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        runQueryAndCompare("select transform(arr, (x, i) -> x + i) from t") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
       }
     }
   }
@@ -1213,12 +1239,14 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
 
         spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("array_tbl")
 
-        runQueryAndCompare("select forall(value, x -> x % 2 == 1) as res from array_tbl;") {
-          checkGlutenPlan[ProjectExecTransformer]
-        }
+        withVanillaNullSafeArrayElements {
+          runQueryAndCompare("select forall(value, x -> x % 2 == 1) as res from array_tbl;") {
+            checkGlutenPlan[ProjectExecTransformer]
+          }
 
-        runQueryAndCompare("select forall(value, x -> x is not null) as res from array_tbl;") {
-          checkGlutenPlan[ProjectExecTransformer]
+          runQueryAndCompare("select forall(value, x -> x is not null) as res from array_tbl;") {
+            checkGlutenPlan[ProjectExecTransformer]
+          }
         }
     }
   }
