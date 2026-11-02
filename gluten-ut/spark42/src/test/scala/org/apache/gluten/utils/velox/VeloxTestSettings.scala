@@ -1014,9 +1014,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude(
       "SPARK-57298: collect_set normalizes NaN and -0.0 nested in complex types"
     ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "collect_set with RESPECT NULLS preserves null in set"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenDataFrameAsOfJoinSuite]
   enableSuite[GlutenDataFrameComplexTypeSuite]
   enableSuite[GlutenDataFrameFunctionsSuite]
@@ -1027,6 +1024,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("transform keys function - primitive data types")
     // Overridden.
     .exclude("map with arrays")
+    // Overridden: asserts vanilla WholeStageCodegenExec, which Gluten replaces.
+    .exclude("array_join with nullable nullReplacement under whole-stage codegen")
     .exclude(
       "SPARK-54918: array set ops normalize -0.0 and NaN via VALUES inline table"
     ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
@@ -1047,9 +1046,6 @@ class VeloxTestSettings extends BackendTestSettings {
     ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
     .exclude(
       "SPARK-54918: array_union normalizes -0.0 to +0.0 - literals"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "array_join with nullable nullReplacement under whole-stage codegen"
     ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenDataFrameHintSuite]
   enableSuite[GlutenDataFrameImplicitsSuite]
@@ -1216,6 +1212,8 @@ class VeloxTestSettings extends BackendTestSettings {
     // Rewrite from ORC scan to Parquet scan because ORC is not well supported.
     .exclude("SPARK-28156: self-join should not miss cached view")
     .exclude("SPARK-33338: GROUP BY using literal map should not fail")
+    // Spark checks its own plan node, which Gluten replaces with a native transformer.
+    .excludeByPrefix("SPARK-52060: one row relation with codegen enabled")
     // Rewrite to disable plan check for SMJ because SHJ is preferred in Gluten.
     .exclude("SPARK-11111 null-safe join should not use cartesian product")
     // Rewrite to change the information of a caught exception.

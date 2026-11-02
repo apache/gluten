@@ -32,6 +32,7 @@
 #include <chrono>
 #include <cstdint>
 #include <iostream>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -178,7 +179,7 @@ void BoltGlutenMemoryManager::init(const std::unordered_map<std::string, std::st
     // Always call ExecutionMemoryPool::init to facilitate other functions to call
     // ExecutionMemoryPool::getAvailableMemoryPerTask. Whether to enable BoltMemoryManager
     // depends on the passed enable parameter.
-    ExecutionMemoryPool::init(enabled_, capacity, maxTaskNumber_, option, 0);
+    ExecutionMemoryPool::init(enabled_, capacity, maxTaskNumber_, option, minMemoryMaxWaitMs);
 
     // Some operations that must be performed after BoltMemoryManager is enabled need to
     // be placed in the following code.
@@ -211,72 +212,85 @@ bytedance::bolt::memory::sparksql::BoltMemoryManagerHolder* BoltGlutenMemoryMana
     // must keep this pattern, otherwise OOM Printer will not work
     const std::string nmmName = fmt::format("{}_TID_{}_HANDLER_{}", name, taskId, memoryManagerHandle);
 
-    auto tmm = getOrCreateTaskMemoryManagerLocked(taskId);
-    bytedance::bolt::memory::sparksql::NativeMemoryManagerFactoryParam param{
-        .name = nmmName,
-        .memoryIsolation = false,
-        .conservativeTaskOffHeapMemorySize = 0,
-        .overAcquiredRatio = 0.3,
-        .taskMemoryManager = tmm,
-        .sessionConf = conf_};
-    bytedance::bolt::memory::sparksql::BoltMemoryManagerHolder* holder =
-        bytedance::bolt::memory::sparksql::NativeMemoryManagerFactory::contextInstance(param);
-    holders_.emplace(
-        bytedance::bolt::memory::sparksql::BoltMemoryManagerHolderKey{
-            .name = name, .taskId = taskId, .memoryManagerHandle = memoryManagerHandle},
-        holder);
-
-    return holder;
+    try {
+      auto tmm = getOrCreateTaskMemoryManagerLocked(taskId);
+      bytedance::bolt::memory::sparksql::NativeMemoryManagerFactoryParam param{
+          .name = nmmName,
+          .memoryIsolation = false,
+          .conservativeTaskOffHeapMemorySize = 0,
+          .overAcquiredRatio = 0.3,
+          .taskMemoryManager = tmm,
+          .sessionConf = conf_};
+      std::unique_ptr<bytedance::bolt::memory::sparksql::BoltMemoryManagerHolder> holder(
+          bytedance::bolt::memory::sparksql::NativeMemoryManagerFactory::contextInstance(param));
+      holders_.emplace(key, holder.get());
+      return holder.release();
+    } catch (...) {
+      // Construction or registry insertion can fail after the task manager was cached.
+      releaseTaskMemoryManagerIfUnusedLocked(taskId);
+      throw;
+    }
   }
 }
 
 void BoltGlutenMemoryManager::destroy(int64_t taskId, int64_t memoryManagerHandle) {
   GLUTEN_CHECK(enabled_, "Expect BoltMemoryManager enabled");
 
-  int64_t holderCount = 0, deleteCount = 0;
   std::vector<bytedance::bolt::memory::sparksql::BoltMemoryManagerHolderKey> toBeDeletedKey;
   std::vector<bytedance::bolt::memory::sparksql::BoltMemoryManagerHolder*> toBeDeletedHolders;
   {
     std::lock_guard<std::mutex> guard(lock_);
     for (const auto& pair : holders_) {
-      if (pair.first.taskId == taskId) {
-        holderCount++;
-        if (pair.first.memoryManagerHandle == memoryManagerHandle) {
-          toBeDeletedKey.emplace_back(pair.first);
-          toBeDeletedHolders.emplace_back(pair.second);
-        }
+      if (pair.first.taskId == taskId && pair.first.memoryManagerHandle == memoryManagerHandle) {
+        toBeDeletedKey.emplace_back(pair.first);
+        toBeDeletedHolders.emplace_back(pair.second);
       }
     }
-    deleteCount = toBeDeletedKey.size();
+    if (toBeDeletedHolders.empty()) {
+      releaseTaskMemoryManagerIfUnusedLocked(taskId);
+      return;
+    }
+    pendingDestructions_[taskId] += toBeDeletedHolders.size();
     for (const auto& key : toBeDeletedKey) {
       holders_.erase(key);
     }
   }
 
-  // delete holder out of mutex because BoltMemoryManager destruction may wait for memory release,
-  // which will block all tasks' destroying in current executor
-  for (auto hold : toBeDeletedHolders) {
-    if (hold != nullptr) {
-      delete hold;
-    }
+  // Holder destruction is noexcept (including its shared_ptr members). A destructor
+  // violation terminates the process; no catch/finally can restore accounting then.
+  static_assert(std::is_nothrow_destructible_v<bytedance::bolt::memory::sparksql::BoltMemoryManagerHolder>);
+  // Destruction may wait for allocations owned by asynchronous work, so do not hold lock_.
+  for (auto holder : toBeDeletedHolders) {
+    delete holder;
   }
 
-  // If the value of holderCount euqals to 1 and `deleteCount` euqals to 1, it **may be** that the task execution has
-  // ended and the corresponding cleanup operation needs to be performed.
-  //
-  // If the task execution has not ended, there will be no side effects, because a new
-  // TaskMemoryManager will be created in the getOrCreateTaskMemoryManagerLocked function.
-  if (holderCount == 1 && deleteCount == 1) {
-    std::lock_guard<std::mutex> guard(lock_);
-    auto tmm = tmmCache_.find(taskId);
-    if (tmm != tmmCache_.end()) {
-      bytedance::bolt::memory::sparksql::MemoryTargetBuilder::invalidate(tmm->second, false, 0);
-    }
-
-    tmmCache_.erase(taskId);
-
-    ExecutionMemoryPool::instance()->releaseAllMemoryForTask(taskId);
+  std::lock_guard<std::mutex> guard(lock_);
+  auto pending = pendingDestructions_.find(taskId);
+  pending->second -= toBeDeletedHolders.size();
+  if (pending->second != 0) {
+    return;
   }
+  pendingDestructions_.erase(pending);
+  releaseTaskMemoryManagerIfUnusedLocked(taskId);
+}
+
+void BoltGlutenMemoryManager::releaseTaskMemoryManagerIfUnusedLocked(int64_t taskId) {
+  if (pendingDestructions_.find(taskId) != pendingDestructions_.end()) {
+    return;
+  }
+  // Another runtime may have registered a holder while the old one was being destroyed.
+  for (const auto& pair : holders_) {
+    if (pair.first.taskId == taskId) {
+      return;
+    }
+  }
+  auto tmm = tmmCache_.find(taskId);
+  if (tmm == tmmCache_.end()) {
+    return;
+  }
+  bytedance::bolt::memory::sparksql::MemoryTargetBuilder::invalidate(tmm->second, false, 0);
+  tmmCache_.erase(tmm);
+  ExecutionMemoryPool::instance()->releaseAllMemoryForTask(taskId);
 }
 
 bytedance::bolt::memory::sparksql::TaskMemoryManagerPtr BoltGlutenMemoryManager::getOrCreateTaskMemoryManagerLocked(
