@@ -22,3 +22,4 @@ add_test_case(payload_test SOURCES PayloadTest.cc)
 add_test_case(java_exception_test SOURCES JavaExceptionTest.cc)
 add_test_case(java_exception_allocation_test SOURCES
               JavaExceptionAllocationTest.cc)
+add_test_case(compressed_input_stream_test SOURCES CompressedInputStreamTest.cc)
