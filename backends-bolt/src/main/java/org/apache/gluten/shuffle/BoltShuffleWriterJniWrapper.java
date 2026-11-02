@@ -22,6 +22,12 @@ import org.apache.gluten.runtime.RuntimeAware;
 import java.io.IOException;
 
 public class BoltShuffleWriterJniWrapper implements RuntimeAware {
+  public static final String UNCOMPRESSED_CODEC = "uncompressed";
+
+  // Bolt's shuffle/sparksql/Options.h calls its transport-neutral RSS
+  // writer "celeborn". The supplied pusher determines the actual shuffle service.
+  public static final String RSS_PARTITION_WRITER_TYPE = "celeborn";
+
   private final Runtime runtime;
 
   private BoltShuffleWriterJniWrapper(Runtime runtime) {
@@ -83,9 +89,8 @@ public class BoltShuffleWriterJniWrapper implements RuntimeAware {
    * @param columnarBatchHandle handle of Bolt Vector
    * @param memLimit memory usage limit for the split operation FIXME setting a cap to pool /
    *     allocator instead
-   * @return batch bytes.
    */
-  public native long write(
+  public native void write(
       long shuffleWriterHandle, int numRows, long columnarBatchHandle, long memLimit);
 
   /**
