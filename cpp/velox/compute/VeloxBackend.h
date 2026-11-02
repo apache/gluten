@@ -55,7 +55,8 @@ class VeloxBackend {
   ReaderThreadPool* getReaderThreadPool();
 
   /// A dedicated CPU thread pool for the parallel broadcast hash-table build. The build is
-  /// CPU-bound, so it must not share ioExecutor() which is reserved for async IO tasks.
+  /// CPU-bound, so it must not share ioExecutor() which is reserved for async IO tasks. Returns
+  /// nullptr when the configured thread count uses the serial build path.
   folly::Executor* broadcastHashTableBuildExecutor() const {
     return broadcastHashTableBuildExecutor_.get();
   }

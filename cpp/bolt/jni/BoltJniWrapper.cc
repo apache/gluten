@@ -479,9 +479,8 @@ static inline std::vector<std::string> FromByteArrToStringVector(JNIEnv* env, jo
   for (int i = 0; i < length; i++) {
     jbyteArray byte_array = reinterpret_cast<jbyteArray>(env->GetObjectArrayElement(str_array, i));
     int bytes_len = env->GetArrayLength(byte_array);
-    signed char array[bytes_len];
-    env->GetByteArrayRegion(byte_array, 0, bytes_len, array);
-    std::string j_string(reinterpret_cast<char*>(array), sizeof(array));
+    std::string j_string(bytes_len, '\0');
+    env->GetByteArrayRegion(byte_array, 0, bytes_len, reinterpret_cast<jbyte*>(j_string.data()));
     vector.push_back(j_string);
   }
   return vector;
@@ -941,20 +940,21 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_shuffle_BoltShuffleWriterJniWrapp
   auto batch = ObjectStore::retrieve<ColumnarBatch>(firstBatchHandle);
 
   ShuffleWriterInfo shuffleWriterInfo;
-  shuffleWriterInfo.ParseFromArray(
-      (void*)env->GetByteArrayElements(shuffleWriterInfoProto, nullptr), env->GetArrayLength(shuffleWriterInfoProto));
+  {
+    auto safeArray = gluten::getByteArrayElementsSafe(env, shuffleWriterInfoProto);
+    shuffleWriterInfo.ParseFromArray(safeArray.elems(), safeArray.length());
+  }
 
   std::shared_ptr<RssClient> rssClient = nullptr;
   if (partitionPusher != nullptr) {
-    jclass celebornPartitionPusherClass =
-        createGlobalClassReferenceOrError(env, "Lorg/apache/spark/shuffle/CelebornPartitionPusher;");
-    jmethodID celebornPushPartitionDataMethod =
-        getMethodIdOrError(env, celebornPartitionPusherClass, "pushPartitionData", "(I[BI)I");
+    jclass partitionPusherClass = env->GetObjectClass(partitionPusher);
+    jmethodID pushPartitionDataMethod = getMethodIdOrError(env, partitionPusherClass, "pushPartitionData", "(I[BI)I");
+    env->DeleteLocalRef(partitionPusherClass);
     JavaVM* vm;
     if (env->GetJavaVM(&vm) != JNI_OK) {
       throw gluten::GlutenException("Unable to get JavaVM instance");
     }
-    rssClient = std::make_shared<JavaRssClient>(vm, partitionPusher, celebornPushPartitionDataMethod);
+    rssClient = std::make_shared<JavaRssClient>(vm, partitionPusher, pushPartitionDataMethod);
   }
 
   if (gluten::BoltGlutenMemoryManager::enabled()) {
@@ -1097,8 +1097,10 @@ JNIEXPORT void JNICALL Java_org_apache_gluten_shuffle_BoltShuffleWriterJniWrappe
   }
 
   ShuffleWriterInfo shuffleWriterInfo;
-  shuffleWriterInfo.ParseFromArray(
-      (void*)env->GetByteArrayElements(shuffleWriterInfoProto, nullptr), env->GetArrayLength(shuffleWriterInfoProto));
+  {
+    auto safeArray = gluten::getByteArrayElementsSafe(env, shuffleWriterInfoProto);
+    shuffleWriterInfo.ParseFromArray(safeArray.elems(), safeArray.length());
+  }
   auto options = BoltShuffleWriterWrapper::getOptionsFromInfo(shuffleWriterInfo, rssClient);
   wholeStageIterator->addShuffleWriter(
       options, [ctx](const bytedance::bolt::shuffle::sparksql::ShuffleWriterMetrics& metrics) {
@@ -1134,8 +1136,10 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_shuffle_BoltShuffleReaderJniWrapp
 
   ShuffleReaderInfo shuffleReaderInfo;
 
-  shuffleReaderInfo.ParseFromArray(
-      (void*)env->GetByteArrayElements(shuffleReaderInfoProto, nullptr), env->GetArrayLength(shuffleReaderInfoProto));
+  {
+    auto safeArray = gluten::getByteArrayElementsSafe(env, shuffleReaderInfoProto);
+    shuffleReaderInfo.ParseFromArray(safeArray.elems(), safeArray.length());
+  }
 
   // TODO: Add coalesce option and maximum coalesced size.
   std::shared_ptr<arrow::Schema> schema =

@@ -72,6 +72,7 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "group-analytics.sql",
     "group-by-filter.sql",
     "group-by-ordinal.sql",
+    "grouping_set.sql",
     "having.sql",
     "higher-order-functions.sql",
     "identifier-clause.sql",
@@ -109,8 +110,11 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "predicate-functions.sql",
     "query_regex_column.sql",
     "random.sql",
+    "show-create-table.sql",
+    "show-tables.sql",
     "show-tblproperties.sql",
     "show-views.sql",
+    "show_columns.sql",
     "sql-compatibility-functions.sql",
     "struct.sql",
     "subexp-elimination.sql",
@@ -158,8 +162,10 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "postgreSQL/boolean.sql",
     "postgreSQL/case.sql",
     "postgreSQL/comments.sql",
+    "postgreSQL/create_view.sql",
     "postgreSQL/date.sql",
     "postgreSQL/float4.sql",
+    "postgreSQL/float8.sql",
     "postgreSQL/groupingsets.sql",
     "postgreSQL/insert.sql",
     "postgreSQL/int2.sql",
@@ -177,6 +183,8 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "postgreSQL/text.sql",
     "postgreSQL/timestamp.sql",
     "postgreSQL/union.sql",
+    "postgreSQL/window_part2.sql",
+    "postgreSQL/with.sql",
     "datetime-special.sql",
     "timestamp-ltz.sql",
     "timestamp-ntz.sql",
@@ -251,11 +259,16 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     // newly added test files from spark 4.1
     "alias-resolution-edge-cases.sql",
     "collations-aliases.sql",
+    "collations-basic.sql",
+    "collations-padding-trim.sql",
+    "collations-string-functions.sql",
+    "cte-recursion.sql",
     "extract-value-resolution-edge-cases.sql",
     "generators.sql",
     "having-and-order-by-recursive-type-name-resolution.sql",
     "identifier-clause-legacy.sql",
     "join-resolution-edge-cases.sql",
+    "kllquantiles.sql",
     "name-precedence-in-order-by-and-having-with-conflicting-attributes.sql",
     // TODO: fix on Spark-4.1 "nonansi/st-functions.sql",
     "order-by-alias.sql",
@@ -266,9 +279,11 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "session-variable-precedence.sql",
     // TODO: fix on Spark-4.1 "st-functions.sql",
     "subquery/resolution-edge-cases.sql",
+    "thetasketch.sql",
     "time.sql",
     "type-coercion-edge-cases.sql",
     "union-per-child-output-deduplication.sql",
+    "union-resolution-edge-cases.sql",
     // TODO: fix on Spark-4.1 "variant-field-extractions.sql",
     "view-conf.sql",
     "window-with-aggregates.sql"
@@ -289,6 +304,9 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     // "array.sql",
     // Overwrite exception message.
     "bitwise.sql",
+    "count.sql",
+    "charvarchar.sql",
+    "cte.sql",
     // Enable NullPropagation rule for
     // "legacy behavior: allow calling function count without parameters".
     // Enable ConstantFolding rule for "typeof(...)".
@@ -324,6 +342,7 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "percentiles.sql",
     // Enable ConstantFolding rule for some queries, otherwise Spark will throw an exception.
     "postgreSQL/window_part1.sql",
+    "postgreSQL/window_part3.sql",
     // Enable ConstantFolding rule for some queries, otherwise Spark will throw an exception.
     // Enable ConstantFolding rule for some queries, otherwise Spark will throw an exception.
     "postgreSQL/window_part4.sql",

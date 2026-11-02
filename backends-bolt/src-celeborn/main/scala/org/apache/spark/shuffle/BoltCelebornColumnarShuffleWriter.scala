@@ -104,7 +104,8 @@ class BoltCelebornColumnarShuffleWriter[K, V](
     builder.setBufferSize(nativeBufferSize)
     builder.setMergeBufferSize(0)
     builder.setMergeThreshold(0)
-    builder.setCompressionCodec(compressionCodec.orNull)
+    builder.setCompressionCodec(
+      compressionCodec.getOrElse(BoltShuffleWriterJniWrapper.UNCOMPRESSED_CODEC))
     builder.setCompressionBackend("none")
     builder.setCompressionLevel(compressionLevel)
     builder.setCompressionThreshold(BoltConfig.get.columnarShuffleCompressionThreshold)
@@ -117,7 +118,7 @@ class BoltCelebornColumnarShuffleWriter[K, V](
     builder.setMemLimit(availableOffHeapPerTask())
     builder.setPushBufferMaxSize(clientPushBufferMaxSize)
     builder.setShuffleBatchByteSize(BoltConfig.get.maxShuffleBatchByteSize)
-    builder.setWriterType("celeborn")
+    builder.setWriterType(BoltShuffleWriterJniWrapper.RSS_PARTITION_WRITER_TYPE)
     builder.setForcedWriterType(forceShuffleWriterType)
     builder.setUseV2PreallocThreshold(useV2PreAllocSizeThreshold)
     builder.setRowCompressionMinCols(rowVectorModeCompressionMinColumns)

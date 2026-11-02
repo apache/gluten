@@ -15,29 +15,10 @@
 
 name: Velox Backend (Enhanced)
 
+# No pending patches remain in the enhanced branch. Pause automatic PR runs to save CI
+# capacity, and keep manual runs available for urgent patches when needed.
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/velox_backend_enhanced.yml'
-      - '.github/workflows/util/parallel-ut/**'
-      - 'pom.xml'
-      - 'backends-velox/**'
-      - 'gluten-uniffle/**'
-      - 'gluten-celeborn/**'
-      - 'gluten-core/**'
-      - 'gluten-substrait/**'
-      - 'gluten-arrow/**'
-      - 'gluten-delta/**'
-      - 'gluten-iceberg/**'
-      - 'gluten-hudi/**'
-      - 'gluten-ut/**'
-      - 'package/**'
-      - 'shims/**'
-      - 'tools/gluten-it/**'
-      - 'ep/build-velox/**'
-      - 'cpp/**'
-      - 'dev/**'
-      - 'build/mvn'
+  workflow_dispatch:
 
 env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
@@ -75,6 +56,13 @@ jobs:
       - name: Detect changed paths
         id: filter
         run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            # No PR diff to inspect on manual runs: run everything.
+            for flag in cpp java shims35 shims40; do
+              echo "$flag=true" >> $GITHUB_OUTPUT
+            done
+            exit 0
+          fi
           BASE=${{ github.event.pull_request.base.sha }}
           HEAD=${{ github.sha }}
           changed=$(git diff --name-only "$BASE" "$HEAD")

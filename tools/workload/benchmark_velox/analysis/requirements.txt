@@ -8,7 +8,7 @@ attrs==23.2.0
 Babel>=2.9.1
 bcrypt==3.2.0
 beautifulsoup4==4.12.3
-black==26.3.1
+black==26.10.1
 bleach==6.4.0
 blinker==1.4
 certifi>=2023.7.22
@@ -36,7 +36,7 @@ fire==0.7.0
 fonttools==4.61.0
 fqdn==1.5.1
 gitdb==4.0.11
-GitPython==3.1.62
+GitPython==3.2.1
 greenlet==3.0.3
 httplib2==0.32.0
 hyperlink==21.0.0
@@ -81,7 +81,7 @@ more-itertools==8.10.0
 mypy-extensions==1.0.0
 nbclassic==1.1.0
 nbclient==0.10.0
-nbconvert==7.17.1
+nbconvert==7.17.2
 nbdime==4.0.1
 nbformat==5.10.4
 nest-asyncio==1.6.0

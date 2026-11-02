@@ -229,6 +229,7 @@ if(ENABLE_GPU)
     APPEND
     VELOX_SRCS
     cudf/CudfPlanValidator.cc
+    cudf/CudfFunctions.cc
     cudf/GpuLock.cc
     operators/plannodes/CudfVectorStream.cc
     shuffle/VeloxGpuAsyncShuffleReader.cc

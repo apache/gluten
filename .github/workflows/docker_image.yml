@@ -33,7 +33,7 @@ env:
   DOCKERHUB_REPO: apache/gluten
 
 jobs:
-  build-ubuntu22-m2-cache:
+  build-ubuntu22-runtime:
     if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ubuntu-22.04
 
@@ -54,23 +54,18 @@ jobs:
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
         with:
           context: .
-          file: dev/docker/ubuntu/Dockerfile.ubuntu22-m2-cache
+          file: dev/docker/ubuntu/Dockerfile.ubuntu22-runtime
           push: true
-          tags: ${{ env.DOCKERHUB_REPO }}:ubuntu22-m2-cache
+          tags: ${{ env.DOCKERHUB_REPO }}:ubuntu-22.04-runtime
 
-  build-centos-9-jdk17-cuda12_9-cudf:
+  build-centos-8-runtime:
     if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ubuntu-22.04
 
     steps:
-      - name: "node-cleanup" # by default the free runner does not have enough disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          sudo docker image prune --all --force
-          sudo docker builder prune -a -f
-      - run: df -h | sort -k 5 -nr # check disk space for debug
       - name: Checkout repository
         uses: actions/checkout@v7
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
 
@@ -84,10 +79,35 @@ jobs:
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
         with:
           context: .
-          build-args: JAVA_VERSION=17
-          file: dev/docker/cudf/Dockerfile.centos-9-jdk17-cuda12.9-cudf
+          file: dev/docker/Dockerfile.centos8-runtime
           push: true
-          tags: ${{ env.DOCKERHUB_REPO }}:centos-9-jdk17-cuda12.9-cudf
+          tags: ${{ env.DOCKERHUB_REPO }}:centos-8-runtime
+
+  # arm64 only: the image is used by the ARM TPC job, and nothing runs it on x86.
+  build-centos-9-runtime:
+    if: ${{ startsWith(github.repository, 'apache/') }}
+    runs-on: ubuntu-22.04-arm
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
+        with:
+          context: .
+          file: dev/docker/Dockerfile.centos9-runtime
+          push: true
+          tags: ${{ env.DOCKERHUB_REPO }}:centos-9-runtime
 
   build-centos-9-jdk17-cuda13_1-cudf:
     if: ${{ startsWith(github.repository, 'apache/') }}
@@ -119,56 +139,6 @@ jobs:
           file: dev/docker/cudf/Dockerfile.centos-9-jdk17-cuda13.1-cudf
           push: true
           tags: ${{ env.DOCKERHUB_REPO }}:centos-9-jdk17-cuda13.1-cudf
-
-  build-vcpkg-centos-8-gcc13:
-    if: ${{ startsWith(github.repository, 'apache/') }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ ubuntu-latest, ubuntu-24.04-arm ]
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Docker meta
-        id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302
-        with:
-          images: ${{ env.DOCKERHUB_REPO }}
-          tags: vcpkg-centos-8-gcc13
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
-        with:
-          username: ${{ secrets.DOCKERHUB_USER }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build and push by digest
-        id: build
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
-        with:
-          context: .
-          file: dev/docker/Dockerfile.centos8-gcc13-static-build
-          labels: ${{ steps.meta.outputs.labels }}
-          outputs: type=image,"name=${{ env.DOCKERHUB_REPO }}",push-by-digest=true,push=true
-
-      - name: Export digest
-        run: |
-          mkdir -p ${{ runner.temp }}/digests
-          digest="${{ steps.build.outputs.digest }}"
-          touch "${{ runner.temp }}/digests/${digest#sha256:}"
-
-      - name: Upload digest
-        uses: actions/upload-artifact@v7
-        with:
-          name: digests-vcpkg-centos-8-gcc13-${{ matrix.os }}
-          path: ${{ runner.temp }}/digests/*
-          if-no-files-found: error
-          retention-days: 1
 
   build-vcpkg-centos-9:
     if: ${{ startsWith(github.repository, 'apache/') }}
@@ -227,7 +197,7 @@ jobs:
       matrix:
         # amd64 only: no CI job runs the centos-8-jdk* images on arm64.
         os: [ ubuntu-latest ]
-        jdk: [jdk8, jdk11, jdk17]
+        jdk: [jdk8, jdk17]
     env:
       JDK_VERSION: 1.8.0
     steps:
@@ -290,12 +260,10 @@ jobs:
     strategy:
       matrix:
         os: [ ubuntu-22.04, ubuntu-22.04-arm ]
-        jdk: [jdk8, jdk11, jdk17]
+        jdk: [jdk8, jdk17]
         # Only centos-9-jdk8 is needed on arm64: the ARM cpp-test-udf-test job and the default
         # dev container (Apple-silicon Macs) use it.
         exclude:
-          - os: ubuntu-22.04-arm
-            jdk: jdk11
           - os: ubuntu-22.04-arm
             jdk: jdk17
     env:
@@ -447,54 +415,12 @@ jobs:
         run: |
           docker buildx imagetools inspect ${{ env.DOCKERHUB_REPO }}:${{ steps.meta.outputs.version }}
   
-  merge-gcc13:
-    if: ${{ startsWith(github.repository, 'apache/') }}
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        digests: [ vcpkg-centos-8-gcc13 ]
-    needs:
-      - build-vcpkg-centos-8-gcc13
-    steps:
-      - name: Download digests
-        uses: actions/download-artifact@v8
-        with:
-          path: ${{ runner.temp }}/digests
-          pattern: digests-${{ matrix.digests }}-*
-          merge-multiple: true
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
-        with:
-          username: ${{ secrets.DOCKERHUB_USER }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
-
-      - name: Docker meta
-        id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302
-        with:
-          images: ${{ env.DOCKERHUB_REPO }}
-          tags: ${{ matrix.digests }}
-
-      - name: Create manifest list and push
-        working-directory: ${{ runner.temp }}/digests
-        run: |
-          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.DOCKERHUB_REPO }}@sha256:%s ' *)
-
-      - name: Inspect image
-        run: |
-          docker buildx imagetools inspect ${{ env.DOCKERHUB_REPO }}:${{ steps.meta.outputs.version }}
-
   merge-dynamic:
     if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        digests: [ centos-8-jdk8, centos-8-jdk11, centos-8-jdk17, centos-9-jdk8, centos-9-jdk11, centos-9-jdk17 ]
+        digests: [ centos-8-jdk8, centos-8-jdk17, centos-9-jdk8, centos-9-jdk17 ]
     needs:
       - build-centos-8
       - build-centos-9
