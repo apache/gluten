@@ -45,13 +45,13 @@ import scala.collection.mutable
  *   export SPARK_GENERATE_GOLDEN_FILES=1
  *   export SPARK_ANSI_SQL_MODE=false
  *   export SPARK_TESTING=true
- *   export SPARK_HOME=/opt/shims/spark42/spark_home
+ *   export SPARK_HOME=/opt/shims/spark43/spark_home
  *   export SPARK_SCALA_VERSION=2.13
  *
  *   # Generate all 7 suites at once (recommended for consistency)
  *   ./dev/run-scala-test.sh --mvnd --clean \
- *     -Pjava-17,spark-4.2,scala-2.13,backends-velox,hadoop-3.3,spark-ut,delta \
- *     -pl gluten-ut/spark42 \
+ *     -Pjava-17,spark-4.3,scala-2.13,backends-velox,hadoop-3.3,spark-ut \
+ *     -pl gluten-ut/spark43 \
  *     -s org.apache.spark.sql.GlutenTPCDSV1_4_PlanStabilitySuite \
  *     -s org.apache.spark.sql.GlutenTPCDSV1_4_PlanStabilityWithStatsSuite \
  *     -s org.apache.spark.sql.GlutenTPCDSV2_7_PlanStabilitySuite \
@@ -61,7 +61,7 @@ import scala.collection.mutable
  *     -s org.apache.spark.sql.GlutenTPCHPlanStabilitySuite
  * }}}
  *
- * For Spark 4.1, replace spark-4.2 with spark-4.1, spark42 with spark41, and SPARK_HOME
+ * For Spark 4.2, replace spark-4.3 with spark-4.2, spark43 with spark42, and SPARK_HOME
  * accordingly.
  *
  * Note: Running all suites together in one JVM is recommended to avoid ExprId normalization issues
@@ -94,7 +94,7 @@ trait GlutenPlanStabilityTestTrait {
       val moduleDir = targetDir.getParentFile.getParentFile.getParentFile
       new File(moduleDir, "src/test/resources")
     } else {
-      new File("gluten-ut/spark42/src/test/resources")
+      new File("gluten-ut/spark43/src/test/resources")
     }
 
     // Compute relative path from SPARK_HOME resources to goldenFilePath

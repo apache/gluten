@@ -20,6 +20,10 @@ import org.apache.spark.{ShuffleDependency, SparkConf, TaskContext}
 import org.apache.spark.internal.config.SHUFFLE_MANAGER
 import org.apache.spark.internal.config.UI.UI_ENABLED
 import org.apache.spark.sql.test.SharedSparkSession
+import org.apache.spark.util.SparkVersionUtil
+
+import org.scalactic.source.Position
+import org.scalatest.Tag
 
 import java.util.concurrent.{CopyOnWriteArrayList, CyclicBarrier}
 import java.util.concurrent.atomic.AtomicInteger
@@ -36,6 +40,19 @@ class ShuffleManagerRouterCacheSuite extends SharedSparkSession {
     super.sparkConf
       .set(SHUFFLE_MANAGER.key, classOf[GlutenShuffleManager].getName)
       .set(UI_ENABLED, false)
+
+  // TODO: Run on Spark 4.3. Spark 4.3 requires `spark.shuffle.manager` to be a
+  // `BlockingShuffleManager` and fails to create the SparkContext otherwise, but
+  // `GlutenShuffleManager` can't extend that `private[spark]` trait, which doesn't exist before
+  // Spark 4.3. Ignoring every test also skips `beforeAll`, which would create the SparkContext.
+  override protected def test(testName: String, testTags: Tag*)(testFun: => Any)(implicit
+      pos: Position): Unit = {
+    if (SparkVersionUtil.gteSpark43) {
+      super.ignore(testName, testTags: _*)(testFun)
+    } else {
+      super.test(testName, testTags: _*)(testFun)
+    }
+  }
 
   override protected def beforeEach(): Unit = {
     ShuffleManagerRegistry.get().clear()
