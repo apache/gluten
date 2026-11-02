@@ -198,6 +198,14 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     GenericExpressionTransformer(substraitExprName, Seq(child), expr)
   }
 
+  /** Transform transform_keys to Substrait. Velox honors either map key dedup policy. */
+  override def genTransformKeysTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      expr: TransformKeys): ExpressionTransformer = {
+    GenericExpressionTransformer(substraitExprName, children, expr)
+  }
+
   /** Transform array filter to Substrait. */
   override def genArrayFilterTransformer(
       substraitExprName: String,
@@ -1405,6 +1413,29 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     )
   }
 
+  override def extraExpressionConverter(
+      substraitExprName: String,
+      expr: Expression,
+      attributeSeq: Seq[Attribute]): Option[ExpressionTransformer] = {
+    expr match {
+      case rc: RoundCeil if rc.child.dataType.isInstanceOf[DecimalType] =>
+        Some(
+          DecimalCeilFloorTransformer(
+            substraitExprName,
+            ExpressionConverter.replaceWithExpressionTransformer(rc.child, attributeSeq),
+            rc,
+            rc.scale))
+      case rf: RoundFloor if rf.child.dataType.isInstanceOf[DecimalType] =>
+        Some(
+          DecimalCeilFloorTransformer(
+            substraitExprName,
+            ExpressionConverter.replaceWithExpressionTransformer(rf.child, attributeSeq),
+            rf,
+            rf.scale))
+      case _ => None
+    }
+  }
+
   override def rewriteSpillPath(path: String): String = {
     val fs = VeloxConfig.get.veloxSpillFileSystem
     fs match {
@@ -1506,6 +1537,12 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
 
   override def getRDDScanTransform(plan: RDDScanExec): RDDScanTransformer =
     VeloxRDDScanTransformer.replace(plan)
+
+  override def genOneRowRelationExecTransformer(plan: SparkPlan): SparkPlan = {
+    val transformer = OneRowRelationExecTransformer()
+    transformer.copyTagsFrom(plan)
+    transformer
+  }
 
   override def genColumnarTailExec(limit: Int, child: SparkPlan): ColumnarCollectTailBaseExec =
     ColumnarCollectTailExec(limit, child)

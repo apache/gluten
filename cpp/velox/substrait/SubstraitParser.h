@@ -86,7 +86,12 @@ class SubstraitParser {
   static std::string findVeloxFunction(const std::unordered_map<uint64_t, std::string>& functionMap, uint64_t id);
 
   /// Map the Substrait function keyword into Velox function keyword.
-  static std::string mapToVeloxFunction(const std::string& substraitFunction, bool isDecimal);
+  /// `numArgs` is the number of substrait arguments observed in the call
+  /// signature. It is used to disambiguate overloads such as unary
+  /// `ceil(decimal)` (mapped to `ceil`) vs. 2-arg `ceil(decimal, int)`
+  /// (mapped to the special form `decimal_ceil`). Pass 0 when arity is
+  /// unknown -- in that case arity-sensitive remappings are skipped.
+  static std::string mapToVeloxFunction(const std::string& substraitFunction, bool isDecimal, size_t numArgs = 0);
 
   /// @brief Return whether a config is set as true in AdvancedExtension
   /// optimization.
