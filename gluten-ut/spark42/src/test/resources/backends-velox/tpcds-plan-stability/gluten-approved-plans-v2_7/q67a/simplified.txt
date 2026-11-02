@@ -1,0 +1,169 @@
+VeloxColumnarToRow
+  TakeOrderedAndProjectExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,sumsales,rk]
+    WholeStageCodegenTransformer (63)
+      FilterExecTransformer [rk]
+        WindowExecTransformer [sumsales,i_category]
+          SortExecTransformer [i_category,sumsales]
+            WindowGroupLimitExecTransformer [i_category,sumsales]
+              InputIteratorTransformer
+                InputAdapter
+                  ColumnarExchange [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,sumsales] #1
+                    VeloxResizeBatches
+                      WholeStageCodegenTransformer (62)
+                        ProjectExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,sumsales]
+                          WindowGroupLimitExecTransformer [i_category,sumsales]
+                            InputIteratorTransformer
+                              InputAdapter
+                                ColumnarUnion
+                                  WholeStageCodegenTransformer (6)
+                                    ProjectExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,sum(coalesce((ss_sales_price * cast(ss_quantity as decimal(10,0))), 0.00))]
+                                      RegularHashAggregateExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,sum,isEmpty] [sum(coalesce((ss_sales_price * cast(ss_quantity as decimal(10,0))), 0.00)),sum,isEmpty]
+                                        InputIteratorTransformer
+                                          InputAdapter
+                                            ColumnarExchange [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,sum,isEmpty] #2
+                                              VeloxResizeBatches
+                                                WholeStageCodegenTransformer (5)
+                                                  ProjectExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,sum,isEmpty]
+                                                    FlushableHashAggregateExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,_pre_x] [sum,isEmpty,sum,isEmpty,sum,isEmpty]
+                                                      ProjectExecTransformer [d_year,d_moy,d_qoy,s_store_id,i_brand,i_class,i_category,i_product_name,ss_sales_price,ss_quantity]
+                                                        BroadcastHashJoinExecTransformer [ss_item_sk,i_item_sk]
+                                                          ProjectExecTransformer [ss_item_sk,ss_quantity,ss_sales_price,d_year,d_moy,d_qoy,s_store_id]
+                                                            BroadcastHashJoinExecTransformer [ss_store_sk,s_store_sk]
+                                                              ProjectExecTransformer [ss_item_sk,ss_store_sk,ss_quantity,ss_sales_price,d_year,d_moy,d_qoy]
+                                                                BroadcastHashJoinExecTransformer [ss_sold_date_sk,d_date_sk]
+                                                                  FilterExecTransformer [ss_store_sk,ss_item_sk]
+                                                                    FileSourceScanExecTransformer parquet spark_catalog.default.store_sales [ss_item_sk,ss_store_sk,ss_quantity,ss_sales_price,ss_sold_date_sk]
+                                                                      ColumnarSubqueryBroadcast [d_date_sk] #1
+                                                                        ColumnarBroadcastExchange #3
+                                                                          WholeStageCodegenTransformer (1)
+                                                                            ProjectExecTransformer [d_date_sk,d_year,d_moy,d_qoy]
+                                                                              FilterExecTransformer [d_month_seq,d_date_sk]
+                                                                                FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_date_sk,d_month_seq,d_year,d_moy,d_qoy]
+                                                                  InputIteratorTransformer
+                                                                    InputAdapter
+                                                                      ReusedExchange [d_date_sk,d_year,d_moy,d_qoy] #3
+                                                              InputIteratorTransformer
+                                                                InputAdapter
+                                                                  ColumnarBroadcastExchange #4
+                                                                    WholeStageCodegenTransformer (3)
+                                                                      FilterExecTransformer [s_store_sk]
+                                                                        FileSourceScanExecTransformer parquet spark_catalog.default.store [s_store_sk,s_store_id]
+                                                          InputIteratorTransformer
+                                                            InputAdapter
+                                                              ColumnarBroadcastExchange #5
+                                                                WholeStageCodegenTransformer (4)
+                                                                  FilterExecTransformer [i_item_sk]
+                                                                    FileSourceScanExecTransformer parquet spark_catalog.default.item [i_item_sk,i_brand,i_class,i_category,i_product_name]
+                                  WholeStageCodegenTransformer (13)
+                                    ProjectExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,sum(sumsales)]
+                                      RegularHashAggregateExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,sum,isEmpty] [sum(sumsales),sum,isEmpty]
+                                        InputIteratorTransformer
+                                          InputAdapter
+                                            ColumnarExchange [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,sum,isEmpty] #6
+                                              VeloxResizeBatches
+                                                WholeStageCodegenTransformer (12)
+                                                  ProjectExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,sum,isEmpty]
+                                                    FlushableHashAggregateExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,sumsales] [sum,isEmpty,sum,isEmpty]
+                                                      ProjectExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,sum(coalesce((ss_sales_price * cast(ss_quantity as decimal(10,0))), 0.00))]
+                                                        RegularHashAggregateExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,sum,isEmpty] [sum(coalesce((ss_sales_price * cast(ss_quantity as decimal(10,0))), 0.00)),sum,isEmpty]
+                                                          InputIteratorTransformer
+                                                            InputAdapter
+                                                              ReusedExchange [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,sum,isEmpty] #2
+                                  WholeStageCodegenTransformer (20)
+                                    ProjectExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,sum(sumsales)]
+                                      RegularHashAggregateExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,sum,isEmpty] [sum(sumsales),sum,isEmpty]
+                                        InputIteratorTransformer
+                                          InputAdapter
+                                            ColumnarExchange [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,sum,isEmpty] #7
+                                              VeloxResizeBatches
+                                                WholeStageCodegenTransformer (19)
+                                                  ProjectExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,sum,isEmpty]
+                                                    FlushableHashAggregateExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,sumsales] [sum,isEmpty,sum,isEmpty]
+                                                      ProjectExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,sum(coalesce((ss_sales_price * cast(ss_quantity as decimal(10,0))), 0.00))]
+                                                        RegularHashAggregateExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,sum,isEmpty] [sum(coalesce((ss_sales_price * cast(ss_quantity as decimal(10,0))), 0.00)),sum,isEmpty]
+                                                          InputIteratorTransformer
+                                                            InputAdapter
+                                                              ReusedExchange [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,sum,isEmpty] #2
+                                  WholeStageCodegenTransformer (27)
+                                    ProjectExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,sum(sumsales)]
+                                      RegularHashAggregateExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,sum,isEmpty] [sum(sumsales),sum,isEmpty]
+                                        InputIteratorTransformer
+                                          InputAdapter
+                                            ColumnarExchange [i_category,i_class,i_brand,i_product_name,d_year,sum,isEmpty] #8
+                                              VeloxResizeBatches
+                                                WholeStageCodegenTransformer (26)
+                                                  ProjectExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,sum,isEmpty]
+                                                    FlushableHashAggregateExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,sumsales] [sum,isEmpty,sum,isEmpty]
+                                                      ProjectExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,sum(coalesce((ss_sales_price * cast(ss_quantity as decimal(10,0))), 0.00))]
+                                                        RegularHashAggregateExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,sum,isEmpty] [sum(coalesce((ss_sales_price * cast(ss_quantity as decimal(10,0))), 0.00)),sum,isEmpty]
+                                                          InputIteratorTransformer
+                                                            InputAdapter
+                                                              ReusedExchange [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,sum,isEmpty] #2
+                                  WholeStageCodegenTransformer (34)
+                                    ProjectExecTransformer [i_category,i_class,i_brand,i_product_name,sum(sumsales)]
+                                      RegularHashAggregateExecTransformer [i_category,i_class,i_brand,i_product_name,sum,isEmpty] [sum(sumsales),sum,isEmpty]
+                                        InputIteratorTransformer
+                                          InputAdapter
+                                            ColumnarExchange [i_category,i_class,i_brand,i_product_name,sum,isEmpty] #9
+                                              VeloxResizeBatches
+                                                WholeStageCodegenTransformer (33)
+                                                  ProjectExecTransformer [i_category,i_class,i_brand,i_product_name,sum,isEmpty]
+                                                    FlushableHashAggregateExecTransformer [i_category,i_class,i_brand,i_product_name,sumsales] [sum,isEmpty,sum,isEmpty]
+                                                      ProjectExecTransformer [i_category,i_class,i_brand,i_product_name,sum(coalesce((ss_sales_price * cast(ss_quantity as decimal(10,0))), 0.00))]
+                                                        RegularHashAggregateExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,sum,isEmpty] [sum(coalesce((ss_sales_price * cast(ss_quantity as decimal(10,0))), 0.00)),sum,isEmpty]
+                                                          InputIteratorTransformer
+                                                            InputAdapter
+                                                              ReusedExchange [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,sum,isEmpty] #2
+                                  WholeStageCodegenTransformer (41)
+                                    ProjectExecTransformer [i_category,i_class,i_brand,sum(sumsales)]
+                                      RegularHashAggregateExecTransformer [i_category,i_class,i_brand,sum,isEmpty] [sum(sumsales),sum,isEmpty]
+                                        InputIteratorTransformer
+                                          InputAdapter
+                                            ColumnarExchange [i_category,i_class,i_brand,sum,isEmpty] #10
+                                              VeloxResizeBatches
+                                                WholeStageCodegenTransformer (40)
+                                                  ProjectExecTransformer [i_category,i_class,i_brand,sum,isEmpty]
+                                                    FlushableHashAggregateExecTransformer [i_category,i_class,i_brand,sumsales] [sum,isEmpty,sum,isEmpty]
+                                                      ProjectExecTransformer [i_category,i_class,i_brand,sum(coalesce((ss_sales_price * cast(ss_quantity as decimal(10,0))), 0.00))]
+                                                        RegularHashAggregateExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,sum,isEmpty] [sum(coalesce((ss_sales_price * cast(ss_quantity as decimal(10,0))), 0.00)),sum,isEmpty]
+                                                          InputIteratorTransformer
+                                                            InputAdapter
+                                                              ReusedExchange [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,sum,isEmpty] #2
+                                  WholeStageCodegenTransformer (48)
+                                    ProjectExecTransformer [i_category,i_class,sum(sumsales)]
+                                      RegularHashAggregateExecTransformer [i_category,i_class,sum,isEmpty] [sum(sumsales),sum,isEmpty]
+                                        InputIteratorTransformer
+                                          InputAdapter
+                                            ColumnarExchange [i_category,i_class,sum,isEmpty] #11
+                                              VeloxResizeBatches
+                                                WholeStageCodegenTransformer (47)
+                                                  ProjectExecTransformer [i_category,i_class,sum,isEmpty]
+                                                    FlushableHashAggregateExecTransformer [i_category,i_class,sumsales] [sum,isEmpty,sum,isEmpty]
+                                                      ProjectExecTransformer [i_category,i_class,sum(coalesce((ss_sales_price * cast(ss_quantity as decimal(10,0))), 0.00))]
+                                                        RegularHashAggregateExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,sum,isEmpty] [sum(coalesce((ss_sales_price * cast(ss_quantity as decimal(10,0))), 0.00)),sum,isEmpty]
+                                                          InputIteratorTransformer
+                                                            InputAdapter
+                                                              ReusedExchange [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,sum,isEmpty] #2
+                                  WholeStageCodegenTransformer (55)
+                                    ProjectExecTransformer [i_category,sum(sumsales)]
+                                      RegularHashAggregateExecTransformer [i_category,sum,isEmpty] [sum(sumsales),sum,isEmpty]
+                                        InputIteratorTransformer
+                                          InputAdapter
+                                            ColumnarExchange [i_category,sum,isEmpty] #12
+                                              VeloxResizeBatches
+                                                WholeStageCodegenTransformer (54)
+                                                  ProjectExecTransformer [i_category,sum,isEmpty]
+                                                    FlushableHashAggregateExecTransformer [i_category,sumsales] [sum,isEmpty,sum,isEmpty]
+                                                      ProjectExecTransformer [i_category,sum(coalesce((ss_sales_price * cast(ss_quantity as decimal(10,0))), 0.00))]
+                                                        RegularHashAggregateExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,sum,isEmpty] [sum(coalesce((ss_sales_price * cast(ss_quantity as decimal(10,0))), 0.00)),sum,isEmpty]
+                                                          InputIteratorTransformer
+                                                            InputAdapter
+                                                              ReusedExchange [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,sum,isEmpty] #2
+                                  WholeStageCodegenTransformer (61)
+                                    ProjectExecTransformer [sum(sumsales)]
+                                      RegularHashAggregateExecTransformer [sumsales] [sum(sumsales),sum,isEmpty]
+                                        ProjectExecTransformer [sum(coalesce((ss_sales_price * cast(ss_quantity as decimal(10,0))), 0.00))]
+                                          RegularHashAggregateExecTransformer [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,sum,isEmpty] [sum(coalesce((ss_sales_price * cast(ss_quantity as decimal(10,0))), 0.00)),sum,isEmpty]
+                                            InputIteratorTransformer
+                                              InputAdapter
+                                                ReusedExchange [i_category,i_class,i_brand,i_product_name,d_year,d_qoy,d_moy,s_store_id,sum,isEmpty] #2

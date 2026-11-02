@@ -1,0 +1,40 @@
+VeloxColumnarToRow
+  WholeStageCodegenTransformer (5)
+    ProjectExecTransformer [sum(l_extendedprice)]
+      RegularHashAggregateExecTransformer [sum,isEmpty] [sum(l_extendedprice),sum,isEmpty]
+        InputIteratorTransformer
+          InputAdapter
+            ColumnarExchange #1
+              VeloxResizeBatches
+                WholeStageCodegenTransformer (4)
+                  FlushableHashAggregateExecTransformer [l_extendedprice] [sum,isEmpty,sum,isEmpty]
+                    ProjectExecTransformer [l_extendedprice]
+                      BroadcastHashJoinExecTransformer [p_partkey,l_partkey,l_quantity,(0.2 * avg(l_quantity))]
+                        ProjectExecTransformer [l_quantity,l_extendedprice,p_partkey]
+                          BroadcastHashJoinExecTransformer [l_partkey,p_partkey]
+                            FilterExecTransformer [l_partkey,l_quantity]
+                              FileSourceScanExecTransformer parquet spark_catalog.default.lineitem [l_partkey,l_quantity,l_extendedprice]
+                            InputIteratorTransformer
+                              InputAdapter
+                                ColumnarBroadcastExchange #2
+                                  WholeStageCodegenTransformer (1)
+                                    ProjectExecTransformer [p_partkey]
+                                      FilterExecTransformer [p_brand,p_container,p_partkey]
+                                        FileSourceScanExecTransformer parquet spark_catalog.default.part [p_partkey,p_brand,p_container]
+                        InputIteratorTransformer
+                          InputAdapter
+                            ColumnarBroadcastExchange #3
+                              WholeStageCodegenTransformer (3)
+                                FilterExecTransformer [(0.2 * avg(l_quantity))]
+                                  ProjectExecTransformer [avg(UnscaledValue(l_quantity)),l_partkey]
+                                    RegularHashAggregateExecTransformer [l_partkey,sum,count] [avg(UnscaledValue(l_quantity)),sum,count]
+                                      InputIteratorTransformer
+                                        InputAdapter
+                                          ColumnarExchange [l_partkey,sum,count] #4
+                                            VeloxResizeBatches
+                                              WholeStageCodegenTransformer (2)
+                                                ProjectExecTransformer [l_partkey,sum,count]
+                                                  FlushableHashAggregateExecTransformer [l_partkey,_pre_x] [sum,count,sum,count,sum,count]
+                                                    ProjectExecTransformer [l_partkey,l_quantity]
+                                                      FilterExecTransformer [l_partkey]
+                                                        FileSourceScanExecTransformer parquet spark_catalog.default.lineitem [l_partkey,l_quantity]
