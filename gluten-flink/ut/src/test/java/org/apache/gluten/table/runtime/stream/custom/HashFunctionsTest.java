@@ -75,6 +75,8 @@ class HashFunctionsTest extends GlutenStreamingTestBase {
   private static final String SHA512_LONG =
       "95cadc34aa46b9fdef432f62fe5bad8d9f475bfbecf797d5802bb5f2937a85d93ce48"
           + "57a6262b03834c01c610d74cd1215f9a466dc6ad3dd15078e3309a03a6d";
+  private static final String SHA1_TEST = "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3";
+  private static final String SHA1_UTF8 = "dabaa5fe7c47fb21be902480a13013f16a1ab6eb";
   private static final String LONG_INPUT = "0123456789abcdefghijklmnopqrstuvwxyz";
 
   @Override
@@ -144,7 +146,26 @@ class HashFunctionsTest extends GlutenStreamingTestBase {
     assertThatThrownBy(
             () -> tEnv().executeSql("insert into printT select SHA2(s, 385) from tblSha2ConstBad"))
         .hasStackTraceContaining("SHA2 with literal hashLength 385 is not supported");
+    // Literal 1 is rejected here even though a column length of 1 yields the
+    // SHA-1 digest (testSha2ColumnLengthOneIsSha1): Flink's literal gate
+    // rejects 1 at operator init while its column path accepts "SHA-1".
+    assertThatThrownBy(
+            () -> tEnv().executeSql("insert into printT select SHA2(s, 1) from tblSha2ConstBad"))
+        .hasStackTraceContaining("SHA2 with literal hashLength 1 is not supported");
     tEnv().executeSql("drop table if exists printT");
+  }
+
+  @Test
+  void testSha2ColumnLengthOneIsSha1() {
+    // Flink's column path builds "SHA-" + length and "SHA-1" is a valid
+    // algorithm name there, so a column length of 1 yields the 20-byte SHA-1
+    // digest — while the literal form of 1 is rejected at conversion time
+    // (testSha2ConstantInvalidLengthRejectedAtConversion).
+    List<Row> rows = Arrays.asList(Row.of("test", 1), Row.of("你好世界", 1));
+    createSimpleBoundedValuesTable("tblSha2One", "s varchar, n int", rows);
+
+    String query = "select SHA2(s, n) from tblSha2One";
+    runAndCheck(query, Arrays.asList("+I[" + SHA1_TEST + "]", "+I[" + SHA1_UTF8 + "]"));
   }
 
   @Test

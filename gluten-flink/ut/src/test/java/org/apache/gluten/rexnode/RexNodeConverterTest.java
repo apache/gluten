@@ -130,7 +130,7 @@ public class RexNodeConverterTest {
     RexConversionContext context =
         new RexConversionContext(java.util.Arrays.asList("ignored", "s", "n"));
 
-    int[] invalidLengths = {0, 385, -1};
+    int[] invalidLengths = {0, 385, -1, 1};
     for (int length : invalidLengths) {
       RexLiteral literal =
           (RexLiteral)
