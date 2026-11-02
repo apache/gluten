@@ -316,8 +316,8 @@ class JsonFunctionsValidateSuite extends FunctionsValidateSuite {
         spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("tbl")
 
         runQueryAndCompare(
-          "select from_json(txt, " +
-            "'Id STRING, Nested STRUCT<InnerA: INT, innerB: ARRAY<STRUCT<DeepX: INT>>>') from tbl") {
+          "select from_json(txt, 'Id STRING, " +
+            "Nested STRUCT<InnerA: INT, innerB: ARRAY<STRUCT<DeepX: INT>>>') from tbl") {
           checkGlutenPlan[ProjectExecTransformer]
         }
     }
