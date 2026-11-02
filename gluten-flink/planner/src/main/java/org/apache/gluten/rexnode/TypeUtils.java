@@ -53,6 +53,20 @@ public class TypeUtils {
     return type instanceof VarCharType;
   }
 
+  // Matches the scalar signatures registered under the velox flinksql
+  // namespace: booleans, numerics, strings, dates, timestamps and decimals.
+  // BINARY, ARRAY, MAP and ROW have no flinksql registration and are
+  // rejected at the converter level so conversion fails at planning time
+  // instead of failing at runtime.
+  public static boolean isScalarType(Type type) {
+    return type instanceof BooleanType
+        || isNumericType(type)
+        || isStringType(type)
+        || type instanceof DateType
+        || type instanceof TimestampType
+        || type instanceof DecimalType;
+  }
+
   public static boolean isIntegerType(Type type) {
     return type instanceof IntegerType;
   }

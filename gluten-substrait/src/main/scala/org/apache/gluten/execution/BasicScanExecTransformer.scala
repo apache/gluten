@@ -19,6 +19,7 @@ package org.apache.gluten.execution
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.expression.{ConverterUtils, ExpressionConverter}
+import org.apache.gluten.extension.columnar.PushDownInputFileExpression
 import org.apache.gluten.substrait.`type`.ColumnTypeNode
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.extensions.ExtensionBuilder
@@ -115,6 +116,15 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
 
   def getInputStats: Option[InputStats] = Option.empty
 
+  protected def neededInputFileRelatedMetadataKeys: Seq[String] = {
+    val inputFileRelatedMetadataKeys = Seq(
+      InputFileName().prettyName,
+      InputFileBlockStart().prettyName,
+      InputFileBlockLength().prettyName)
+
+    inputFileRelatedMetadataKeys.filter(k => output.exists(_.name == k))
+  }
+
   override def getSplitInfos: Seq[SplitInfo] = {
     getSplitInfosFromPartitions(getPartitionWithReadFileFormats)
   }
@@ -135,14 +145,6 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
 
     val metadataFromSpark = getMetadataColumns().map(_.name)
 
-    val inputFileRelatedMetadataKeys = Seq(
-      InputFileName().prettyName,
-      InputFileBlockStart().prettyName,
-      InputFileBlockLength().prettyName)
-
-    val neededInputFileRelatedMetadataKeys =
-      inputFileRelatedMetadataKeys.filter(k => output.exists(_.name == k))
-
     val metadataColumnNames = (metadataFromSpark ++ neededInputFileRelatedMetadataKeys).distinct
 
     BackendsApiManager.getIteratorApiInstance
@@ -157,6 +159,17 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
   }
 
   override protected def doValidateInternal(): ValidationResult = {
+    // A collision tag is placed by PushDownInputFileExpression.PreOffload when an injected
+    // input-file attribute would share a normalized name with a user column in this scan.
+    // Velox cannot simultaneously produce two columns with the same normalized name, so we
+    // fail validation here to keep the scan on vanilla Spark where the file-path thread-local
+    // is set by the JVM scan iterator.
+    if (getTagValue(PushDownInputFileExpression.INPUT_FILE_NAME_COLLISION_TAG).getOrElse(false)) {
+      return ValidationResult.failed(
+        "input_file_name() column name collision with a user data column under case-insensitive " +
+          "resolution: native scan cannot produce both simultaneously")
+    }
+
     val validationResult = BackendsApiManager.getSettings
       .validateScanExec(
         fileFormat,

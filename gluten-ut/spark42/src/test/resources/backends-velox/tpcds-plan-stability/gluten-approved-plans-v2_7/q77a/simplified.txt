@@ -127,11 +127,7 @@ VeloxColumnarToRow
                                                                                           InputAdapter
                                                                                             ReusedExchange [d_date_sk] #4
                                                               ReusedSubquery [mergedValue] #2
-                                                              InputIteratorTransformer
-                                                                InputAdapter
-                                                                  RowToVeloxColumnar
-                                                                    WholeStageCodegen (1)
-                                                                      Scan OneRowRelation
+                                                              OneRowRelationExecTransformer
                                                       WholeStageCodegenTransformer (33)
                                                         ProjectExecTransformer [wp_web_page_sk,sales,returns,profit,profit_loss]
                                                           BroadcastHashJoinExecTransformer [wp_web_page_sk,wp_web_page_sk]
