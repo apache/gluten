@@ -17,6 +17,7 @@
 package org.apache.spark.sql.vectorized;
 
 import org.apache.spark.unsafe.types.BinaryView;
+import org.apache.spark.unsafe.types.TimestampNanosVal;
 import org.apache.spark.unsafe.types.VariantVal;
 
 public final class ArrowColumnarArray extends AbstractColumnarArray {
@@ -33,5 +34,15 @@ public final class ArrowColumnarArray extends AbstractColumnarArray {
   @Override
   public BinaryView getBinaryView(int ordinal) {
     return data.getBinaryView(offset + ordinal);
+  }
+
+  @Override
+  public TimestampNanosVal getTimestampNTZNanos(int ordinal) {
+    return data.getTimestampNTZNanos(offset + ordinal);
+  }
+
+  @Override
+  public TimestampNanosVal getTimestampLTZNanos(int ordinal) {
+    return data.getTimestampLTZNanos(offset + ordinal);
   }
 }

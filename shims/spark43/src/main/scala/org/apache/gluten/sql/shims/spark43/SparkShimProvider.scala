@@ -14,12 +14,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.gluten.sql.shims.spark42
+package org.apache.gluten.sql.shims.spark43
 
 import org.apache.gluten.sql.shims.SparkShims
 
 class SparkShimProvider extends org.apache.gluten.sql.shims.SparkShimProvider {
   def createShim: SparkShims = {
-    new Spark42Shims()
+    new Spark43Shims()
   }
 }
