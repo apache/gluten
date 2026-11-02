@@ -89,7 +89,7 @@ jobs:
           export folly_SOURCE=BUNDLED
           git clone -b pin-velox-arithmetic https://github.com/wud-if/velox4j.git
           cd velox4j
-          git reset --hard 8cde1503baa1f87b7497f71cfd25f227257ebc5c
+          git reset --hard 13afddf21bd7d1380db4bedeb2eaf9b6c828a9e7
           git apply $GITHUB_WORKSPACE/gluten-flink/patches/fix-velox4j.patch
           $GITHUB_WORKSPACE/build/mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
           cd ..
