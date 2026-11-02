@@ -34,7 +34,8 @@ class GlutenCoalesceShufflePartitionsSuite
       f: SparkSession => Unit,
       targetPostShuffleInputSize: Int,
       minNumPostShufflePartitions: Option[Int],
-      enableIOEncryption: Boolean = false): Unit = {
+      enableIOEncryption: Boolean = false,
+      maxReducerPartitionsPerTask: Int = Int.MaxValue): Unit = {
     val sparkConf =
       new SparkConf(false)
         .setMaster("local[*]")
@@ -58,6 +59,11 @@ class GlutenCoalesceShufflePartitionsSuite
         sparkConf.set(SQLConf.COALESCE_PARTITIONS_MIN_PARTITION_NUM.key, numPartitions.toString)
       case None =>
         sparkConf.set(SQLConf.COALESCE_PARTITIONS_MIN_PARTITION_NUM.key, "1")
+    }
+    if (maxReducerPartitionsPerTask < Int.MaxValue) {
+      sparkConf.set(
+        SQLConf.COALESCE_PARTITIONS_MAX_REDUCER_PARTITIONS_PER_TASK.key,
+        maxReducerPartitionsPerTask.toString)
     }
 
     val spark = SparkSession
