@@ -18,14 +18,14 @@ set -exu
 
 CURRENT_DIR=$(cd "$(dirname "$BASH_SOURCE")"; pwd)
 VELOX_REPO=https://github.com/IBM/velox.git
-VELOX_BRANCH=dft-2026_11_01
-VELOX_ENHANCED_BRANCH=ibm-2026_11_01
+VELOX_BRANCH=dft-2026_11_02
+VELOX_ENHANCED_BRANCH=ibm-2026_11_02
 VELOX_HOME=""
 RUN_SETUP_SCRIPT=ON
 ENABLE_ENHANCED_FEATURES=OFF
 
-# Temporary DATE widening validation; clear once the IBM pin includes Velox PR #19203.
-UPSTREAM_VELOX_PR_ID="19203"
+# Developer use only for testing Velox PR.
+UPSTREAM_VELOX_PR_ID=""
 
 OS=`uname -s`
 
