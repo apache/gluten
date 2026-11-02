@@ -63,9 +63,12 @@ class CurrentTimeFunctionsTest extends GlutenStreamingTestBase {
   void testCurrentTimeComparisons() {
     List<Row> rows = Arrays.asList(Row.of(1), Row.of(2));
     createSimpleBoundedValuesTable("tblCT2", "x int", rows);
-    // TIME literals become INT millis-of-day constants.
+    // TIME literals become INT millis-of-day constants. Inclusive bounds
+    // covering the entire day: always true at any run time, so the test
+    // cannot flip near midnight (strict bounds did).
     String query =
-        "select x, CURRENT_TIME > TIME '00:00:01', CURRENT_TIME < TIME '23:59:59' from tblCT2";
+        "select x, CURRENT_TIME >= TIME '00:00:00', CURRENT_TIME <= TIME '23:59:59.999'"
+            + " from tblCT2";
     runAndCheck(query, Arrays.asList("+I[1, true, true]", "+I[2, true, true]"));
   }
 }
