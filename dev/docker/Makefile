@@ -16,9 +16,9 @@
 .PHONY: docker-image-dynamic-build
 
 docker-image-dynamic-build:
-	docker build \
+	DOCKER_BUILDKIT=1 docker build \
 		--file Dockerfile.centos8-dynamic-build \
 		--tag "apache/gluten:centos-8-jdk8" \
 		--build-arg HTTPS_PROXY="" \
 		--build-arg HTTP_PROXY="" \
-		.
+		../..

@@ -18,6 +18,7 @@ package org.apache.gluten.config
 
 import org.apache.spark.network.util.ByteUnit
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.util.SparkShimVersionUtil
 
 import java.util
 import java.util.Locale
@@ -200,6 +201,8 @@ object BoltConfig extends ConfigRegistry {
     new BoltConfig(SQLConf.get)
   }
 
+  val SPARK_CHUNK_BASE64_STRING_ENABLED_KEY = "spark.sql.chunkBase64String.enabled"
+
   lazy val EXTRA_NATIVE_SESSION_CONF_KEYS: Set[String] = Set(
     GLUTEN_PARALLEL_ENABLED_KEY,
     USE_BOLT_MEMORY_MANAGER_KEY,
@@ -216,7 +219,16 @@ object BoltConfig extends ConfigRegistry {
     SPARK_HADOOP_PARQUET_ENCRYPTION_KMS_MAX_RETRY_TIMES,
     SPARK_HADOOP_PARQUET_ENCRYPTION_KMS_INSTANCE_VERSION,
     SPARK_HADOOP_PARQUET_ENCRYPTION_KMS_CLIENT_CLASS
-  )
+  ) ++ {
+    // Cache only version-dependent key membership, never the active session or its values.
+    // Spark 3.4 always chunks Base64 and ignores this unregistered SQL key.
+    val (major, minor) = SparkShimVersionUtil.sparkMajorMinorVersion()
+    if (major > 3 || (major == 3 && minor >= 5)) {
+      Set(SPARK_CHUNK_BASE64_STRING_ENABLED_KEY)
+    } else {
+      Set.empty[String]
+    }
+  }
 
   lazy val EXTRA_NATIVE_BACKEND_CONF_KEYS: Set[String] = Set(
     "spark.executor.cores",
