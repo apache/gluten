@@ -284,7 +284,7 @@ public class IntervalArithmeticConverterTest {
                 hourInterval(2 * 3600000));
     RexCallConverter converter = RexCallConverterFactory.getConverter(cmp, context);
     CallTypedExpr expr = (CallTypedExpr) converter.toTypedExpr(cmp, context);
-    assertThat(expr.getFunctionName()).isEqualTo("greaterthan");
+    assertThat(expr.getFunctionName()).isEqualTo("interval_greaterthan");
     assertThat(expr.getReturnType()).isInstanceOf(BooleanType.class);
     // The multiply output keeps the interval type and the literal operand is
     // re-typed from the global BIGINT mapping to the interval velox type.
@@ -309,13 +309,13 @@ public class IntervalArithmeticConverterTest {
                 monthInterval(2));
     RexCallConverter converter = RexCallConverterFactory.getConverter(cmp, context);
     CallTypedExpr expr = (CallTypedExpr) converter.toTypedExpr(cmp, context);
-    assertThat(expr.getFunctionName()).isEqualTo("lessthanorequal");
+    assertThat(expr.getFunctionName()).isEqualTo("interval_lessthanorequal");
     assertThat(expr.getInputs().get(0).getReturnType()).isInstanceOf(IntervalYearMonthType.class);
     assertThat(expr.getInputs().get(1).getReturnType()).isInstanceOf(IntervalYearMonthType.class);
   }
 
   @Test
-  public void intervalNotEqualIsNotEqualto() {
+  public void intervalNotEqual() {
     RexNode multiply =
         rexBuilder.makeCall(
             org.apache.calcite.sql.fun.SqlStdOperatorTable.MULTIPLY,
@@ -329,12 +329,10 @@ public class IntervalArithmeticConverterTest {
                 hourInterval(3600000));
     RexCallConverter converter = RexCallConverterFactory.getConverter(cmp, context);
     CallTypedExpr expr = (CallTypedExpr) converter.toTypedExpr(cmp, context);
-    // NOT EQUAL has no interval signature; it is emitted as not(equalto(a, b)).
-    assertThat(expr.getFunctionName()).isEqualTo("not");
+    // NOT EQUAL maps to the dedicated flinksql interval_notequalto signature.
+    assertThat(expr.getFunctionName()).isEqualTo("interval_notequalto");
     assertThat(expr.getReturnType()).isInstanceOf(BooleanType.class);
-    CallTypedExpr inner = (CallTypedExpr) expr.getInputs().get(0);
-    assertThat(inner.getFunctionName()).isEqualTo("equalto");
-    assertThat(inner.getInputs().get(0).getReturnType()).isInstanceOf(IntervalDayTimeType.class);
-    assertThat(inner.getInputs().get(1).getReturnType()).isInstanceOf(IntervalDayTimeType.class);
+    assertThat(expr.getInputs().get(0).getReturnType()).isInstanceOf(IntervalDayTimeType.class);
+    assertThat(expr.getInputs().get(1).getReturnType()).isInstanceOf(IntervalDayTimeType.class);
   }
 }

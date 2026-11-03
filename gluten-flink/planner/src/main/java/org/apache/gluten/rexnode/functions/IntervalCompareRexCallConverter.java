@@ -21,8 +21,6 @@ import org.apache.gluten.rexnode.ValidationResult;
 
 import io.github.zhztheplayer.velox4j.expression.CallTypedExpr;
 import io.github.zhztheplayer.velox4j.expression.TypedExpr;
-import io.github.zhztheplayer.velox4j.type.BooleanType;
-import io.github.zhztheplayer.velox4j.type.Type;
 
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexNode;
@@ -31,30 +29,18 @@ import java.util.List;
 
 /**
  * Converts interval-to-interval comparisons (e.g. {@code INTERVAL '1' HOUR * n > INTERVAL '2'
- * HOUR}) to the velox comparison functions. The sparksql baseline already registers the
- * greaterthan/lessthan/equalto/greaterthanorequal/lessthanorequal signatures for interval day to
- * second and interval year to month pairs, so only the operand typing lives here: day-time
- * intervals are mapped to BIGINT by the global type converter, so the operands are re-typed to the
- * proper interval velox types first. NOT EQUAL has no interval signature; it is emitted as
- * not(equalto(a, b)), which keeps Flink's three-valued NULL semantics.
+ * HOUR}) to the velox flinksql interval comparison functions. The runtime path is owned by the
+ * flinksql registration: the interval comparisons reuse the prestosql comparison implementations
+ * but are registered in the flinksql namespace under dedicated interval_* names, because the
+ * sparksql baseline already owns the standard comparison names as vector functions with
+ * interval-covering signatures (vector functions take precedence over simple functions at
+ * resolution). Only the operand typing lives here: day-time intervals are mapped to BIGINT by the
+ * global type converter, so the operands are re-typed to the proper interval velox types first.
  */
 public class IntervalCompareRexCallConverter extends BaseRexCallConverter {
 
-  private final boolean notEqual;
-
   public IntervalCompareRexCallConverter(String functionName) {
     super(functionName);
-    this.notEqual = false;
-  }
-
-  private IntervalCompareRexCallConverter() {
-    super("equalto");
-    this.notEqual = true;
-  }
-
-  /** The converter for the NOT EQUAL operator; emits not(equalto(a, b)). */
-  static IntervalCompareRexCallConverter notEqual() {
-    return new IntervalCompareRexCallConverter();
   }
 
   @Override
@@ -86,11 +72,6 @@ public class IntervalCompareRexCallConverter extends BaseRexCallConverter {
         IntervalArithmeticRexCallConverter.retypeInterval(params.get(0), operands.get(0));
     TypedExpr right =
         IntervalArithmeticRexCallConverter.retypeInterval(params.get(1), operands.get(1));
-    Type resultType = getResultType(callNode);
-    CallTypedExpr comparison = new CallTypedExpr(resultType, List.of(left, right), functionName);
-    if (!notEqual) {
-      return comparison;
-    }
-    return new CallTypedExpr(new BooleanType(), List.of(comparison), "not");
+    return new CallTypedExpr(getResultType(callNode), List.of(left, right), functionName);
   }
 }

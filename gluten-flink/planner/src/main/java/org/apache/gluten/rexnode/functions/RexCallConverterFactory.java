@@ -44,7 +44,7 @@ public class RexCallConverterFactory {
                   () -> new BasicArithmeticOperatorRexCallConverter("greaterthan"),
                   () -> new StringCompareRexCallConverter("greaterthan"),
                   () -> new StringNumberCompareRexCallConverter("greaterthan"),
-                  () -> new IntervalCompareRexCallConverter("greaterthan"),
+                  () -> new IntervalCompareRexCallConverter("interval_greaterthan"),
                   () -> new DecimalArithmeticOperatorRexCallConverters("greaterthan", true))),
           Map.entry(
               "<",
@@ -52,7 +52,7 @@ public class RexCallConverterFactory {
                   () -> new BasicArithmeticOperatorRexCallConverter("lessthan"),
                   () -> new StringCompareRexCallConverter("lessthan"),
                   () -> new StringNumberCompareRexCallConverter("lessthan"),
-                  () -> new IntervalCompareRexCallConverter("lessthan"),
+                  () -> new IntervalCompareRexCallConverter("interval_lessthan"),
                   () -> new DecimalArithmeticOperatorRexCallConverters("lessthan", true))),
           Map.entry(
               "=",
@@ -60,12 +60,12 @@ public class RexCallConverterFactory {
                   () -> new BasicArithmeticOperatorRexCallConverter("equalto"),
                   () -> new StringCompareRexCallConverter("equalto"),
                   () -> new StringNumberCompareRexCallConverter("equalto"),
-                  () -> new IntervalCompareRexCallConverter("equalto"))),
+                  () -> new IntervalCompareRexCallConverter("interval_equalto"))),
           Map.entry(
               "<>",
               Arrays.asList(
                   () -> new DecimalArithmeticOperatorRexCallConverters("decimal_notequalto"),
-                  IntervalCompareRexCallConverter::notEqual)),
+                  () -> new IntervalCompareRexCallConverter("interval_notequalto"))),
           Map.entry(
               "/", Arrays.asList(() -> new DecimalArithmeticOperatorRexCallConverters("divide"))),
           Map.entry(
@@ -103,7 +103,7 @@ public class RexCallConverterFactory {
                   () -> new StringCompareRexCallConverter("greaterthanorequal"),
                   () -> new StringNumberCompareRexCallConverter("greaterthanorequal"),
                   () -> new TimestampIntervalRexCallConverter("greaterthanorequal"),
-                  () -> new IntervalCompareRexCallConverter("greaterthanorequal"))),
+                  () -> new IntervalCompareRexCallConverter("interval_greaterthanorequal"))),
           Map.entry(
               "<=",
               Arrays.asList(
@@ -111,7 +111,7 @@ public class RexCallConverterFactory {
                   () -> new StringCompareRexCallConverter("lessthanorequal"),
                   () -> new StringNumberCompareRexCallConverter("lessthanorequal"),
                   () -> new TimestampIntervalRexCallConverter("lessthanorequal"),
-                  () -> new IntervalCompareRexCallConverter("lessthanorequal"))),
+                  () -> new IntervalCompareRexCallConverter("interval_lessthanorequal"))),
           Map.entry("PROCTIME", Arrays.asList(() -> new DefaultRexCallConverter("unix_timestamp"))),
           Map.entry("OR", Arrays.asList(() -> new DefaultRexCallConverter("or"))),
           Map.entry("IS NOT NULL", Arrays.asList(() -> new DefaultRexCallConverter("isnotnull"))),
