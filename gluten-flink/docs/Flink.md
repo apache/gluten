@@ -46,9 +46,9 @@ As some features have not been committed to upstream, you have to use the follow
 
 ```bash
 ## fetch velox4j code
-git clone -b gluten-hash https://github.com/TianJialong/velox4j.git
+git clone -b gluten-20260829 https://github.com/bigo-sg/velox4j.git
 cd velox4j
-# use the latest commit
+git reset --hard eec207ad05dda30486aa2f5dc61f738a5afcdb69
 mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
 ```
 **Get gluten**
