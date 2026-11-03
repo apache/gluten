@@ -44,6 +44,7 @@ public class RexCallConverterFactory {
                   () -> new BasicArithmeticOperatorRexCallConverter("greaterthan"),
                   () -> new StringCompareRexCallConverter("greaterthan"),
                   () -> new StringNumberCompareRexCallConverter("greaterthan"),
+                  () -> new IntervalCompareRexCallConverter("greaterthan"),
                   () -> new DecimalArithmeticOperatorRexCallConverters("greaterthan", true))),
           Map.entry(
               "<",
@@ -51,17 +52,20 @@ public class RexCallConverterFactory {
                   () -> new BasicArithmeticOperatorRexCallConverter("lessthan"),
                   () -> new StringCompareRexCallConverter("lessthan"),
                   () -> new StringNumberCompareRexCallConverter("lessthan"),
+                  () -> new IntervalCompareRexCallConverter("lessthan"),
                   () -> new DecimalArithmeticOperatorRexCallConverters("lessthan", true))),
           Map.entry(
               "=",
               Arrays.asList(
                   () -> new BasicArithmeticOperatorRexCallConverter("equalto"),
                   () -> new StringCompareRexCallConverter("equalto"),
-                  () -> new StringNumberCompareRexCallConverter("equalto"))),
+                  () -> new StringNumberCompareRexCallConverter("equalto"),
+                  () -> new IntervalCompareRexCallConverter("equalto"))),
           Map.entry(
               "<>",
               Arrays.asList(
-                  () -> new DecimalArithmeticOperatorRexCallConverters("decimal_notequalto"))),
+                  () -> new DecimalArithmeticOperatorRexCallConverters("decimal_notequalto"),
+                  IntervalCompareRexCallConverter::notEqual)),
           Map.entry(
               "/", Arrays.asList(() -> new DecimalArithmeticOperatorRexCallConverters("divide"))),
           Map.entry(
@@ -98,14 +102,16 @@ public class RexCallConverterFactory {
                   () -> new BasicArithmeticOperatorRexCallConverter("greaterthanorequal"),
                   () -> new StringCompareRexCallConverter("greaterthanorequal"),
                   () -> new StringNumberCompareRexCallConverter("greaterthanorequal"),
-                  () -> new TimestampIntervalRexCallConverter("greaterthanorequal"))),
+                  () -> new TimestampIntervalRexCallConverter("greaterthanorequal"),
+                  () -> new IntervalCompareRexCallConverter("greaterthanorequal"))),
           Map.entry(
               "<=",
               Arrays.asList(
                   () -> new BasicArithmeticOperatorRexCallConverter("lessthanorequal"),
                   () -> new StringCompareRexCallConverter("lessthanorequal"),
                   () -> new StringNumberCompareRexCallConverter("lessthanorequal"),
-                  () -> new TimestampIntervalRexCallConverter("lessthanorequal"))),
+                  () -> new TimestampIntervalRexCallConverter("lessthanorequal"),
+                  () -> new IntervalCompareRexCallConverter("lessthanorequal"))),
           Map.entry("PROCTIME", Arrays.asList(() -> new DefaultRexCallConverter("unix_timestamp"))),
           Map.entry("OR", Arrays.asList(() -> new DefaultRexCallConverter("or"))),
           Map.entry("IS NOT NULL", Arrays.asList(() -> new DefaultRexCallConverter("isnotnull"))),

@@ -21,6 +21,7 @@ import org.apache.gluten.rexnode.functions.RexCallConverterFactory;
 
 import io.github.zhztheplayer.velox4j.expression.CallTypedExpr;
 import io.github.zhztheplayer.velox4j.type.BigIntType;
+import io.github.zhztheplayer.velox4j.type.BooleanType;
 import io.github.zhztheplayer.velox4j.type.DateType;
 import io.github.zhztheplayer.velox4j.type.IntervalDayTimeType;
 import io.github.zhztheplayer.velox4j.type.IntervalYearMonthType;
@@ -264,5 +265,76 @@ public class IntervalArithmeticConverterTest {
     CallTypedExpr expr = (CallTypedExpr) converter.toTypedExpr(call, context);
     // Plain numeric plus must keep mapping to "add", not the interval branch.
     assertThat(expr.getFunctionName()).isEqualTo("add");
+  }
+
+  @Test
+  public void intervalMultiplyCompareInterval() {
+    // INTERVAL '1' HOUR * n > INTERVAL '2' HOUR: the comparison operands are
+    // the interval-typed multiply output and a day-time interval literal.
+    RexNode multiply =
+        rexBuilder.makeCall(
+            org.apache.calcite.sql.fun.SqlStdOperatorTable.MULTIPLY,
+            hourInterval(3600000),
+            bigintInputRef());
+    RexCall cmp =
+        (RexCall)
+            rexBuilder.makeCall(
+                org.apache.calcite.sql.fun.SqlStdOperatorTable.GREATER_THAN,
+                multiply,
+                hourInterval(2 * 3600000));
+    RexCallConverter converter = RexCallConverterFactory.getConverter(cmp, context);
+    CallTypedExpr expr = (CallTypedExpr) converter.toTypedExpr(cmp, context);
+    assertThat(expr.getFunctionName()).isEqualTo("greaterthan");
+    assertThat(expr.getReturnType()).isInstanceOf(BooleanType.class);
+    // The multiply output keeps the interval type and the literal operand is
+    // re-typed from the global BIGINT mapping to the interval velox type.
+    assertThat(expr.getInputs().get(0).getReturnType()).isInstanceOf(IntervalDayTimeType.class);
+    assertThat(expr.getInputs().get(1).getReturnType()).isInstanceOf(IntervalDayTimeType.class);
+    assertThat(expr.getInputs().get(1))
+        .isInstanceOf(io.github.zhztheplayer.velox4j.expression.ConstantTypedExpr.class);
+  }
+
+  @Test
+  public void intervalMultiplyCompareYearMonth() {
+    RexNode multiply =
+        rexBuilder.makeCall(
+            org.apache.calcite.sql.fun.SqlStdOperatorTable.MULTIPLY,
+            monthInterval(1),
+            bigintInputRef());
+    RexCall cmp =
+        (RexCall)
+            rexBuilder.makeCall(
+                org.apache.calcite.sql.fun.SqlStdOperatorTable.LESS_THAN_OR_EQUAL,
+                multiply,
+                monthInterval(2));
+    RexCallConverter converter = RexCallConverterFactory.getConverter(cmp, context);
+    CallTypedExpr expr = (CallTypedExpr) converter.toTypedExpr(cmp, context);
+    assertThat(expr.getFunctionName()).isEqualTo("lessthanorequal");
+    assertThat(expr.getInputs().get(0).getReturnType()).isInstanceOf(IntervalYearMonthType.class);
+    assertThat(expr.getInputs().get(1).getReturnType()).isInstanceOf(IntervalYearMonthType.class);
+  }
+
+  @Test
+  public void intervalNotEqualIsNotEqualto() {
+    RexNode multiply =
+        rexBuilder.makeCall(
+            org.apache.calcite.sql.fun.SqlStdOperatorTable.MULTIPLY,
+            hourInterval(3600000),
+            bigintInputRef());
+    RexCall cmp =
+        (RexCall)
+            rexBuilder.makeCall(
+                org.apache.calcite.sql.fun.SqlStdOperatorTable.NOT_EQUALS,
+                multiply,
+                hourInterval(3600000));
+    RexCallConverter converter = RexCallConverterFactory.getConverter(cmp, context);
+    CallTypedExpr expr = (CallTypedExpr) converter.toTypedExpr(cmp, context);
+    // NOT EQUAL has no interval signature; it is emitted as not(equalto(a, b)).
+    assertThat(expr.getFunctionName()).isEqualTo("not");
+    assertThat(expr.getReturnType()).isInstanceOf(BooleanType.class);
+    CallTypedExpr inner = (CallTypedExpr) expr.getInputs().get(0);
+    assertThat(inner.getFunctionName()).isEqualTo("equalto");
+    assertThat(inner.getInputs().get(0).getReturnType()).isInstanceOf(IntervalDayTimeType.class);
+    assertThat(inner.getInputs().get(1).getReturnType()).isInstanceOf(IntervalDayTimeType.class);
   }
 }
