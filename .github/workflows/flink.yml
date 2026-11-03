@@ -89,7 +89,7 @@ jobs:
           export folly_SOURCE=BUNDLED
           git clone -b stringExpr https://github.com/zhang-jianq/velox4j.git
           cd velox4j
-git reset --hard 639761bed244fd1e5ca435ecbaed02380682028c
+          git reset --hard 97235b01cc6beb34c658bea647204eb243c052d6
           git apply $GITHUB_WORKSPACE/gluten-flink/patches/fix-velox4j.patch
           $GITHUB_WORKSPACE/build/mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
           cd ..

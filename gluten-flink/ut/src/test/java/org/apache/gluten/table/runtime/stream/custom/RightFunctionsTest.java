@@ -41,4 +41,18 @@ class RightFunctionsTest extends GlutenStreamingTestBase {
     String query = "select RIGHT(s, 2) from tblRight where a > 0";
     runAndCheck(query, Arrays.asList("+I[bc]", "+I[你好]", "+I[null]"));
   }
+
+  @Test
+  void testRightBoundaries() {
+    List<Row> rows =
+        Arrays.asList(
+            Row.of(1, "abc", 0),
+            Row.of(2, "abc", -1),
+            Row.of(3, "abc", 5),
+            Row.of(4, "你好", 1),
+            Row.of(5, "你好", 10));
+    createSimpleBoundedValuesTable("tblRightBound", "a int, s string, n int", rows);
+    String query = "select RIGHT(s, n) from tblRightBound where a > 0";
+    runAndCheck(query, Arrays.asList("+I[]", "+I[]", "+I[abc]", "+I[好]", "+I[你好]"));
+  }
 }

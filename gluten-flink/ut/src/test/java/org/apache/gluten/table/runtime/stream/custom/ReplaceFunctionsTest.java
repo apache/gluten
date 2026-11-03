@@ -47,4 +47,14 @@ class ReplaceFunctionsTest extends GlutenStreamingTestBase {
     String query = "select REPLACE(s, old_s, new_s) from tblReplace where a > 0";
     runAndCheck(query, Arrays.asList("+I[aXc]", "+I[heLLo]", "+I[abc]", "+I[null]"));
   }
+
+  @Test
+  void testReplaceEmptyOldStr() {
+    // Empty `from` inserts the replacement at UTF-8 character boundaries
+    // (the Flink-vs-Spark distinguishing semantic).
+    List<Row> rows = Arrays.asList(Row.of(1, "abc"), Row.of(2, "你好"));
+    createSimpleBoundedValuesTable("tblReplaceEmpty", "a int, s string", rows);
+    String query = "select REPLACE(s, '', 'x') from tblReplaceEmpty where a > 0";
+    runAndCheck(query, Arrays.asList("+I[xaxbxcx]", "+I[x你x好x]"));
+  }
 }
