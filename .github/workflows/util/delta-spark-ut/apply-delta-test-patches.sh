@@ -61,8 +61,8 @@ cherry_pick_delta_fix() {
   # empty/conflicting and would -- under `set -e` -- abort the whole setup. We
   # can't use ancestry to tell "already contained" from a genuine conflict here
   # (the clone is shallow, so `merge-base --is-ancestor` can't see past the graft),
-  # so recover the exact paths this fix touches -- leaving other setup such as the
-  # DeltaSQLCommandTest patch intact -- and continue. This is self-correcting: if
+  # so recover only the paths this fix touches and continue, preserving other
+  # setup changes. This is self-correcting: if
   # the fix is genuinely still needed, the FileSourceScanLike failures it prevents
   # resurface as gate regressions rather than being hidden by a hard abort here.
   echo "Cherry-pick of delta-io/delta${pr} did not apply cleanly" \
@@ -88,6 +88,7 @@ echo "::group::Applying temporary Delta test patches"
 # for the files they touch. Patch paths are relative to this script, not Delta.
 for patch in \
   cdf-pushed-filter-assertions.patch \
+  mock-s3-fixture-writer.patch \
   parquet-fixture-row-groups.patch \
   dv-predicate-pushdown-row-groups.patch \
   dv-2b-row-fail-fast.patch; do

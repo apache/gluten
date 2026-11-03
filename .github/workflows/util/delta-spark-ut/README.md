@@ -41,10 +41,10 @@ starts failing** (a regression).
 | `flaky-error-patterns.txt` | Quarantine list by error signature: regex patterns matched against a failure's text, for bugs that surface on a different test each run (e.g. the native DV bitmap row-index error). |
 | `compare-test-results.py` | Parses the JUnit XML from `sbt spark/test` and gates / seeds / aggregates against the baseline. Standard-library only. |
 | `run-delta-tests.sh` | The shard step's body: runs `sbt spark/test` (tuned JVM/heap flags) under a hang watchdog, prints memory forensics, then gates the results against the baseline via `compare-test-results.py`. |
-| `java-test-args.sh` | Shared JVM flags (`--add-opens` + Netty property) needed to run the suite on JDK 17 with the Gluten bundle. Sourced by `run-delta-tests.sh` and by local runs. |
-| `setup-delta.sh` | Clones Delta, drops in the Gluten bundle, and patches `DeltaSQLCommandTest`. |
+| `java-test-args.sh` | Shared Gluten Spark defaults and JVM flags (`--add-opens` + Netty property). Sourced by `run-delta-tests.sh` and by local runs. |
+| `setup-delta.sh` | Clones Delta, drops in the Gluten bundle, and applies temporary compatibility patches. Takes `<delta_ref> <delta_dir> <gluten_bundle_jar>`. |
 | `apply-delta-test-patches.sh` | Cherry-picks upstream scan fixes, applies the ordered local patch list, and verifies the resulting test sources. Called by `setup-delta.sh` with `<delta_ref> <delta_dir>`. |
-| `patches/*.patch` | Separate patches for CDF plan assertions, the two Parquet row-group fixtures, and 2B-row DV fail-fast behavior. Each patch documents its rationale and removal condition. |
+| `patches/*.patch` | Separate patches for CDF plan assertions, mock-S3 fixture writes, the two Parquet row-group fixtures, and 2B-row DV fail-fast behavior. Each patch documents its rationale and removal condition. |
 
 ## Temporary Delta test patches
 
@@ -84,6 +84,41 @@ This is a test-only accommodation, not a fix for Gluten's scan display. Remove
 it when the display gap is fixed or Delta's assertions no longer require the
 workaround. The affected cases are no longer in `known-failures.txt`, so their
 failures remain enforced by the gate.
+
+## Gluten configuration for every Spark context
+
+`java-test-args.sh` exports the Gluten plugin, columnar shuffle manager, and
+off-heap memory settings (enabled, 2 GiB) as JVM system properties through
+`JAVA_TOOL_OPTIONS`. `SparkConf` reads these properties as defaults, so they
+also reach suites using plain `SharedSparkSession`, `TestHive`, or their own
+`SparkSession` / `SparkContext` instances instead of `DeltaSQLCommandTest`.
+
+This is required even when those suites do not explicitly select Gluten's
+cache serializer: Spark retains the first cache serializer across contexts
+in the same JVM. A later context without the Gluten executor plugin would
+therefore use the native serializer without initializing its task resource
+registry, causing `TaskResourceRegistry is not initialized`.
+
+The remaining defaults formerly injected through `DeltaSQLCommandTest` also
+apply to every suite:
+
+| Setting | Default |
+|---|---|
+| `spark.default.parallelism` | `1` |
+| `spark.sql.shuffle.partitions` | `5` |
+| `spark.unsafe.exceptionOnMemoryLeak` | `true` |
+| `spark.sql.ansi.enabled` | `false` |
+| `spark.gluten.sql.ansiFallback.enabled` | `false` |
+| `spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite` | `true` |
+| `spark.databricks.delta.snapshotPartitions` | `2` |
+| `spark.gluten.sql.fallbackUnexpectedMetadataParquet` | `true` |
+
+Suites can still override these defaults through their Spark configuration.
+In particular, ANSI-specific tests can enable ANSI explicitly.
+
+Delta extensions and the Delta catalog remain suite-specific rather than
+becoming JVM defaults, because some suites test behavior when those settings
+are absent.
 
 ## How the gate works
 
@@ -280,10 +315,10 @@ python3 .github/workflows/util/delta-spark-ut/compare-test-results.py \
 
 ## Running the suite locally
 
-`sbt spark/test` needs extra JDK-17 JVM flags to run the Delta suite against the
-Gluten bundle (`--add-opens` + the Netty reflection property). CI and local runs
-share one definition in `java-test-args.sh` — `source` it before invoking sbt so
-the flags reach the sbt launcher and the forked test JVM:
+`sbt spark/test` needs Gluten Spark defaults and extra JDK-17 JVM flags
+(`--add-opens` + the Netty reflection property). CI and local runs share one
+definition in `java-test-args.sh` — `source` it before invoking sbt so the
+configuration reaches the sbt launcher and every forked test JVM:
 
 ```bash
 # from the Delta clone prepared by setup-delta.sh (which has the Gluten bundle):
@@ -293,3 +328,6 @@ source <gluten>/.github/workflows/util/delta-spark-ut/java-test-args.sh
 
 `run-delta-tests.sh` sources the same file, so CI and local runs use identical
 flags.
+
+Existing `JAVA_TOOL_OPTIONS` are preserved after the shared defaults, so
+caller-supplied `-D` properties take precedence.
