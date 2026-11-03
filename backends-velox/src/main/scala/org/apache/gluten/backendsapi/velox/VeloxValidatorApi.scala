@@ -19,6 +19,7 @@ package org.apache.gluten.backendsapi.velox
 import org.apache.gluten.backendsapi.{BackendsApiManager, ValidatorApi}
 import org.apache.gluten.config.VeloxConfig
 import org.apache.gluten.execution.ValidationResult
+import org.apache.gluten.expression.AnsiModeMismatch
 import org.apache.gluten.substrait.`type`.TypeNode
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.expression.ExpressionNode
@@ -41,9 +42,13 @@ import scala.collection.mutable.ArrayBuffer
 class VeloxValidatorApi extends ValidatorApi {
   import VeloxValidatorApi._
 
-  /** For velox backend, key validation is on native side. */
+  /**
+   * For velox backend, key validation is on native side. The one check done here is the ANSI mode:
+   * an expression that captured a different ANSI mode than the session's cannot be offloaded, see
+   * [[AnsiModeMismatch]].
+   */
   override def doExprValidate(substraitExprName: String, expr: Expression): Boolean =
-    true
+    !AnsiModeMismatch(expr)
 
   override def doNativeValidateWithFailureReason(plan: PlanNode): ValidationResult = {
     TaskResources.runUnsafe {
