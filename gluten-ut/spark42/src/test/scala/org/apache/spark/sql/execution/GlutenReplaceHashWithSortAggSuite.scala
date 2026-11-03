@@ -121,7 +121,10 @@ class GlutenReplaceHashWithSortAggSuite
                |)
                |GROUP BY key
            """.stripMargin
-          checkAggs(query, 2, 0, 2, 0)
+          // Since SPARK-55551 the broadcast hash join also expands the streamed side's range
+          // partitioning to the build keys, so no shuffle is needed between the partial and final
+          // aggregates and Gluten merges them into one complete mode aggregate.
+          checkAggs(query, 1, 0, 1, 0)
       }
     }
   }

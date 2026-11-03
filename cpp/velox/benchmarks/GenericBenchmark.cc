@@ -443,7 +443,8 @@ auto BM_Generic = [](::benchmark::State& state,
             inputIters.end(),
             std::back_inserter(inputItersRaw),
             [](std::shared_ptr<gluten::ResultIterator> iter) {
-              return static_cast<FileReaderIterator*>(iter->getInputIter());
+              // Null for an empty input marker, which reads no file.
+              return dynamic_cast<FileReaderIterator*>(iter->getInputIter());
             });
       }
       *Runtime::localWriteFilesTempPath() = FLAGS_write_path;
@@ -495,7 +496,7 @@ auto BM_Generic = [](::benchmark::State& state,
 
       readInputTime +=
           std::accumulate(inputItersRaw.begin(), inputItersRaw.end(), 0, [](int64_t sum, FileReaderIterator* iter) {
-            return sum + iter->getCollectBatchTime();
+            return iter == nullptr ? sum : sum + iter->getCollectBatchTime();
           });
 
       auto* rawIter = static_cast<gluten::WholeStageResultIterator*>(resultIter->getInputIter());
@@ -551,8 +552,9 @@ auto BM_ShuffleWriteRead = [](::benchmark::State& state,
           localDirs,
           dataFileDir);
 
-      auto reader = static_cast<FileReaderIterator*>(resultIter->getInputIter());
-      readInputTime += reader->getCollectBatchTime();
+      if (auto* reader = dynamic_cast<FileReaderIterator*>(resultIter->getInputIter())) {
+        readInputTime += reader->getCollectBatchTime();
+      }
     }
   }
 

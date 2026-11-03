@@ -380,7 +380,7 @@ void BoltMemoryManager::setTaskAttemptId(int64_t taskAttemptId) {
 }
 
 void BoltMemoryManager::releaseMemoryManagerHolder() {
-  if (BoltGlutenMemoryManager::enabled() && taskAttemptId_ >= 0) {
+  if (BoltGlutenMemoryManager::enabled()) {
     BoltGlutenMemoryManager::destroy(taskAttemptId_, reinterpret_cast<int64_t>(this));
     taskAttemptId_ = -1;
   }

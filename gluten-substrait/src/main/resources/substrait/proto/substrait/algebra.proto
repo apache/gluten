@@ -346,6 +346,40 @@ message JoinRel {
   substrait.extensions.AdvancedExtension advanced_extension = 10;
 }
 
+// The binary lateral JOIN relational operator left-join-right. This is
+// semantically identical to JoinRel, except the right input is evaluated once
+// per row of the left input and may reference fields from the current left row
+// via OuterReference rel_reference.
+//
+// LateralJoinRel must set RelCommon.rel_anchor so the right input can
+// reference fields of the current left row.
+message LateralJoinRel {
+  RelCommon common = 1;
+  // The independent input whose rows drive evaluation of the lateral join.
+  Rel left = 2;
+
+  // The dependent input evaluated once per left row. It may reference fields
+  // from the current left row using OuterReference.rel_reference pointing to
+  // this LateralJoinRel's RelCommon.rel_anchor.
+  Rel right = 3;
+  // A boolean condition evaluated over the left and right inputs that
+  // determines whether a pair of records is a match.
+  Expression expression = 4;
+  // An optional boolean filter applied to each output record after
+  // join-type-specific output formation is complete.
+  // Semantically equivalent to placing a FilterRel directly above this join.
+  Expression post_join_filter = 5;
+
+  // Only INNER and left-oriented join types are valid for lateral joins:
+  // INNER, LEFT, LEFT_SEMI, LEFT_ANTI, LEFT_SINGLE, LEFT_MARK.
+  // RIGHT-oriented join types and OUTER are not valid because the right input
+  // is evaluated in the context of each left row and has no independent
+  // existence.
+  JoinRel.JoinType type = 6;
+
+  substrait.extensions.AdvancedExtension advanced_extension = 10;
+}
+
 // Cartesian product relational operator of two tables (left and right)
 message CrossRel {
   RelCommon common = 1;
@@ -691,22 +725,29 @@ message Rel {
     AggregateRel aggregate = 4;
     SortRel sort = 5;
     JoinRel join = 6;
+    LateralJoinRel lateral_join = 24;
     ProjectRel project = 7;
     SetRel set = 8;
     ExtensionSingleRel extension_single = 9;
     ExtensionMultiRel extension_multi = 10;
     ExtensionLeafRel extension_leaf = 11;
     CrossRel cross = 12;
-    //Physical relations
+    ReferenceRel reference = 21;
+    WriteRel write = 19;
+    DdlRel ddl = 20;
+    UpdateRel update = 22;
+    // Physical relations
     HashJoinRel hash_join = 13;
     MergeJoinRel merge_join = 14;
-    ExpandRel expand = 15;
-    ConsistentPartitionWindowRel window = 16;
-    GenerateRel generate = 17;
-    WriteRel write = 19;
-    TopNRel top_n = 23;
-    WindowGroupLimitRel windowGroupLimit = 20;
     NestedLoopJoinRel nested_loop_join = 18;
+    ConsistentPartitionWindowRel window = 17;
+    ExchangeRel exchange = 15;
+    ExpandRel expand = 16;
+    TopNRel top_n = 23;
+    // Gluten additions, numbered from 1000 so future upstream relations
+    // cannot collide with them.
+    GenerateRel generate = 1000;
+    WindowGroupLimitRel windowGroupLimit = 1001;
   }
 }
 
@@ -747,6 +788,7 @@ message DdlRel {
 
   // The body of the CREATE VIEW
   Rel view_definition = 7;
+  RelCommon common = 8;
 
   enum DdlObject {
     DDL_OBJECT_UNSPECIFIED = 0;
@@ -769,6 +811,9 @@ message DdlRel {
     // An operation that removes an object from the system (without throwing an exception if the object did not exist)
     DDL_OP_DROP_IF_EXIST = 5;
   }
+
+  substrait.extensions.AdvancedExtension advanced_extension = 9;
+
   //TODO add PK/constraints/indexes/etc..?
 }
 
@@ -851,6 +896,33 @@ message WriteRel {
     repeated string bucket_column_names = 2;
     repeated string sort_column_names = 3;
   }
+}
+
+// The operator that modifies the columns of a table
+message UpdateRel {
+  oneof update_type {
+    NamedTable named_table = 1;
+  }
+
+  NamedStruct table_schema = 2; // The full schema of the named_table
+  Expression condition = 3; // condition to be met for the update to be applied on a record
+
+  // The list of transformations to apply to the columns of the named_table
+  repeated TransformExpression transformations = 4;
+
+  message TransformExpression {
+    Expression transformation = 1; // the transformation to apply
+    int32 column_target = 2; // index of the column to apply the transformation to
+  }
+
+  substrait.extensions.AdvancedExtension advanced_extension = 5;
+}
+
+// A base table. The list of string is used to represent namespacing (e.g., mydb.mytable).
+// This assumes shared catalog between systems exchanging a message.
+message NamedTable {
+  repeated string names = 1;
+  substrait.extensions.AdvancedExtension advanced_extension = 10;
 }
 
 // The hash equijoin join operator will build a hash table out of the right input based on a set of join keys.
@@ -1681,10 +1753,10 @@ message AggregateFunction {
     // Use only distinct values in the aggregation calculation.
     AGGREGATION_INVOCATION_DISTINCT = 2;
   }
+}
 
-  // This rel is used  to create references,
-  // in case we refer to a RelRoot field names will be ignored
-  message ReferenceRel {
-    int32 subtree_ordinal = 1;
-  }
+// This rel is used  to create references,
+// in case we refer to a RelRoot field names will be ignored
+message ReferenceRel {
+  int32 subtree_ordinal = 1;
 }

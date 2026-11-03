@@ -22,10 +22,11 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.spark.{SparkConf, SparkException}
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.expressions.AttributeReference
-import org.apache.spark.sql.execution.{ColumnarBroadcastExchangeExec, ColumnarSubqueryBroadcastExec, InputIteratorTransformer, SerializedHashTableBroadcastRelation}
+import org.apache.spark.sql.execution.{ColumnarBroadcastExchangeExec, ColumnarBuildSideRelation, ColumnarSubqueryBroadcastExec, InputIteratorTransformer, SerializedHashTableBroadcastRelation}
 import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
 import org.apache.spark.sql.execution.joins.BuildSideRelation
 import org.apache.spark.sql.execution.joins.HashedRelationBroadcastMode
+import org.apache.spark.sql.execution.unsafe.UnsafeColumnarBuildSideRelation
 import org.apache.spark.sql.functions.broadcast
 
 class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
@@ -483,6 +484,46 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
 
         VeloxBroadcastBuildSideCache.cleanAll()
         assert(VeloxBroadcastBuildSideCache.driverSerializedCacheSize() == 0)
+      }
+    }
+  }
+
+  test("GLUTEN-12504: whole stage dumping streams the broadcast build side") {
+    // The micro benchmark can only replay a broadcast hash join whose build side reaches the native
+    // join through its input iterator. A task id that matches no task requests dumping without
+    // dumping anything.
+    withSQLConf(
+      ("spark.sql.autoBroadcastJoinThreshold", "10MB"),
+      ("spark.sql.adaptive.enabled", "false"),
+      (VeloxConfig.VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR.key, "true"),
+      (VeloxConfig.VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD.key, "true"),
+      (GlutenConfig.BENCHMARK_TASK_TASK_ID.key, "-1")
+    ) {
+      withTable("dump_fact", "dump_dim") {
+        spark.range(0, 400).selectExpr("id as id", "id % 40 as k").write.saveAsTable("dump_fact")
+        spark.range(0, 40).selectExpr("id as k", "id * 3 as v").write.saveAsTable("dump_dim")
+
+        val query =
+          """
+            |SELECT /*+ BROADCAST(d) */ f.id, d.v
+            |FROM dump_fact f
+            |JOIN dump_dim d
+            |  ON f.k = d.k
+            |""".stripMargin
+
+        runQueryAndCompare(query) {
+          df =>
+            val plan = df.queryExecution.executedPlan
+            assert(plan.collect { case bhj: BroadcastHashJoinExecTransformer => bhj }.size == 1)
+
+            val relations = collectBroadcastRelations(df)
+            assert(relations.size == 1)
+            relations.head match {
+              case columnar: ColumnarBuildSideRelation => assert(!columnar.offload)
+              case unsafe: UnsafeColumnarBuildSideRelation => assert(!unsafe.isOffload)
+              case other => fail(s"Expected the build side to be streamed, got ${other.getClass}")
+            }
+        }
       }
     }
   }

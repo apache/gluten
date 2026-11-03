@@ -139,7 +139,11 @@ or 4 types of dumped file:
   file splits.
 - Data file(optional): Parquet formatted, file
   name `data_{stageId}_{partitionId}_{vId}_{iteratorIdx}.parquet`. If the first stage contains one or
-  more BHJ operators, there can be one or more input data files. The input data files of a first
+  more BHJ operators, there can be one or more input data files, see
+  [Broadcast hash join](#broadcast-hash-join). An input iterator that produced no batches is dumped
+  as an empty marker file `data_{stageId}_{partitionId}_{vId}_{iteratorIdx}.parquet.empty` instead,
+  since no parquet file can be written without a schema. Pass it to `--data` like any other data
+  file: the benchmark replays it as an empty input iterator. The input data files of a first
   stage will be loaded as iterators to serve as the inputs for the pipeline:
 
 ```
@@ -151,6 +155,15 @@ or 4 types of dumped file:
   ]
 }
 ```
+
+### Broadcast hash join
+
+By default the hash table of a BHJ is built once per executor and handed to the native join through
+a process-local cache, so its build side never reaches the native operator as input data. While
+`spark.gluten.sql.benchmark_task.stageId` or `spark.gluten.sql.benchmark_task.taskId` is set,
+Gluten therefore ignores `spark.gluten.velox.buildHashTableOncePerExecutor.enabled` for every query
+and builds the hash table in each task from the streamed build side, which is dumped as a regular
+data file. Note that the replayed stage includes building the hash table in its measurement.
 
 Run benchmark. By default, the result will be printed to stdout. You can use `--noprint-result` to
 suppress this output.

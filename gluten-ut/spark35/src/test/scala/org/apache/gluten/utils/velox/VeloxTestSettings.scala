@@ -173,6 +173,11 @@ class VeloxTestSettings extends BackendTestSettings {
     // Exception class different.
     .exclude("from_json - invalid data")
   enableSuite[GlutenJsonFunctionsSuite]
+    // Velox nulls the whole nested struct on a conversion error instead of returning
+    // partial results for it (facebookincubator/velox#19725).
+    .exclude("SPARK-33134: return partial results only for root JSON objects")
+    .exclude("SPARK-40646: return partial results for objects with values as JSON arrays")
+    .exclude("SPARK-48863: parse object as an array with partial results enabled")
     // * in get_json_object expression not supported in velox
     .exclude("SPARK-42782: Hive compatibility check for get_json_object")
     // Velox does not support single quotes in get_json_object function.
@@ -507,6 +512,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenOuterJoinSuiteForceShjOff]
   enableSuite[FallbackStrategiesSuite]
   enableSuite[GlutenBroadcastExchangeSuite]
+  enableSuite[GlutenBroadcastValueStreamSuite]
   enableSuite[GlutenLocalBroadcastExchangeSuite]
   enableSuite[GlutenCoalesceShufflePartitionsSuite]
     // Rewrite for Gluten. Change details are in the inline comments in individual tests.

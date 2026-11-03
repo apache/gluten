@@ -36,6 +36,12 @@ from summarize import write_reports
 
 NATIVE_IMAGE = "apache/gluten:vcpkg-almalinux-8-gcc13"
 TEST_IMAGE = "apache/gluten:centos-9-jdk17"
+# Pull requests run the Iceberg workflow from the x86 backend workflow; manual runs and
+# results saved before that change come from the Iceberg workflow itself.
+WORKFLOW_PATHS = (
+    ".github/workflows/iceberg_spark_ut.yml",
+    ".github/workflows/velox_backend_x86.yml",
+)
 HARNESS_PATHS = (
     ".github/workflows/iceberg_spark_ut.yml",
     ".github/workflows/iceberg_upstream_revision.yml",
@@ -242,7 +248,7 @@ def verify_source(api, artifact, identity, key, tree, branch):
     run = api.request(f"actions/runs/{run_id}/attempts/{attempt}")
     if (
         run["repository"]["full_name"] != api.repository
-        or run["path"] != ".github/workflows/iceberg_spark_ut.yml"
+        or run["path"] not in WORKFLOW_PATHS
         or run["status"] != "completed"
         or run["conclusion"] not in ("success", "failure")
     ):

@@ -27,8 +27,8 @@
 namespace gluten {
 
 /// Split for one Kafka topic partition, covering offsets [startOffset, endOffset).
-/// Built from the substrait ReadRel.StreamKafka split info sent by the JVM, which
-/// mirrors Spark's KafkaBatchInputPartition.
+/// Built from the gluten.StreamKafka payload in the ReadRel.ExtensionTable split
+/// info sent by the JVM, which mirrors Spark's KafkaBatchInputPartition.
 class KafkaConnectorSplit : public facebook::velox::connector::ConnectorSplit {
  public:
   KafkaConnectorSplit(

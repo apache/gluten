@@ -16,12 +16,10 @@
  */
 package org.apache.gluten.utils
 
-import org.apache.gluten.vectorized.ArrowWritableColumnVector
-
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.utils.{SparkArrowUtil, SparkSchemaUtil}
-import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
+import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch, ColumnVector}
 
 import org.apache.arrow.c.{ArrowSchema, CDataDictionaryProvider, Data}
 import org.apache.arrow.memory.BufferAllocator
@@ -76,7 +74,7 @@ object ArrowUtil {
     for (i <- 0 until batch.numCols) {
       val col: ColumnVector = batch.column(i)
       fields.add(col match {
-        case vector: ArrowWritableColumnVector =>
+        case vector: ArrowColumnVector =>
           vector.getValueVector.getField
         case _ =>
           throw new UnsupportedOperationException(
