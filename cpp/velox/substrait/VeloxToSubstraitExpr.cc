@@ -23,10 +23,21 @@ namespace gluten {
 namespace {
 const ::substrait::Expression_Literal& toSubstraitNullLiteral(
     google::protobuf::Arena& arena,
-    const velox::TypeKind& typeKind) {
+    const velox::TypePtr& type) {
   ::substrait::Expression_Literal* substraitField =
       google::protobuf::Arena::CreateMessage<::substrait::Expression_Literal>(&arena);
-  switch (typeKind) {
+  substraitField->set_nullable(true);
+  auto nestedType = type;
+  while (nestedType->isArray()) {
+    nestedType = nestedType->asArray().elementType();
+  }
+  if (nestedType->kind() == TypeKind::TIMESTAMP) {
+    VeloxToSubstraitTypeConvertor typeConvertor;
+    substraitField->mutable_null()->MergeFrom(typeConvertor.toSubstraitType(arena, type));
+    return *substraitField;
+  }
+  // Preserve physical-kind encoding for non-timestamp nulls.
+  switch (type->kind()) {
     case velox::TypeKind::BOOLEAN: {
       ::substrait::Type_Boolean* nullValue = google::protobuf::Arena::CreateMessage<::substrait::Type_Boolean>(&arena);
       nullValue->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
@@ -92,29 +103,9 @@ const ::substrait::Expression_Literal& toSubstraitNullLiteral(
       break;
     }
     default: {
-      VELOX_UNSUPPORTED("Unsupported type '{}'", TypeKindName::toName(typeKind));
+      VELOX_UNSUPPORTED("Unsupported type '{}'", TypeKindName::toName(type->kind()));
     }
   }
-  substraitField->set_nullable(true);
-  return *substraitField;
-}
-
-const ::substrait::Expression_Literal& toSubstraitNullLiteral(
-    google::protobuf::Arena& arena,
-    const velox::TypePtr& type) {
-  auto nestedType = type;
-  while (nestedType->isArray()) {
-    nestedType = nestedType->asArray().elementType();
-  }
-  // Preserve physical-kind encoding for non-timestamp nulls.
-  if (nestedType->kind() != TypeKind::TIMESTAMP) {
-    return toSubstraitNullLiteral(arena, type->kind());
-  }
-  ::substrait::Expression_Literal* substraitField =
-      google::protobuf::Arena::CreateMessage<::substrait::Expression_Literal>(&arena);
-  VeloxToSubstraitTypeConvertor typeConvertor;
-  substraitField->mutable_null()->MergeFrom(typeConvertor.toSubstraitType(arena, type));
-  substraitField->set_nullable(true);
   return *substraitField;
 }
 
