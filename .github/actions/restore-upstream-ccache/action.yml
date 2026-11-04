@@ -1,0 +1,65 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Restore ccache from apache/gluten main
+description: >-
+  Download the ccache stash that apache/infrastructure-actions/stash/save stored
+  for `key` on apache/gluten main. stash/restore only searches the repository the
+  run belongs to, so a fork run uses this after missing its own stash.
+inputs:
+  key:
+    description: The key the stash was saved with.
+    required: true
+  path:
+    description: The directory to restore into.
+    required: true
+outputs:
+  hit:
+    description: "'true' if the stash was downloaded."
+    value: ${{ steps.download.outcome == 'success' }}
+runs:
+  using: composite
+  steps:
+    - name: Find the stash
+      id: find
+      uses: actions/github-script@v9
+      env:
+        # stash/save appends the branch name to the key.
+        STASH_NAME: ${{ inputs.key }}-main
+      with:
+        script: |
+          const { data } = await github.rest.actions.listArtifactsForRepo({
+            owner: 'apache', repo: 'gluten', name: process.env.STASH_NAME, per_page: 10
+          })
+          // Newest first. Only stashes saved by apache/gluten's own runs on main.
+          const stash = data.artifacts.find(a => !a.expired
+            && a.workflow_run.head_branch == 'main'
+            && a.workflow_run.head_repository_id == a.workflow_run.repository_id)
+          if (stash) {
+            core.setOutput('run_id', stash.workflow_run.id)
+          } else {
+            console.log('No stash ' + process.env.STASH_NAME + ' on apache/gluten main')
+          }
+    - name: Download the stash
+      id: download
+      if: steps.find.outputs.run_id != ''
+      continue-on-error: true
+      uses: actions/download-artifact@v8
+      with:
+        name: ${{ inputs.key }}-main
+        repository: apache/gluten
+        run-id: ${{ steps.find.outputs.run_id }}
+        github-token: ${{ github.token }}
+        path: ${{ inputs.path }}

@@ -24,7 +24,7 @@ on:
       - '.github/workflows/iceberg_upstream_revision.yml'
       - '.github/workflows/velox_native_build.yml'
       - '.github/workflows/util/iceberg-upstream/**'
-      - '.github/actions/checkout-merged/**'
+      - '.github/actions/**'
       - 'pom.xml'
       - 'backends-velox/**'
       - 'gluten-uniffle/**'
@@ -199,7 +199,7 @@ jobs:
           # apply the list here instead. Keep it in sync with `paths:`.
           if [ "$event" = "push" ] && ! echo "$changed" \
               | grep -vE '^cpp/bolt/|^cpp/bolt\.CMakeLists\.cmake$' \
-              | grep -qE '^(\.github/workflows/(velox_backend_x86|iceberg_spark_ut|iceberg_upstream_revision|velox_native_build)\.yml$|\.github/workflows/util/(parallel-ut|iceberg-upstream)/|\.github/actions/checkout-merged/|pom\.xml$|build/mvn$|(backends-velox|gluten-(uniffle|celeborn|core|substrait|arrow|delta|iceberg|hudi|paimon|ut)|package|shims|tools/gluten-it|ep/build-velox|cpp|dev)/)'; then
+              | grep -qE '^(\.github/workflows/(velox_backend_x86|iceberg_spark_ut|iceberg_upstream_revision|velox_native_build)\.yml$|\.github/workflows/util/(parallel-ut|iceberg-upstream)/|\.github/actions/|pom\.xml$|build/mvn$|(backends-velox|gluten-(uniffle|celeborn|core|substrait|arrow|delta|iceberg|hudi|paimon|ut)|package|shims|tools/gluten-it|ep/build-velox|cpp|dev)/)'; then
             echo "Nothing this workflow covers changed -- skipping."
             for flag in cpp java shims34 shims35 shims40 shims41 shims42 tools_it; do
               echo "$flag=false" >> $GITHUB_OUTPUT
@@ -250,8 +250,15 @@ jobs:
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+      - name: Get Ccache from apache/gluten main (fork push on Stash miss)
+        id: ccache-upstream
+        if: github.event_name == 'push' && steps.ccache-stash.outputs.stash-hit != 'true'
+        uses: ./.github/actions/restore-upstream-ccache
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
       - name: Get Ccache from actions/cache (fallback on Stash miss)
-        if: steps.ccache-stash.outputs.stash-hit != 'true'
+        if: steps.ccache-stash.outputs.stash-hit != 'true' && steps.ccache-upstream.outputs.hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
@@ -1168,8 +1175,15 @@ jobs:
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos9-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+      - name: Get Ccache from apache/gluten main (fork push on Stash miss)
+        id: ccache-upstream
+        if: github.event_name == 'push' && steps.ccache-stash.outputs.stash-hit != 'true'
+        uses: ./.github/actions/restore-upstream-ccache
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos9-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
       - name: Get Ccache from actions/cache (fallback on Stash miss)
-        if: steps.ccache-stash.outputs.stash-hit != 'true'
+        if: steps.ccache-stash.outputs.stash-hit != 'true' && steps.ccache-upstream.outputs.hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
@@ -1302,8 +1316,15 @@ jobs:
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos9-cudf-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+      - name: Get Ccache from apache/gluten main (fork push on Stash miss)
+        id: ccache-upstream
+        if: github.event_name == 'push' && steps.ccache-stash.outputs.stash-hit != 'true'
+        uses: ./.github/actions/restore-upstream-ccache
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos9-cudf-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
       - name: Get Ccache from actions/cache (fallback on Stash miss)
-        if: steps.ccache-stash.outputs.stash-hit != 'true'
+        if: steps.ccache-stash.outputs.stash-hit != 'true' && steps.ccache-upstream.outputs.hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
