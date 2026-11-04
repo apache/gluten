@@ -50,6 +50,21 @@ class IcebergScanTransformerSuite extends AnyFunSuite {
         .contains("Puffin deletion vector has incomplete metadata"))
   }
 
+  test("falls back when a Puffin deletion-vector range extends beyond the file") {
+    val outsideFile = deletionVector().toBuilder
+      .setContentOffset(250)
+      .setContentSizeInBytes(32)
+      .build()
+
+    assert(
+      IcebergScanTransformer
+        .validateDeleteFile(
+          outsideFile,
+          supportsEqualityDelete = false,
+          supportsDeletionVector = true)
+        .contains("Puffin deletion vector range exceeds file size"))
+  }
+
   test("falls back for unsupported equality deletes") {
     val parquetEquality =
       ReadRel.LocalFiles.FileOrFiles.IcebergReadOptions.DeleteFile

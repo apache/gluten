@@ -450,6 +450,11 @@ object IcebergScanTransformer {
         deleteFile.getDataSequenceNumber < 0
       ) {
         Some("Puffin deletion vector has incomplete metadata")
+      } else if (
+        deleteFile.getContentOffset > deleteFile.getFileSize ||
+        deleteFile.getContentSizeInBytes > deleteFile.getFileSize - deleteFile.getContentOffset
+      ) {
+        Some("Puffin deletion vector range exceeds file size")
       } else if (dataFilePath.exists(_ != deleteFile.getReferencedDataFile)) {
         Some("Puffin deletion vector does not reference the scanned data file")
       } else {
