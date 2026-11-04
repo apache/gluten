@@ -488,7 +488,12 @@ class GlutenBloomFilterFallbackSuite extends WholeStageTransformerSuite {
     }
   }
 
-  test("GLUTEN-13489: bloom_filter_agg on string column falls back to vanilla Spark") {
+  // Gated to Spark 3.5+: Spark's BloomFilterAggregate only supports StringType starting in
+  // Spark 3.5 (SPARK-43726); on Spark 3.4 CheckAnalysis rejects bloom_filter_agg(string) with
+  // DATATYPE_MISMATCH.BLOOM_FILTER_WRONG_TYPE before Optimizer/Gluten rules run.
+  testWithMinSparkVersion(
+    "GLUTEN-13489: bloom_filter_agg on string column falls back to vanilla Spark",
+    "3.5") {
     if (BackendsApiManager.getSettings.requireBloomFilterAggMightContainJointFallback()) {
       val table = "bloom_filter_str_test"
       withTempView(table) {
@@ -676,7 +681,11 @@ class GlutenBloomFilterFallbackSuite extends WholeStageTransformerSuite {
     }
   }
 
-  test("GLUTEN-13489: bloom_filter_agg on byte, short, and int columns offloads natively") {
+  // Gated to Spark 3.5+: Spark's BloomFilterAggregate only supports ByteType, ShortType, and
+  // IntegerType starting in Spark 3.5 (SPARK-41982); on Spark 3.4 only LongType is accepted.
+  testWithMinSparkVersion(
+    "GLUTEN-13489: bloom_filter_agg on byte, short, and int columns offloads natively",
+    "3.5") {
     if (BackendsApiManager.getSettings.requireBloomFilterAggMightContainJointFallback()) {
       val table = "bloom_filter_small_ints_test"
       withTempView(table) {
