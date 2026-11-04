@@ -104,13 +104,15 @@ jobs:
         run: |
           set -euo pipefail
           bash dev/ci-bolt-build.sh bolt-source 2>&1 | tee bolt-native-build.log
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/cpp/build/package/bolt/linux/amd64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
           source cpp/build/Release/generators/conanrun.sh
           # Fresh test containers have no copy of the native job's Conan dependencies.
           mkdir -p bolt-runtime
           libs=(cpp/build/package/bolt/linux/amd64/*.so
                 cpp/build/Release/bolt/udf/examples/libmyud{f,af}.so)
           ldd "${libs[@]}" > bolt-ci-reports/native/runtime-linkage.txt
-          if grep -q 'not found' bolt-ci-reports/native/runtime-linkage.txt; then exit 1; fi
+          if grep '=> not found' bolt-ci-reports/native/runtime-linkage.txt >&2; then exit 1; fi
           while read -r lib; do
             if [[ "$lib" == "$CONAN_HOME/"* ]]; then cp -L "$lib" bolt-runtime/; fi
           done < <(awk '$2 == "=>" {print $3}' bolt-ci-reports/native/runtime-linkage.txt | sort -u)
