@@ -220,6 +220,12 @@
           <version>${project.version}</version>
           <scope>test</scope>
         </dependency>
+        <dependency>
+          <groupId>org.apache.hudi</groupId>
+          <artifactId>hudi-spark${sparkbundle.version}-bundle_${scala.binary.version}</artifactId>
+          <version>${hudi.version}</version>
+          <scope>test</scope>
+        </dependency>
       </dependencies>
     </profile>
     <profile>
@@ -231,6 +237,12 @@
           <version>${project.version}</version>
           <scope>test</scope>
         </dependency>
+        <dependency>
+          <groupId>org.apache.iceberg</groupId>
+          <artifactId>iceberg-spark-runtime-${sparkbundle.version}_${scala.binary.version}</artifactId>
+          <version>${iceberg.version}</version>
+          <scope>test</scope>
+        </dependency>
       </dependencies>
     </profile>
     <profile>
@@ -240,6 +252,12 @@
           <groupId>org.apache.gluten</groupId>
           <artifactId>gluten-paimon</artifactId>
           <version>${project.version}</version>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
+          <groupId>org.apache.paimon</groupId>
+          <artifactId>paimon-spark-${sparkbundle.version}_${scala.binary.version}</artifactId>
+          <version>${paimon.version}</version>
           <scope>test</scope>
         </dependency>
       </dependencies>

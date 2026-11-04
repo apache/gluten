@@ -19,6 +19,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/bolt_backend_x86.yml'
+      - '.github/actions/restore-bolt-native/**'
       - 'pom.xml'
       - 'backends-bolt/**'
       - 'gluten-*/**'
@@ -56,7 +57,6 @@ env:
 jobs:
   native:
     runs-on: [self-hosted, Linux, X64, bolt-medium]
-    # Execution limit; queue timeout enforcement requires the external ECS monitor.
     timeout-minutes: 360
     env:
       CI_NUM_THREADS: '16'
@@ -77,6 +77,7 @@ jobs:
     outputs:
       native_artifact: ${{ steps.upload.outputs.artifact-id }}
       bolt_sha: ${{ steps.bolt.outputs.sha }}
+      artifact_name: ${{ steps.bolt.outputs.artifact_name }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/checkout@v7
@@ -86,7 +87,9 @@ jobs:
           path: bolt-source
       - name: Pin the Bolt revision for downstream builds
         id: bolt
-        run: echo "sha=$(git -C bolt-source rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "sha=$(git -C bolt-source rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=bolt-native-$GITHUB_SHA-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -120,7 +123,7 @@ jobs:
       - id: upload
         uses: actions/upload-artifact@v7
         with:
-          name: bolt-native-${{ github.sha }}
+          name: ${{ steps.bolt.outputs.artifact_name }}
           path: |
             bolt-native.tar.gz
       - name: Run native UT
@@ -140,13 +143,17 @@ jobs:
   jvm:
     name: Compile and package ${{ matrix.id }}
     needs: native
+    permissions:
+      contents: read
+      actions: read
     if: ${{ !cancelled() && needs.native.outputs.native_artifact != '' }}
     runs-on: [self-hosted, Linux, X64, bolt-medium]
-    # Execution limit; queue timeout enforcement requires the external ECS monitor.
     timeout-minutes: 360
     container:
       image: bolt-registry:5000/bolt-ci:20260921
       options: --user root --init
+      volumes:
+        - /data/gluten-ci-cache:/data/gluten-ci-cache
     strategy:
       fail-fast: false
       # Let Spark UT start while the packaging matrix is still running.
@@ -238,12 +245,9 @@ jobs:
           java-version: ${{ matrix.java }}
           cache: maven
           cache-dependency-path: '**/pom.xml'
-      - uses: actions/download-artifact@v8
+      - uses: ./.github/actions/restore-bolt-native
         with:
-          name: bolt-native-${{ github.sha }}
-      - name: Restore native libraries
-        run: |
-          tar -xzf bolt-native.tar.gz
+          artifact: ${{ needs.native.outputs.artifact_name }}
       - name: Compile main and test sources and package the Gluten JAR
         env:
           SPARK_VERSION: ${{ matrix.spark }}
@@ -294,6 +298,9 @@ jobs:
     if: ${{ !cancelled() && needs.native.outputs.native_artifact != '' }}
     name: Spark ${{ matrix.spark }} tests (${{ matrix.stage }})
     needs: native
+    permissions:
+      contents: read
+      actions: read
     runs-on: [self-hosted, Linux, X64, bolt-medium]
     timeout-minutes: 360
     strategy:
@@ -307,6 +314,8 @@ jobs:
     container:
       image: bolt-registry:5000/bolt-ci:20260921
       options: --user root --init
+      volumes:
+        - /data/gluten-ci-cache:/data/gluten-ci-cache
     env:
       GLUTEN_MAVEN_THREADS: '4'
       IN_CI: '1'
@@ -321,34 +330,22 @@ jobs:
           repository: bytedance/bolt
           ref: ${{ needs.native.outputs.bolt_sha }}
           path: ep/build-bolt/build/bolt_ep
-      # Keep the reference CI helpers independent of the Bolt engine revision under test.
-      - uses: actions/checkout@v7
-        with:
-          repository: bytedance/bolt
-          ref: 72f74589df524b2f4a7695b4f10c5b13a95812e8
-          path: bolt-ci-driver
-          sparse-checkout: .github/scripts
-          persist-credentials: false
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
           cache: maven
           cache-dependency-path: '**/pom.xml'
-      - name: Install report and package tools
-        run: |
-          if ! command -v jq || ! command -v xmllint || ! command -v unzip; then
-            apt-get update
-            apt-get install -y --no-install-recommends jq libxml2-utils unzip
-          fi
-      - uses: actions/download-artifact@v8
+      - uses: ./.github/actions/restore-bolt-native
         with:
-          name: bolt-native-${{ github.sha }}
-      - name: Restore native build and compile the Spark test modules
+          artifact: ${{ needs.native.outputs.artifact_name }}
+      - name: Compile the Spark test modules
         run: |
           export GLUTEN_DIR="$GITHUB_WORKSPACE" GLUTEN_REPORTS_DIR="$RUNNER_TEMP/bolt-spark-reports"
+          # Spark local[*] and Maven should use the same parallelism in this job.
+          export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:+$JAVA_TOOL_OPTIONS }-XX:ActiveProcessorCount=$GLUTEN_MAVEN_THREADS"
+          echo "JAVA_TOOL_OPTIONS=$JAVA_TOOL_OPTIONS" >> "$GITHUB_ENV"
           printf 'GLUTEN_DIR=%s\nGLUTEN_REPORTS_DIR=%s\n' "$GLUTEN_DIR" "$GLUTEN_REPORTS_DIR" >> "$GITHUB_ENV"
-          tar -xzf bolt-native.tar.gz
           export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/bolt-runtime${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
           source dev/ci-bolt-spark-env.sh
