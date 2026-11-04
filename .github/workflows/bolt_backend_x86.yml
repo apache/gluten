@@ -27,6 +27,8 @@ on:
       - 'cpp/**'
       - 'dev/**'
       - 'build/mvn'
+      - 'tools/gluten-it/**'
+      - '.github/workflows/util/install-spark-resources.sh'
   workflow_dispatch:
     inputs:
       bolt_ref:
@@ -61,16 +63,19 @@ jobs:
       CCACHE_DIR: /data/ccache-data
       CCACHE_MAXSIZE: 100G
     container:
-      image: bolt-registry:5000/bolt-ci:20260921-source-cache-v3
+      image: bolt-registry:5000/bolt-ci:20260921
       options: --user root --init
       volumes:
         - /data/ccache-data:/data/ccache-data
+        - /opt/bolt-arrow-sources:/opt/bolt-arrow-sources:ro
+        - /opt/bolt-arrow-cache.py:/opt/bolt-arrow-cache.py:ro
     services:
       conanserver:
         image: bolt-registry:5000/conan-server:latest
         volumes:
           - /data/conan-server-data:/var/conan/data
     outputs:
+      native_artifact: ${{ steps.upload.outputs.artifact-id }}
       bolt_sha: ${{ steps.bolt.outputs.sha }}
     steps:
       - uses: actions/checkout@v7
@@ -92,19 +97,35 @@ jobs:
           export CONAN_HOME="$RUNNER_TEMP/conan2-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-native"
           echo "CONAN_HOME=$CONAN_HOME" >> "$GITHUB_ENV"
           bash bolt-source/scripts/install-bolt-deps.sh
-          configure-bolt-conan-cache
+          python3 /opt/bolt-arrow-cache.py configure-local
           conan remote add ci http://conanserver:9300 --index 0
       - name: Compile native libraries, examples, benchmarks and test executables
         shell: bash
         run: |
           set -euo pipefail
           bash dev/ci-bolt-build.sh bolt-source 2>&1 | tee bolt-native-build.log
-          tar -czf bolt-native.tar.gz cpp/build/package/bolt
-      - uses: actions/upload-artifact@v7
+          source cpp/build/Release/generators/conanrun.sh
+          # Fresh test containers have no copy of the native job's Conan dependencies.
+          mkdir -p bolt-runtime
+          libs=(cpp/build/package/bolt/linux/amd64/*.so
+                cpp/build/Release/bolt/udf/examples/libmyud{f,af}.so)
+          ldd "${libs[@]}" > bolt-ci-reports/native/runtime-linkage.txt
+          if grep -q 'not found' bolt-ci-reports/native/runtime-linkage.txt; then exit 1; fi
+          while read -r lib; do
+            if [[ "$lib" == "$CONAN_HOME/"* ]]; then cp -L "$lib" bolt-runtime/; fi
+          done < <(awk '$2 == "=>" {print $3}' bolt-ci-reports/native/runtime-linkage.txt | sort -u)
+          tar -czf bolt-native.tar.gz cpp/build/package/bolt bolt-runtime "${libs[@]: -2}"
+      - id: upload
+        uses: actions/upload-artifact@v7
         with:
           name: bolt-native-${{ github.sha }}
           path: |
             bolt-native.tar.gz
+      - name: Run native UT
+        run: |
+          source cpp/build/Release/generators/conanrun.sh
+          ctest --test-dir cpp/build/Release --no-tests=error --output-on-failure \
+            --output-junit "$GITHUB_WORKSPACE/bolt-ci-reports/native/TEST-native.xml" -j "$CI_NUM_THREADS"
       - name: Upload native build evidence
         if: always()
         uses: actions/upload-artifact@v7
@@ -117,6 +138,7 @@ jobs:
   jvm:
     name: Compile and package ${{ matrix.id }}
     needs: native
+    if: ${{ !cancelled() && needs.native.outputs.native_artifact != '' }}
     runs-on: [self-hosted, Linux, X64, bolt-medium]
     # Execution limit; queue timeout enforcement requires the external ECS monitor.
     timeout-minutes: 360
@@ -263,3 +285,204 @@ jobs:
           path: |
             package/target/gluten-bolt-bundle-*.jar
             bolt-jvm-build.log
+
+  spark-ut:
+    if: ${{ !cancelled() && needs.native.outputs.native_artifact != '' }}
+    name: Spark 3.5 tests (${{ matrix.stage }})
+    needs: native
+    runs-on: [self-hosted, Linux, X64, bolt-medium]
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        stage: [jvm, spark-1, spark-2, spark-3, extended, slow-hive, tpc]
+    container:
+      image: bolt-registry:5000/bolt-ci:20260921
+      options: --user root --init
+    env:
+      GLUTEN_MAVEN_THREADS: '4'
+      IN_CI: '1'
+      LC_ALL: C.UTF-8
+      CI_BUILD: spark35
+      CI_TEST_STAGES: ${{ matrix.stage == 'jvm' && 'jvm,delta' || matrix.stage }}
+      GLUTEN_EXCLUDED_TAGS: org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: bytedance/bolt
+          ref: ${{ needs.native.outputs.bolt_sha }}
+          path: ep/build-bolt/build/bolt_ep
+      # Keep the reference CI helpers independent of the Bolt engine revision under test.
+      - uses: actions/checkout@v7
+        with:
+          repository: bytedance/bolt
+          ref: 72f74589df524b2f4a7695b4f10c5b13a95812e8
+          path: bolt-ci-driver
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          cache-dependency-path: '**/pom.xml'
+      - name: Install report and package tools
+        run: |
+          if ! command -v jq || ! command -v xmllint || ! command -v unzip; then
+            apt-get update
+            apt-get install -y --no-install-recommends jq libxml2-utils unzip
+          fi
+      - uses: actions/download-artifact@v8
+        with:
+          name: bolt-native-${{ github.sha }}
+      - name: Restore native build and compile the Spark test modules
+        run: |
+          export GLUTEN_DIR="$GITHUB_WORKSPACE" GLUTEN_REPORTS_DIR="$RUNNER_TEMP/bolt-spark-reports"
+          printf 'GLUTEN_DIR=%s\nGLUTEN_REPORTS_DIR=%s\n' "$GLUTEN_DIR" "$GLUTEN_REPORTS_DIR" >> "$GITHUB_ENV"
+          tar -xzf bolt-native.tar.gz
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/bolt-runtime${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
+          source bolt-ci-driver/.github/scripts/gluten_ci.sh
+          ci_init
+          (cd cpp/build/package/bolt/linux/amd64 && sha256sum *.so) > "${GLUTEN_REPORTS_DIR}/native.sha256"
+          cd "${GLUTEN_DIR}"
+          ci_run "${GLUTEN_REPORTS_DIR}/jvm-build.log" ci_runtime \
+            "${MVN[@]}" -T "${GLUTEN_MAVEN_THREADS}" install -Pspark-ut -DskipTests=true -pl '!package'
+          (cd "backends-bolt/target/scala-${SCALA_VERSION}/classes/linux/amd64" \
+            && sha256sum -c "${GLUTEN_REPORTS_DIR}/native.sha256")
+      - name: Provision Gluten Spark test environment
+        run: |
+          source bolt-ci-driver/.github/scripts/gluten_ci.sh
+          ci_init
+          python3 -m pip install --disable-pip-version-check \
+            setuptools==77.0.3 Cython==3.3.0 numpy==1.26.4 \
+            "pyspark==${SPARK_VERSION}" pandas==2.2.3 pyarrow==20.0.0
+          command -v shasum
+          resources="${BOLT_ROOT}/.ci/spark-resources"
+          ci_spark_resources
+          export BOLT_GLUTEN_SPARK_HOME="${resources}/shims/${SPARK_RESOURCE_MODULE}/spark_home"
+          # Gluten keeps jars in the source assembly layout; Spark's launchers
+          # also need the binary distribution layout.
+          ln -s "assembly/target/scala-${SCALA_VERSION}/jars" \
+            "${BOLT_GLUTEN_SPARK_HOME}/jars"
+          ci_spark_environment
+          printf 'BOLT_GLUTEN_SPARK_HOME=%s\nSPARK_HOME=%s\nPYTHONPATH=%s\nPYSPARK_PYTHON=%s\n' \
+            "${BOLT_GLUTEN_SPARK_HOME}" "${SPARK_HOME}" "${PYTHONPATH}" \
+            "$(command -v python3)" >> "${GITHUB_ENV}"
+      - name: Run backend JVM and isolated Delta suites
+        if: ${{ success() && matrix.stage == 'jvm' }}
+        run: |
+          source bolt-ci-driver/.github/scripts/gluten_ci.sh
+          ci_init
+          ci_spark_environment
+          MVN+=("-Dbolt.native.loader.path=${GLUTEN_DIR}/cpp/build/package/bolt/linux/amd64/libglutenlibloader.so")
+          failed=0
+          output="${GLUTEN_REPORTS_DIR}/jvm"
+          mkdir -p "${output}"
+          cd "${GLUTEN_DIR}"
+          ci_runtime "${MVN[@]}" dependency:build-classpath -pl backends-bolt \
+            -DincludeScope=test "-Dmdep.outputFile=${output}/test-classpath.txt"
+          classes="${GLUTEN_DIR}/backends-bolt/target/scala-${SCALA_VERSION}"
+          "${JAVA_HOME}/bin/java" --class-path \
+            "${classes}/test-classes:${classes}/classes:$(cat "${output}/test-classpath.txt")" \
+            "${BOLT_ROOT}/.github/scripts/DiscoverGlutenSuites.java" \
+            "${output}/discovered-suites.txt" "${classes}/test-classes" "${classes}/classes"
+          ordinary=() delta=()
+          while IFS= read -r suite; do
+            if [[ "${suite}" == org.apache.spark.sql.delta.* ]]; then
+              delta+=("${suite}")
+            else
+              ordinary+=("${suite}")
+            fi
+          done < "${output}/discovered-suites.txt"
+          ((${#ordinary[@]} > 0))
+          selected="$(IFS=,; printf '%s' "${ordinary[*]}")"
+          CI_GROUP=backend CI_SUITES="${selected}" ci_maven_test jvm backends-bolt \
+            "${MVN[@]}" surefire:test scalatest:test "-DtagsToExclude=${GLUTEN_EXCLUDED_TAGS}" \
+            "-DargLine=-Xmx4g -Dspark.test.home=${SPARK_HOME}" || failed=1
+          if [[ ",${CI_TEST_STAGES}," == *,delta,* ]]; then
+            ((${#delta[@]} > 0))
+            for suite in "${delta[@]}"; do
+              CI_GROUP="${suite}" CI_SUITES="${suite}" ci_maven_test jvm backends-bolt \
+                "${MVN[@]}" scalatest:test "-DtagsToExclude=${GLUTEN_EXCLUDED_TAGS}" \
+                "-DargLine=-Xmx4g -Dspark.test.home=${SPARK_HOME}" || failed=1
+            done
+          fi
+          exit "${failed}"
+      - name: Run the reference Spark SQL unit test groups
+        if: ${{ success() && startsWith(matrix.stage, 'spark-') }}
+        run: |
+          source bolt-ci-driver/.github/scripts/gluten_ci.sh
+          ci_init
+          ci_spark_environment
+          groups=(
+            org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten
+            org.apache.spark.sql.execution,org.apache.spark.sql.catalyst,org.apache.spark.sql.errors,org.apache.spark.sql.extension
+            org.apache.spark.sql.GlutenSQL,org.apache.spark.sql.Gluten,org.apache.spark.sql.connector,org.apache.spark.sql.sources,org.apache.spark.sql.hive,org.apache.spark.sql.gluten,org.apache.spark.sql.shim
+          )
+          excluded="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,${GLUTEN_EXCLUDED_TAGS}"
+          failed=0
+          for group in 1 2 3; do
+            [[ "${CI_TEST_STAGES}" == "spark-${group}" ]] || continue
+            ci_maven_test "spark-${group}" reactor "${MVN[@]}" surefire:test scalatest:test -Pspark-ut \
+              "-DwildcardSuites=${groups[$((group-1))]}" "-DtagsToExclude=${excluded}" \
+              "-DargLine=-Xmx4g -Dspark.test.home=${SPARK_HOME}" || failed=1
+          done
+          exit "${failed}"
+      - name: Run Extended SQL and Slow Hive tests
+        if: ${{ success() && (matrix.stage == 'extended' || matrix.stage == 'slow-hive') }}
+        run: |
+          source bolt-ci-driver/.github/scripts/gluten_ci.sh
+          ci_init
+          ci_spark_environment
+          failed=0
+          for stage in extended slow-hive; do
+            [[ ",${CI_TEST_STAGES}," == *,"${stage}",* ]] || continue
+            tag=ExtendedSQLTest
+            [[ "${stage}" != slow-hive ]] || tag=SlowHiveTest
+            ci_maven_test "${stage}" reactor "${MVN[@]}" surefire:test scalatest:test -Pspark-ut \
+              "-DtagsToInclude=org.apache.spark.tags.${tag}" \
+              "-DargLine=-Xmx4g -Dspark.test.home=${SPARK_HOME}" || failed=1
+          done
+          exit "${failed}"
+      - name: Compare TPC-H and TPC-DS against vanilla Spark
+        if: ${{ success() && matrix.stage == 'tpc' }}
+        run: |
+          source bolt-ci-driver/.github/scripts/gluten_ci.sh
+          ci_init
+          cd "${GLUTEN_DIR}"
+          ci_runtime "${MVN[@]}" -T "${GLUTEN_MAVEN_THREADS}" install -DskipTests=true
+          cd tools/gluten-it
+          ci_runtime "${GLUTEN_DIR}/build/mvn" -ntp install \
+            "-Pspark-${SPARK_PROFILE}" "-Pjava-${JDK_VERSION}"
+          bundles=()
+          for jar in "${GLUTEN_DIR}"/package/target/gluten-package-*.jar; do
+            case "${jar}" in
+              *-sources.jar|*-test-sources.jar|*-tests.jar|*-javadoc.jar|*-"${SPARK_PROFILE}".jar) continue ;;
+            esac
+            bundles+=("${jar}")
+          done
+          ((${#bundles[@]} == 1))
+          cmp "${bundles[0]}" "package/target/lib/${bundles[0]##*/}"
+          failed=0
+          for kind in h ds; do
+            stage="tpc-${kind}"
+            output="${GLUTEN_REPORTS_DIR}/${stage}"
+            mkdir -p "${output}"
+            : > "${output}/run.log"
+            GLUTEN_IT_JVM_ARGS=-Xmx6G ci_run "${output}/run.log" ci_runtime \
+              bash sbin/gluten-it.sh queries-compare --local --preset=velox \
+              --baseline-preset=vanilla "--benchmark-type=${kind}" --error-on-memleak \
+              --explain --off-heap-size=10g -s=1.0 --threads=16 --iterations=1 || failed=1
+          done
+          exit "${failed}"
+      - name: Preserve Spark test reports and logs
+        if: ${{ always() && env.GLUTEN_REPORTS_DIR != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: bolt-spark35-${{ matrix.stage }}-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.GLUTEN_REPORTS_DIR }}/
+            **/hs_err_*.log
+          retention-days: 14
