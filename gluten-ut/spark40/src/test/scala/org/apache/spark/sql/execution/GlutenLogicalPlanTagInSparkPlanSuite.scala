@@ -17,6 +17,7 @@
 package org.apache.spark.sql.execution
 
 import org.apache.gluten.execution._
+import org.apache.gluten.utils.BackendTestUtils
 
 import org.apache.spark.sql.GlutenSQLTestsTrait
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, Complete, Final}
@@ -96,9 +97,10 @@ class GlutenLogicalPlanTagInSparkPlanSuite
         assert(plan.getTagValue(SparkPlan.LOGICAL_PLAN_TAG).isEmpty)
 
       // Gluten infrastructure nodes (no corresponding logical plan)
-      case _: WholeStageTransformer | _: InputIteratorTransformer | _: ColumnarInputAdapter |
-          _: VeloxResizeBatchesExec =>
+      case _: WholeStageTransformer | _: InputIteratorTransformer | _: ColumnarInputAdapter =>
       // These are Gluten-specific wrapper nodes without logical plan links.
+      case p if BackendTestUtils.resizeBatchesClass.isInstance(p) =>
+      // Batch resizing also has no corresponding logical plan.
 
       // Scan trees
       case _ if isGlutenScanPlanTree(plan) =>

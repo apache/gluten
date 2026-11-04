@@ -69,7 +69,8 @@ class BoltExpressionRuntimeSuite extends BoltWholeStageTransformerSuite {
     withInput(new StructType().add("json", StringType), Seq(Row(json), Row(null))) {
       runQueryAndCompare(
         """SELECT from_json(json,
-          |'STRUCT<Outer:STRUCT<ChildKey:INT>,ArrayKey:ARRAY<STRUCT<ChildKey:INT>>,MapKey:MAP<STRING,STRUCT<ChildKey:INT>>>')
+          |'STRUCT<Outer:STRUCT<ChildKey:INT>,
+          |        ArrayKey:ARRAY<STRUCT<ChildKey:INT>>,MapKey:MAP<STRING,STRUCT<ChildKey:INT>>>')
           |FROM bolt_expression_input""".stripMargin) {
         df => assert(getExecutedPlan(df).exists(_.isInstanceOf[ProjectExecTransformer]))
       }

@@ -288,14 +288,18 @@ jobs:
 
   spark-ut:
     if: ${{ !cancelled() && needs.native.outputs.native_artifact != '' }}
-    name: Spark 3.5 tests (${{ matrix.stage }})
+    name: Spark ${{ matrix.spark }} tests (${{ matrix.stage }})
     needs: native
     runs-on: [self-hosted, Linux, X64, bolt-medium]
     timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
-        stage: [jvm, spark-1, spark-2, spark-3, extended, slow-hive, tpc]
+        spark: ['3.4', '3.5', '4.0', '4.1', '4.2']
+        stage: [spark-1, spark-2, spark-3, extended, slow-hive]
+        include:
+          - {spark: '3.5', stage: jvm}
+          - {spark: '3.5', stage: tpc}
     container:
       image: bolt-registry:5000/bolt-ci:20260921
       options: --user root --init
@@ -303,7 +307,7 @@ jobs:
       GLUTEN_MAVEN_THREADS: '4'
       IN_CI: '1'
       LC_ALL: C.UTF-8
-      CI_BUILD: spark35
+      SPARK_PROFILE: ${{ matrix.spark }}
       CI_TEST_STAGES: ${{ matrix.stage == 'jvm' && 'jvm,delta' || matrix.stage }}
       GLUTEN_EXCLUDED_TAGS: org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest
     steps:
@@ -343,8 +347,7 @@ jobs:
           tar -xzf bolt-native.tar.gz
           export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/bolt-runtime${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
-          source bolt-ci-driver/.github/scripts/gluten_ci.sh
-          ci_init
+          source dev/ci-bolt-spark-env.sh
           (cd cpp/build/package/bolt/linux/amd64 && sha256sum *.so) > "${GLUTEN_REPORTS_DIR}/native.sha256"
           cd "${GLUTEN_DIR}"
           ci_run "${GLUTEN_REPORTS_DIR}/jvm-build.log" ci_runtime \
@@ -353,11 +356,14 @@ jobs:
             && sha256sum -c "${GLUTEN_REPORTS_DIR}/native.sha256")
       - name: Provision Gluten Spark test environment
         run: |
-          source bolt-ci-driver/.github/scripts/gluten_ci.sh
-          ci_init
+          source dev/ci-bolt-spark-env.sh
+          if [[ ${SPARK_PROFILE} == 3.* ]]; then
+            python_deps=("pyspark==${SPARK_VERSION}" numpy==1.26.4 pandas==2.2.3 pyarrow==20.0.0)
+          else
+            python_deps=("pyspark[sql]==${SPARK_VERSION}")
+          fi
           python3 -m pip install --disable-pip-version-check \
-            setuptools==77.0.3 Cython==3.3.0 numpy==1.26.4 \
-            "pyspark==${SPARK_VERSION}" pandas==2.2.3 pyarrow==20.0.0
+            setuptools==77.0.3 Cython==3.3.0 "${python_deps[@]}"
           command -v shasum
           resources="${BOLT_ROOT}/.ci/spark-resources"
           ci_spark_resources
@@ -373,8 +379,7 @@ jobs:
       - name: Run backend JVM and isolated Delta suites
         if: ${{ success() && matrix.stage == 'jvm' }}
         run: |
-          source bolt-ci-driver/.github/scripts/gluten_ci.sh
-          ci_init
+          source dev/ci-bolt-spark-env.sh
           ci_spark_environment
           MVN+=("-Dbolt.native.loader.path=${GLUTEN_DIR}/cpp/build/package/bolt/linux/amd64/libglutenlibloader.so")
           failed=0
@@ -413,8 +418,7 @@ jobs:
       - name: Run the reference Spark SQL unit test groups
         if: ${{ success() && startsWith(matrix.stage, 'spark-') }}
         run: |
-          source bolt-ci-driver/.github/scripts/gluten_ci.sh
-          ci_init
+          source dev/ci-bolt-spark-env.sh
           ci_spark_environment
           groups=(
             org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten
@@ -433,8 +437,7 @@ jobs:
       - name: Run Extended SQL and Slow Hive tests
         if: ${{ success() && (matrix.stage == 'extended' || matrix.stage == 'slow-hive') }}
         run: |
-          source bolt-ci-driver/.github/scripts/gluten_ci.sh
-          ci_init
+          source dev/ci-bolt-spark-env.sh
           ci_spark_environment
           failed=0
           for stage in extended slow-hive; do
@@ -449,8 +452,7 @@ jobs:
       - name: Compare TPC-H and TPC-DS against vanilla Spark
         if: ${{ success() && matrix.stage == 'tpc' }}
         run: |
-          source bolt-ci-driver/.github/scripts/gluten_ci.sh
-          ci_init
+          source dev/ci-bolt-spark-env.sh
           cd "${GLUTEN_DIR}"
           ci_runtime "${MVN[@]}" -T "${GLUTEN_MAVEN_THREADS}" install -DskipTests=true
           cd tools/gluten-it
@@ -481,7 +483,7 @@ jobs:
         if: ${{ always() && env.GLUTEN_REPORTS_DIR != '' }}
         uses: actions/upload-artifact@v7
         with:
-          name: bolt-spark35-${{ matrix.stage }}-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          name: bolt-spark-${{ matrix.spark }}-${{ matrix.stage }}-reports-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ env.GLUTEN_REPORTS_DIR }}/
             **/hs_err_*.log

@@ -37,7 +37,7 @@ class BoltSpillPathSuite extends AnyFunSuite {
 
   test("local spill paths retain their exact value") {
     withFileSystem("local") {
-      Seq("/tmp/spill", "/tmp/spark%20disk", "/tmp/a b?#%{spill}", "/tmp/溢写").foreach {
+      Seq("/tmp/spill", "/tmp/spark%20disk", "/tmp/a b?#%{spill}", "/tmp/\u6ea2\u5199").foreach {
         path => assert(api.rewriteSpillPath(path) == path)
       }
     }
@@ -47,7 +47,7 @@ class BoltSpillPathSuite extends AnyFunSuite {
     val root = Files.createTempDirectory("bolt-spill-path")
     try {
       withFileSystem("heap-over-local") {
-        Seq("spark%20disk", "spark%2520disk", "a b?#%{spill}", "溢写").foreach {
+        Seq("spark%20disk", "spark%2520disk", "a b?#%{spill}", "\u6ea2\u5199").foreach {
           name =>
             val directory = Files.createDirectory(root.resolve(name))
             val marker = Files.write(directory.resolve("spill.data"), Array[Byte](1, 2, 3))
