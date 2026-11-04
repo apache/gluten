@@ -84,7 +84,10 @@ class GlutenRuntimeNullChecksV2Writes extends RuntimeNullChecksV2Writes with Glu
     }
   }
 
-  /** Only the byPosition case is overridden. */
+  testGluten("NOT NULL checks for fields inside nullable maps (byName)") {
+    checkNotNullFieldsInsideNullableMap(byName = true)
+  }
+
   testGluten("NOT NULL checks for fields inside nullable maps (byPosition)") {
     checkNotNullFieldsInsideNullableMap(byName = false)
   }
