@@ -28,6 +28,7 @@ import java.nio.file.{Files, Paths}
 
 class BoltSpillPathSuite extends AnyFunSuite {
   private val api = new BoltSparkPlanExecApi
+  private val unicodeName = new String(Array(0x6ea2, 0x5199), 0, 2)
 
   private def withFileSystem(system: String)(body: => Unit): Unit = {
     val conf = new SQLConf
@@ -37,7 +38,7 @@ class BoltSpillPathSuite extends AnyFunSuite {
 
   test("local spill paths retain their exact value") {
     withFileSystem("local") {
-      Seq("/tmp/spill", "/tmp/spark%20disk", "/tmp/a b?#%{spill}", "/tmp/\u6ea2\u5199").foreach {
+      Seq("/tmp/spill", "/tmp/spark%20disk", "/tmp/a b?#%{spill}", s"/tmp/$unicodeName").foreach {
         path => assert(api.rewriteSpillPath(path) == path)
       }
     }
@@ -47,7 +48,7 @@ class BoltSpillPathSuite extends AnyFunSuite {
     val root = Files.createTempDirectory("bolt-spill-path")
     try {
       withFileSystem("heap-over-local") {
-        Seq("spark%20disk", "spark%2520disk", "a b?#%{spill}", "\u6ea2\u5199").foreach {
+        Seq("spark%20disk", "spark%2520disk", "a b?#%{spill}", unicodeName).foreach {
           name =>
             val directory = Files.createDirectory(root.resolve(name))
             val marker = Files.write(directory.resolve("spill.data"), Array[Byte](1, 2, 3))

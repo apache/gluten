@@ -149,6 +149,8 @@ jobs:
       options: --user root --init
     strategy:
       fail-fast: false
+      # Let Spark UT start while the packaging matrix is still running.
+      max-parallel: 2
       matrix:
         # Build the supported Spark/JDK combinations from velox_backend_x86.
         # Spark and connector test projects are enabled in the next stage.
