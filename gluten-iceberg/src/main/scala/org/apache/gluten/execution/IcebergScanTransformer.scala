@@ -66,9 +66,8 @@ case class IcebergScanTransformer(
     commonPartitionValues = commonPartitionValues
   ) {
 
-  // PartitionReader reports the metric by currentMetricsValues,
-  // but the implementation is different.
-  // So use Metric to get NumSplits, NumDeletes is not reported by native metric
+  // Native scans do not use PartitionReader.currentMetricsValues.
+  // Track NumSplits while constructing the native splits.
   private val numSplits = SQLMetrics.createMetric(sparkContext, new NumSplits().description())
 
   private lazy val icebergInitialDefaults =

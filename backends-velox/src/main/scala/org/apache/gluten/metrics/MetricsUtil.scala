@@ -87,6 +87,7 @@ object MetricsUtil extends Logging {
     metrics.scanTime = customMetricSum(node, "totalScanTime")
     metrics.skippedSplits = customMetricSum(node, "skippedSplits")
     metrics.processedSplits = customMetricSum(node, "processedSplits")
+    metrics.numDeletes = customMetricSum(node, "icebergPositionalDeleteRows")
     metrics.skippedStrides = customMetricSum(node, "skippedStrides")
     metrics.processedStrides = customMetricSum(node, "processedStrides")
     metrics.remainingFilterTime = customMetricSum(node, "totalRemainingFilterWallNanos")
@@ -251,6 +252,7 @@ object MetricsUtil extends Logging {
     var scanTime: Long = 0
     var skippedSplits: Long = 0
     var processedSplits: Long = 0
+    var numDeletes: Long = 0
     var skippedStrides: Long = 0
     var processedStrides: Long = 0
     var remainingFilterTime: Long = 0
@@ -293,6 +295,7 @@ object MetricsUtil extends Logging {
       scanTime += metrics.scanTime
       skippedSplits += metrics.skippedSplits
       processedSplits += metrics.processedSplits
+      numDeletes += metrics.numDeletes
       skippedStrides += metrics.skippedStrides
       processedStrides += metrics.processedStrides
       remainingFilterTime += metrics.remainingFilterTime
@@ -356,6 +359,7 @@ object MetricsUtil extends Logging {
       numWrittenFiles,
       loadLazyVectorTime
     )
+    aggregated.numDeletes = numDeletes
     aggregated.bloomFilterTestedRows = bloomFilterTestedRows
     aggregated.bloomFilterAcceptedRows = bloomFilterAcceptedRows
     aggregated.bloomFilterBypassed = bloomFilterBypassed

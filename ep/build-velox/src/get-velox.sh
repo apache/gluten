@@ -234,5 +234,10 @@ fi
 
 apply_provided_velox_patch
 
+# Temporary backport of https://github.com/facebookincubator/velox/pull/20084.
+# Remove this application and iceberg-delete-metrics.patch once the pinned Velox
+# versions include that fix.
+git -C "$VELOX_HOME" apply "$CURRENT_DIR/iceberg-delete-metrics.patch"
+
 
 echo "Finished getting Velox code"

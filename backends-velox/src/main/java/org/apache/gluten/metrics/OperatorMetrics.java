@@ -49,6 +49,7 @@ public class OperatorMetrics implements IOperatorMetrics {
   public long bloomFilterBypassed;
   public long skippedSplits;
   public long processedSplits;
+  public long numDeletes;
   public long skippedStrides;
   public long processedStrides;
   public long remainingFilterTime;

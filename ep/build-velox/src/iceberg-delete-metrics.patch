@@ -1,0 +1,18 @@
+diff --git a/velox/connectors/hive/iceberg/IcebergSplitReader.cpp b/velox/connectors/hive/iceberg/IcebergSplitReader.cpp
+index e3cf0aa35..e97291862 100644
+--- a/velox/connectors/hive/iceberg/IcebergSplitReader.cpp
++++ b/velox/connectors/hive/iceberg/IcebergSplitReader.cpp
+@@ -1124,8 +1124,13 @@ uint64_t IcebergSplitReader::next(uint64_t size, VectorPtr& output) {
+       ? deleteBitmap_->as<uint64_t>()
+       : nullptr;
+
+   auto rowsScanned = baseRowReader_->next(actualSize, output, &mutation);
++  if (mutation.deletedRows != nullptr) {
++    ioStats_->addCounter(
++        "icebergPositionalDeleteRows",
++        RuntimeCounter(bits::countBits(mutation.deletedRows, 0, rowsScanned)));
++  }
+
+   auto* pool = connectorQueryCtx_->memoryPool();
+
+ #ifdef VELOX_ENABLE_GEO
