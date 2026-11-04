@@ -623,6 +623,14 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
           "select convert_timezone('America/Los_Angeles', 'Asia/Shanghai', ts) from view") {
           checkGlutenPlan[ProjectExecTransformer]
         }
+        // unix_timestamp/to_unix_timestamp(timestamp_ntz) run natively; output is long
+        // (no NTZ propagation).
+        runQueryAndCompare("select unix_timestamp(ts) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        runQueryAndCompare("select to_unix_timestamp(ts) from view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
         // make_timestamp_ntz runs natively; output stays timestamp_ntz.
         runQueryAndCompare(
           "select make_timestamp_ntz(2021, 7, 11, 6, 30, 45.678) from view") {
@@ -751,6 +759,40 @@ class DateFunctionsValidateSuite extends FunctionsValidateSuite {
         // Ensure native execution works under a non-UTC session timezone.
         withSQLConf("spark.sql.session.timeZone" -> "America/Los_Angeles") {
           runQueryAndCompare("select cast(d as timestamp_ntz) from date_view") {
+            checkGlutenPlan[ProjectExecTransformer]
+          }
+        }
+    }
+
+    withTempPath {
+      dir =>
+        val path = dir.getAbsolutePath
+        // A negative epoch second with a fractional part truncates toward zero:
+        // 1969-12-31 23:59:59.5 is 0, not -1, and 23:59:58.5 is -1. Plus a NULL row.
+        // Values come from a table, since literals would be constant-folded before
+        // reaching native execution.
+        Seq(
+          Some("1969-12-31 23:59:59.5"),
+          Some("1969-12-31 23:59:58.5"),
+          None
+        ).toDF("input")
+          .selectExpr("cast(input as timestamp_ntz) as ts")
+          .coalesce(1)
+          .write
+          .mode("overwrite")
+          .parquet(path)
+        spark.read.parquet(path).createOrReplaceTempView("unix_timestamp_ntz_view")
+
+        runQueryAndCompare("select unix_timestamp(ts) from unix_timestamp_ntz_view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        runQueryAndCompare("select to_unix_timestamp(ts) from unix_timestamp_ntz_view") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+
+        // Ensure native execution works under a non-UTC session timezone.
+        withSQLConf("spark.sql.session.timeZone" -> "America/Los_Angeles") {
+          runQueryAndCompare("select unix_timestamp(ts) from unix_timestamp_ntz_view") {
             checkGlutenPlan[ProjectExecTransformer]
           }
         }
