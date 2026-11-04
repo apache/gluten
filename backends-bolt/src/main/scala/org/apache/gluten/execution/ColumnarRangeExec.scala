@@ -19,14 +19,16 @@ package org.apache.gluten.execution
 import org.apache.gluten.backendsapi.arrow.ArrowBatchTypes.ArrowJavaBatchType
 import org.apache.gluten.extension.columnar.transition.Convention
 import org.apache.gluten.iterator.Iterators
-import org.apache.gluten.vectorized.ArrowWritableColumnVector
+import org.apache.gluten.vectorized.ArrowColumnVectors
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.expressions.SortOrder
 import org.apache.spark.sql.catalyst.plans.logical.{Range => LogicalRange}
 import org.apache.spark.sql.catalyst.plans.physical.{Partitioning, RangePartitioning, SinglePartition, UnknownPartitioning}
 import org.apache.spark.sql.execution.{ColumnarRangeBaseExec, SparkPlan}
-import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
+import org.apache.spark.sql.vectorized.ColumnarBatch
+
+import org.apache.arrow.vector.BigIntVector
 
 /**
  * ColumnarRangeExec is a concrete implementation of ColumnarRangeBaseExec that executes the Range
@@ -93,22 +95,20 @@ case class ColumnarRangeExec(range: LogicalRange) extends ColumnarRangeBaseExec 
               }
 
               override def next(): ColumnarBatch = {
-                val numRows = math.min(
-                  ((safePartitionEnd - current) / step).toInt.max(1),
-                  batchSize
-                )
+                val remaining = (safePartitionEnd - current) / step
+                val numRows = remaining.min(BigInt(batchSize)).max(BigInt(1)).toInt
 
-                val vectors = ArrowWritableColumnVector.allocateColumns(numRows, schema)
-
+                val root = ArrowColumnVectors.allocateRoot(schema)
+                val vector = root.getVector(0).asInstanceOf[BigIntVector]
+                vector.allocateNew(numRows)
                 for (i <- 0 until numRows) {
-                  val value = current + i * step
-                  vectors(0).putLong(i, getSafeMargin(value))
+                  val value = current + BigInt(i) * step
+                  vector.set(i, getSafeMargin(value))
                 }
-                vectors.foreach(_.setValueCount(numRows))
-                current += numRows * step
+                root.setRowCount(numRows)
+                current += BigInt(numRows) * step
 
-                val batch = new ColumnarBatch(vectors.asInstanceOf[Array[ColumnVector]], numRows)
-                batch
+                ArrowColumnVectors.toBatch(root)
               }
             }
             Iterators
