@@ -96,7 +96,7 @@ void dynamicMemoryQuotaManagerConf(
   GLUTEN_CHECK(
       ratioList.size() == DynamicMemoryQuotaManagerOption::RatioKey::KEY_NUM,
       fmt::format(
-          "spark.gluten.boltMemoryManager.dynamicMemoryQuotaManager.ratios paramter"
+          "spark.gluten.boltMemoryManager.dynamicMemoryQuotaManager.ratios parameter"
           " format is wrong! ratioList is {}, expect size is {}",
           fmt::join(ratioList, ","),
           static_cast<int>(DynamicMemoryQuotaManagerOption::RatioKey::KEY_NUM)));
