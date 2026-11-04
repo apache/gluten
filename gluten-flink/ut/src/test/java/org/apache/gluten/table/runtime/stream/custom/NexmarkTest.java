@@ -16,14 +16,22 @@
  */
 package org.apache.gluten.table.runtime.stream.custom;
 
+import org.apache.gluten.streaming.runtime.partitioner.GlutenKeyGroupStreamPartitioner;
 import org.apache.gluten.table.runtime.stream.common.Velox4jEnvironment;
 
 import org.apache.flink.api.common.JobStatus;
+import org.apache.flink.api.dag.Transformation;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.core.execution.JobClient;
+import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.transformations.PartitionTransformation;
+import org.apache.flink.streaming.runtime.partitioner.StreamPartitioner;
 import org.apache.flink.table.api.EnvironmentSettings;
+import org.apache.flink.table.api.Table;
 import org.apache.flink.table.api.TableResult;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
+import org.apache.flink.types.Row;
 
 import com.salesforce.kafka.test.junit5.SharedKafkaTestResource;
 import com.salesforce.kafka.test.listeners.PlainListener;
@@ -33,6 +41,7 @@ import org.apache.orc.OrcFile;
 import org.apache.orc.Reader;
 import org.apache.orc.RecordReader;
 import org.apache.orc.TypeDescription;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -57,6 +66,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
+import static org.apache.flink.runtime.state.KeyGroupRangeAssignment.DEFAULT_LOWER_BOUND_MAX_PARALLELISM;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -163,6 +173,65 @@ public class NexmarkTest {
     } finally {
       tEnv.executeSql("drop table if exists kafka");
     }
+  }
+
+  @Test
+  void testKeyedRoutingWithExplicitMaxParallelism() throws Exception {
+    // The key-group count baked into the native partition function and the
+    // Flink partitioner must follow the configured max parallelism instead
+    // of the default lower bound, so records stay owned by the subtask that
+    // owns their key groups.
+    assertThat(translateKeyedExchangeMaxParallelism(0))
+        .isEqualTo(DEFAULT_LOWER_BOUND_MAX_PARALLELISM);
+    assertThat(translateKeyedExchangeMaxParallelism(256)).isEqualTo(256);
+  }
+
+  /**
+   * Translates the keyed first-bid-per-auction query at parallelism 4 and returns the max
+   * parallelism carried by the gluten key-group partitioner of the keyed exchange.
+   */
+  private int translateKeyedExchangeMaxParallelism(int maxParallelism) throws Exception {
+    StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+    env.setParallelism(4);
+    if (maxParallelism > 0) {
+      env.setMaxParallelism(maxParallelism);
+    }
+    EnvironmentSettings settings = EnvironmentSettings.newInstance().inStreamingMode().build();
+    StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env, settings);
+    try {
+      setupNexmarkEnvironment(tableEnv, "ddl_gen.sql", NEXMARK_VARIABLES);
+      Table firstBidPerAuction =
+          tableEnv.sqlQuery(
+              "SELECT auction, bidder, price, `dateTime` FROM (SELECT auction, bidder, price, "
+                  + "`dateTime`, ROW_NUMBER() OVER (PARTITION BY auction ORDER BY `dateTime` ASC) "
+                  + "AS rn FROM bid) WHERE rn = 1");
+      DataStream<Tuple2<Boolean, Row>> stream =
+          tableEnv.toRetractStream(firstBidPerAuction, Row.class);
+      return findKeyGroupMaxParallelism(stream.getTransformation());
+    } finally {
+      clearEnvironment(tableEnv);
+    }
+  }
+
+  /**
+   * Walks the transformation graph and returns the max parallelism of the gluten key-group
+   * partitioner, or -1 if none is found.
+   */
+  private static int findKeyGroupMaxParallelism(Transformation<?> transformation) {
+    if (transformation instanceof PartitionTransformation) {
+      StreamPartitioner<?> partitioner =
+          ((PartitionTransformation<?>) transformation).getPartitioner();
+      if (partitioner instanceof GlutenKeyGroupStreamPartitioner) {
+        return ((GlutenKeyGroupStreamPartitioner) partitioner).getMaxParallelism();
+      }
+    }
+    for (Transformation<?> input : transformation.getInputs()) {
+      int found = findKeyGroupMaxParallelism(input);
+      if (found > 0) {
+        return found;
+      }
+    }
+    return -1;
   }
 
   @Test
@@ -471,8 +540,10 @@ public class NexmarkTest {
       jobClient.getJobExecutionResult().get();
     } catch (ExecutionException e) {
       if (isCausedByUnsupportedFeature(e)) {
-        LOG.warn("Job failed on an unsupported stream feature; tolerating the failure.", e);
-        return true;
+        // Skip the test through an assumption instead of returning true, so
+        // that true is reserved for a job that actually reached RUNNING.
+        LOG.warn("Job failed on an unsupported stream feature; skipping.", e);
+        Assumptions.abort("Job failed on an unsupported stream feature; skipping");
       }
     }
     return false;
