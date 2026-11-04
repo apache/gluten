@@ -16,8 +16,6 @@
  */
 package org.apache.gluten.expression
 
-import org.apache.spark.sql.internal.SQLConf
-
 trait ExpressionRestrictions {
   val functionName: String
   val restrictionMessages: Array[String]

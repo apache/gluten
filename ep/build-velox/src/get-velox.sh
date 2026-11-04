@@ -18,8 +18,8 @@ set -exu
 
 CURRENT_DIR=$(cd "$(dirname "$BASH_SOURCE")"; pwd)
 VELOX_REPO=https://github.com/IBM/velox.git
-VELOX_BRANCH=dft-2026_10_26
-VELOX_ENHANCED_BRANCH=ibm-2026_10_26
+VELOX_BRANCH=dft-2026_11_01
+VELOX_ENHANCED_BRANCH=ibm-2026_11_01
 VELOX_HOME=""
 RUN_SETUP_SCRIPT=ON
 ENABLE_ENHANCED_FEATURES=OFF
@@ -157,8 +157,9 @@ function apply_provided_velox_patch {
 }
 
 # Gluten-carried Velox patches. Remove once the pinned Velox commit includes them.
-#  - velox-from-json-case-sensitive.patch: Spark's from_json matches JSON keys against schema
-#    field names case-sensitively (apache/gluten#13251).
+#  - velox-from-json-case-sensitive.patch: the from_json result type carries the schema field names
+#    as written (mixed case), so the Hive connector's lowercase check must only apply to column
+#    types read from files (apache/gluten#13251).
 function apply_gluten_velox_patches {
   local patch="$CURRENT_DIR/velox-from-json-case-sensitive.patch"
   pushd $VELOX_HOME

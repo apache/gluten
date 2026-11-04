@@ -44,6 +44,7 @@ import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.execution.python.ArrowEvalPythonExec
 import org.apache.spark.sql.execution.window._
 import org.apache.spark.sql.hive.HiveUDFTransformer
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DecimalType, StructType}
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
@@ -190,6 +191,24 @@ trait SparkPlanExecApi {
       substraitExprName: String,
       children: Seq[ExpressionTransformer],
       expr: Expression): ExpressionTransformer = {
+    GenericExpressionTransformer(substraitExprName, children, expr)
+  }
+
+  /** Falls back under LAST_WIN, which a backend's native transform_keys may not honor. */
+  def genTransformKeysTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      expr: TransformKeys): ExpressionTransformer = {
+    // Calling `.toString` on both sides ensures compatibility across all Spark versions.
+    // Starting from Spark 4.1, `SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY)` returns
+    // an enum instead of a String.
+    if (
+      SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY).toString
+        == SQLConf.MapKeyDedupPolicy.LAST_WIN.toString
+    ) {
+      throw new GlutenNotSupportException(
+        "LAST_WIN policy is not supported yet in native to deduplicate map keys")
+    }
     GenericExpressionTransformer(substraitExprName, children, expr)
   }
 
@@ -668,6 +687,8 @@ trait SparkPlanExecApi {
       offset: Int): ColumnarCollectLimitBaseExec
 
   def genColumnarRangeExec(rangeExec: RangeExec): ColumnarRangeBaseExec
+
+  def genOneRowRelationExecTransformer(plan: SparkPlan): SparkPlan = plan
 
   def genColumnarTailExec(limit: Int, plan: SparkPlan): ColumnarCollectTailBaseExec
 

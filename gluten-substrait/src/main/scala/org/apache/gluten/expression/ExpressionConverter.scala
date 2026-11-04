@@ -922,23 +922,7 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           c
         )
       case t: TransformKeys =>
-        // default is `EXCEPTION`
-        val mapKeyDedupPolicy = SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY)
-
-        // Calling `.toString` on both sides ensures compatibility across all Spark versions.
-        // Starting from Spark 4.1, `SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY)` returns
-        // an enum instead of a String. Without `.toString`, the comparison
-        // `mapKeyDedupPolicy == SQLConf.MapKeyDedupPolicy.LAST_WIN.toString` would silently fail
-        // in tests, producing only a "Comparing unrelated types" warning in IntelliJ IDEA,
-        // but no compile-time error.
-        if (mapKeyDedupPolicy.toString == SQLConf.MapKeyDedupPolicy.LAST_WIN.toString) {
-          // TODO: Remove after fix ready for
-          //  https://github.com/facebookincubator/velox/issues/10219
-          throw new GlutenNotSupportException(
-            "LAST_WIN policy is not supported yet in native to deduplicate map keys"
-          )
-        }
-        GenericExpressionTransformer(
+        BackendsApiManager.getSparkPlanExecApiInstance.genTransformKeysTransformer(
           substraitExprName,
           t.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
           t

@@ -13,12 +13,35 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Reuse the loaded backend engine. Linking bolt::bolt into a plugin creates
+# another static LLVM registry; the backend target also exposes static archives
+# through its link interface, so use its shared binary and compile requirements.
 add_library(myudf SHARED "MyUDF.cc")
-target_link_libraries(myudf bolt::bolt)
-target_include_directories(myudf PRIVATE ${CMAKE_SOURCE_DIR}/bolt
-                                         ${CMAKE_SOURCE_DIR}/core)
+target_link_libraries(myudf PRIVATE "$<TARGET_FILE:${PROJECT_NAME}>"
+                                    folly::folly fmt::fmt glog::glog)
+add_dependencies(myudf ${PROJECT_NAME})
+target_compile_definitions(
+  myudf PRIVATE "$<TARGET_PROPERTY:${PROJECT_NAME},COMPILE_DEFINITIONS>")
+target_include_directories(
+  myudf PRIVATE ${CMAKE_SOURCE_DIR}/bolt ${CMAKE_SOURCE_DIR}/core
+                "$<TARGET_PROPERTY:${PROJECT_NAME},INCLUDE_DIRECTORIES>")
 
 add_library(myudaf SHARED "MyUDAF.cc")
-target_link_libraries(myudaf bolt::bolt)
-target_include_directories(myudaf PRIVATE ${CMAKE_SOURCE_DIR}/bolt
-                                          ${CMAKE_SOURCE_DIR}/core)
+target_link_libraries(myudaf PRIVATE "$<TARGET_FILE:${PROJECT_NAME}>"
+                                     folly::folly fmt::fmt glog::glog)
+add_dependencies(myudaf ${PROJECT_NAME})
+target_compile_definitions(
+  myudaf PRIVATE "$<TARGET_PROPERTY:${PROJECT_NAME},COMPILE_DEFINITIONS>")
+target_include_directories(
+  myudaf PRIVATE ${CMAKE_SOURCE_DIR}/bolt ${CMAKE_SOURCE_DIR}/core
+                 "$<TARGET_PROPERTY:${PROJECT_NAME},INCLUDE_DIRECTORIES>")
+
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+  # libgluten may export gflags symbols. Keep each plugin's static registry
+  # private so loading it does not register glog's flags a second time there.
+  get_filename_component(udf_gflags_archive "${BOLT_GFLAGS_LIB}" NAME)
+  foreach(udf_target myudf myudaf)
+    target_link_options(${udf_target} PRIVATE
+                        "LINKER:--exclude-libs,${udf_gflags_archive}")
+  endforeach()
+endif()

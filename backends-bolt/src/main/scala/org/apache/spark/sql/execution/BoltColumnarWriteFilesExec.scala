@@ -21,8 +21,9 @@ import org.apache.gluten.columnarbatch.ColumnarBatches
 import org.apache.gluten.execution.ValidationResult
 import org.apache.gluten.execution.WriteFilesExecTransformer
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
+import org.apache.gluten.sql.shims.SparkShimLoader
 
-import org.apache.spark.{Partition, SparkException, TaskContext, TaskOutputFileAlreadyExistException}
+import org.apache.spark.{Partition, TaskContext, TaskOutputFileAlreadyExistException}
 import org.apache.spark.internal.io.{FileCommitProtocol, FileNameSpec, SparkHadoopWriterUtils}
 import org.apache.spark.internal.io.FileCommitProtocol.TaskCommitMessage
 import org.apache.spark.rdd.RDD
@@ -108,9 +109,9 @@ class BoltColumnarWriteFilesRDD(
       val objectMapper = new ObjectMapper()
       objectMapper.registerModule(DefaultScalaModule)
       for (i <- 0 until loadedCb.numRows() - 1) {
-        val fragments = loadedCb.column(1).getUTF8String(i + 1)
-        val metrics = objectMapper
-          .readValue(fragments.toString.getBytes("UTF-8"), classOf[BoltWriteFilesMetrics])
+        // TableWriteTraits returns the JSON fragments as VARBINARY.
+        val fragments = loadedCb.column(1).getBinary(i + 1)
+        val metrics = objectMapper.readValue(fragments, classOf[BoltWriteFilesMetrics])
         logDebug(s"Bolt write files metrics: $metrics")
 
         val fileWriteInfos = metrics.fileWriteInfos
@@ -237,10 +238,7 @@ class BoltColumnarWriteFilesRDD(
       case f: FileAlreadyExistsException if SQLConf.get.fastFailFileFormatOutput =>
         throw new TaskOutputFileAlreadyExistException(f)
       case t: Throwable =>
-        throw new SparkException(
-          s"Task failed while writing rows to staging path: $writePath, " +
-            s"output path: ${description.path}",
-          t)
+        SparkShimLoader.getSparkShims.throwExceptionInWrite(t, writePath, description.path)
     }
 
     assert(writeTaskResult != null)

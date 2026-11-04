@@ -222,20 +222,22 @@ object ConverterUtils extends Logging {
     }
   }
 
-  def getTypeNode(datatype: DataType, nullable: Boolean): TypeNode = {
-    getTypeNode(datatype, nullable, BackendsApiManager.getSettings.structFieldToLowerCase())
-  }
+  def getTypeNode(datatype: DataType, nullable: Boolean): TypeNode =
+    getTypeNode(datatype, nullable, preserveStructFieldNames = false)
 
   /**
-   * @param lowerCaseStructFieldNames
-   *   Whether struct field names, including nested ones, are normalized by [[normalizeColName]].
-   *   Pass false when the native function matches field names itself and needs them unchanged, e.g.
-   *   `from_json`, which is always case-sensitive. Evaluated lazily, only for struct types.
+   * Converts a Spark data type to a Substrait type node.
+   *
+   * @param preserveStructFieldNames
+   *   If true, struct field names (including nested ones) are emitted as is, regardless of
+   *   `spark.sql.caseSensitive`. Needed by expressions whose semantics depend on the exact field
+   *   names of their result type, e.g. `from_json`, which matches JSON keys against the schema
+   *   field names case-sensitively.
    */
   def getTypeNode(
       datatype: DataType,
       nullable: Boolean,
-      lowerCaseStructFieldNames: => Boolean): TypeNode = {
+      preserveStructFieldNames: Boolean): TypeNode = {
     datatype match {
       case BooleanType =>
         TypeBuilder.makeBoolean(nullable)
@@ -271,21 +273,23 @@ object ConverterUtils extends Logging {
       case m: MapType =>
         TypeBuilder.makeMap(
           nullable,
-          getTypeNode(m.keyType, nullable = false, lowerCaseStructFieldNames),
-          getTypeNode(m.valueType, m.valueContainsNull, lowerCaseStructFieldNames))
+          getTypeNode(m.keyType, nullable = false, preserveStructFieldNames),
+          getTypeNode(m.valueType, m.valueContainsNull, preserveStructFieldNames))
       case a: ArrayType =>
         TypeBuilder.makeList(
           nullable,
-          getTypeNode(a.elementType, a.containsNull, lowerCaseStructFieldNames))
+          getTypeNode(a.elementType, a.containsNull, preserveStructFieldNames))
       case s: StructType =>
         val normalizeStructFieldName: String => String =
-          if (lowerCaseStructFieldNames) {
+          if (
+            !preserveStructFieldNames && BackendsApiManager.getSettings.structFieldToLowerCase()
+          ) {
             (name: String) => normalizeColName(name)
           } else { (name: String) => name }
         val (fieldNodes, fieldNames) = s.map {
           f =>
             (
-              getTypeNode(f.dataType, f.nullable, lowerCaseStructFieldNames),
+              getTypeNode(f.dataType, f.nullable, preserveStructFieldNames),
               normalizeStructFieldName(f.name))
         }.unzip
         TypeBuilder.makeStruct(nullable, fieldNodes.asJava, fieldNames.asJava)
