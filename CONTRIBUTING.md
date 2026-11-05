@@ -76,6 +76,13 @@ To re-trigger CH CI, please post the below comment on PR page:
 ##### Velox Backend CI
 To check CI failure for Velox backend, please go into the GitHub action page from your PR page.
 
+For a pull request from a fork, the main Velox x86 workflow (`velox_backend_x86.yml`) runs in your fork each time you push the PR branch, not in apache/gluten. To make that work:
+
+- Enable GitHub Actions in the Actions tab of your fork.
+- Open the pull request from a branch other than your fork's `main`.
+
+The `Velox Backend (x86) in fork` check on your pull request links to the run in your fork and is updated every 15 minutes. To rerun failed jobs, rerun them in your fork.
+
 To see the perf. impact on Velox backend, you can comment `/Benchmark Velox` on PR page to trigger a pretest. The benchmark
 (currently TPC-H) result will be posted after completed.
 
