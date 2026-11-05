@@ -515,16 +515,17 @@ public class NexmarkTest {
   }
 
   private boolean checkJobRunningStatus(TableResult result, long timeoutMs)
-      throws InterruptedException {
+      throws InterruptedException, ExecutionException {
     long startTime = System.currentTimeMillis();
     assertTrue(result.getJobClient().isPresent());
     JobClient jobClient = result.getJobClient().get();
     while (System.currentTimeMillis() < startTime + timeoutMs) {
-      if (jobClient.getJobStatus().complete(JobStatus.RUNNING)) {
+      JobStatus status = jobClient.getJobStatus().get();
+      if (status == JobStatus.RUNNING) {
         jobClient.cancel();
         return true;
       }
-      if (jobClient.getJobStatus().complete(JobStatus.FAILED)) {
+      if (status == JobStatus.FAILED) {
         LOG.warn("Job failed before reaching RUNNING state.");
         return jobFailedOnUnsupportedFeature(jobClient);
       }
