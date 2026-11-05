@@ -73,8 +73,6 @@ jobs:
         run: |
           source /opt/rh/gcc-toolset-12/enable
           sudo dnf install -y patchelf ccache
-          # The distro patchelf fails with "maximum file size
-          # exceeded" on the ~260MB libvelox.so; use a modern static build.
           curl -sL https://github.com/NixOS/patchelf/releases/download/0.17.2/patchelf-0.17.2-x86_64.tar.gz | sudo tar xz -C /usr/local
           patchelf --version
           export CCACHE_DIR=${CCACHE_DIR}
