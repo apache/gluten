@@ -363,8 +363,13 @@ jobs:
           else
             python_deps=("pyspark[sql]==${SPARK_VERSION}")
           fi
-          python3 -m pip install --disable-pip-version-check \
-            setuptools==77.0.3 Cython==3.3.0 "${python_deps[@]}"
+          pip_cache="${GLUTEN_CACHE_ROOT:-/data/gluten-ci-cache}/pip"
+          mkdir -p "${pip_cache}"
+          # Share the large PySpark wheel and retry an interrupted download once.
+          pip_install=(flock "${pip_cache}/pyspark-${SPARK_VERSION}.lock"
+            python3 -m pip install --disable-pip-version-check --cache-dir "${pip_cache}"
+            --timeout 120 setuptools==77.0.3 Cython==3.3.0 "${python_deps[@]}")
+          "${pip_install[@]}" || "${pip_install[@]}"
           command -v shasum
           resources="${BOLT_ROOT}/.ci/spark-resources"
           ci_spark_resources
