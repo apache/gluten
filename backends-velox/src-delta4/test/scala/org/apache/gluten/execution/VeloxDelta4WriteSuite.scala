@@ -20,7 +20,7 @@ import org.apache.gluten.config.{GlutenConfig, VeloxDeltaConfig}
 
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.delta.{DeltaLog, MaterializePartitionColumnsTableFeature}
-import org.apache.spark.sql.delta.actions.AddFile
+import org.apache.spark.sql.delta.actions.{AddCDCFile, AddFile, FileAction}
 import org.apache.spark.sql.delta.test.DeltaSQLCommandTest
 import org.apache.spark.sql.delta.util.DeltaFileOperations
 import org.apache.spark.sql.internal.SQLConf
@@ -42,18 +42,50 @@ import scala.jdk.CollectionConverters._
  */
 class VeloxDelta4WriteSuite extends DeltaSQLCommandTest {
 
+  private def footer(path: String, file: String): ParquetMetadata = {
+    val reader = ParquetFileReader.open(
+      HadoopInputFile.fromPath(
+        DeltaFileOperations.absolutePath(path, file),
+        DeltaLog.forTable(spark, path).newDeltaHadoopConf()))
+    try {
+      reader.getFooter
+    } finally {
+      reader.close()
+    }
+  }
+
   private def footers(path: String): Seq[(AddFile, ParquetMetadata)] = {
     val deltaLog = DeltaLog.forTable(spark, path)
-    val hadoopConf = deltaLog.newDeltaHadoopConf()
     deltaLog.update().allFiles.collect().toSeq.map {
-      file =>
-        val reader = ParquetFileReader.open(
-          HadoopInputFile.fromPath(DeltaFileOperations.absolutePath(path, file.path), hadoopConf))
-        try {
-          file -> reader.getFooter
-        } finally {
-          reader.close()
-        }
+      file => file -> footer(path, file.path)
+    }
+  }
+
+  private def physicalRows(path: String, file: FileAction, columns: String*): Seq[Row] =
+    withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+      spark.read.option("recursiveFileLookup", "true")
+        .parquet(DeltaFileOperations.absolutePath(path, file.path).toString)
+        .selectExpr(columns.map(column => s"`$column`"): _*).collect().toSeq
+    }
+
+  private def assertPartitionValues(path: String, file: FileAction): Unit = {
+    val rows = physicalRows(path, file, "part")
+    assert(rows.nonEmpty, file.path)
+    assert(
+      rows.forall {
+        row =>
+          val value = if (row.isNullAt(0)) null else row.getInt(0).toString
+          value == file.partitionValues("part")
+      },
+      file.path)
+  }
+
+  private def lastCommitFiles(path: String): Seq[FileAction] = {
+    val log = DeltaLog.forTable(spark, path)
+    val actions = log.getChanges(log.update().version).next()._2
+    actions.collect {
+      case file: AddFile => file
+      case file: AddCDCFile => file
     }
   }
 
@@ -153,11 +185,7 @@ class VeloxDelta4WriteSuite extends DeltaSQLCommandTest {
                   assert(stats \ field \ "part" == JNothing, file.stats)
                 }
                 if (materialize) {
-                  val filePath = DeltaFileOperations.absolutePath(path, file.path).toString
-                  val rows = spark.read.option("recursiveFileLookup", "true")
-                    .parquet(filePath).select("part").collect()
-                  assert(rows.nonEmpty)
-                  assert(rows.forall(_.getInt(0).toString == file.partitionValues("part")))
+                  assertPartitionValues(path, file)
                 }
             }
           }
@@ -220,11 +248,17 @@ class VeloxDelta4WriteSuite extends DeltaSQLCommandTest {
                   writeRows(path)
                 }
             }
+            val updatedRows = (0 until 10).map {
+              case 0 => Row(0L, "updated", 2)
+              case i => Row(i.toLong, i.toString, i % 2)
+            }
             val commands = Seq(
-              "UPDATE delta.`%s` SET part = part + 2, value = 'updated' WHERE id = 0",
-              "DELETE FROM delta.`%s` WHERE id = 1")
+              "UPDATE delta.`%s` SET part = part + 2, value = 'updated' WHERE id = 0" ->
+                updatedRows,
+              "DELETE FROM delta.`%s` WHERE id = 1" -> updatedRows.filterNot(_.getLong(0) == 1)
+            )
             commands.foreach {
-              command =>
+              case (command, expected) =>
                 val oldFiles = footers(nativePath).map(_._1.path).toSet
                 paths.foreach {
                   case (path, native) =>
@@ -240,18 +274,173 @@ class VeloxDelta4WriteSuite extends DeltaSQLCommandTest {
                   case (file, footer) =>
                     assert(writtenByVelox(footer), file.path)
                     assert(fieldNames(footer) == Seq("id", "value", "part"), file.path)
+                    assertPartitionValues(nativePath, file)
                     val stats = parse(file.stats)
                     for (field <- Seq("minValues", "maxValues", "nullCount")) {
                       assert(stats \ field \ "part" == JNothing, file.stats)
                     }
                 }
                 withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
-                  assert(
-                    spark.read.format("delta").load(nativePath).orderBy("id").collect().toSeq ==
-                      spark.read.format("delta").load(vanillaPath).orderBy("id").collect().toSeq)
+                  for ((path, _) <- paths) {
+                    val storedRows = footers(path).flatMap {
+                      case (file, _) => physicalRows(path, file, "id", "value", "part")
+                    }
+                    assert(storedRows.sortBy(_.getLong(0)) == expected)
+                    assert(spark.read.format("delta").load(path).orderBy("id").collect().toSeq ==
+                      expected)
+                  }
                 }
             }
         }
+    }
+  }
+
+  for (partitioned <- Seq(false, true)) {
+    test(s"CDF UPDATE and DELETE write materialized files natively: partitioned=$partitioned") {
+      withTempDir {
+        nativeDir =>
+          withTempDir {
+            vanillaDir =>
+              val nativePath = nativeDir.getCanonicalPath
+              val vanillaPath = vanillaDir.getCanonicalPath
+              val paths = Seq(nativePath -> "true", vanillaPath -> "false")
+              paths.foreach {
+                case (path, native) =>
+                  withSQLConf(VeloxDeltaConfig.ENABLE_NATIVE_WRITE.key -> native) {
+                    createTable(
+                      path,
+                      partitioned,
+                      "delta.feature.materializePartitionColumns" -> "supported",
+                      "delta.writePartitionColumnsToParquet" -> "false",
+                      "delta.enableChangeDataFeed" -> "true",
+                      "delta.enableDeletionVectors" -> "false"
+                    )
+                    writeRows(path)
+                  }
+              }
+              val commands = Seq(
+                "UPDATE delta.`%s` SET part = part + 2, value = 'updated' WHERE id = 0" ->
+                  Seq(
+                    Row(0L, "0", 0, "update_preimage"),
+                    Row(0L, "updated", 2, "update_postimage")),
+                "DELETE FROM delta.`%s` WHERE id = 1" -> Seq(Row(1L, "1", 1, "delete"))
+              )
+              commands.foreach {
+                case (command, expectedChanges) =>
+                  paths.foreach {
+                    case (path, native) =>
+                      withSQLConf(VeloxDeltaConfig.ENABLE_NATIVE_WRITE.key -> native) {
+                        sql(command.format(path)).collect()
+                      }
+                  }
+                  val nativeFiles = lastCommitFiles(nativePath)
+                  val vanillaFiles = lastCommitFiles(vanillaPath)
+                  val nativeData = nativeFiles.collect { case file: AddFile => file }
+                  val vanillaData = vanillaFiles.collect { case file: AddFile => file }
+                  val nativeChanges = nativeFiles.collect { case file: AddCDCFile => file }
+                  val vanillaChanges = vanillaFiles.collect { case file: AddCDCFile => file }
+                  assert(nativeData.nonEmpty && vanillaData.nonEmpty)
+                  assert(nativeChanges.nonEmpty && vanillaChanges.nonEmpty)
+                  for (
+                    (nativeOutput, vanillaOutput) <-
+                      Seq(nativeData -> vanillaData, nativeChanges -> vanillaChanges)
+                  ) {
+                    val expectedFields =
+                      footer(vanillaPath, vanillaOutput.head.path).getFileMetaData.getSchema
+                        .getFields.asScala.toSeq
+                    nativeOutput.foreach {
+                      file =>
+                        val metadata = footer(nativePath, file.path)
+                        assert(writtenByVelox(metadata), file.path)
+                        assert(metadata.getFileMetaData.getSchema.getFields.asScala.toSeq ==
+                          expectedFields)
+                        if (partitioned) {
+                          assertPartitionValues(nativePath, file)
+                        }
+                    }
+                  }
+                  if (partitioned) {
+                    nativeData.foreach {
+                      file =>
+                        val stats = parse(file.stats)
+                        for (field <- Seq("minValues", "maxValues", "nullCount")) {
+                          assert(stats \ field \ "part" == JNothing, file.stats)
+                        }
+                    }
+                  }
+                  def sortChanges(rows: Seq[Row]): Seq[Row] =
+                    rows.sortBy(row => (row.getLong(0), row.getString(3)))
+                  for (
+                    (path, changes) <- Seq(
+                      nativePath -> nativeChanges,
+                      vanillaPath -> vanillaChanges)
+                  ) {
+                    val storedChanges = changes.flatMap {
+                      file => physicalRows(path, file, "id", "value", "part", "_change_type")
+                    }
+                    assert(sortChanges(storedChanges) == sortChanges(expectedChanges))
+                    withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+                      val version = DeltaLog.forTable(spark, path).update().version.toString
+                      val changeFeed = spark.read.format("delta")
+                        .option("readChangeFeed", "true")
+                        .option("startingVersion", version).option("endingVersion", version)
+                        .load(path).select("id", "value", "part", "_change_type").collect().toSeq
+                      assert(sortChanges(changeFeed) == sortChanges(expectedChanges))
+                    }
+                  }
+                  val nativeRows = footers(nativePath).flatMap {
+                    case (file, _) => physicalRows(nativePath, file, "id", "value", "part")
+                  }
+                  val vanillaRows = footers(vanillaPath).flatMap {
+                    case (file, _) => physicalRows(vanillaPath, file, "id", "value", "part")
+                  }
+                  assert(nativeRows.sortBy(_.getLong(0)) == vanillaRows.sortBy(_.getLong(0)))
+              }
+          }
+      }
+    }
+  }
+
+  test("OPTIMIZE rewrites materialized partition columns into native files") {
+    withTempDir {
+      dir =>
+        val path = dir.getCanonicalPath
+        createTable(
+          path,
+          partitioned = true,
+          "delta.feature.materializePartitionColumns" -> "supported",
+          "delta.writePartitionColumnsToParquet" -> "false")
+        writeRows(path)
+        writeRows(path)
+        val before = footers(path)
+        assert(before.groupBy(_._1.partitionValues).values.forall(_.size > 1))
+        val expected = before.flatMap {
+          case (file, _) => physicalRows(path, file, "id", "value", "part")
+        }.sortBy(_.getLong(0))
+
+        sql(s"OPTIMIZE delta.`$path`").collect()
+
+        val after = footers(path)
+        assert(after.nonEmpty && after.size < before.size)
+        assert(before.map(_._1.path).toSet.intersect(after.map(_._1.path).toSet).isEmpty)
+        after.foreach {
+          case (file, metadata) =>
+            assert(writtenByVelox(metadata), file.path)
+            assert(fieldNames(metadata) == Seq("id", "value", "part"), file.path)
+            assertPartitionValues(path, file)
+            val stats = parse(file.stats)
+            assert(
+              stats \ "numRecords" ==
+                JInt(physicalRows(path, file, "id").size),
+              file.stats)
+            for (field <- Seq("minValues", "maxValues", "nullCount")) {
+              assert(stats \ field \ "part" == JNothing, file.stats)
+            }
+        }
+        val storedRows = after.flatMap {
+          case (file, _) => physicalRows(path, file, "id", "value", "part")
+        }.sortBy(_.getLong(0))
+        assert(storedRows == expected)
     }
   }
 
