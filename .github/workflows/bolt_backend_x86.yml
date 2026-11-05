@@ -377,7 +377,7 @@ jobs:
           printf 'BOLT_GLUTEN_SPARK_HOME=%s\nSPARK_HOME=%s\nPYTHONPATH=%s\nPYSPARK_PYTHON=%s\n' \
             "${BOLT_GLUTEN_SPARK_HOME}" "${SPARK_HOME}" "${PYTHONPATH}" \
             "$(command -v python3)" >> "${GITHUB_ENV}"
-      - name: Run backend JVM and isolated Delta suites
+      - name: Run backend JVM, native loader and Delta suites
         if: ${{ success() && matrix.stage == 'jvm' }}
         run: |
           source dev/ci-bolt-spark-env.sh
@@ -394,11 +394,15 @@ jobs:
             "${classes}/test-classes:${classes}/classes:$(cat "${output}/test-classpath.txt")" \
             "${BOLT_ROOT}/.github/scripts/DiscoverGlutenSuites.java" \
             "${output}/discovered-suites.txt" "${classes}/test-classes" "${classes}/classes"
+          # The loader suite calls System.load on the build output. A Spark JVM
+          # has already loaded the packaged copy, which registers the same glog flags.
+          loader_suite=org.apache.gluten.jni.BoltNativeLoaderSuite
+          grep -Fxq "${loader_suite}" "${output}/discovered-suites.txt"
           ordinary=() delta=()
           while IFS= read -r suite; do
             if [[ "${suite}" == org.apache.spark.sql.delta.* ]]; then
               delta+=("${suite}")
-            else
+            elif [[ "${suite}" != "${loader_suite}" ]]; then
               ordinary+=("${suite}")
             fi
           done < "${output}/discovered-suites.txt"
@@ -407,14 +411,16 @@ jobs:
           CI_GROUP=backend CI_SUITES="${selected}" ci_maven_test jvm backends-bolt \
             "${MVN[@]}" surefire:test scalatest:test "-DtagsToExclude=${GLUTEN_EXCLUDED_TAGS}" \
             "-DargLine=-Xmx4g -Dspark.test.home=${SPARK_HOME}" || failed=1
+          isolated=("${loader_suite}")
           if [[ ",${CI_TEST_STAGES}," == *,delta,* ]]; then
             ((${#delta[@]} > 0))
-            for suite in "${delta[@]}"; do
-              CI_GROUP="${suite}" CI_SUITES="${suite}" ci_maven_test jvm backends-bolt \
-                "${MVN[@]}" scalatest:test "-DtagsToExclude=${GLUTEN_EXCLUDED_TAGS}" \
-                "-DargLine=-Xmx4g -Dspark.test.home=${SPARK_HOME}" || failed=1
-            done
+            isolated+=("${delta[@]}")
           fi
+          for suite in "${isolated[@]}"; do
+            CI_GROUP="${suite}" CI_SUITES="${suite}" ci_maven_test jvm backends-bolt \
+              "${MVN[@]}" scalatest:test "-DtagsToExclude=${GLUTEN_EXCLUDED_TAGS}" \
+              "-DargLine=-Xmx4g -Dspark.test.home=${SPARK_HOME}" || failed=1
+          done
           exit "${failed}"
       - name: Run the reference Spark SQL unit test groups
         if: ${{ success() && startsWith(matrix.stage, 'spark-') }}
