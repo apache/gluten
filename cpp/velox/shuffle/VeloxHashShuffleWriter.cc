@@ -1655,21 +1655,11 @@ void VeloxHashShuffleWriter::computeRowBasedChecksums(const facebook::velox::Row
 
   auto numRows = rv.size();
   VELOX_DCHECK(rv.nulls() == nullptr, "RowVector with top-level nulls not supported for checksum");
-  // Get the RowVector to serialize (strip pid column if present).
-  facebook::velox::RowVectorPtr dataVector;
-  if (partitioner_->hasPid()) {
-    // Strip the first column (partition id).
-    auto rowType = std::dynamic_pointer_cast<const facebook::velox::RowType>(rv.type());
-    std::vector<std::string> names(rowType->names().begin() + 1, rowType->names().end());
-    std::vector<facebook::velox::TypePtr> types(rowType->children().begin() + 1, rowType->children().end());
-    std::vector<facebook::velox::VectorPtr> children(rv.children().begin() + 1, rv.children().end());
-    auto dataType = facebook::velox::ROW(std::move(names), std::move(types));
-    dataVector =
-        std::make_shared<facebook::velox::RowVector>(rv.pool(), dataType, nullptr, numRows, std::move(children));
-  } else {
-    auto rowType = std::dynamic_pointer_cast<const facebook::velox::RowType>(rv.type());
-    dataVector = std::make_shared<facebook::velox::RowVector>(rv.pool(), rowType, nullptr, numRows, rv.children());
-  }
+  // Every doSplit caller has already removed the partition id column, so rv holds only data
+  // columns.
+  auto rowType = std::dynamic_pointer_cast<const facebook::velox::RowType>(rv.type());
+  facebook::velox::RowVectorPtr dataVector =
+      std::make_shared<facebook::velox::RowVector>(rv.pool(), rowType, nullptr, numRows, rv.children());
 
   facebook::velox::row::UnsafeRowFast fast(dataVector);
   auto dataType = std::dynamic_pointer_cast<const facebook::velox::RowType>(dataVector->type());
