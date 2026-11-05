@@ -15,8 +15,11 @@
  * limitations under the License.
  */
 
+#include <filesystem>
+#include <fstream>
 #include <vector>
 #include "udf/UdfLoader.h"
+#include "utils/Exception.h"
 #include "velox/expression/SimpleFunctionRegistry.h"
 #include "velox/functions/prestosql/tests/utils/FunctionBaseTest.h"
 #include "velox/parse/TypeResolver.h"
@@ -39,4 +42,17 @@ TEST_F(MyUdfTest, hivestringstring) {
   const std::string name = "org.apache.spark.sql.hive.execution.UDFStringString";
   const core::QueryConfig config({});
   EXPECT_EQ(TypeKind::VARCHAR, exec::simpleFunctions().resolveFunction(name, {VARCHAR(), VARCHAR()})->type()->kind());
+}
+
+TEST_F(MyUdfTest, invalidLibraryFailsToLoad) {
+  const auto path = std::filesystem::temp_directory_path() / "gluten_my_udf_test_invalid.so";
+  std::ofstream(path) << "not a shared library";
+  std::string error;
+  try {
+    gluten::UdfLoader::getInstance()->loadUdfLibraries(path.string());
+  } catch (const gluten::GlutenException& e) {
+    error = e.what();
+  }
+  std::filesystem::remove(path);
+  EXPECT_NE(error.find("Failed to load udf library " + path.string()), std::string::npos) << error;
 }
