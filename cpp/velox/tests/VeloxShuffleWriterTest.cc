@@ -863,6 +863,22 @@ TEST_P(HashPartitioningShuffleWriterTest, hashPart3Vectors) {
       *shuffleWriter, {hashInputVector1_, hashInputVector2_, hashInputVector1_}, 2, {blockPid2, blockPid1});
 }
 
+TEST_P(HashPartitioningShuffleWriterTest, rssCompressTime) {
+  const auto& params = GetParam();
+  if (params.shuffleWriterType != ShuffleWriterType::kHashShuffle ||
+      params.partitionWriterType != PartitionWriterType::kRss ||
+      params.compressionType == arrow::Compression::UNCOMPRESSED) {
+    GTEST_SKIP() << "Only checks the hash shuffle writer with the RSS partition writer and a codec.";
+  }
+  auto shuffleWriter = createShuffleWriter(2);
+  for (int i = 0; i < 8; ++i) {
+    ASSERT_NOT_OK(splitRowVector(*shuffleWriter, hashInputVector1_));
+  }
+  ASSERT_NOT_OK(shuffleWriter->stop());
+  // RSS evictions compress every block, so the compression time must be reported.
+  EXPECT_GT(shuffleWriter->totalCompressTime(), 0);
+}
+
 TEST_P(HashPartitioningShuffleWriterTest, hashLargeVectors) {
   const int32_t expectedMaxBatchSize = 8;
   auto shuffleWriter = createShuffleWriter(2);

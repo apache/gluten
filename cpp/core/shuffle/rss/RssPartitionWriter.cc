@@ -113,10 +113,14 @@ arrow::Status RssPartitionWriter::doEvict(
     uint32_t partitionId,
     std::unique_ptr<InMemoryPayload> inMemoryPayload,
     int64_t& evictBytes) {
+  // Time the whole eviction (including the compression below): stop() carves compressTime_
+  // out of spillTime_, so compression must sit inside this window, as in sortEvict.
+  ScopedTimer timer(&spillTime_);
   rawPartitionLengths_[partitionId] += inMemoryPayload->rawSize();
   auto payloadType = codec_ ? Payload::Type::kCompressed : Payload::Type::kUncompressed;
   ARROW_ASSIGN_OR_RAISE(
       auto payload, inMemoryPayload->toBlockPayload(payloadType, payloadPool_.get(), codec_ ? codec_.get() : nullptr));
+  compressTime_ += payload->getCompressTime();
   // Copy payload to arrow buffered os.
   ARROW_ASSIGN_OR_RAISE(auto rssBufferOs, arrow::io::BufferOutputStream::Create(options_->pushBufferMaxSize));
 
@@ -127,7 +131,6 @@ arrow::Status RssPartitionWriter::doEvict(
   payload = nullptr; // Invalidate payload immediately.
 
   // Push.
-  ScopedTimer timer(&spillTime_);
   ARROW_ASSIGN_OR_RAISE(auto buffer, rssBufferOs->Finish());
   auto delta = rssClient_->pushPartitionData(
       partitionId, reinterpret_cast<char*>(const_cast<uint8_t*>(buffer->data())), buffer->size());
