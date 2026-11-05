@@ -197,7 +197,17 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
-  test("shiftrightunsigned") {
+  test("shiftrightunsigned and >>> (Spark 4.0+)") {
+    def assertNativeUnsignedShift(df: DataFrame): Unit = {
+      checkGlutenPlan[ProjectExecTransformer](df)
+      val partialProjects = getExecutedPlan(df).collect {
+        case p: ColumnarPartialProjectExec => p
+      }
+      assert(
+        partialProjects.isEmpty,
+        s"Unsigned shifts must not use partial JVM projection:\n${partialProjects.mkString("\n")}")
+    }
+
     withTempPath {
       path =>
         withTempView("shift_input") {
@@ -227,13 +237,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
               |  shiftrightunsigned(int_value, shift),
               |  shiftrightunsigned(long_value, shift)
               |FROM shift_input
-              |""".stripMargin) {
-            df =>
-              checkGlutenPlan[ProjectExecTransformer](df)
-              assert(
-                !getExecutedPlan(df).exists(_.isInstanceOf[ColumnarPartialProjectExec]),
-                "Unsigned shifts must not use partial JVM projection")
-          }
+              |""".stripMargin)(assertNativeUnsignedShift)
           if (isSparkVersionGE("4.0")) {
             runQueryAndCompare(
               """
@@ -241,13 +245,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
                 |  int_value >>> shift,
                 |  long_value >>> shift
                 |FROM shift_input
-                |""".stripMargin) {
-              df =>
-                checkGlutenPlan[ProjectExecTransformer](df)
-                assert(
-                  !getExecutedPlan(df).exists(_.isInstanceOf[ColumnarPartialProjectExec]),
-                  "Unsigned shifts must not use partial JVM projection")
-            }
+                |""".stripMargin)(assertNativeUnsignedShift)
           }
         }
     }
