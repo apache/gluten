@@ -171,6 +171,7 @@ set(VELOX_SRCS
     jni/JniUdf.cc
     jni/JniHashTable.cc
     memory/BufferOutputStream.cc
+    memory/GlutenDirectBufferedInput.cc
     memory/VeloxColumnarBatch.cc
     memory/VeloxMemoryManager.cc
     operators/functions/RegistrationAllFunctions.cc

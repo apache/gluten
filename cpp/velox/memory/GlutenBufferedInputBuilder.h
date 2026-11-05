@@ -18,6 +18,7 @@
 #pragma once
 
 #include "GlutenDirectBufferedInput.h"
+#include "config/VeloxConfig.h"
 #include "velox/connectors/hive/BufferedInputBuilder.h"
 #include "velox/connectors/hive/FileHandle.h"
 #include "velox/dwio/common/CachedBufferedInput.h"
@@ -58,7 +59,38 @@ class GlutenBufferedInputBuilder : public facebook::velox::connector::hive::Buff
         std::move(ioStats),
         executor,
         readerOpts,
-        fileReadOps);
+        fileReadOps,
+        deferLazyColumnPrefetch(connectorQueryCtx));
+  }
+
+  /// Whether the scan this input is created for defers loading its lazily loaded columns: its
+  /// plan node id is listed in the session property kDeferLazyColumnPrefetchScanNodeIds. The
+  /// scan id is "<taskId>.<planNodeId>" (see ConnectorQueryCtx::scanId()).
+  static bool deferLazyColumnPrefetch(const facebook::velox::connector::ConnectorQueryCtx* connectorQueryCtx) {
+    const auto* session = connectorQueryCtx->sessionProperties();
+    if (session == nullptr) {
+      return false;
+    }
+    const auto nodeIds = session->get<std::string>(kDeferLazyColumnPrefetchScanNodeIds, "");
+    if (nodeIds.empty()) {
+      return false;
+    }
+    const auto& scanId = connectorQueryCtx->scanId();
+    const auto dot = scanId.rfind('.');
+    const std::string planNodeId = dot == std::string::npos ? scanId : scanId.substr(dot + 1);
+    size_t begin = 0;
+    while (begin <= nodeIds.size()) {
+      const auto end = nodeIds.find(',', begin);
+      const auto id = nodeIds.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
+      if (id == planNodeId) {
+        return true;
+      }
+      if (end == std::string::npos) {
+        break;
+      }
+      begin = end + 1;
+    }
+    return false;
   }
 };
 

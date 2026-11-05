@@ -74,6 +74,12 @@ struct SplitInfo {
   /// for different scans or partitions in the same Velox QueryCtx.
   std::optional<dwio::common::ColumnMappingMode> columnMappingMode;
 
+  /// Whether this scan's BufferedInput should load the lazily loaded columns
+  /// (projected, no filter) only once a row passed the filters. Decided per
+  /// scan here and handed to GlutenBufferedInputBuilder through the Hive
+  /// connector session property kDeferLazyColumnPrefetchScanNodeIds.
+  bool deferLazyColumnPrefetch{false};
+
   /// Make SplitInfo polymorphic
   virtual ~SplitInfo() = default;
 
