@@ -17,7 +17,7 @@
 package org.apache.gluten.functions
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.execution.{BatchScanExecTransformer, FilterExecTransformer, ProjectExecTransformer}
+import org.apache.gluten.execution.{BatchScanExecTransformer, ColumnarPartialProjectExec, FilterExecTransformer, ProjectExecTransformer}
 import org.apache.gluten.expression.FormatNumberRestrictions
 import org.apache.gluten.extension.columnar.FallbackTags
 
@@ -228,7 +228,11 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
               |  shiftrightunsigned(long_value, shift)
               |FROM shift_input
               |""".stripMargin) {
-            checkGlutenPlan[ProjectExecTransformer]
+            df =>
+              checkGlutenPlan[ProjectExecTransformer](df)
+              assert(
+                !getExecutedPlan(df).exists(_.isInstanceOf[ColumnarPartialProjectExec]),
+                "Unsigned shifts must not use partial JVM projection")
           }
           if (isSparkVersionGE("4.0")) {
             runQueryAndCompare(
@@ -238,7 +242,11 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
                 |  long_value >>> shift
                 |FROM shift_input
                 |""".stripMargin) {
-              checkGlutenPlan[ProjectExecTransformer]
+              df =>
+                checkGlutenPlan[ProjectExecTransformer](df)
+                assert(
+                  !getExecutedPlan(df).exists(_.isInstanceOf[ColumnarPartialProjectExec]),
+                  "Unsigned shifts must not use partial JVM projection")
             }
           }
         }
