@@ -164,8 +164,9 @@ On Spark 3.5, native write does not check the codec, the path scheme or the part
 On Spark 4.x, native Delta write writes what Delta Lake's own writer would write: the same rows, schema, Parquet physical types, field IDs and partition columns, honoring the compression codec, `maxRecordsPerFile`, Parquet version and encryption. Row group and page sizes, encodings and other Parquet tuning are Velox's own. Settings are read where Delta Lake's writer reads them: the session, the writer options, and the job's Hadoop configuration, which includes the table properties. Writes the Velox writer cannot match fall back to Delta Lake's writer. These are:
 
 - `FLOAT` and `DOUBLE` partition columns, which the native partition splitter does not support;
-- `TIMESTAMP` partition columns when written into the data files, since the native partition
-  splitter cannot represent sub-millisecond values;
+- `TIMESTAMP` partition columns, whether or not written into the data files. The native partition
+  splitter cannot represent sub-millisecond values, so all TIMESTAMP partition writes
+  conservatively fall back, including those whose values happen to have millisecond precision;
 - column mapping (`name` or `id`), and other columns with `parquet.field.id` metadata, since
   Delta Lake writes Parquet field IDs;
 - timestamps, unless `spark.sql.parquet.outputTimestampType` (and the writer option or table
@@ -192,6 +193,12 @@ still exclude partition columns, and readers continue to obtain partition values
 metadata. Enabling the feature does not rewrite older files. Column mapping and Iceberg compatibility
 still fall back as described above.
 
+Using the native writer for default partitioned tables also exposes existing limitations that
+fallback previously hid: CHECK and NOT NULL violations can lose Delta's exception type across
+JNI, and paths unsupported by the native writer can fail at task time. Constraints are still
+enforced and rejected writes commit nothing. See [Error types](#error-types) and
+[Write problems](#write-problems); native write can be disabled for affected workloads.
+
 ### Checking the plan
 
 A command that Gluten wraps for native write shows a `GlutenDelta` node, for example `Execute GlutenDelta UpdateCommand` or `GlutenDelta AtomicCreateTableAsSelect`. Without the prefix, Delta's writer wrote the files.
@@ -208,6 +215,11 @@ The node also shows when Velox writes no data files. This happens for a DELETE t
 The Status column assumes Spark 3.5 or 4.x with native write on and ANSI mode off. On Spark 4.x, an Offload write still falls back in the cases in [Native write on Spark 4.x](#native-write-on-spark-4x). Otherwise every row is at best PartialOffload. In PartialOffload rows, Delta writes the files and the query that feeds the write can run in Velox.
 
 Gluten's CI checks that a partitioned `save(path)` on 3.5 to 4.1 and OPTIMIZE on 3.5 run as Gluten native write commands. It also checks on 3.5 and 4.0 that a DELETE that rewrites a file runs in Gluten's transaction and that its scan runs in Velox. On 3.5 and 4.0, the copied Delta Lake suites also run UPDATE, DELETE, `save(path)` and `CREATE TABLE ... AS SELECT` with native write on. They check results only. On 4.1, the nightly job shows every Offload row except DELETE going through Velox's writer. The other Offload cases are from code.
+
+The standard Spark 4.0, 4.1 and 4.2 CI jobs also select `DeltaNativeWriteSuite`.
+`VeloxDelta4WriteSuite` checks the physical files produced by materialized UPDATE, DELETE,
+CDF DML and OPTIMIZE, including writer identity and stored partition values rather than only
+the command plan or values reconstructed from the Delta log.
 
 | SQL | DataFrame API | Status | Notes |
 |---|---|---|---|
@@ -295,6 +307,11 @@ The fallback reasons show in [Gluten UI](GlutenUI.md).
 ### Change data feed
 Offload
 
+On Spark 4.x, CDF UPDATE and DELETE use a virtual `__is_cdc` partition to route data and change
+rows, even when the table itself is unpartitioned. Supporting partition-column materialization
+therefore enables eligible CDF writes to use the native writer on both partitioned and
+unpartitioned tables. This does not change change-data-feed reader semantics.
+
 ```sql
 CREATE TABLE c (id INT, name STRING) USING delta
   TBLPROPERTIES ('delta.enableChangeDataFeed' = true);
@@ -372,7 +389,7 @@ The Read column applies to Spark 3.4 to 4.1. On all of them, Gluten's tests read
 | CHAR, VARCHAR | Offload | Offload | | Stored as STRING. Delta checks the length on the JVM before the native write. Both statuses are from code. Reads return correct results (seen on 4.1). |
 | BINARY | Offload | Offload | Not tested | The read status is from code. One Delta Lake test writes a table with only a BINARY column, checks its file statistics and runs a DELETE that filters on that column (seen on 4.1). |
 | DATE | Offload | Offload | Offload | |
-| TIMESTAMP | Offload, ResultMismatch for sub-millisecond partition values (seen on 4.1) | Offload on Spark 3.5. On Spark 4.x only with `spark.sql.parquet.outputTimestampType=TIMESTAMP_MICROS`; otherwise the write falls back (from code). | Offload, Exception for sub-millisecond values | The partition column status is from code. On Spark 4.x, partitioned writes also fall back unless `delta.writePartitionColumnsToParquet=false` (from code). See [Known problems](#known-problems). |
+| TIMESTAMP | Offload, ResultMismatch for sub-millisecond partition values (seen on 4.1) | Offload on Spark 3.5. On Spark 4.x only with `spark.sql.parquet.outputTimestampType=TIMESTAMP_MICROS`; otherwise the write falls back (from code). | Offload on Spark 3.5, Exception for sub-millisecond values. Fallback on Spark 4.x. | On Spark 4.x, TIMESTAMP partition columns fall back regardless of materialization or actual value precision. Timestamp data columns still follow the encoding checks. See [Known problems](#known-problems). |
 | TIMESTAMP_NTZ | PartialOffload | Offload on Spark 3.5, Exception for some writes. Fallback on Spark 4.x. Both are from code. | Offload on Spark 3.5, Exception for sub-millisecond values. Fallback on Spark 4.x. Both are from code. | Filters, sorts, joins and other operators whose input or output includes a TIMESTAMP_NTZ column fall back, even when they do not use that column. Scans, aggregates, shuffles and some projections can run in Velox. A scan whose pushed filter has a TIMESTAMP_NTZ literal falls back (from code). Gluten's tests check on Spark 3.4 to 4.1 that a scan of the column runs in Velox, and that a filter on the column and a sort on another column cause a fallback. The other operator rules are from code. |
 | STRUCT, ARRAY, MAP | Offload | Offload | | |
 | VARIANT | Fallback | Fallback | | Spark 4.x. Shredded variant reads fall back too. Both statuses are from code. |
@@ -459,7 +476,7 @@ These need native write on, unless a row says otherwise. On Spark 4.x, many of t
 | Files written for a UniForm table have no Parquet field IDs, so the Iceberg metadata points at files without IDs. No error is raised. | ResultMismatch | 3.5, from code. Spark 4.x falls back | [#12957](https://github.com/apache/gluten/pull/12957) |
 | A write to a partitioned UniForm table fails with `The file schema type should be equal with the input rowvector type`. | Exception | 3.5, from code. Spark 4.x falls back | |
 | Some writes of a TIMESTAMP_NTZ data column fail with `The file schema type should be equal with the input rowvector type`. Delta Lake's type widening tests fail this way when they write `CAST(value AS TIMESTAMP_NTZ)`. Delta Lake's data skipping tests also write that cast and pass. | Exception | Seen on 4.1, from code on 3.5. Spark 4.x now falls back | |
-| A partitioned write fails in Velox's `PartitionIdGenerator` when a TIMESTAMP or TIMESTAMP_NTZ partition value has sub-millisecond digits. | Exception | 3.5, from code. On Spark 4.x, TIMESTAMP_NTZ writes fall back, and TIMESTAMP only with `outputTimestampType=TIMESTAMP_MICROS` and `delta.writePartitionColumnsToParquet=false` (from code) | |
+| A partitioned write fails in Velox's `PartitionIdGenerator` when a TIMESTAMP or TIMESTAMP_NTZ partition value has sub-millisecond digits. | Exception | 3.5, from code. Spark 4.x falls back for both types of partition column. | |
 | A generated partition column such as `DATE_FORMAT(ts, 'yyyy-MM')` stores `12345-07` for the year 12345. Spark stores `+12345-07`. Not checked with native write off. | ResultMismatch | Seen on 4.1 | |
 | The `compression` option set to brotli or lzo fails the write. So does `spark.sql.parquet.compression.codec` when the option is unset. The write fails even with the Hadoop codec class on the classpath. Without that class, Delta's writer fails too, and Spark does not ship it. | Exception | 3.5, from code. Spark 4.x falls back | |
 | The `compression` option or `spark.sql.parquet.compression.codec` set to lz4_raw writes Snappy data into a `.lz4raw.parquet` file. | ResultMismatch | 3.5, from code. Spark 4.x falls back | |
@@ -492,6 +509,12 @@ These operations fail as in Delta Lake, with a different exception type or error
 | Missing data file | `SparkException` (`FAILED_READ_FILE.FILE_NOT_EXIST`) on Spark 4.x | `SparkException` wrapping `GlutenException` (`FILE_NOT_FOUND`) |
 
 For errors raised on the JVM, the message of the exception raised in the task stays in the `GlutenException` message. For a `replaceWhere` violation, that is the CHECK constraint message. The `DELTA_REPLACE_WHERE_MISMATCH` line that Delta Lake puts before it, `Written data does not conform to partial table overwrite condition or constraint`, is missing. The lost exception types are tracked in [#11912](https://github.com/apache/gluten/issues/11912). On unpartitioned `save(path)` writes without optimized write, CHECK and NOT NULL violations keep Delta Lake's exception types. NOT NULL violations keep it on partitioned and optimized writes too: Gluten finds the violation's text in the `GlutenException` message and raises Delta Lake's exception. Gluten's tests check this when Gluten checks the Velox batches (Spark 3.5 to 4.2). When Delta checks the rows, it was seen on 4.1. Gluten's tests check NOT NULL on Spark 3.5 and 4.0, and Delta Lake's NOT NULL tests pass (seen on 4.1). The CHECK case is from code.
+
+Default Delta 4.4 partitioned writes now use the native path when otherwise eligible, so these
+CHECK and NOT NULL exception-type differences apply without explicitly enabling a table feature.
+The generic JNI exception-preservation fix is tracked in
+[#13133](https://github.com/apache/gluten/pull/13133); materialization does not bypass constraint
+checks or allow invalid rows to commit.
 
 ## Configuration
 ### Gluten Options

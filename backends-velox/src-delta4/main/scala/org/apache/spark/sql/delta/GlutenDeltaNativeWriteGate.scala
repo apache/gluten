@@ -82,7 +82,7 @@ object GlutenDeltaNativeWriteGate {
       StructType(dataSchema.filterNot(field => partitionColumns.exists(_.name == field.name)))
     }
     unsupportedSchema(dataSchema)
-      .orElse(unsupportedPartitionColumns(partitionColumns, isTrue(options, writePartitionColumns)))
+      .orElse(unsupportedPartitionColumns(partitionColumns))
       .orElse(unsupportedOption(options))
       .orElse(Option(hadoopConf.get(cryptoFactoryClass)).map {
         // parquet-mr encrypts the files when the job conf names a crypto factory.
@@ -120,16 +120,13 @@ object GlutenDeltaNativeWriteGate {
   private val cryptoFactoryClass = EncryptionPropertiesFactory.CRYPTO_FACTORY_CLASS_PROPERTY_NAME
   private val parquetV1 = WriterVersion.PARQUET_1_0
 
-  private def unsupportedPartitionColumns(
-      partitionColumns: Seq[Attribute],
-      materialize: Boolean): Option[String] =
+  private def unsupportedPartitionColumns(partitionColumns: Seq[Attribute]): Option[String] =
     partitionColumns.collectFirst {
       case column if column.dataType == FloatType || column.dataType == DoubleType =>
         s"${column.dataType.sql} partition columns are not supported by the native Delta writer"
-      // PartitionIdGenerator cannot represent sub-millisecond timestamps. Keep the existing
-      // materialized-timestamp fallback until splitting preserves their full precision.
-      case column if materialize && column.dataType == TimestampType =>
-        "Materialized TIMESTAMP partition columns are not supported by the native Delta writer"
+      // PartitionIdGenerator needs millisecond precision even when the file omits partition keys.
+      case column if column.dataType == TimestampType =>
+        "TIMESTAMP partition columns are not supported by the native Delta writer"
     }
 
   private def unsupportedOption(options: Map[String, String]): Option[String] =

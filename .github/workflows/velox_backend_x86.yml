@@ -1467,7 +1467,7 @@ jobs:
           if [ "${{ matrix.group }}" = "1" ]; then
             $PARALLEL_UT $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Ppaimon -Plance -Plance-test -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
-            -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
+            -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten,org.apache.spark.sql.delta.DeltaNativeWriteSuite"
           elif [ "${{ matrix.group }}" = "2" ]; then
             $PARALLEL_UT $MVN_CMD clean test -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pdelta -Ppaimon -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark40/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
@@ -1597,7 +1597,7 @@ jobs:
             # Group 1: streaming + gluten utils + top-level spark tests (~55 classes)
             $PARALLEL_UT $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
             -DargLine="-Dspark.test.home=/opt/shims/spark41/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
-            -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
+            -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten,org.apache.spark.sql.delta.DeltaNativeWriteSuite"
           elif [ "${{ matrix.group }}" = "2" ]; then
             # Group 2: execution + catalyst + errors + extension tests (~140 classes)
             $PARALLEL_UT $MVN_CMD clean test -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
@@ -1733,7 +1733,7 @@ jobs:
             # Group 1: streaming + gluten utils + top-level spark tests (~55 classes)
             $PARALLEL_UT $MVN_CMD clean test -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \
             -DargLine="-Dspark.test.home=/opt/shims/spark42/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
-            -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
+            -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten,org.apache.spark.sql.delta.DeltaNativeWriteSuite"
           elif [ "${{ matrix.group }}" = "2" ]; then
             # Group 2: execution + catalyst + errors + extension tests (~140 classes)
             $PARALLEL_UT $MVN_CMD clean test -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut -Pdelta \

@@ -25,6 +25,7 @@ import org.apache.spark.sql.delta.DeltaLog
 import org.apache.spark.sql.delta.util.DeltaFileOperations
 import org.apache.spark.sql.execution.{QueryExecution, SparkPlan}
 import org.apache.spark.sql.execution.command.ExecutedCommandExec
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types.{IntegerType, LongType, StringType, StructType}
 import org.apache.spark.sql.util.QueryExecutionListener
@@ -61,6 +62,54 @@ class GlutenDeltaNativePartitionWriteSuite extends GlutenQueryTest with SharedSp
       // Exercise omitted partition columns unless the writer feature overrides this property.
       // Older Delta ignores this unknown table property default.
       .set("spark.databricks.delta.properties.defaults.writePartitionColumnsToParquet", "false")
+  }
+
+  for (materialize <- Seq(false, true)) {
+    test(s"sub-millisecond TIMESTAMP partitions fall back: materialize=$materialize") {
+      assume(BackendTestUtils.isVeloxBackendLoaded() && spark.version.startsWith("4."))
+      withSQLConf(SQLConf.PARQUET_OUTPUT_TIMESTAMP_TYPE.key -> "TIMESTAMP_MICROS") {
+        withTempDir {
+          dir =>
+            val path = dir.getCanonicalPath
+            sql(s"CREATE TABLE delta.`$path` (id BIGINT, part TIMESTAMP) USING delta " +
+              "PARTITIONED BY (part) TBLPROPERTIES " +
+              s"('delta.writePartitionColumnsToParquet' = '$materialize')")
+            val input = spark.range(0, 4, 1, 1)
+              .selectExpr("id", "timestamp_micros(1704067200000000 + id) AS part")
+            val expected = input.collect().toSeq
+            input.write.format("delta").mode("append").save(path)
+
+            withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+              val log = DeltaLog.forTable(spark, path)
+              val files = log.update().allFiles.collect()
+              assert(files.length == 4)
+              files.foreach {
+                file =>
+                  val filePath = DeltaFileOperations.absolutePath(path, file.path)
+                  val reader = ParquetFileReader.open(
+                    HadoopInputFile.fromPath(filePath, log.newDeltaHadoopConf()))
+                  try {
+                    val metadata = reader.getFooter.getFileMetaData
+                    assert(metadata.getCreatedBy.startsWith("parquet-mr"), file.path)
+                    val columns = if (materialize) Seq("id", "part") else Seq("id")
+                    assert(metadata.getSchema.getFields.asScala.map(_.getName).toSeq == columns)
+                  } finally {
+                    reader.close()
+                  }
+              }
+              if (materialize) {
+                val paths = files.map {
+                  file => DeltaFileOperations.absolutePath(path, file.path).toString
+                }
+                val storedRows = spark.read.option("recursiveFileLookup", "true")
+                  .parquet(paths: _*).select("id", "part")
+                checkAnswer(storedRows, expected)
+              }
+              checkAnswer(spark.read.format("delta").load(path), expected)
+            }
+        }
+      }
+    }
   }
 
   // Small batches cross partition boundaries; a large batch requires splitting a single stripe.
