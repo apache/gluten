@@ -603,7 +603,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude(
       "SPARK-53535: vectorized reader: missing all struct fields, struct with complex fields")
     .exclude("SPARK-54220: vectorized reader: missing all struct fields, struct with NullType only")
-    .exclude("SPARK-54220: NullType") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenParquetV1PartitionDiscoverySuite]
   enableSuite[GlutenParquetV2PartitionDiscoverySuite]
   enableSuite[GlutenParquetProtobufCompatibilitySuite]
