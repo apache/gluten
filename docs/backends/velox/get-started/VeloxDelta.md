@@ -198,7 +198,7 @@ The node also shows when Velox writes no data files. This happens for a DELETE t
 
 The Status column assumes Spark 3.5 or 4.x with native write on and ANSI mode off. On Spark 4.x, an Offload write still falls back in the cases in [Native write on Spark 4.x](#native-write-on-spark-4x). Otherwise every row is at best PartialOffload. In PartialOffload rows, Delta writes the files and the query that feeds the write can run in Velox.
 
-Gluten's CI checks that a partitioned `save(path)` on 3.5 to 4.1 and OPTIMIZE on 3.5 run as Gluten native write commands. It also checks on 3.5 and 4.0 that a DELETE that rewrites a file runs in Gluten's transaction and that its scan runs in Velox. On 3.5 and 4.0, the copied Delta Lake suites also run UPDATE, DELETE, `save(path)` and `CREATE TABLE ... AS SELECT` with native write on. They check results only. On 4.1, the nightly job shows every Offload row except DELETE going through Velox's writer. The other Offload cases are from code.
+Gluten's CI checks that a partitioned `save(path)` on 3.5 to 4.1 and OPTIMIZE on 3.5 run as Gluten native write commands. It checks that Velox writes the files of `REORG TABLE ... APPLY (PURGE)` on 3.5 to 4.2, and of `DROP FEATURE deletionVectors` on 4.x. It also checks on 3.5 and 4.0 that a DELETE that rewrites a file runs in Gluten's transaction and that its scan runs in Velox. On 3.5 and 4.0, the copied Delta Lake suites also run UPDATE, DELETE, `save(path)` and `CREATE TABLE ... AS SELECT` with native write on. They check results only. On 4.1, the nightly job shows every Offload row except DELETE going through Velox's writer. The other Offload cases are from code.
 
 | SQL | DataFrame API | Status | Notes |
 |---|---|---|---|
@@ -209,7 +209,8 @@ Gluten's CI checks that a partitioned `save(path)` on 3.5 to 4.1 and OPTIMIZE on
 | `DELETE` | `DeltaTable.delete()` | Offload (from code on 4.1), PartialOffload when it writes deletion vectors (from code on 4.1), Fallback when it is metadata-only (from code) | Velox writes the rewritten files. A deletion-vector DELETE and a metadata-only DELETE write no data files. |
 | `OPTIMIZE`, `OPTIMIZE ... WHERE` | `DeltaTable.optimize().executeCompaction()`, with or without `where(...)` | Offload | Bin-packing, by path or by name. |
 | `OPTIMIZE ... ZORDER BY`, `OPTIMIZE ... FULL`, `OPTIMIZE` on a liquid-clustered table | | PartialOffload | From code. |
-| `REORG TABLE ... APPLY (PURGE)`, `REORG TABLE ... APPLY (UPGRADE UNIFORM ...)` | | PartialOffload | From code. |
+| `REORG TABLE ... APPLY (PURGE)`, `REORG TABLE ... WHERE ... APPLY (PURGE)` | | Offload | Velox rewrites the files that have deletion vectors. Column-mapped and liquid-clustered tables keep Delta's writer, also on Spark 3.5. |
+| `REORG TABLE ... APPLY (UPGRADE UNIFORM ...)` | | PartialOffload | From code. |
 | `INSERT INTO ... SELECT`, `INSERT OVERWRITE`, `INSERT INTO ... REPLACE WHERE` | | PartialOffload | From code. To append natively, use `save(path)` in append mode. |
 | | `insertInto(t)`, `saveAsTable(t)` in append mode on an existing table, `writeTo(t).append()`, `overwrite(condition)`, `overwritePartitions()` | PartialOffload | From code. |
 | `MERGE INTO` | | PartialOffload | Scans, the DML target scan and joins can run in Velox. On Spark 3.5 and 4.0, Gluten's tests check that a deletion-vector MERGE runs a scan of the target table in Velox. The other cases are from code. Native MERGE write is in progress in [#13324](https://github.com/apache/gluten/pull/13324). |
@@ -341,7 +342,7 @@ The Read column covers Spark 3.5 to 4.2. It covers Spark 3.4 only where the row 
 | Generated columns | Offload | Offload | Seen on 4.1. No Gluten test covers generated columns. Velox computes the generated values when it supports the expression (from code). Partition filters derived from them reach the native scan. `DATE_FORMAT` results for years above 9999 differ (see [Write problems](#write-problems)). |
 | CHECK constraints, NOT NULL | Offload | Offload | Delta checks the rows on the JVM before Velox writes them. Gluten's tests cover NOT NULL on Spark 3.5 and 4.0. Seen on 4.1. |
 | Row tracking | Offload, Exception for `_metadata.base_row_id` filters, ResultMismatch for `_metadata.row_id` when older files lack base row IDs | Offload | Seen on 4.1. See [Read problems](#read-problems). |
-| Liquid clustering | Offload | PartialOffload | Reads use the same native scan as other tables. Native commands write to clustered tables. `OPTIMIZE`, which clusters the data, uses Delta's writer. All three are from code. |
+| Liquid clustering | Offload | PartialOffload | Reads use the same native scan as other tables. Native commands write to clustered tables. `OPTIMIZE` and `REORG TABLE ... APPLY (PURGE)`, which cluster the data, use Delta's writer. All three are from code. |
 | UniForm (IcebergCompatV1, V2) | | ResultMismatch on Spark 3.5, Exception when partitioned. Fallback on Spark 4.x. | The write statuses are from code. No test reads a UniForm table. |
 | Type widening | Offload, Exception for DATE to TIMESTAMP_NTZ data columns | Offload. Writes to FLOAT or DOUBLE partition columns and some TIMESTAMP_NTZ writes failed (seen on 4.1). Spark 4.x now sends those writes to Delta's writer (from code). | Seen on 4.1. Spark 3.5 and 4.0 are not covered. Delta Lake 3.3.2 on Spark 3.5 allows only TINYINT to SMALLINT to INT. |
 | TIMESTAMP_NTZ | PartialOffload, also on Spark 3.4 | Offload on Spark 3.5, Exception for some writes. Fallback on Spark 4.x. Both are from code. | See [DataType](#datatype). |
@@ -400,7 +401,7 @@ Delta data files are Parquet, and Gluten reads them with Velox's Parquet reader.
 | `CREATE TABLE ... AS SELECT`, `REPLACE TABLE ... AS SELECT` | Offload | With native write on, Spark 3.5 or 4.x, and a DeltaCatalog target. Seen on 4.1, from code on 3.5, 4.0 and 4.2. See [Creating a table](#creating-a-table). |
 | `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `OPTIMIZE`, `REORG` | | See [Write commands](#write-commands). |
 | `CREATE TABLE` without `AS SELECT`, `DROP TABLE`, `DESCRIBE` | Fallback | They read and write no data files. From code. |
-| `ALTER TABLE` | Fallback, PartialOffload when it reads data | Most forms read and write no data files. `ADD CONSTRAINT` scans the table, and that scan can run in Velox. On Spark 3.5 to 4.1, `ALTER COLUMN ... SYNC IDENTITY` also scans it, and `DROP FEATURE` and `SET TBLPROPERTIES ('delta.columnMapping.mode' = 'none')` can rewrite data files with Delta's writer. From code. |
+| `ALTER TABLE` | Fallback, PartialOffload when it reads data, Offload for `DROP FEATURE deletionVectors` | Most forms read and write no data files. `ADD CONSTRAINT` scans the table, and that scan can run in Velox. On Spark 3.5 to 4.1, `ALTER COLUMN ... SYNC IDENTITY` also scans it. On Spark 4.x, `DROP FEATURE deletionVectors` on a DeltaCatalog table purges the deletion vectors as `REORG TABLE ... APPLY (PURGE)` does; Delta Lake 3.3 cannot drop the feature. Other `DROP FEATURE` forms and `SET TBLPROPERTIES ('delta.columnMapping.mode' = 'none')` can rewrite data files with Delta's writer. From code. |
 | `VACUUM`, `RESTORE`, `SHALLOW CLONE` | | They write no Parquet data files. From code. |
 | `CONVERT TO DELTA` | PartialOffload | Writes no Parquet data files. Unless the statement has `NO STATISTICS` or `spark.databricks.delta.stats.collect=false` is set, it scans the Parquet files for statistics. That scan can run in Velox. From code. |
 
@@ -507,7 +508,7 @@ The three `spark.gluten.sql.columnar.backend.velox.delta.*` options are read per
 
 ### Catalogs
 
-Gluten does not change DeltaCatalog. `CREATE TABLE ... AS SELECT` and `REPLACE TABLE ... AS SELECT` are written natively only through a DeltaCatalog (from code). With native write on, `UPDATE`, `DELETE`, plain `OPTIMIZE` and `save(path)` are written natively with any catalog (from code).
+Gluten does not change DeltaCatalog. `CREATE TABLE ... AS SELECT` and `REPLACE TABLE ... AS SELECT` are written natively only through a DeltaCatalog (from code). With native write on, `UPDATE`, `DELETE`, plain `OPTIMIZE`, `REORG TABLE ... APPLY (PURGE)` and `save(path)` are written natively with any catalog. `DROP FEATURE deletionVectors` is written natively only through a DeltaCatalog (from code).
 
 ### SQL Extensions
 Fallback
