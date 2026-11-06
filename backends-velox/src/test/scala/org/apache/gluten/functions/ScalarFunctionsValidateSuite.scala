@@ -17,7 +17,7 @@
 package org.apache.gluten.functions
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.execution.{BatchScanExecTransformer, FilterExecTransformer, ProjectExecTransformer}
+import org.apache.gluten.execution.{BatchScanExecTransformer, ColumnarPartialProjectExec, FilterExecTransformer, ProjectExecTransformer}
 import org.apache.gluten.expression.FormatNumberRestrictions
 import org.apache.gluten.extension.columnar.FallbackTags
 
@@ -194,6 +194,60 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
   test("shiftright") {
     runQueryAndCompare("SELECT shiftright(int_field1, 1) from datatab limit 1") {
       checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  test("shiftrightunsigned and >>> (Spark 4.0+)") {
+    def assertNativeUnsignedShift(df: DataFrame): Unit = {
+      checkGlutenPlan[ProjectExecTransformer](df)
+      val partialProjects = getExecutedPlan(df).collect {
+        case p: ColumnarPartialProjectExec => p
+      }
+      assert(
+        partialProjects.isEmpty,
+        s"Unsigned shifts must not use partial JVM projection:\n${partialProjects.mkString("\n")}")
+    }
+
+    withTempPath {
+      path =>
+        withTempView("shift_input") {
+          Seq[(Integer, java.lang.Long, Integer)](
+            (8, 8L, 1),
+            (-1, -1L, 1),
+            (Int.MinValue, Long.MinValue, 1),
+            (Int.MinValue, Long.MinValue, 31),
+            (-1, -1L, 32),
+            (-1, -1L, 33),
+            (-1, -1L, 63),
+            (-1, -1L, 64),
+            (-1, -1L, 65),
+            (-1, -1L, -1),
+            (Int.MinValue, Long.MinValue, Int.MaxValue),
+            (null, null, 1),
+            (1, 1L, null)
+          )
+            .toDF("int_value", "long_value", "shift")
+            .write
+            .parquet(path.getCanonicalPath)
+
+          spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("shift_input")
+          runQueryAndCompare(
+            """
+              |SELECT
+              |  shiftrightunsigned(int_value, shift),
+              |  shiftrightunsigned(long_value, shift)
+              |FROM shift_input
+              |""".stripMargin)(assertNativeUnsignedShift)
+          if (isSparkVersionGE("4.0")) {
+            runQueryAndCompare(
+              """
+                |SELECT
+                |  int_value >>> shift,
+                |  long_value >>> shift
+                |FROM shift_input
+                |""".stripMargin)(assertNativeUnsignedShift)
+          }
+        }
     }
   }
 
