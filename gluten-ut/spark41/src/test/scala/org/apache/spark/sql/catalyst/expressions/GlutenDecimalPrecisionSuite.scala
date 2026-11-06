@@ -16,12 +16,16 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
+import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.expression._
+import org.apache.gluten.utils.BackendTestUtils
 
 import org.apache.spark.sql.GlutenTestsTrait
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, EmptyFunctionRegistry, UnresolvedAttribute}
 import org.apache.spark.sql.catalyst.catalog.{InMemoryCatalog, SessionCatalog}
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, Project}
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
 class GlutenDecimalPrecisionSuite extends GlutenTestsTrait {
@@ -89,6 +93,63 @@ class GlutenDecimalPrecisionSuite extends GlutenTestsTrait {
     checkType(Subtract(Subtract(d2, d1), d1), DecimalType(7, 2))
     checkType(Multiply(Multiply(d1, d1), d2), DecimalType(11, 4))
     checkType(Divide(d2, Add(d1, d1)), DecimalType(10, 6))
+  }
+
+  test("Velox decimal pmod preserves Spark's mixed-precision result type") {
+    assume(BackendTestUtils.isVeloxBackendLoaded())
+    for (
+      ansi <- Seq("false", "true");
+      allowPrecisionLoss <- Seq("false", "true");
+      capturedMode <- Seq(EvalMode.LEGACY, EvalMode.ANSI)
+    ) {
+      withSQLConf(
+        SQLConf.ANSI_ENABLED.key -> ansi,
+        SQLConf.DECIMAL_OPERATIONS_ALLOW_PREC_LOSS.key -> allowPrecisionLoss,
+        GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> "true"
+      ) {
+        checkType(Pmod(d1, d2), DecimalType(3, 2))
+        val left = AttributeReference("a", DecimalType(1, 0))()
+        val right = AttributeReference("n", DecimalType(3, 0))()
+        val transformed = ExpressionConverter.replaceWithExpressionTransformer(
+          Pmod(left, right, NumericEvalContext(capturedMode)),
+          Seq(left, right))
+        assert(transformed.dataType == DecimalType(1, 0))
+        val checked = if (capturedMode == EvalMode.LEGACY) {
+          assert(transformed.substraitExprName == "try")
+          transformed.children.head
+        } else {
+          transformed
+        }
+        assert(checked.substraitExprName ==
+          (if (allowPrecisionLoss == "true") "checked_pmod"
+           else "checked_pmod_deny_precision_loss"))
+      }
+    }
+  }
+
+  test("Velox decimal pmod rejects unsafe evaluation modes and operands") {
+    assume(BackendTestUtils.isVeloxBackendLoaded())
+    val left = AttributeReference("a", DecimalType(12, 2))()
+    val right = AttributeReference("n", DecimalType(12, 2))()
+    def rejected(expression: Expression): Unit = {
+      intercept[GlutenNotSupportException] {
+        ExpressionConverter.replaceWithExpressionTransformer(expression, Seq(left, right))
+      }
+    }
+    for (ansi <- Seq("false", "true")) {
+      withSQLConf(
+        SQLConf.ANSI_ENABLED.key -> ansi,
+        GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> "true") {
+        rejected(Pmod(left, right, NumericEvalContext(EvalMode.TRY)))
+        rejected(Pmod(UnaryMinus(left), right))
+        rejected(Pmod(left, UnaryMinus(right)))
+        // Supporting PMOD must not also enable decimal remainder.
+        rejected(Remainder(left, right))
+        withSQLConf(GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> "false") {
+          rejected(Pmod(left, right))
+        }
+      }
+    }
   }
 
   test("Comparison operations") {
