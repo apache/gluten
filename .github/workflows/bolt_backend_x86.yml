@@ -14,24 +14,23 @@
 # limitations under the License.
 
 name: Bolt Backend Build (x86)
+run-name: Bolt CI PR ${{ inputs.pr || 'manual' }} check ${{ inputs.check_id || '0' }}
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/bolt_backend_x86.yml'
-      - '.github/actions/restore-bolt-native/**'
-      - 'pom.xml'
-      - 'backends-bolt/**'
-      - 'gluten-*/**'
-      - 'package/**'
-      - 'shims/**'
-      - 'cpp/**'
-      - 'dev/**'
-      - 'build/mvn'
-      - 'tools/gluten-it/**'
-      - '.github/workflows/util/install-spark-resources.sh'
   workflow_dispatch:
     inputs:
+      pr:
+        description: PR number supplied by the trusted listener
+        type: string
+      head_repo:
+        description: PR source repository supplied by the trusted listener
+        type: string
+      head_sha:
+        description: Reviewed commit supplied by the trusted listener
+        type: string
+      check_id:
+        description: Gate check supplied by the trusted listener
+        type: string
       bolt_ref:
         description: 'Bolt revision to compile; empty uses the latest main'
         required: false
@@ -45,17 +44,44 @@ defaults:
     shell: bash
 
 concurrency:
-  group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
+  group: bolt-build-${{ inputs.pr || github.ref }}
   cancel-in-progress: true
 
 env:
+  CI_HEAD_SHA: ${{ inputs.head_sha || github.sha }}
   BOLT_REF: ${{ inputs.bolt_ref || 'main' }}
   # Provided by bytedance/bolt's .github/runners/Dockerfile.ci.
   CC: clang-22
   CXX: clang++-22
 
 jobs:
+  request:
+    name: Validate Bolt CI request
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+      pull-requests: read
+    outputs:
+      head_repo: ${{ steps.request.outputs.head_repo }}
+      head_sha: ${{ steps.request.outputs.head_sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: bolt-control
+          sparse-checkout: .github/workflows/util/bolt-ci
+          persist-credentials: false
+      - id: request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONTROL_SHA: ${{ github.workflow_sha }}
+        run: python3 bolt-control/.github/workflows/util/bolt-ci/control.py validate
+
   native:
+    needs: request
     runs-on: [self-hosted, Linux, X64, bolt-medium]
     timeout-minutes: 360
     env:
@@ -80,16 +106,21 @@ jobs:
       artifact_name: ${{ steps.bolt.outputs.artifact_name }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          repository: ${{ needs.request.outputs.head_repo }}
+          ref: ${{ needs.request.outputs.head_sha }}
+          persist-credentials: false
       - uses: actions/checkout@v7
         with:
           repository: bytedance/bolt
+          persist-credentials: false
           ref: ${{ env.BOLT_REF }}
           path: bolt-source
       - name: Pin the Bolt revision for downstream builds
         id: bolt
         run: |
           echo "sha=$(git -C bolt-source rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          echo "artifact_name=bolt-native-$GITHUB_SHA-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=bolt-native-$CI_HEAD_SHA-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -131,18 +162,24 @@ jobs:
           source cpp/build/Release/generators/conanrun.sh
           ctest --test-dir cpp/build/Release --no-tests=error --output-on-failure \
             --output-junit "$GITHUB_WORKSPACE/bolt-ci-reports/native/TEST-native.xml" -j "$CI_NUM_THREADS"
+          python3 - <<'PYTHON'
+          from xml.etree import ElementTree
+          report = ElementTree.parse("bolt-ci-reports/native/TEST-native.xml")
+          if not any(case.find("skipped") is None for case in report.iter("testcase")):
+              raise SystemExit("Native UT did not execute any test cases")
+          PYTHON
       - name: Upload native build evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: bolt-native-build-logs-${{ github.sha }}
+          name: bolt-native-build-logs-${{ env.CI_HEAD_SHA }}
           path: |
             bolt-native-build.log
             bolt-ci-reports/native/**
 
   jvm:
     name: Compile and package ${{ matrix.id }}
-    needs: native
+    needs: [request, native]
     permissions:
       contents: read
       actions: read
@@ -234,9 +271,14 @@ jobs:
             profiles: delta
     steps:
       - uses: actions/checkout@v7
+        with:
+          repository: ${{ needs.request.outputs.head_repo }}
+          ref: ${{ needs.request.outputs.head_sha }}
+          persist-credentials: false
       - uses: actions/checkout@v7
         with:
           repository: bytedance/bolt
+          persist-credentials: false
           ref: ${{ needs.native.outputs.bolt_sha }}
           path: ep/build-bolt/build/bolt_ep
       - uses: actions/setup-java@v5
@@ -289,7 +331,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: bolt-${{ matrix.id }}-build-${{ github.sha }}
+          name: bolt-${{ matrix.id }}-build-${{ env.CI_HEAD_SHA }}
           path: |
             package/target/gluten-bolt-bundle-*.jar
             bolt-jvm-build.log
@@ -297,7 +339,7 @@ jobs:
   spark-ut:
     if: ${{ !cancelled() && needs.native.outputs.native_artifact != '' }}
     name: Spark ${{ matrix.spark }} tests (${{ matrix.stage }})
-    needs: native
+    needs: [request, native]
     permissions:
       contents: read
       actions: read
@@ -325,9 +367,14 @@ jobs:
       GLUTEN_EXCLUDED_TAGS: org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest
     steps:
       - uses: actions/checkout@v7
+        with:
+          repository: ${{ needs.request.outputs.head_repo }}
+          ref: ${{ needs.request.outputs.head_sha }}
+          persist-credentials: false
       - uses: actions/checkout@v7
         with:
           repository: bytedance/bolt
+          persist-credentials: false
           ref: ${{ needs.native.outputs.bolt_sha }}
           path: ep/build-bolt/build/bolt_ep
       - uses: actions/setup-java@v5
