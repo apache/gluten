@@ -107,24 +107,15 @@ Successful carrier propagation keeps JNI clear until the return boundary restore
 the throwable.
 Do not replace this carrier with an exception constructed from `what()`.
 
-Copies and `std::exception_ptr` instances keep the throwable alive until the last
-owner releases it. Cleanup uses the current thread's JNI environment and detaches
-only threads it attached itself. Failures while describing the captured throwable
-do not replace it; if creating its global reference fails, the pending Java
-allocation error is preserved.
-
-`JNI_METHOD_END` also restores carriers inside standard `std::nested_exception`
-wrappers. Other native errors keep their existing `GlutenException` fallback.
-
-Velox input-stream callbacks use `wrapJavaException` before returning to the
+Velox input-stream and memory-reservation callbacks use `wrapJavaException` before returning to the
 driver, whose generic native-exception handler otherwise keeps only the message.
 At the output boundary, including lazy-vector loading, `rethrowJavaException`
-recovers the carrier through Velox and standard nested exception wrappers. The
-runtime/system wrapper prevents TRY expressions from suppressing failed Java
-callbacks. Other native errors keep their existing handling; this mechanism does
-not classify or translate native cast failures.
-Preserving the throwable does not merge Java and C++ frames into a hybrid stack
-trace (see [#9642](https://github.com/apache/gluten/issues/9642)).
+recovers the carrier through Velox and standard nested exception wrappers. Standard
+nesting also preserves allocation callbacks returning directly through core JNI,
+without introducing a backend dependency there. Other
+native errors keep their existing handling; this mechanism does not classify or
+translate native cast failures.
+Preserving the throwable does not merge C++ frames into its Java stack trace.
 
 `GlutenDeltaNativeConstraintSuite` checks CHECK, NOT NULL, and replaceWhere violations
 through native writes, including partitioned writes. It requires the original Delta
