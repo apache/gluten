@@ -59,8 +59,6 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
     ResizeRange(minSize, Int.MaxValue)
   }
 
-  def castFromVarcharAddTrimNode: Boolean = getConf(CAST_FROM_VARCHAR_ADD_TRIM_NODE)
-
   def enableVeloxFlushablePartialAggregation: Boolean =
     getConf(VELOX_FLUSHABLE_PARTIAL_AGGREGATION_ENABLED)
 
@@ -759,15 +757,6 @@ object VeloxConfig extends ConfigRegistry {
           "with, so you do not have to write a Java class for it or run CREATE TEMPORARY " +
           "FUNCTION. In exchange, there is no Java version to fall back to, so any query " +
           "Gluten cannot run natively will fail instead of running on Spark. Off by default.")
-      .booleanConf
-      .createWithDefault(false)
-
-  val CAST_FROM_VARCHAR_ADD_TRIM_NODE =
-    buildConf("spark.gluten.velox.castFromVarcharAddTrimNode")
-      .doc(
-        "If true, will add a trim node " +
-          "which has the same semantic as vanilla Spark to CAST-from-varchar." +
-          "Otherwise, do nothing.")
       .booleanConf
       .createWithDefault(false)
 
