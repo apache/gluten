@@ -153,6 +153,13 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
         return schemaEx;
       }
     }
+    // A GlutenException raised by native/nested code is already translated; return it
+    // as-is rather than nesting it in another GlutenException. Keep this after every more
+    // specific translation: a GlutenException subclass that needs its own translation must
+    // be matched above, or this check returns it untranslated.
+    if (e instanceof GlutenException) {
+      return (GlutenException) e;
+    }
     return new GlutenException(e);
   }
 
