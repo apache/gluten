@@ -175,7 +175,7 @@ class Controller:
             },
         )
         if previous:
-            data.update(conclusion=None, completed_at=None)
+            # The Checks API rejects null terminal fields. Changing status reopens it.
             return self.api.patch(f"{self.base}/check-runs/{previous['id']}", data)
         return self.api.post(
             f"{self.base}/check-runs", data | {"head_sha": identity["sha"]}
@@ -396,8 +396,6 @@ class Controller:
                     f"{self.base}/check-runs/{check['id']}",
                     {
                         "status": "in_progress",
-                        "conclusion": None,
-                        "completed_at": None,
                         "output": {
                             "title": "A fresh Bolt CI request is required",
                             "summary": summary,
