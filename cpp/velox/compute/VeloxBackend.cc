@@ -60,7 +60,7 @@
 #include "utils/VeloxWriterUtils.h"
 #include "velox/common/caching/SsdCache.h"
 #include "velox/common/file/FileSystems.h"
-#include "velox/connectors/hive/BufferedInputBuilder.h"
+#include "velox/connectors/common/BufferedInputBuilder.h"
 #include "velox/connectors/hive/HiveConnector.h"
 #include "velox/connectors/hive/HiveDataSource.h"
 #include "velox/connectors/hive/iceberg/IcebergConnector.h"
@@ -281,7 +281,7 @@ void VeloxBackend::init(
   velox::orc::registerOrcReaderFactory();
   velox::exec::ExprToSubfieldFilterParser::registerParser(std::make_unique<SparkExprToSubfieldFilterParser>(
       backendConf_->get<bool>(kScanBloomFilterPushdownEnabled, kScanBloomFilterPushdownEnabledDefault)));
-  velox::connector::hive::BufferedInputBuilder::registerBuilder(std::make_shared<GlutenBufferedInputBuilder>());
+  velox::connector::BufferedInputBuilder::registerBuilder(std::make_shared<GlutenBufferedInputBuilder>());
 
   // Register Velox functions
   registerAllFunctions();
