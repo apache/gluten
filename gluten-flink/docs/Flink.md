@@ -39,6 +39,10 @@ export PATH=$JAVA_HOME/bin:$PATH
 
 **Get Velox4j**
 
+The velox4j commit is maintained in the single file `gluten-flink/velox4j-ref.txt`;
+edit that file to update the pin — the CI workflow and this guide both read the
+commit from there.
+
 Gluten for Flink depends on [Velox4j](https://github.com/velox4j/velox4j) to call velox. This is an experimental feature.
 You need to get the Velox4j code, and compile it first.
 
@@ -48,7 +52,7 @@ As some features have not been committed to upstream, you have to use the follow
 ## fetch velox4j code
 git clone -b gluten-20260829 https://github.com/bigo-sg/velox4j.git
 cd velox4j
-git reset --hard cfe63ea5f7838a0221a268ce58d6d223c594bddc
+git reset --hard $(cat $GLUTEN_FLINK_HOME/velox4j-ref.txt)
 mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
 ```
 **Get gluten**

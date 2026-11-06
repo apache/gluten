@@ -43,6 +43,7 @@ import org.apache.calcite.sql.SqlFunction;
 import org.apache.calcite.sql.SqlIntervalQualifier;
 import org.apache.calcite.sql.parser.SqlParserPos;
 import org.apache.calcite.sql.type.SqlTypeName;
+import org.apache.calcite.util.TimeString;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -70,6 +71,24 @@ public class RexNodeConverterTest {
     Variant variant = RexNodeConverter.toVariant(literal);
     assertThat(variant).isInstanceOf(VarCharValue.class);
     assertThat(((VarCharValue) variant).getValue()).isEqualTo("apple");
+  }
+
+  @Test
+  public void testTimeLiteralConvertsToMillisOfDay() {
+    RexLiteral literal = rexBuilder.makeTimeLiteral(new TimeString(12, 34, 56), 0);
+    Variant variant = RexNodeConverter.toVariant(literal);
+    assertThat(variant).isInstanceOf(IntegerValue.class);
+    assertThat(((IntegerValue) variant).getValue())
+        .isEqualTo(12 * 3_600_000 + 34 * 60_000 + 56_000);
+  }
+
+  @Test
+  public void testTimeNullLiteralConvertsToNullCarrier() {
+    RexLiteral literal =
+        (RexLiteral) rexBuilder.makeNullLiteral(typeFactory.createSqlType(SqlTypeName.TIME));
+    Variant variant = RexNodeConverter.toVariant(literal);
+    assertThat(variant).isInstanceOf(VarCharValue.class);
+    assertThat(((VarCharValue) variant).getValue()).isNull();
   }
 
   @Test
