@@ -1,39 +1,39 @@
 # Scalar Functions Support Status
 
-**Out of 433 scalar functions in Spark 4.1, Gluten currently fully supports 261 functions and partially supports 31 functions.**
+**Out of 433 scalar functions in Spark 4.1, Gluten currently fully supports 261 functions and partially supports 32 functions.**
 
 The status applies to `spark.sql.ansi.enabled=false`. When ANSI mode is enabled, Gluten falls back to vanilla Spark
 (see `spark.gluten.sql.ansiFallback.enabled`).
 
 ## Array Functions
 
-| Spark Functions   | Spark Expressions   | Status   | Restrictions   |
-|-------------------|---------------------|----------|----------------|
-| array             | CreateArray         | S        |                |
-| array_append      | ArrayAppend         | S        |                |
-| array_compact     | ArrayCompact        | S        |                |
-| array_contains    | ArrayContains       | S        |                |
-| array_distinct    | ArrayDistinct       | S        |                |
-| array_except      | ArrayExcept         | S        |                |
-| array_insert      | ArrayInsert         | S        |                |
-| array_intersect   | ArrayIntersect      | S        |                |
-| array_join        | ArrayJoin           | S        |                |
-| array_max         | ArrayMax            | S        |                |
-| array_min         | ArrayMin            | S        |                |
-| array_position    | ArrayPosition       | S        |                |
-| array_prepend     | ArrayPrepend        | S        |                |
-| array_remove      | ArrayRemove         | S        |                |
-| array_repeat      | ArrayRepeat         | S        |                |
-| array_size        | ArraySize           | S        |                |
-| array_union       | ArrayUnion          | S        |                |
-| arrays_overlap    | ArraysOverlap       | S        |                |
-| arrays_zip        | ArraysZip           | S        |                |
-| flatten           | Flatten             | S        |                |
-| get               | Get                 | S        |                |
-| sequence          | Sequence            |          |                |
-| shuffle           | Shuffle             | S        |                |
-| slice             | Slice               | S        |                |
-| sort_array        | SortArray           | S        |                |
+| Spark Functions   | Spark Expressions   | Status   | Restrictions                                                                                                                                                                                                  |
+|-------------------|---------------------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| array             | CreateArray         | S        |                                                                                                                                                                                                               |
+| array_append      | ArrayAppend         | S        |                                                                                                                                                                                                               |
+| array_compact     | ArrayCompact        | S        |                                                                                                                                                                                                               |
+| array_contains    | ArrayContains       | S        |                                                                                                                                                                                                               |
+| array_distinct    | ArrayDistinct       | S        |                                                                                                                                                                                                               |
+| array_except      | ArrayExcept         | S        |                                                                                                                                                                                                               |
+| array_insert      | ArrayInsert         | S        |                                                                                                                                                                                                               |
+| array_intersect   | ArrayIntersect      | S        |                                                                                                                                                                                                               |
+| array_join        | ArrayJoin           | S        |                                                                                                                                                                                                               |
+| array_max         | ArrayMax            | S        |                                                                                                                                                                                                               |
+| array_min         | ArrayMin            | S        |                                                                                                                                                                                                               |
+| array_position    | ArrayPosition       | S        |                                                                                                                                                                                                               |
+| array_prepend     | ArrayPrepend        | S        |                                                                                                                                                                                                               |
+| array_remove      | ArrayRemove         | S        |                                                                                                                                                                                                               |
+| array_repeat      | ArrayRepeat         | S        |                                                                                                                                                                                                               |
+| array_size        | ArraySize           | S        |                                                                                                                                                                                                               |
+| array_union       | ArrayUnion          | S        |                                                                                                                                                                                                               |
+| arrays_overlap    | ArraysOverlap       | S        |                                                                                                                                                                                                               |
+| arrays_zip        | ArraysZip           | S        |                                                                                                                                                                                                               |
+| flatten           | Flatten             | S        |                                                                                                                                                                                                               |
+| get               | Get                 | S        |                                                                                                                                                                                                               |
+| sequence          | Sequence            | PS       | sequence only supports an omitted step or a non-zero literal step in Velox<br>sequence only supports tinyint, smallint, integer and bigint arguments; date and timestamp arguments are not supported in Velox |
+| shuffle           | Shuffle             | S        |                                                                                                                                                                                                               |
+| slice             | Slice               | S        |                                                                                                                                                                                                               |
+| sort_array        | SortArray           | S        |                                                                                                                                                                                                               |
 
 ## Bitwise Functions
 

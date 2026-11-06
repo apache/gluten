@@ -128,6 +128,12 @@ public class RexCallConverterFactory {
           Map.entry("CEIL", Arrays.asList(() -> new NumericOnlyRexCallConverter("ceil"))),
           Map.entry("CEILING", Arrays.asList(() -> new DefaultRexCallConverter("ceil"))),
           Map.entry("ROUND", Arrays.asList(() -> new DecimalPostCastRexCallConverter("round"))),
+          // Offload targets implemented in velox's flinksql namespace;
+          // the names arrive upper-cased from the operator table.
+          Map.entry(
+              "CURRENT_DATE", Arrays.asList(() -> new DefaultRexCallConverter("current_date"))),
+          Map.entry(
+              "CURRENT_TIME", Arrays.asList(() -> new DefaultRexCallConverter("current_time"))),
           Map.entry("IFNULL", Arrays.asList(() -> new ScalarOnlyRexCallConverter("ifnull"))),
           // TRIM is normalized by Calcite to (flag, seek, str); the converter
           // maps the flag to ltrim/rtrim/trim and reorders to (str, seek).
