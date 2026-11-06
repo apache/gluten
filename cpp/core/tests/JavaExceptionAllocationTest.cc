@@ -47,6 +47,29 @@ void operator delete(void* memory, std::size_t) noexcept {
   std::free(memory);
 }
 
+TEST(JavaExceptionAllocationTest, stateAllocationFailureRetainsOriginal) {
+  gluten::TestJniEnvironment jni;
+  jni.pending = &jni.original;
+  failNextAllocation = true;
+  try {
+    gluten::JavaException::check(jni.env());
+    failNextAllocation = false;
+    FAIL() << "Expected std::bad_alloc";
+  } catch (const std::bad_alloc&) {
+    EXPECT_FALSE(std::exchange(failNextAllocation, false));
+  } catch (...) {
+    failNextAllocation = false;
+    throw;
+  }
+  EXPECT_EQ(jni.pending, &jni.original);
+  EXPECT_EQ(jni.createdGlobalRefs, 0);
+  EXPECT_EQ(jni.deletedGlobalRefs, 0);
+  EXPECT_EQ(jni.deletedLocalRefs, 1);
+  EXPECT_EQ(jni.pushedFrames, 0);
+  EXPECT_EQ(jni.poppedFrames, 0);
+  EXPECT_EQ(jni.releasedStrings, 0);
+}
+
 TEST(JavaExceptionAllocationTest, diagnosticAllocationFailureRetainsOriginal) {
   gluten::TestJniEnvironment jni;
   auto functions = *jni.env()->functions;

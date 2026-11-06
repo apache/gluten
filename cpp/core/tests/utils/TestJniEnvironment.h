@@ -79,7 +79,8 @@ class TestJniEnvironment {
     functions_.DeleteLocalRef = [](JNIEnv* env, jobject) { ++from(env).deletedLocalRefs; };
     functions_.Throw = [](JNIEnv* env, jthrowable throwable) {
       auto& self = from(env);
-      self.pending = self.globalRefs.at(throwable);
+      auto global = self.globalRefs.find(throwable);
+      self.pending = global == self.globalRefs.end() ? throwable : global->second;
       return JNI_OK;
     };
     functions_.PushLocalFrame = [](JNIEnv* env, jint) {
