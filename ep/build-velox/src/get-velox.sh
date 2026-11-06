@@ -25,7 +25,7 @@ RUN_SETUP_SCRIPT=ON
 ENABLE_ENHANCED_FEATURES=OFF
 
 # Developer use only for testing Velox PR.
-UPSTREAM_VELOX_PR_ID=""
+UPSTREAM_VELOX_PR_ID="19141"
 
 OS=`uname -s`
 
@@ -140,10 +140,10 @@ function prepare_velox_source_code {
 function apply_provided_velox_patch {
   if [[ -n "$UPSTREAM_VELOX_PR_ID" ]]; then
      echo "Applying patch for PR #$UPSTREAM_VELOX_PR_ID ..."
-     local patch_name="$UPSTREAM_VELOX_PR_ID.patch"
+     local patch_name="$UPSTREAM_VELOX_PR_ID.diff"
      pushd $VELOX_HOME
      rm -f $patch_name
-     wget -nv "https://patch-diff.githubusercontent.com/raw/facebookincubator/velox/pull/$UPSTREAM_VELOX_PR_ID.patch" \
+     wget -nv "https://patch-diff.githubusercontent.com/raw/facebookincubator/velox/pull/$UPSTREAM_VELOX_PR_ID.diff" \
        -O "$patch_name" || {
        echo "Failed to download the Velox patch from GitHub"
        exit 1
