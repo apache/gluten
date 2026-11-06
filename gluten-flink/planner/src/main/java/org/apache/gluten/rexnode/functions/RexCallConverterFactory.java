@@ -108,6 +108,16 @@ public class RexCallConverterFactory {
           Map.entry(
               "REGEXP_EXTRACT", Arrays.asList(() -> new DefaultRexCallConverter("regexp_extract"))),
           Map.entry("LOWER", Arrays.asList(() -> new DefaultRexCallConverter("lower"))),
+          // Direct name mapping: the SHA-2 family. The fixed-length spellings
+          // are the sha2 core with the length bound on the velox side; the
+          // hashLength operand is routed by the velox sha2 signature set.
+          // SHA2 itself carries a converter-side validation of a constant
+          // hashLength (see Sha2RexCallConverter).
+          Map.entry("SHA2", Arrays.asList(() -> new Sha2RexCallConverter())),
+          Map.entry("SHA224", Arrays.asList(() -> new DefaultRexCallConverter("sha224"))),
+          Map.entry("SHA256", Arrays.asList(() -> new DefaultRexCallConverter("sha256"))),
+          Map.entry("SHA384", Arrays.asList(() -> new DefaultRexCallConverter("sha384"))),
+          Map.entry("SHA512", Arrays.asList(() -> new DefaultRexCallConverter("sha512"))),
           Map.entry("count_char", Arrays.asList(() -> new DefaultRexCallConverter("count_char"))),
           Map.entry("EXTRACT", Arrays.asList(() -> new DefaultRexCallConverter("extract"))),
           Map.entry("IS TRUE", Arrays.asList(() -> new IsTrueRexCallConverter())),
