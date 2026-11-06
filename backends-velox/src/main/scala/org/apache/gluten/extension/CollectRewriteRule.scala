@@ -25,6 +25,8 @@ import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.trees.TreePattern.{AGGREGATE, AGGREGATE_EXPRESSION}
+import org.apache.spark.sql.expression.FloatingNumbersNormalizer
+import org.apache.spark.util.SparkVersionUtil
 
 import scala.reflect.{classTag, ClassTag}
 
@@ -66,8 +68,13 @@ object CollectRewriteRule {
   private object ToVeloxCollect {
     def unapply(expr: Expression): Option[Expression] = expr match {
       case aggExpr @ AggregateExpression(s: CollectSet, _, _, _, _) if has[VeloxCollectSet] =>
+        // Since Spark 4.2 (SPARK-57298), collect_set treats -0.0 and 0.0, and all NaNs, as one
+        // value and returns the normalized value. Velox keeps the first value it sees.
+        val child =
+          if (SparkVersionUtil.gteSpark42) FloatingNumbersNormalizer.normalize(s.child)
+          else s.child
         val newAggExpr =
-          aggExpr.copy(aggregateFunction = VeloxCollectSet(s.child, getIgnoreNulls(s)))
+          aggExpr.copy(aggregateFunction = VeloxCollectSet(child, getIgnoreNulls(s)))
         Some(newAggExpr)
       case aggExpr @ AggregateExpression(l: CollectList, _, _, _, _) if has[VeloxCollectList] =>
         val newAggExpr = aggExpr.copy(VeloxCollectList(l.child, getIgnoreNulls(l)))
