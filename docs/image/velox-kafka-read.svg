@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="575" viewBox="0 0 840 575" role="img" aria-labelledby="title description">
+  <!--
+    Licensed to the Apache Software Foundation (ASF) under one or more
+    contributor license agreements. See the NOTICE file distributed with
+    this work for additional information regarding copyright ownership.
+    The ASF licenses this file to You under the Apache License, Version 2.0
+    (the "License"); you may not use this file except in compliance with
+    the License. You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+  -->
+  <title id="title">Kafka reads with Gluten and Velox</title>
+  <desc id="description">The Spark driver plans micro-batches and tracks offsets and checkpoints. Gluten converts eligible Kafka scans into native plans. One Spark executor is shown. Its Gluten task calls the Velox Kafka reader through JNI within the same process. The native reader uses librdkafka to read records directly from Kafka and returns columnar batches to the task. Spark can distribute tasks across multiple executors.</desc>
+  <defs>
+    <marker id="control-arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <path d="M 0 1 L 9 5 L 0 9 Z" fill="#52657a"/>
+    </marker>
+    <marker id="data-arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <path d="M 0 1 L 9 5 L 0 9 Z" fill="#197567"/>
+    </marker>
+  </defs>
+  <rect width="840" height="575" rx="14" fill="#ffffff"/>
+  <g font-family="Arial, Helvetica, sans-serif" fill="#172b4d">
+    <text x="30" y="39" font-size="26" font-weight="700">Kafka reads with Gluten and Velox</text>
+
+    <rect x="30" y="80" width="270" height="130" rx="12" fill="#eef4ff" stroke="#5377a3" stroke-width="2"/>
+    <text x="165" y="115" text-anchor="middle" font-size="22" font-weight="700">Spark driver + Gluten</text>
+    <text x="165" y="151" text-anchor="middle" font-size="17">Plans micro-batches</text>
+    <text x="165" y="181" text-anchor="middle" font-size="17">Tracks offsets and checkpoints</text>
+
+    <rect x="435" y="80" width="375" height="430" rx="12" fill="#f6f8fc" stroke="#5377a3" stroke-width="2"/>
+    <text x="622" y="115" text-anchor="middle" font-size="22" font-weight="700">Spark executor · JVM process</text>
+    <rect x="460" y="155" width="325" height="80" rx="8" fill="#eef4ff" stroke="#8ba5c5"/>
+    <text x="622" y="188" text-anchor="middle" font-size="21" font-weight="700">Gluten columnar task</text>
+    <text x="622" y="215" text-anchor="middle" font-size="17">Downstream processing</text>
+    <path d="M 300 170 H 458" fill="none" stroke="#52657a" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#control-arrow)"/>
+    <text x="367" y="152" text-anchor="middle" font-size="16">Plan + offsets</text>
+
+    <path d="M 550 235 V 373" fill="none" stroke="#52657a" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#control-arrow)"/>
+    <text x="535" y="310" text-anchor="end" font-size="16">JNI call</text>
+    <path d="M 700 375 V 237" fill="none" stroke="#197567" stroke-width="2.5" marker-end="url(#data-arrow)"/>
+    <text x="715" y="298" font-size="16">Columnar</text>
+    <text x="715" y="320" font-size="16">batches</text>
+    <rect x="460" y="375" width="325" height="100" rx="9" fill="#edf8f3" stroke="#37806a" stroke-width="2"/>
+    <text x="622" y="409" text-anchor="middle" font-size="21" font-weight="700">Velox Kafka reader</text>
+    <text x="622" y="436" text-anchor="middle" font-size="17">librdkafka</text>
+    <text x="622" y="459" text-anchor="middle" font-size="15">Native C++ in this executor</text>
+
+    <rect x="30" y="385" width="270" height="100" rx="12" fill="#fff5e8" stroke="#a87936" stroke-width="2"/>
+    <text x="165" y="424" text-anchor="middle" font-size="22" font-weight="700">Kafka brokers</text>
+    <text x="165" y="455" text-anchor="middle" font-size="17">Topic partitions</text>
+    <path d="M 300 435 H 458" fill="none" stroke="#197567" stroke-width="2.5" marker-end="url(#data-arrow)"/>
+    <text x="367" y="418" text-anchor="middle" font-size="16" fill="#176356">Records</text>
+
+    <text x="420" y="550" text-anchor="middle" font-size="15">One executor shown; Spark can distribute tasks across multiple executors.</text>
+  </g>
+</svg>
