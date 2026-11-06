@@ -136,7 +136,7 @@ seaborn==0.13.2
 SecretStorage==3.3.1
 Send2Trash==1.8.3
 service-identity==18.1.0
-setuptools==78.1.1
+setuptools==84.1.0
 simplejson==3.19.2
 six==1.16.0
 smmap==5.0.1
