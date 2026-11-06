@@ -33,7 +33,7 @@ import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
 import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke
-import org.apache.spark.sql.catalyst.optimizer.BuildSide
+import org.apache.spark.sql.catalyst.optimizer.{BuildSide, NormalizeNaNAndZero}
 import org.apache.spark.sql.catalyst.plans.JoinType
 import org.apache.spark.sql.catalyst.plans.physical.{BroadcastMode, Partitioning}
 import org.apache.spark.sql.execution._
@@ -511,6 +511,14 @@ trait SparkPlanExecApi {
       resultAttrs: Seq[Attribute],
       child: SparkPlan,
       evalType: Int): SparkPlan
+
+  /** Backends without a normalization function keep the default pass-through. */
+  def genNormalizeNaNAndZeroTransformer(
+      substraitExprName: String,
+      childTransformer: ExpressionTransformer,
+      original: NormalizeNaNAndZero): ExpressionTransformer = {
+    ChildTransformer(substraitExprName, childTransformer, original)
+  }
 
   def genGetStructFieldTransformer(
       substraitExprName: String,

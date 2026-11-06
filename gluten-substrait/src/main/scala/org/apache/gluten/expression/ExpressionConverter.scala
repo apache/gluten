@@ -691,7 +691,12 @@ object ExpressionConverter extends SQLConfHelper with Logging {
             LiteralTransformer(m.nullOnOverflow)),
           m
         )
-      case _: NormalizeNaNAndZero | _: TaggingExpression | _: DynamicPruningExpression =>
+      case n: NormalizeNaNAndZero =>
+        BackendsApiManager.getSparkPlanExecApiInstance.genNormalizeNaNAndZeroTransformer(
+          substraitExprName,
+          replaceWithExpressionTransformer0(n.child, attributeSeq, expressionsMap),
+          n)
+      case _: TaggingExpression | _: DynamicPruningExpression =>
         ChildTransformer(
           substraitExprName,
           replaceWithExpressionTransformer0(expr.children.head, attributeSeq, expressionsMap),

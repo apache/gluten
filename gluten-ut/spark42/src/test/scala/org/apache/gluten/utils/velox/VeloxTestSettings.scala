@@ -1014,12 +1014,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude(
       "SPARK-55256: array_agg with RESPECT NULLS preserves nulls"
     ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-57298: collect_set normalizes NaN and -0.0 for floating-point types"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-57298: collect_set normalizes NaN and -0.0 nested in complex types"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
+    // Velox's Spark collect_set keeps NaNs distinct, like Spark before 4.2 (GLUTEN-13440).
+    .exclude("SPARK-57298: collect_set normalizes NaN and -0.0 for floating-point types")
   enableSuite[GlutenDataFrameAsOfJoinSuite]
   enableSuite[GlutenDataFrameComplexTypeSuite]
   enableSuite[GlutenDataFrameFunctionsSuite]
@@ -1032,27 +1028,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("map with arrays")
     // Overridden: asserts vanilla WholeStageCodegenExec, which Gluten replaces.
     .exclude("array_join with nullable nullReplacement under whole-stage codegen")
-    .exclude(
-      "SPARK-54918: array set ops normalize -0.0 and NaN via VALUES inline table"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-54918: array_distinct normalizes -0.0 to +0.0"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-54918: array_distinct normalizes -0.0 to +0.0 - literals"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-54918: array_intersect normalizes -0.0 to +0.0"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-54918: array_intersect normalizes -0.0 to +0.0 - literals"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-54918: array_union normalizes -0.0 to +0.0"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-54918: array_union normalizes -0.0 to +0.0 - literals"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenDataFrameHintSuite]
   enableSuite[GlutenDataFrameImplicitsSuite]
   enableSuite[GlutenDataFrameJoinSuite]
