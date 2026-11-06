@@ -101,6 +101,10 @@ JNI callbacks must call `checkException(env)` after invoking Java. It throws
 throwable. `JNI_METHOD_END` restores that same object with JNI `Throw`, retaining
 its class, cause, suppressed exceptions, stack trace, and structured Spark error
 metadata. Native diagnostic formatting is best-effort after capturing the throwable.
+If native carrier construction fails, `checkException` restores the original
+throwable before local-reference cleanup unless a newer Java exception is pending.
+Successful carrier propagation keeps JNI clear until the return boundary restores
+the throwable.
 Do not replace this carrier with an exception constructed from `what()`.
 
 Velox input-stream and memory-reservation callbacks use `wrapJavaException` before returning to the
