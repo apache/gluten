@@ -140,7 +140,7 @@ void checkIncrementMetricFunctionsInProjects(
     }
     VELOX_CHECK(
         calledInProjects->count(name) > 0,
-        "Delta counter {} is called outside a projection, where the JVM does not credit it",
+        "Delta counter {} is declared but no projection calls it, and the JVM credits counters only from projections",
         name);
   }
 }
