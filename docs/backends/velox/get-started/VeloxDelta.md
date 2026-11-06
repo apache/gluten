@@ -281,7 +281,7 @@ RESET spark.databricks.delta.deletionVectors.useMetadataRowIndex;
 | Spark 3.4, other scans, such as DML target scans, `OPTIMIZE` scans, streaming micro-batches and change data feed scans of `_change_data` files | Fall back whenever the table protocol allows deletion vectors. Change data feed scans of added or removed files fall back only when a file they read has a deletion vector. From code. |
 | `spark.databricks.delta.stats.skipping=false` | Delta Lake itself rejects reads of a table with deletion vectors with `Cannot work with a non-pinned table snapshot of the TahoeFileIndex` (seen on 4.1). Before Delta Lake 4.1.0, the table feature alone triggers it (from code). |
 
-The fallback reasons show in [Gluten UI](GlutenUI.md).
+The fallback reasons show in [Gluten UI](../../../get-started/GlutenUI.md).
 
 ### Change data feed
 Offload
