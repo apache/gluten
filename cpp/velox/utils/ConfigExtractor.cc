@@ -18,16 +18,23 @@
 // This File includes common helper functions with Arrow dependency.
 
 #include "ConfigExtractor.h"
+#include <algorithm>
 #include <stdexcept>
 
 #include "config/VeloxConfig.h"
 #include "utils/Exception.h"
 #include "utils/Macros.h"
+#include "velox/common/memory/Memory.h"
 #include "velox/connectors/hive/HiveConfig.h"
 #include "velox/connectors/hive/storage_adapters/s3fs/S3Config.h"
+#include "velox/core/QueryConfig.h"
 #include "velox/dwio/common/Options.h"
 #include "velox/dwio/dwrf/common/Config.h"
 #include "velox/dwio/parquet/common/ParquetConfig.h"
+#include "velox/functions/sparksql/SparkQueryConfig.h"
+#ifdef GLUTEN_ENABLE_GPU
+#include "velox/experimental/cudf/CudfConfig.h"
+#endif
 
 namespace gluten {
 
@@ -251,6 +258,181 @@ std::string orcSessionProperty(std::string_view key) {
 }
 
 } // namespace
+
+std::unordered_map<std::string, std::string> getQueryContextConf(
+    const facebook::velox::config::ConfigBase* conf,
+    int32_t partitionId) {
+  using namespace facebook;
+  using facebook::velox::functions::sparksql::SparkQueryConfig;
+  std::unordered_map<std::string, std::string> configs = {};
+  // Find batch size from Spark confs. If found, set the preferred and max batch size.
+  configs[velox::core::QueryConfig::kPreferredOutputBatchRows] =
+      std::to_string(conf->get<uint32_t>(kSparkBatchSize, 4096));
+  configs[velox::core::QueryConfig::kMaxOutputBatchRows] = std::to_string(conf->get<uint32_t>(kSparkBatchSize, 4096));
+  configs[velox::core::QueryConfig::kPreferredOutputBatchBytes] =
+      std::to_string(conf->get<uint64_t>(kVeloxPreferredBatchBytes, 10L << 20));
+  try {
+    configs[SparkQueryConfig::qualify(SparkQueryConfig::kAnsiEnabled)] = conf->get<std::string>(kAnsiEnabled, "false");
+    configs[velox::core::QueryConfig::kSessionTimezone] =
+        normalizeSessionTimezone(conf->get<std::string>(kSessionTimezone, ""));
+    // Adjust timestamp according to the above configured session timezone.
+    configs[velox::core::QueryConfig::kAdjustTimestampToTimezone] = "true";
+
+    {
+      // Find offheap size from Spark confs. If found, set the max memory usage of partial aggregation.
+      // Partial aggregation memory configurations.
+      // TODO: Move the calculations to Java side.
+      auto offHeapMemory = conf->get<int64_t>(kSparkTaskOffHeapMemory, facebook::velox::memory::kMaxMemory);
+      auto maxPartialAggregationMemory = std::max<int64_t>(
+          1 << 24,
+          conf->get<int64_t>(kMaxPartialAggregationMemory).has_value()
+              ? conf->get<int64_t>(kMaxPartialAggregationMemory).value()
+              : static_cast<int64_t>(conf->get<double>(kMaxPartialAggregationMemoryRatio, 0.1) * offHeapMemory));
+      auto maxExtendedPartialAggregationMemory = std::max<int64_t>(
+          1 << 26,
+          conf->get<int64_t>(kMaxExtendedPartialAggregationMemory).has_value()
+              ? conf->get<int64_t>(kMaxExtendedPartialAggregationMemory).value()
+              : static_cast<int64_t>(
+                    conf->get<double>(kMaxExtendedPartialAggregationMemoryRatio, 0.15) * offHeapMemory));
+      configs[velox::core::QueryConfig::kMaxPartialAggregationMemory] = std::to_string(maxPartialAggregationMemory);
+      configs[velox::core::QueryConfig::kMaxExtendedPartialAggregationMemory] =
+          std::to_string(maxExtendedPartialAggregationMemory);
+      configs[velox::core::QueryConfig::kAbandonPartialAggregationMinPct] =
+          std::to_string(conf->get<int32_t>(kAbandonPartialAggregationMinPct, 90));
+      configs[velox::core::QueryConfig::kAbandonPartialAggregationMinRows] =
+          std::to_string(conf->get<int32_t>(kAbandonPartialAggregationMinRows, 100000));
+    }
+    // Spill configs
+    if (conf->get<std::string>(kSpillStrategy, kSpillStrategyDefaultValue) == "none") {
+      configs[velox::core::QueryConfig::kSpillEnabled] = "false";
+    } else {
+      configs[velox::core::QueryConfig::kSpillEnabled] = "true";
+    }
+    configs[velox::core::QueryConfig::kAggregationSpillEnabled] =
+        std::to_string(conf->get<bool>(kAggregationSpillEnabled, true));
+    configs[velox::core::QueryConfig::kJoinSpillEnabled] = std::to_string(conf->get<bool>(kJoinSpillEnabled, true));
+    configs[velox::core::QueryConfig::kOrderBySpillEnabled] =
+        std::to_string(conf->get<bool>(kOrderBySpillEnabled, true));
+    configs[velox::core::QueryConfig::kWindowSpillEnabled] = std::to_string(conf->get<bool>(kWindowSpillEnabled, true));
+    configs[velox::core::QueryConfig::kMaxSpillLevel] = std::to_string(conf->get<int32_t>(kMaxSpillLevel, 4));
+    configs[velox::core::QueryConfig::kMaxSpillFileSize] =
+        std::to_string(conf->get<uint64_t>(kMaxSpillFileSize, 1L * 1024 * 1024 * 1024));
+    configs[velox::core::QueryConfig::kSpillNumMaxMergeFiles] =
+        std::to_string(conf->get<uint32_t>(kSpillNumMaxMergeFiles, 0));
+    configs[velox::core::QueryConfig::kMaxSpillRunRows] =
+        std::to_string(conf->get<uint64_t>(kMaxSpillRunRows, 3L * 1024 * 1024));
+    configs[velox::core::QueryConfig::kMaxSpillBytes] =
+        std::to_string(conf->get<uint64_t>(kMaxSpillBytes, 107374182400LL));
+    configs[velox::core::QueryConfig::kSpillWriteBufferSize] =
+        std::to_string(conf->get<uint64_t>(kShuffleSpillDiskWriteBufferSize, 1L * 1024 * 1024));
+    configs[velox::core::QueryConfig::kSpillReadBufferSize] =
+        std::to_string(conf->get<int32_t>(kSpillReadBufferSize, 1L * 1024 * 1024));
+    configs[velox::core::QueryConfig::kSpillStartPartitionBit] =
+        std::to_string(conf->get<uint8_t>(kSpillStartPartitionBit, 48));
+    configs[velox::core::QueryConfig::kSpillNumPartitionBits] =
+        std::to_string(conf->get<uint8_t>(kSpillPartitionBits, 3));
+    configs[velox::core::QueryConfig::kSpillableReservationGrowthPct] =
+        std::to_string(conf->get<uint8_t>(kSpillableReservationGrowthPct, 25));
+    configs[velox::core::QueryConfig::kSpillPrefixSortEnabled] =
+        conf->get<std::string>(kSpillPrefixSortEnabled, "false");
+    if (conf->get<bool>(kSparkShuffleSpillCompress, true)) {
+      configs[velox::core::QueryConfig::kSpillCompressionKind] =
+          conf->get<std::string>(kSpillCompressionKind, conf->get<std::string>(kCompressionKind, "lz4"));
+    } else {
+      configs[velox::core::QueryConfig::kSpillCompressionKind] = "none";
+    }
+
+    configs[velox::core::QueryConfig::kHashProbeDynamicFilterPushdownEnabled] =
+        std::to_string(conf->get<bool>(kHashProbeDynamicFilterPushdownEnabled, true));
+    configs[velox::core::QueryConfig::kHashProbeBloomFilterPushdownMaxSize] =
+        std::to_string(conf->get<uint64_t>(kHashProbeBloomFilterPushdownMaxSize, 0));
+    configs[velox::core::QueryConfig::kBypassHashProbeBloomFilterMinRows] = std::to_string(
+        conf->get<int32_t>(kHashProbeBloomFilterBypassMinRows, kHashProbeBloomFilterBypassMinRowsDefault));
+    configs[velox::core::QueryConfig::kBypassHashProbeBloomFilterMinPct] =
+        std::to_string(conf->get<int32_t>(kHashProbeBloomFilterBypassMinPct, kHashProbeBloomFilterBypassMinPctDefault));
+
+    if (const auto opt = conf->get<std::string>(kSparkBloomFilterExpectedNumItems)) {
+      configs[SparkQueryConfig::qualify(SparkQueryConfig::kBloomFilterExpectedNumItems)] = opt.value();
+    }
+    if (const auto opt = conf->get<std::string>(kSparkBloomFilterNumBits)) {
+      configs[SparkQueryConfig::qualify(SparkQueryConfig::kBloomFilterNumBits)] = opt.value();
+    }
+    if (const auto opt = conf->get<std::string>(kSparkBloomFilterMaxNumBits)) {
+      // Velox will check memory cannot exceed 4194304.
+      configs[SparkQueryConfig::qualify(SparkQueryConfig::kBloomFilterMaxNumBits)] = opt.value();
+    }
+    if (const auto opt = conf->get<std::string>(kSparkBloomFilterMaxNumItems)) {
+      configs[SparkQueryConfig::qualify(SparkQueryConfig::kBloomFilterMaxNumItems)] = opt.value();
+    }
+    // spark.gluten.sql.columnar.backend.velox.SplitPreloadPerDriver takes no effect if
+    // spark.gluten.sql.columnar.backend.velox.IOThreads is set to 0
+    configs[velox::core::QueryConfig::kMaxSplitPreloadPerDriver] =
+        std::to_string(conf->get<int32_t>(kVeloxSplitPreloadPerDriver, 2));
+
+    // hashtable build optimizations
+    configs[velox::core::QueryConfig::kAbandonDedupHashMapMinRows] =
+        std::to_string(conf->get<int32_t>(kAbandonDedupHashMapMinRows, 100000));
+    configs[velox::core::QueryConfig::kAbandonDedupHashMapMinPct] =
+        std::to_string(conf->get<int32_t>(kAbandonDedupHashMapMinPct, 0));
+
+    // Disable driver cpu time slicing.
+    configs[velox::core::QueryConfig::kDriverCpuTimeSliceLimitMs] = "0";
+
+    configs[SparkQueryConfig::qualify(SparkQueryConfig::kPartitionId)] = std::to_string(partitionId);
+
+    // Spark keeps each call of a non-deterministic function separate, with its own state. Without
+    // this, Velox merges identical calls such as two monotonically_increasing_id() into one.
+    configs[velox::core::QueryConfig::kExprDedupNonDeterministic] = "false";
+
+    // Enable Spark legacy date formatter if spark.sql.legacy.timeParserPolicy is set to 'LEGACY'
+    // or 'legacy'
+    if (conf->get<std::string>(kSparkLegacyTimeParserPolicy, "") == "LEGACY") {
+      configs[SparkQueryConfig::qualify(SparkQueryConfig::kLegacyDateFormatter)] = "true";
+    } else {
+      configs[SparkQueryConfig::qualify(SparkQueryConfig::kLegacyDateFormatter)] = "false";
+    }
+
+    if (conf->get<std::string>(kSparkMapKeyDedupPolicy, "") == "EXCEPTION") {
+      configs[velox::core::QueryConfig::kThrowExceptionOnDuplicateMapKeys] = "true";
+    } else {
+      configs[velox::core::QueryConfig::kThrowExceptionOnDuplicateMapKeys] = "false";
+    }
+
+    configs[SparkQueryConfig::qualify(SparkQueryConfig::kLegacyStatisticalAggregate)] =
+        std::to_string(conf->get<bool>(kSparkLegacyStatisticalAggregate, false));
+
+    configs[SparkQueryConfig::qualify(SparkQueryConfig::kJsonIgnoreNullFields)] =
+        std::to_string(conf->get<bool>(kSparkJsonIgnoreNullFields, true));
+
+    configs[SparkQueryConfig::qualify(SparkQueryConfig::kDecimalToFloatHighPrecisionCastEnabled)] =
+        std::to_string(conf->get<bool>(kDecimalToFloatHighPrecisionCastEnabled, false));
+
+    configs[velox::core::QueryConfig::kExprMaxCompiledRegexes] =
+        std::to_string(conf->get<int32_t>(kExprMaxCompiledRegexes, 100));
+
+#ifdef GLUTEN_ENABLE_GPU
+    configs[velox::cudf_velox::CudfConfig::kCudfEnabled] = std::to_string(conf->get<bool>(kCudfEnabled, false));
+#endif
+
+    const auto setIfExists = [&](const std::string& glutenKey, const std::string& veloxKey) {
+      const auto valueOptional = conf->get<std::string>(glutenKey);
+      if (valueOptional.has_value()) {
+        configs[veloxKey] = valueOptional.value();
+      }
+    };
+    setIfExists(kQueryTraceEnabled, velox::core::QueryConfig::kQueryTraceEnabled);
+    setIfExists(kQueryTraceDir, velox::core::QueryConfig::kQueryTraceDir);
+    setIfExists(kQueryTraceMaxBytes, velox::core::QueryConfig::kQueryTraceMaxBytes);
+    setIfExists(kQueryTraceTaskRegExp, velox::core::QueryConfig::kQueryTraceTaskRegExp);
+    setIfExists(kOpTraceDirectoryCreateConfig, velox::core::QueryConfig::kOpTraceDirectoryCreateConfig);
+
+    overwriteVeloxConf(conf, configs, kDynamicBackendConfPrefix);
+  } catch (const std::invalid_argument& err) {
+    std::string errDetails = err.what();
+    throw std::runtime_error("Invalid conf arg: " + errDetails);
+  }
+  return configs;
+}
 
 std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorSessionConfig(
     const std::shared_ptr<facebook::velox::config::ConfigBase>& conf) {

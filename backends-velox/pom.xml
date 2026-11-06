@@ -153,6 +153,12 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <groupId>tools.profiler</groupId>
+      <artifactId>async-profiler</artifactId>
+      <version>3.0</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>org.scala-lang</groupId>
       <artifactId>scala-library</artifactId>
       <version>${scala.version}</version>

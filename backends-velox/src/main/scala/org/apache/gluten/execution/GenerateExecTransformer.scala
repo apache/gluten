@@ -284,20 +284,17 @@ object PullOutGenerateProjectHelper extends PullOutProjectHelper {
             val isPresent =
               AttributeReference(generatePostAliasName, BooleanType, nullable = true)()
 
-            val newOutput = (ordinal +: generate.generatorOutput.tail).map {
-              attr =>
-                val caseWhen = CaseWhen(
-                  Seq((isPresent, attr)),
-                  Literal(null, attr.dataType)
-                )
-                Alias(caseWhen, generatePostAliasName)(attr.exprId, attr.qualifier)
-            }
+            val nullableOrdinal = Alias(
+              CaseWhen(Seq((isPresent, ordinal)), Literal(null, ordinal.dataType)),
+              generatePostAliasName)(ordinal.exprId, ordinal.qualifier)
 
             // Reorder the generatorOutput to match the output from the Unnest operator in Velox.
             val newGenerate = generate.copy(generatorOutput =
               generate.generatorOutput.tail :+ originalOrdinal :+ isPresent)
 
-            ProjectExec(generate.requiredChildOutput ++ newOutput, newGenerate)
+            ProjectExec(
+              generate.requiredChildOutput ++ (nullableOrdinal +: generate.generatorOutput.tail),
+              newGenerate)
           } else {
             val newGenerate =
               generate.copy(generatorOutput = generate.generatorOutput.tail :+ originalOrdinal)
@@ -311,49 +308,28 @@ object PullOutGenerateProjectHelper extends PullOutProjectHelper {
             val alias = Alias(struct, generatePostAliasName)()
             alias.toAttribute
           }
-          if (generate.outer) {
+          val generatorOutput = if (generate.outer) {
             val isPresent =
               AttributeReference(generatePostAliasName, BooleanType, nullable = true)()
-            val newGenerate = generate.copy(generatorOutput = Seq(unnestOutput) :+ isPresent)
-            val newOutput = generate.generatorOutput.zipWithIndex.map {
-              case (attr, i) =>
-                val getStructField = GetStructField(unnestOutput, i, Some(attr.name))
-                val caseWhen = CaseWhen(
-                  Seq((isPresent, getStructField)),
-                  Literal(null, getStructField.dataType)
-                )
-                Alias(caseWhen, generatePostAliasName)(attr.exprId, attr.qualifier)
-            }
-            ProjectExec(generate.requiredChildOutput ++ newOutput, newGenerate)
+            Seq(unnestOutput, isPresent)
           } else {
-            val newGenerate = generate.copy(generatorOutput = Seq(unnestOutput))
-            val newOutput = generate.generatorOutput.zipWithIndex.map {
-              case (attr, i) =>
-                val getStructField = GetStructField(unnestOutput, i, Some(attr.name))
-                Alias(getStructField, generatePostAliasName)(attr.exprId, attr.qualifier)
-            }
-            ProjectExec(generate.requiredChildOutput ++ newOutput, newGenerate)
+            Seq(unnestOutput)
           }
+          val newOutput = generate.generatorOutput.zipWithIndex.map {
+            case (attr, i) =>
+              val getStructField = GetStructField(unnestOutput, i, Some(attr.name))
+              Alias(getStructField, generatePostAliasName)(attr.exprId, attr.qualifier)
+          }
+          ProjectExec(
+            generate.requiredChildOutput ++ newOutput,
+            generate.copy(generatorOutput = generatorOutput))
         case (_: Explode | _: Stack) if generate.outer =>
-          // Drop the last column of generatorOutput, which is the boolean marker Velox's Unnest
-          // appends for an OUTER generator (true when the row is a real unnested value, false for
-          // the synthetic padding row of an empty/null input). Explode and Stack share this
-          // layout -- value columns followed by the trailing marker, with no ordinality column --
-          // so the same handling applies to both. Wrap each output column in a CaseWhen on the
-          // marker so the padding row projects NULLs.
+          // Unnest already nulls padding values; this projection only drops its marker.
           val isPresent =
             AttributeReference(generatePostAliasName, BooleanType, nullable = true)()
           val newGenerate =
             generate.copy(generatorOutput = generate.generatorOutput :+ isPresent)
-          val newOutput = generate.generatorOutput.map {
-            attr =>
-              val caseWhen = CaseWhen(
-                Seq((isPresent, attr)),
-                Literal(null, attr.dataType)
-              )
-              Alias(caseWhen, generatePostAliasName)(attr.exprId, attr.qualifier)
-          }
-          ProjectExec(generate.requiredChildOutput ++ newOutput, newGenerate)
+          ProjectExec(generate.requiredChildOutput ++ generate.generatorOutput, newGenerate)
         case _ => generate
       }
     } else {
