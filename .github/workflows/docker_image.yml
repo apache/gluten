@@ -33,6 +33,14 @@ env:
   DOCKERHUB_REPO: apache/gluten
 
 jobs:
+  build-velox-static:
+    needs: merge-almalinux-8-gcc13
+    if: ${{ startsWith(github.repository, 'apache/') }}
+    uses: ./.github/workflows/velox_image.yml
+    secrets:
+      DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
   build-ubuntu22-runtime:
     if: ${{ startsWith(github.repository, 'apache/') }}
     runs-on: ubuntu-22.04
