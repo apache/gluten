@@ -128,13 +128,16 @@ If carrier restoration leaves no pending Java exception, the boundary attempts
 that same fallback using the caught exception's diagnostic. A newer pending Java
 exception is left untouched; failure to throw the fallback is logged.
 
-Velox input-stream callbacks use `wrapJavaException` before returning to the
-driver, whose generic native-exception handler otherwise keeps only the message.
+Velox input-stream and memory-reservation callbacks use `wrapJavaException` before
+returning to the driver, whose generic native-exception handler otherwise keeps
+only the message.
 At the output boundary, including lazy-vector loading, `rethrowJavaException`
 recovers the carrier through Velox and standard nested exception wrappers. The
 runtime/system wrapper prevents TRY expressions from suppressing failed Java
-callbacks. Other native errors keep their existing handling; this mechanism does
-not classify or translate native cast failures.
+callbacks. Standard nesting also preserves allocation callbacks returning directly
+through core JNI without introducing a backend dependency there. Other native
+errors keep their existing handling; this mechanism does not classify or translate
+native cast failures.
 Preserving the throwable does not merge Java and C++ frames into a hybrid stack
 trace (see [#9642](https://github.com/apache/gluten/issues/9642)).
 
