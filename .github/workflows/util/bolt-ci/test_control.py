@@ -75,9 +75,15 @@ class API:
         raise AssertionError(path)
 
     def patch(self, path, data):
+        if any(
+            key in data and data[key] is None for key in ("conclusion", "completed_at")
+        ):
+            raise GitHubError("PATCH", 422)
         self.writes.append((path, data))
         if path.endswith("/check-runs/300"):
             self.check.update(copy.deepcopy(data))
+            if data.get("status") == "in_progress":
+                self.check.update(conclusion=None, completed_at=None)
             return copy.deepcopy(self.check)
         if "/issues/comments/" in path:
             self.comments[0].update(data)
