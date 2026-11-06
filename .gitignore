@@ -3,6 +3,7 @@
 *.iml
 .DS_Store
 *.log
+*.out
 **/core$
 hs_err_pid*
 *.cache
