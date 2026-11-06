@@ -25,6 +25,7 @@ case class InputIteratorMetricsUpdater(metrics: Map[String, SQLMetric], forBroad
       val operatorMetrics = opMetrics.asInstanceOf[OperatorMetrics]
       metrics("cpuCount") += operatorMetrics.cpuCount
       metrics("wallNanos") += operatorMetrics.wallNanos
+      metrics("cpuNanos") += operatorMetrics.cpuNanos
       if (!forBroadcast) {
         if (operatorMetrics.outputRows == 0 && operatorMetrics.outputVectors == 0) {
           // Sometimes, velox does not update metrics for intermediate operator,
