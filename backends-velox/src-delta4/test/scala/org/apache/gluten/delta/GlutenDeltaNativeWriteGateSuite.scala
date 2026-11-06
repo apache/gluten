@@ -85,12 +85,29 @@ class GlutenDeltaNativeWriteGateSuite extends SharedSparkSession {
     assert(unsupported(partitionedLimited, partitioned = true).isEmpty)
   }
 
-  test("partition columns in data files fall back") {
-    assert(unsupported(partitioned = true).isDefined)
-    assert(unsupported(deltaOptions(writePartitionColumns = false), partitioned = true).isEmpty)
-    withSQLConf(SQLConf.MAX_CONCURRENT_OUTPUT_FILE_WRITERS.key -> "2") {
-      assert(
-        unsupported(deltaOptions(writePartitionColumns = false), partitioned = true).isDefined)
+  test("partition columns can be written to data files, without concurrent output writers") {
+    for (materialize <- Seq(false, true)) {
+      val options = deltaOptions(writePartitionColumns = materialize)
+      val schema = plainSchema.add(partitionColumn.name, IntegerType)
+      assert(unsupported(options, schema, partitioned = true).isEmpty)
+      withSQLConf(SQLConf.MAX_CONCURRENT_OUTPUT_FILE_WRITERS.key -> "2") {
+        assert(unsupported(options, schema, partitioned = true).isDefined)
+      }
+    }
+  }
+
+  test("unsupported partition key types fall back with or without materialization") {
+    withSQLConf(SQLConf.PARQUET_OUTPUT_TIMESTAMP_TYPE.key -> "TIMESTAMP_MICROS") {
+      for (dataType <- Seq(FloatType, DoubleType, TimestampType); materialize <- Seq(false, true)) {
+        val column = AttributeReference("part", dataType)()
+        val reason = unsupported(
+          deltaOptions(writePartitionColumns = materialize),
+          plainSchema.add(column.name, dataType),
+          partitioned = true,
+          partitionColumns = Seq(column))
+        assert(reason.contains(
+          s"${dataType.sql} partition columns are not supported by the native Delta writer"))
+      }
     }
   }
 
@@ -123,19 +140,18 @@ class GlutenDeltaNativeWriteGateSuite extends SharedSparkSession {
     }
   }
 
-  test("datetime partition columns not written to the files do not fall back") {
-    val schema = plainSchema.add(partitionColumn.name, TimestampType)
-    val timestampPartition = AttributeReference(partitionColumn.name, TimestampType)()
-    // Spark's default INT96 timestamps and a LEGACY rebase mode only matter for the files.
+  test("date partition columns not written to the files do not require rebasing") {
+    val schema = plainSchema.add(partitionColumn.name, DateType)
+    val datePartition = AttributeReference(partitionColumn.name, DateType)()
     withSQLConf(SQLConf.PARQUET_REBASE_MODE_IN_WRITE.key -> "LEGACY") {
       assert(
         unsupported(
           deltaOptions(writePartitionColumns = false),
           schema,
           partitioned = true,
-          partitionColumns = Seq(timestampPartition)).isEmpty)
+          partitionColumns = Seq(datePartition)).isEmpty)
+      assert(unsupported(schema = schema).isDefined)
     }
-    assert(unsupported(schema = schema).isDefined)
   }
 
   test("a table property for the timestamp type falls back, as Spark 4.2 honors it") {
