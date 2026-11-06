@@ -32,6 +32,7 @@ import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.MapType;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.table.types.logical.SymbolType;
+import org.apache.flink.table.types.logical.TimeType;
 import org.apache.flink.table.types.logical.TimestampType;
 import org.apache.flink.table.types.logical.TinyIntType;
 import org.apache.flink.table.types.logical.VarCharType;
@@ -117,6 +118,10 @@ public class LogicalTypeConverter {
           Map.entry(
               TinyIntType.class,
               logicalType -> new io.github.zhztheplayer.velox4j.type.TinyIntType()),
+          // Flink RowData represents TIME as INT (millisecond-of-day), the
+          // same encoding the flinksql time functions use.
+          Map.entry(
+              TimeType.class, logicalType -> new io.github.zhztheplayer.velox4j.type.IntegerType()),
           Map.entry(
               SymbolType.class,
               logicalType -> new io.github.zhztheplayer.velox4j.type.VarCharType()));

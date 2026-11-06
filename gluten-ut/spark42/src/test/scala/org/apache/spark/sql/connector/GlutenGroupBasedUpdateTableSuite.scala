@@ -16,22 +16,12 @@
  */
 package org.apache.spark.sql.connector
 
-import org.apache.spark.SparkException
 import org.apache.spark.sql.GlutenSQLTestsTrait
 
 class GlutenGroupBasedUpdateTableSuite
   extends GroupBasedUpdateTableSuite
-  with GlutenSQLTestsTrait {
-
-  private def assertNotNullViolation(f: => Unit): Unit = {
-    val exception = intercept[SparkException](f)
-    val messages = Iterator
-      .iterate[Throwable](exception)(_.getCause)
-      .takeWhile(_ != null)
-      .flatMap(e => Option(e.getMessage))
-
-    assert(messages.exists(_.contains("Null value appeared in non-nullable field")))
-  }
+  with GlutenSQLTestsTrait
+  with GlutenUpdateTableSuiteBase {
 
   testGluten("update with NOT NULL checks") {
     createAndInitTable(

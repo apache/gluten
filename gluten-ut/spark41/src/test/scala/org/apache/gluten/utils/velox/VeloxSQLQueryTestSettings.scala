@@ -127,7 +127,7 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "subquery/exists-subquery/exists-cte.sql",
     "subquery/exists-subquery/exists-having.sql",
     "subquery/exists-subquery/exists-joins-and-set-ops.sql",
-    // TODO: fix on Spark-4.1 "subquery/exists-subquery/exists-orderby-limit.sql",
+    "subquery/exists-subquery/exists-orderby-limit.sql",
     "subquery/exists-subquery/exists-outside-filter.sql",
     "subquery/exists-subquery/exists-within-and-or.sql",
     "subquery/in-subquery/in-basic.sql",

@@ -23,7 +23,8 @@ import java.nio.file.Paths
 class AllBoltConfiguration extends AnyFunSuite {
   private val glutenHome: String =
     AllGlutenConfiguration.getCodeSourceLocation(this.getClass).split("backends-bolt")(0)
-  private val markdown = Paths.get(glutenHome, "docs", "bolt-configuration.md").toAbsolutePath
+  private val markdown =
+    Paths.get(glutenHome, "docs", "backends", "bolt", "bolt-configuration.md").toAbsolutePath
 
   test("Check bolt backend configs") {
     val builder = MarkdownBuilder()

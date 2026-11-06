@@ -680,7 +680,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
       // SOURCE table's _delta_log and resolves the wrong root, so the clone-root-relative "u" DV
       // cannot be found. Sourcing the root from TahoeFileIndex.path fixes this. This pins the
       // DeltaScanTransformer Tahoe arm on Spark 3.5 (the CloneTableScalaDeletionVectorSuite shards
-      // only run on delta40).
+      // only run on Delta 4).
       spark.sql(
         "CREATE TABLE dv_clone_source (id INT, region STRING) USING delta " +
           "TBLPROPERTIES ('delta.enableDeletionVectors' = true)")

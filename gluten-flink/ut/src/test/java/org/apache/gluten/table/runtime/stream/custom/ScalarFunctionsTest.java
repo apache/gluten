@@ -32,6 +32,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 class ScalarFunctionsTest extends GlutenStreamingTestBase {
 
   @Override
@@ -353,5 +355,96 @@ class ScalarFunctionsTest extends GlutenStreamingTestBase {
     createSimpleBoundedValuesTable("tblIsNull", "a int, b string NULL", rows);
     String query = "select a from tblIsNull where b is null";
     runAndCheck(query, Arrays.asList("+I[2]"));
+  }
+
+  @Test
+  void testSubstring() {
+    List<Row> rows =
+        Arrays.asList(Row.of("hello world"), Row.of("abcdefghij"), Row.of((Object) null));
+    createSimpleBoundedValuesTable("tblSubstr", "s varchar NULL", rows);
+    // 3-arg and 2-arg forms; start beyond the string length yields an empty
+    // string; a zero length is legal on both sides and anchors the rejection
+    // threshold at length < 0; NULL input propagates.
+    String query =
+        "select SUBSTRING(s, 1, 5), SUBSTRING(s, 7), SUBSTRING(s, 20), SUBSTRING(s, 1, 0)"
+            + " from tblSubstr";
+    runAndCheck(
+        query,
+        Arrays.asList("+I[hello, world, , ]", "+I[abcde, ghij, , ]", "+I[null, null, null, null]"));
+  }
+
+  @Test
+  void testSubstringDynamicStart() {
+    // A non-literal start cannot be checked at plan time; with runtime values
+    // >= 1 the velox results match Flink.
+    List<Row> rows = Arrays.asList(Row.of("hello world", 7), Row.of("abcdefghij", 2));
+    createSimpleBoundedValuesTable("tblSubstrDyn", "s varchar, p int", rows);
+    String query = "select SUBSTRING(s, p), SUBSTRING(s, p, 3) from tblSubstrDyn";
+    runAndCheck(query, Arrays.asList("+I[world, wor]", "+I[bcdefghij, bcd]"));
+  }
+
+  @Test
+  void testSubstringNonPositiveStart() {
+    // Flink treats a start of 0 like 1 and counts a negative start from the
+    // string end (BinaryStringDataUtil#substringSQL) — the same rules velox
+    // substring implements — so these forms convert as-is and match the
+    // vanilla Flink results (verified on a local cluster). A start more
+    // negative than the string length diverges but depends on row data; see
+    // SubstringRexCallConverter.
+    List<Row> rows = Arrays.asList(Row.of("hello world"), Row.of("abcdefghij"));
+    createSimpleBoundedValuesTable("tblSubstrStart", "s varchar", rows);
+    String query =
+        "select SUBSTRING(s, 0, 2), SUBSTRING(s, -3, 5), SUBSTRING(s, -3) from tblSubstrStart";
+    runAndCheck(query, Arrays.asList("+I[he, rld, rld]", "+I[ab, hij, hij]"));
+  }
+
+  @Test
+  void testSubstringNegativeLengthRejected() {
+    // Flink returns NULL for a negative length while velox returns an empty
+    // string; a literal negative length fails fast instead of silently
+    // returning the velox result. Stopgap until a Flink-semantics substring
+    // in the velox flinksql function set returns NULL.
+    List<Row> rows = Arrays.asList(Row.of("hello world"));
+    createSimpleBoundedValuesTable("tblSubstrLen", "s varchar", rows);
+    tEnv().executeSql("CREATE TABLE printT (s VARCHAR) WITH ('connector' = 'print')");
+    assertThatThrownBy(
+            () ->
+                tEnv()
+                    .executeSql("insert into printT select SUBSTRING(s, 1, -3) from tblSubstrLen"))
+        .hasStackTraceContaining("SUBSTRING with literal length -3 is not supported");
+    tEnv().executeSql("drop table if exists printT");
+  }
+
+  @Test
+  void testCoalesce() {
+    List<Row> rows = Arrays.asList(Row.of("a", "b"), Row.of(null, "b"), Row.of("a", null));
+    createSimpleBoundedValuesTable("tblCoalesce", "s1 varchar, s2 varchar", rows);
+    String query = "select COALESCE(s1, s2) from tblCoalesce";
+    runAndCheck(query, Arrays.asList("+I[a]", "+I[b]", "+I[a]"));
+
+    // Mixed numeric types (common type BIGINT) and an all-NULL row.
+    List<Row> numRows = Arrays.asList(Row.of(1, 10L), Row.of(null, 20L), Row.of(null, null));
+    createSimpleBoundedValuesTable("tblCoalesceNum", "a int, b bigint", numRows);
+    String numQuery = "select COALESCE(a, b) from tblCoalesceNum";
+    runAndCheck(numQuery, Arrays.asList("+I[1]", "+I[20]", "+I[null]"));
+  }
+
+  @Test
+  void testTimestampLiteral() {
+    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    List<Row> rows =
+        Arrays.asList(
+            Row.of(1, LocalDateTime.parse("2024-01-15 03:04:05", formatter)), Row.of(2, null));
+    createSimpleBoundedValuesTable("tblTsLiteral", "a int, b Timestamp(3) NULL", rows);
+    String query =
+        "select DATE_FORMAT(COALESCE(b, TIMESTAMP '2024-03-15 10:15:30'), 'yyyy-MM-dd HH:mm:ss') "
+            + "from tblTsLiteral";
+    runAndCheck(query, Arrays.asList("+I[2024-01-15 03:04:05]", "+I[2024-03-15 10:15:30]"));
+
+    // Project the literal alone: anchors the converted epoch value directly,
+    // without the COALESCE + DATE_FORMAT round trip (formatting sensitive).
+    String literalQuery = "select TIMESTAMP '2024-03-15 10:15:30' from tblTsLiteral";
+    runAndCheck(
+        literalQuery, Arrays.asList("+I[2024-03-15T10:15:30.000]", "+I[2024-03-15T10:15:30.000]"));
   }
 }

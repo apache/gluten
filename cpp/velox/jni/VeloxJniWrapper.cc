@@ -1022,10 +1022,11 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
     cb.push_back(ObjectStore::retrieve<ColumnarBatch>(handle));
   }
 
-  if (numThreads == 1) {
-    // Use default global pool for driver-side build
-    // The hash table will be serialized and broadcast, so it doesn't need runtime's pool
-    // Using runtime pool causes lifecycle management issues
+  auto* executor = VeloxBackend::get()->broadcastHashTableBuildExecutor();
+  if (numThreads == 1 || executor == nullptr) {
+    // Allocate the hash table from the backend-global memory pool because it may outlive the runtime that initiated the
+    // build. Driver-side builds are serialized for broadcast, while executor-side builds may be cached and reused
+    // across tasks.
     auto memoryPool = defaultLeafVeloxMemoryPool();
 
     auto builder = nativeHashTableBuild(
@@ -1065,10 +1066,8 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
     return gluten::getHashTableObjStore()->save(builder);
   }
 
-  // Use thread pool (executor) instead of creating threads directly.
-  // FIXME: This reuses the io executor which is supposed to only serve async IO tasks.
-  auto executor = VeloxBackend::get()->ioExecutor();
-
+  // Use a dedicated CPU thread pool for the parallel hash-table build. The build is CPU-bound,
+  // so it must not run on the io executor which is reserved for async IO tasks.
   std::vector<std::shared_ptr<gluten::HashTableBuilder>> hashTableBuilders(numThreads);
   std::vector<std::unique_ptr<facebook::velox::exec::BaseHashTable>> otherTables(numThreads);
   std::vector<folly::Future<folly::Unit>> futures;
@@ -1086,8 +1085,9 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
         threadBatches.push_back(cb[i]);
       }
 
-      // Use default global pool for driver-side build
-      // The hash table will be serialized and broadcast, so it doesn't need runtime's pool
+      // Allocate the hash table from the backend-global memory pool because it may outlive the runtime that initiated
+      // the build. Driver-side builds are serialized for broadcast, while executor-side builds may be cached and reused
+      // across tasks.
       auto threadMemoryPool = defaultLeafVeloxMemoryPool();
 
       auto builder = nativeHashTableBuild(
@@ -1138,7 +1138,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
       facebook::velox::exec::BaseHashTable::kNoSpillInputStartPartitionBit,
       hashTableBuilders[0]->joinBuildVectorHasherMaxNumDistinct(),
       hashTableBuilders[0]->dropDuplicates(),
-      allowParallelJoinBuild ? VeloxBackend::get()->ioExecutor() : nullptr);
+      executor);
 
   for (int i = 1; i < numThreads; ++i) {
     if (hashTableBuilders[i]->joinHasNullKeys()) {

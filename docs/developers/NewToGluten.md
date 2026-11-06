@@ -9,7 +9,7 @@ parent: Developer Overview
 
 ## Environment
 
-Gluten supports Ubuntu 20.04/22.04, CentOS 7/8, and MacOS.
+Gluten supports Ubuntu 20.04/22.04, CentOS 8, and MacOS.
 
 ### JDK
 
@@ -50,7 +50,7 @@ build and test instructions.
 
 ## Development
 
-To debug Java/Scala code, follow the steps in [build-gluten-with-velox-backend](../get-started/Velox.md#build-gluten-with-velox-backend).
+To debug Java/Scala code, follow the steps in [build-gluten-with-velox-backend](../backends/velox/get-started/Velox.md#build-gluten-with-velox-backend).
 
 To debug C++ code, compile the backend code and gluten C++ code in debug mode.
 
@@ -272,7 +272,7 @@ Use the following commands to build Gluten. Note that on macOS you must disable 
 mvn clean install -Pbackends-velox -Pspark-3.4 -DskipTests
 ```
 
-Note: follow the steps in [build-gluten-with-velox-backend](../get-started/Velox.md#build-gluten-with-velox-backend).
+Note: follow the steps in [build-gluten-with-velox-backend](../backends/velox/get-started/Velox.md#build-gluten-with-velox-backend).
 
 After the build completes, you can use your IDE to run and debug Gluten locally.
 

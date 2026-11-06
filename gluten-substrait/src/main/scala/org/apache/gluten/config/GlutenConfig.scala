@@ -30,6 +30,12 @@ import java.util.Locale
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 
+object JoinAggregateTwoStageMode extends Enumeration {
+  // TODO: Support ALL at existing shuffle boundaries; splitting below joins can otherwise
+  //  introduce unnecessary shuffles, especially for broadcast hash joins.
+  val NONE, FINAL = Value
+}
+
 trait ShuffleWriterType {
   val name: String
   val requiresResizingShuffleInput: Boolean
@@ -160,6 +166,9 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def pushAggregateThroughJoinPartialMergeEnabled: Boolean =
     getConf(PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED)
+
+  def pushAggregateThroughJoinTwoStageMode: JoinAggregateTwoStageMode.Value =
+    getConf(PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE)
 
   def forceOrcCharTypeScanFallbackEnabled: Boolean =
     getConf(VELOX_FORCE_ORC_CHAR_TYPE_SCAN_FALLBACK)
@@ -348,6 +357,10 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   def benchmarkTaskId: String = getConf(BENCHMARK_TASK_TASK_ID)
 
   def benchmarkSaveDir: String = getConf(BENCHMARK_SAVE_DIR)
+
+  // Whether whole stage dumping for the micro benchmark is requested for some task. Which tasks
+  // are actually dumped is decided per task, see DebugUtil.isDumpingEnabledForTask.
+  def benchmarkDumpRequested: Boolean = benchmarkStageId >= 0 || benchmarkTaskId.nonEmpty
 
   def textInputMaxBlockSize: Long = getConf(TEXT_INPUT_ROW_MAX_BLOCK_SIZE)
 
@@ -789,10 +802,17 @@ object GlutenConfig extends ConfigRegistry {
 
   val PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED =
     buildConf("spark.gluten.sql.pushAggregateThroughJoin.partialMerge.enabled")
-      .doc(
-        "Enables a PartialMerge aggregate above each aggregate pushed through a join.")
+      .doc("Retains local partial merges between joins crossed by aggregate pushdown.")
       .booleanConf
       .createWithDefault(false)
+
+  val PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE =
+    buildConf("spark.gluten.sql.pushAggregateThroughJoin.twoStage.mode")
+      .doc(
+        "Controls physical staging of the final join aggregate: NONE uses a single final " +
+          "stage; FINAL adds a local partial merge before the final aggregation exchange.")
+      .enumConf(JoinAggregateTwoStageMode)
+      .createWithDefault(JoinAggregateTwoStageMode.NONE)
 
   val GLUTEN_SOFT_AFFINITY_ENABLED =
     buildConf("spark.gluten.soft-affinity.enabled")

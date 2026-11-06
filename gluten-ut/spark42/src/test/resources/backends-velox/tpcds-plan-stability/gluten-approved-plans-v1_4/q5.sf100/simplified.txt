@@ -25,9 +25,9 @@ VeloxColumnarToRow
                                                 ProjectExecTransformer [s_store_id,sum,sum,sum,sum]
                                                   FlushableHashAggregateExecTransformer [s_store_id,_pre_x,_pre_x,_pre_x,_pre_x] [sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum]
                                                     ProjectExecTransformer [s_store_id,sales_price,return_amt,profit,net_loss]
-                                                      BroadcastHashJoinExecTransformer [date_sk,d_date_sk]
-                                                        ProjectExecTransformer [date_sk,sales_price,profit,return_amt,net_loss,s_store_id]
-                                                          BroadcastHashJoinExecTransformer [store_sk,s_store_sk]
+                                                      BroadcastHashJoinExecTransformer [store_sk,s_store_sk]
+                                                        ProjectExecTransformer [store_sk,sales_price,profit,return_amt,net_loss]
+                                                          BroadcastHashJoinExecTransformer [date_sk,d_date_sk]
                                                             InputIteratorTransformer
                                                               InputAdapter
                                                                 ColumnarUnion
@@ -48,13 +48,13 @@ VeloxColumnarToRow
                                                                           ReusedSubquery [d_date_sk] #1
                                                             InputIteratorTransformer
                                                               InputAdapter
-                                                                ColumnarBroadcastExchange #4
-                                                                  WholeStageCodegenTransformer (5)
-                                                                    FilterExecTransformer [s_store_sk]
-                                                                      FileSourceScanExecTransformer parquet spark_catalog.default.store [s_store_sk,s_store_id]
+                                                                ReusedExchange [d_date_sk] #3
                                                         InputIteratorTransformer
                                                           InputAdapter
-                                                            ReusedExchange [d_date_sk] #3
+                                                            ColumnarBroadcastExchange #4
+                                                              WholeStageCodegenTransformer (6)
+                                                                FilterExecTransformer [s_store_sk]
+                                                                  FileSourceScanExecTransformer parquet spark_catalog.default.store [s_store_sk,s_store_id]
                                 WholeStageCodegenTransformer (16)
                                   ProjectExecTransformer [sum(UnscaledValue(sales_price)),sum(UnscaledValue(return_amt)),sum(UnscaledValue(profit)),sum(UnscaledValue(net_loss)),cp_catalog_page_id]
                                     RegularHashAggregateExecTransformer [cp_catalog_page_id,sum,sum,sum,sum] [sum(UnscaledValue(sales_price)),sum(UnscaledValue(return_amt)),sum(UnscaledValue(profit)),sum(UnscaledValue(net_loss)),sum,sum,sum,sum]
@@ -66,9 +66,9 @@ VeloxColumnarToRow
                                                 ProjectExecTransformer [cp_catalog_page_id,sum,sum,sum,sum]
                                                   FlushableHashAggregateExecTransformer [cp_catalog_page_id,_pre_x,_pre_x,_pre_x,_pre_x] [sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum]
                                                     ProjectExecTransformer [cp_catalog_page_id,sales_price,return_amt,profit,net_loss]
-                                                      BroadcastHashJoinExecTransformer [date_sk,d_date_sk]
-                                                        ProjectExecTransformer [date_sk,sales_price,profit,return_amt,net_loss,cp_catalog_page_id]
-                                                          BroadcastHashJoinExecTransformer [page_sk,cp_catalog_page_sk]
+                                                      BroadcastHashJoinExecTransformer [page_sk,cp_catalog_page_sk]
+                                                        ProjectExecTransformer [page_sk,sales_price,profit,return_amt,net_loss]
+                                                          BroadcastHashJoinExecTransformer [date_sk,d_date_sk]
                                                             InputIteratorTransformer
                                                               InputAdapter
                                                                 ColumnarUnion
@@ -84,13 +84,13 @@ VeloxColumnarToRow
                                                                           ReusedSubquery [d_date_sk] #1
                                                             InputIteratorTransformer
                                                               InputAdapter
-                                                                ColumnarBroadcastExchange #6
-                                                                  WholeStageCodegenTransformer (13)
-                                                                    FilterExecTransformer [cp_catalog_page_sk]
-                                                                      FileSourceScanExecTransformer parquet spark_catalog.default.catalog_page [cp_catalog_page_sk,cp_catalog_page_id]
+                                                                ReusedExchange [d_date_sk] #3
                                                         InputIteratorTransformer
                                                           InputAdapter
-                                                            ReusedExchange [d_date_sk] #3
+                                                            ColumnarBroadcastExchange #6
+                                                              WholeStageCodegenTransformer (14)
+                                                                FilterExecTransformer [cp_catalog_page_sk]
+                                                                  FileSourceScanExecTransformer parquet spark_catalog.default.catalog_page [cp_catalog_page_sk,cp_catalog_page_id]
                                 WholeStageCodegenTransformer (26)
                                   ProjectExecTransformer [sum(UnscaledValue(sales_price)),sum(UnscaledValue(return_amt)),sum(UnscaledValue(profit)),sum(UnscaledValue(net_loss)),web_site_id]
                                     RegularHashAggregateExecTransformer [web_site_id,sum,sum,sum,sum] [sum(UnscaledValue(sales_price)),sum(UnscaledValue(return_amt)),sum(UnscaledValue(profit)),sum(UnscaledValue(net_loss)),sum,sum,sum,sum]
@@ -102,9 +102,9 @@ VeloxColumnarToRow
                                                 ProjectExecTransformer [web_site_id,sum,sum,sum,sum]
                                                   FlushableHashAggregateExecTransformer [web_site_id,_pre_x,_pre_x,_pre_x,_pre_x] [sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum]
                                                     ProjectExecTransformer [web_site_id,sales_price,return_amt,profit,net_loss]
-                                                      BroadcastHashJoinExecTransformer [date_sk,d_date_sk]
-                                                        ProjectExecTransformer [date_sk,sales_price,profit,return_amt,net_loss,web_site_id]
-                                                          BroadcastHashJoinExecTransformer [wsr_web_site_sk,web_site_sk]
+                                                      BroadcastHashJoinExecTransformer [wsr_web_site_sk,web_site_sk]
+                                                        ProjectExecTransformer [wsr_web_site_sk,sales_price,profit,return_amt,net_loss]
+                                                          BroadcastHashJoinExecTransformer [date_sk,d_date_sk]
                                                             InputIteratorTransformer
                                                               InputAdapter
                                                                 ColumnarUnion
@@ -134,10 +134,10 @@ VeloxColumnarToRow
                                                                                       FileSourceScanExecTransformer parquet spark_catalog.default.web_sales [ws_item_sk,ws_web_site_sk,ws_order_number,ws_sold_date_sk]
                                                             InputIteratorTransformer
                                                               InputAdapter
-                                                                ColumnarBroadcastExchange #10
-                                                                  WholeStageCodegenTransformer (23)
-                                                                    FilterExecTransformer [web_site_sk]
-                                                                      FileSourceScanExecTransformer parquet spark_catalog.default.web_site [web_site_sk,web_site_id]
+                                                                ReusedExchange [d_date_sk] #3
                                                         InputIteratorTransformer
                                                           InputAdapter
-                                                            ReusedExchange [d_date_sk] #3
+                                                            ColumnarBroadcastExchange #10
+                                                              WholeStageCodegenTransformer (24)
+                                                                FilterExecTransformer [web_site_sk]
+                                                                  FileSourceScanExecTransformer parquet spark_catalog.default.web_site [web_site_sk,web_site_id]

@@ -112,7 +112,34 @@ public class RexCallConverterFactory {
           Map.entry("EXTRACT", Arrays.asList(() -> new DefaultRexCallConverter("extract"))),
           Map.entry("IS TRUE", Arrays.asList(() -> new IsTrueRexCallConverter())),
           Map.entry("CONCAT", Arrays.asList(() -> new DefaultRexCallConverter("concat"))),
-          Map.entry("CONCAT_WS", Arrays.asList(() -> new DefaultRexCallConverter("concat_ws"))));
+          Map.entry("CONCAT_WS", Arrays.asList(() -> new DefaultRexCallConverter("concat_ws"))),
+          // A literal negative length is rejected by SubstringRexCallConverter
+          // (stopgap until a Flink-semantics substring in the velox flinksql
+          // function set returns NULL): Flink returns NULL while velox
+          // substring returns an empty string. Start semantics (0 counts as 1,
+          // negative counts from the end) already match Flink.
+          Map.entry("SUBSTRING", Arrays.asList(() -> new SubstringRexCallConverter())),
+          // Offload targets implemented in velox's flinksql namespace;
+          // the names arrive upper-cased from the operator table.
+          Map.entry(
+              "CURRENT_DATE", Arrays.asList(() -> new DefaultRexCallConverter("current_date"))),
+          Map.entry(
+              "CURRENT_TIME", Arrays.asList(() -> new DefaultRexCallConverter("current_time"))),
+          Map.entry("IFNULL", Arrays.asList(() -> new ScalarOnlyRexCallConverter("ifnull"))),
+          // TRIM is normalized by Calcite to (flag, seek, str); the converter
+          // maps the flag to ltrim/rtrim/trim and reorders to (str, seek).
+          Map.entry("TRIM", Arrays.asList(() -> new TrimRexCallConverter())),
+          // LTRIM/RTRIM keep the Flink argument order (str[, seek]); the
+          // converter routes a two-argument call by the seek constancy:
+          // a constant seek takes the flinksql character-set signatures, a
+          // runtime-sourced seek takes the *_runtime ones (Flink's
+          // isSpaceString degrades a seek starting with a space to
+          // space-only trimming for segment-backed strings).
+          Map.entry("LTRIM", Arrays.asList(() -> new TrimSeekRexCallConverter("ltrim"))),
+          Map.entry("RTRIM", Arrays.asList(() -> new TrimSeekRexCallConverter("rtrim"))),
+          Map.entry("LPAD", Arrays.asList(() -> new DefaultRexCallConverter("lpad"))),
+          Map.entry("RPAD", Arrays.asList(() -> new DefaultRexCallConverter("rpad"))),
+          Map.entry("COALESCE", Arrays.asList(() -> new DefaultRexCallConverter("coalesce"))));
 
   public static RexCallConverter getConverter(RexCall callNode, RexConversionContext context) {
     String operatorName = callNode.getOperator().getName();

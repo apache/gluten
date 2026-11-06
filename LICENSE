@@ -225,7 +225,6 @@
     The Velox Project(https://github.com/facebookincubator/velox)
    ./cpp/velox/udf/examples/MyUDAF.cc
    ./cpp/velox/utils/Common.cc
-   ./ep/build-velox/src/setup-centos7.sh
    ./ep/build-velox/src/setup-centos8.sh
    ./ep/build-velox/src/setup-openeuler24.sh
    ./ep/build-velox/src/setup-rhel.sh
