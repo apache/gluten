@@ -20,7 +20,7 @@ import org.apache.gluten.backendsapi.velox.VeloxBackendSettings
 import org.apache.gluten.config.VeloxConfig
 import org.apache.gluten.execution.ProjectExecTransformer
 import org.apache.gluten.execution.WindowExecTransformer
-import org.apache.gluten.tags.{SkipTest, UDFTest}
+import org.apache.gluten.tags.UDFTest
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{GlutenQueryTest, Row, SparkSession}
@@ -369,35 +369,22 @@ class VeloxUdfSuiteLocal extends VeloxUdfSuite {
 //
 // VM options:
 // -Dspark.test.home=${SPARK_HOME}
-// -Dgluten.package.jar=\
-// /path/to/gluten/package/target/gluten-package-${project.version}.jar
 // -Dvelox.udf.lib.path=\
 // /path/to/gluten/cpp/build/velox/udf/examples/libmyudf.so
-@SkipTest
+@UDFTest
 class VeloxUdfSuiteCluster extends VeloxUdfSuite {
 
   override val master: String = "local-cluster[2,2,1024]"
 
-  val GLUTEN_JAR: String = "gluten.package.jar"
-
-  private lazy val glutenJar = sys.props.get(GLUTEN_JAR) match {
-    case Some(jar) => jar
-    case None =>
-      throw new IllegalArgumentException(
-        GLUTEN_JAR + s" cannot be null. You may set it by adding " +
-          s"-D$GLUTEN_JAR=" +
-          "/path/to/gluten/package/target/gluten-package-${project.version}.jar")
-  }
-
   private lazy val driverUdfLibPath =
-    udfLibPath.split(",").map("file://" + _).mkString(",")
+    udfLibPath.split(",").map(p => Paths.get(p).toAbsolutePath.toUri.toString).mkString(",")
 
   override protected def sparkConf: SparkConf = {
     super.sparkConf
       .set("spark.files", udfLibPath)
       .set(VeloxBackendSettings.GLUTEN_VELOX_DRIVER_UDF_LIB_PATHS, driverUdfLibPath)
       .set(VeloxBackendSettings.GLUTEN_VELOX_UDF_LIB_PATHS, udfLibRelativePath)
-      .set("spark.driver.extraClassPath", glutenJar)
-      .set("spark.executor.extraClassPath", glutenJar)
+      .set("spark.executor.extraClassPath", sys.props("java.class.path"))
+      .set(VeloxConfig.NATIVE_UDF_BYPASS_REGISTRATION.key, "true")
   }
 }
