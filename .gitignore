@@ -38,6 +38,7 @@ Testing/
 cmake-build-*/
 ep/_ep/
 **/dependency-reduced-pom.xml
+cpp/CMakeUserPresets.json
 
 # Editor temporary/working/backup files
 .#*
