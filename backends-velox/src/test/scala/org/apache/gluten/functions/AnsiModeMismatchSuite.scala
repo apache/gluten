@@ -111,6 +111,25 @@ class AnsiModeMismatchSuite extends WholeStageTransformerSuite {
     }
   }
 
+  test("view created with ANSI on still throws under the default ANSI fallback") {
+    // The default ANSI fallback looks only at the session, so with the session's ANSI mode off
+    // it leaves the plan native, and the view's abs must still throw on overflow.
+    withSQLConf(GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "true") {
+      withTempPath {
+        path =>
+          sql("SELECT CAST(-2147483648 AS INT) AS c").write.parquet(path.getCanonicalPath)
+          withTempView("min_tab", "abs_view") {
+            spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("min_tab")
+            createView("abs_view", "SELECT abs(c) AS a FROM min_tab", true)
+            withSQLConf(SQLConf.ANSI_ENABLED.key -> "false") {
+              val e = intercept[Exception](sql("SELECT a FROM abs_view").collect())
+              assert(e.getMessage.contains("overflow"), e.getMessage)
+            }
+          }
+      }
+    }
+  }
+
   test("view created and read in the same mode stays native") {
     withIntTable {
       Seq(true, false).foreach {
