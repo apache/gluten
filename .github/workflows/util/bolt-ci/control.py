@@ -25,14 +25,31 @@ from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 from policy import (
-    EXPECTED_JOBS, GATE, MARKER, SHA_RE, WORKFLOW, QueueWindow, affected,
-    command_sha, eligible, gate_result, never_assigned, parse_identity,
-    parse_title, run_matches,
+    EXPECTED_JOBS,
+    GATE,
+    MARKER,
+    SHA_RE,
+    WORKFLOW,
+    QueueWindow,
+    affected,
+    cancelled_without_execution,
+    command_sha,
+    eligible,
+    gate_result,
+    parse_identity,
+    parse_title,
+    run_matches,
 )
 
 QUEUE_TITLE = "Runner queue timeout (30 minutes)"
-# Enable only after the repository agrees on cancellation provenance semantics.
-ALLOW_QUEUE_EXEMPTION = False
+# Verified queue eligibility determines exemption, including simultaneous cancels.
+ALLOW_QUEUE_EXEMPTION = True
+
+
+class GitHubError(RuntimeError):
+    def __init__(self, method, status):
+        super().__init__(f"GitHub {method} failed with HTTP {status}")
+        self.status = status
 
 
 class GitHub:
@@ -46,16 +63,19 @@ class GitHub:
     def request(self, method, path, data=None):
         if not path.startswith("/repos/"):
             raise ValueError("Unexpected GitHub API path")
-        request = Request("https://api.github.com" + path, method=method,
-                          headers=self.headers,
-                          data=json.dumps(data).encode() if data is not None else None)
+        request = Request(
+            "https://api.github.com" + path,
+            method=method,
+            headers=self.headers,
+            data=json.dumps(data).encode() if data is not None else None,
+        )
         try:
             with urlopen(request, timeout=30) as response:
                 content = response.read()
                 return json.loads(content) if content else None
         except HTTPError as error:
             # Response payloads and request headers may contain private data.
-            raise RuntimeError(f"GitHub {method} failed with HTTP {error.code}") from None
+            raise GitHubError(method, error.code) from None
 
     def get(self, path):
         return self.request("GET", path)
@@ -79,8 +99,17 @@ class GitHub:
 
 
 class Controller:
-    def __init__(self, api, repository, default_branch, control_sha, request,
-                 now=time.time, sleep=time.sleep, allow_queue_exemption=ALLOW_QUEUE_EXEMPTION):
+    def __init__(
+        self,
+        api,
+        repository,
+        default_branch,
+        control_sha,
+        request,
+        now=time.time,
+        sleep=time.sleep,
+        allow_queue_exemption=ALLOW_QUEUE_EXEMPTION,
+    ):
         self.api = api
         self.repository = repository
         self.base = f"/repos/{repository}"
@@ -93,45 +122,74 @@ class Controller:
 
     def latest_check(self, pr):
         query = urlencode({"check_name": GATE, "filter": "all"})
-        checks = self.api.list(f"{self.base}/commits/{pr['head']['sha']}/check-runs?{query}", "check_runs")
+        checks = self.api.list(
+            f"{self.base}/commits/{pr['head']['sha']}/check-runs?{query}", "check_runs"
+        )
         matches = []
         for check in checks:
             identity = parse_identity(check.get("external_id"))
-            if (check.get("app", {}).get("slug") == "github-actions" and identity
-                    and identity["pr"] == pr["number"] and identity["sha"] == pr["head"]["sha"]):
+            if (
+                check.get("app", {}).get("slug") == "github-actions"
+                and identity
+                and identity["pr"] == pr["number"]
+                and identity["sha"] == pr["head"]["sha"]
+            ):
                 matches.append(check)
         return max(matches, key=lambda check: check["id"], default=None)
 
     def comment(self, pr, body):
         body = MARKER + "\n" + body
         comments = self.api.list(f"{self.base}/issues/{pr['number']}/comments")
-        own = [comment for comment in comments
-               if comment.get("user", {}).get("login") == "github-actions[bot]"
-               and comment.get("body", "").startswith(MARKER)]
+        own = [
+            comment
+            for comment in comments
+            if comment.get("user", {}).get("login") == "github-actions[bot]"
+            and comment.get("body", "").startswith(MARKER)
+        ]
         if own:
             comment = min(own, key=lambda item: item["id"])
             if comment["body"] != body:
-                self.api.patch(f"{self.base}/issues/comments/{comment['id']}", {"body": body})
+                self.api.patch(
+                    f"{self.base}/issues/comments/{comment['id']}", {"body": body}
+                )
         else:
             self.api.post(f"{self.base}/issues/{pr['number']}/comments", {"body": body})
 
     def begin(self, pr, previous):
-        identity = dict(v=1, pr=pr["number"], sha=pr["head"]["sha"],
-                        repo=pr["head"]["repo"]["full_name"], request=self.request,
-                        control=self.control_sha)
-        data = dict(name=GATE, status="in_progress", external_id=json.dumps(identity, separators=(",", ":")),
-                    details_url=f"https://github.com/{self.repository}/pull/{pr['number']}",
-                    output={"title": "Awaiting Bolt CI", "summary": f"Commit `{identity['sha']}` is awaiting verification."})
+        identity = dict(
+            v=1,
+            pr=pr["number"],
+            sha=pr["head"]["sha"],
+            repo=pr["head"]["repo"]["full_name"],
+            request=self.request,
+            control=self.control_sha,
+        )
+        data = dict(
+            name=GATE,
+            status="in_progress",
+            external_id=json.dumps(identity, separators=(",", ":")),
+            details_url=f"https://github.com/{self.repository}/pull/{pr['number']}",
+            output={
+                "title": "Awaiting Bolt CI",
+                "summary": f"Commit `{identity['sha']}` is awaiting verification.",
+            },
+        )
         if previous:
             data.update(conclusion=None, completed_at=None)
             return self.api.patch(f"{self.base}/check-runs/{previous['id']}", data)
-        return self.api.post(f"{self.base}/check-runs", data | {"head_sha": identity["sha"]})
+        return self.api.post(
+            f"{self.base}/check-runs", data | {"head_sha": identity["sha"]}
+        )
 
     def finish(self, pr, check, conclusion, title, summary):
-        self.api.patch(f"{self.base}/check-runs/{check['id']}", {
-            "status": "completed", "conclusion": conclusion,
-            "output": {"title": title, "summary": summary},
-        })
+        self.api.patch(
+            f"{self.base}/check-runs/{check['id']}",
+            {
+                "status": "completed",
+                "conclusion": conclusion,
+                "output": {"title": title, "summary": summary},
+            },
+        )
         self.comment(pr, summary)
 
     def listen(self, event, event_name):
@@ -152,19 +210,28 @@ class Controller:
         if pr["state"] != "open" or not pr["head"].get("repo"):
             return None
         sha = pr["head"]["sha"]
-        if event_name == "pull_request_target" and event["pull_request"]["head"]["sha"] != sha:
+        if (
+            event_name == "pull_request_target"
+            and event["pull_request"]["head"]["sha"] != sha
+        ):
             return None
         if explicit_sha is not None:
             actor = quote(event["sender"]["login"], safe="")
-            permission = self.api.get(f"{self.base}/collaborators/{actor}/permission")["permission"]
-            if permission not in ("admin", "maintain", "write") or (explicit_sha and explicit_sha != sha):
+            permission = self.api.get(f"{self.base}/collaborators/{actor}/permission")[
+                "permission"
+            ]
+            if permission not in ("admin", "maintain", "write") or (
+                explicit_sha and explicit_sha != sha
+            ):
                 return None
         previous = self.latest_check(pr)
         # Duplicate PR events and a resumed listener must not create another build.
         if previous:
             identity = parse_identity(previous["external_id"])
-            already_dispatched = "/actions/runs/" in previous.get("details_url", "")
-            if already_dispatched and (explicit_sha is None or identity["request"] == self.request):
+            already_dispatched = bool(identity.get("run_id"))
+            if already_dispatched and (
+                explicit_sha is None or identity["request"] == self.request
+            ):
                 return None
         files = self.api.list(f"{self.base}/pulls/{number}/files")
         check = self.begin(pr, previous)
@@ -173,26 +240,57 @@ class Controller:
             self.finish(pr, check, "success", "No Bolt changes", summary)
             return None
         same_repo = pr["head"]["repo"]["full_name"].lower() == self.repository.lower()
-        previously_authorized = previous and "/actions/runs/" in previous.get("details_url", "")
+        previously_authorized = previous and bool(
+            parse_identity(previous["external_id"]).get("run_id")
+        )
         if not same_repo and explicit_sha != sha and not previously_authorized:
-            self.comment(pr, f"Bolt CI · `{sha}`\n\nAwaiting maintainer authorization for this commit. "
-                         f"After review, a maintainer can comment `/bolt ci {sha}`.")
+            self.comment(
+                pr,
+                f"Bolt CI · `{sha}`\n\nAwaiting maintainer authorization for this commit. "
+                f"After review, a maintainer can comment `/bolt ci {sha}`.",
+            )
             return None
         branch = quote(self.default_branch, safe="")
-        if self.api.get(f"{self.base}/git/ref/heads/{branch}")["object"]["sha"] != self.control_sha:
-            raise RuntimeError("The default branch changed. Run the listener again from its current version.")
-        result = self.api.post(f"{self.base}/actions/workflows/{WORKFLOW.rsplit('/', 1)[-1]}/dispatches", {
-            "ref": self.default_branch,
-            "inputs": {"pr": str(number), "head_repo": pr["head"]["repo"]["full_name"],
-                       "head_sha": sha, "check_id": str(check["id"])},
-        })
+        if (
+            self.api.get(f"{self.base}/git/ref/heads/{branch}")["object"]["sha"]
+            != self.control_sha
+        ):
+            raise RuntimeError(
+                "The default branch changed. Run the listener again from its current version."
+            )
+        result = self.api.post(
+            f"{self.base}/actions/workflows/{WORKFLOW.rsplit('/', 1)[-1]}/dispatches",
+            {
+                "ref": self.default_branch,
+                "inputs": {
+                    "pr": str(number),
+                    "head_repo": pr["head"]["repo"]["full_name"],
+                    "head_sha": sha,
+                    "check_id": str(check["id"]),
+                },
+            },
+        )
         if not result or not isinstance(result.get("workflow_run_id"), int):
             raise RuntimeError("Dispatch did not return a verifiable workflow run ID")
         run_id = result["workflow_run_id"]
         url = f"https://github.com/{self.repository}/actions/runs/{run_id}"
-        self.api.patch(f"{self.base}/check-runs/{check['id']}", {"details_url": url})
-        self.comment(pr, f"Bolt CI · `{sha}`\n\n[Build and tests]({url}) are waiting to run.\n\n"
-                     "Maintainers can request a fresh run with `/bolt ci`.")
+        identity = parse_identity(check["external_id"]) | {"run_id": run_id}
+        # GITHUB_TOKEN checks cannot retain a custom details_url; use metadata.
+        self.api.patch(
+            f"{self.base}/check-runs/{check['id']}",
+            {
+                "external_id": json.dumps(identity, separators=(",", ":")),
+                "output": {
+                    "title": "Awaiting Bolt CI",
+                    "summary": f"[Build and tests]({url})",
+                },
+            },
+        )
+        self.comment(
+            pr,
+            f"Bolt CI · `{sha}`\n\n[Build and tests]({url}) are waiting to run.\n\n"
+            "Maintainers can request a fresh run with `/bolt ci`.",
+        )
         return dict(pr=number, check_id=check["id"], run_id=run_id)
 
     def binding(self, run, allow_rerun=False):
@@ -202,21 +300,37 @@ class Controller:
         number, check_id = title
         check = self.api.get(f"{self.base}/check-runs/{check_id}")
         identity = parse_identity(check.get("external_id"))
-        if check.get("app", {}).get("slug") != "github-actions" or check.get("name") != GATE or not identity:
+        if (
+            check.get("app", {}).get("slug") != "github-actions"
+            or check.get("name") != GATE
+            or not identity
+        ):
             return None
-        if not run_matches(run, check, identity, self.repository, self.default_branch, allow_rerun):
+        if not run_matches(
+            run, check, identity, self.repository, self.default_branch, allow_rerun
+        ):
             return None
         pr = self.api.get(f"{self.base}/pulls/{number}")
-        if (pr["state"] != "open" or pr["head"]["sha"] != identity["sha"]
-                or not pr["head"].get("repo") or pr["head"]["repo"]["full_name"] != identity["repo"]):
+        if (
+            pr["state"] != "open"
+            or pr["head"]["sha"] != identity["sha"]
+            or not pr["head"].get("repo")
+            or pr["head"]["repo"]["full_name"] != identity["repo"]
+        ):
             return None
         latest = self.latest_check(pr)
-        if not latest or latest["id"] != check_id or latest["external_id"] != check["external_id"]:
+        if (
+            not latest
+            or latest["id"] != check_id
+            or latest["external_id"] != check["external_id"]
+        ):
             return None
         return pr, check
 
     def jobs(self, run_id):
-        return self.api.list(f"{self.base}/actions/runs/{run_id}/attempts/1/jobs", "jobs")
+        return self.api.list(
+            f"{self.base}/actions/runs/{run_id}/attempts/1/jobs", "jobs"
+        )
 
     def report(self, run_id):
         run = self.api.get(f"{self.base}/actions/runs/{run_id}")
@@ -225,28 +339,47 @@ class Controller:
             return
         pr, check = binding
         if run["run_attempt"] != 1:
-            summary = (f"Bolt CI · `{pr['head']['sha']}`\n\nThis attempt was rerun through Actions. "
-                       "A maintainer must comment `/bolt ci` to register and verify a fresh request.")
+            summary = (
+                f"Bolt CI · `{pr['head']['sha']}`\n\nThis attempt was rerun through Actions. "
+                "A maintainer must comment `/bolt ci` to register and verify a fresh request."
+            )
             if run["status"] == "completed":
-                self.finish(pr, check, "failure", "A fresh Bolt CI request is required", summary)
+                self.finish(
+                    pr, check, "failure", "A fresh Bolt CI request is required", summary
+                )
             else:
-                self.api.patch(f"{self.base}/check-runs/{check['id']}", {
-                    "status": "in_progress", "conclusion": None, "completed_at": None,
-                    "output": {"title": "A fresh Bolt CI request is required", "summary": summary},
-                })
+                self.api.patch(
+                    f"{self.base}/check-runs/{check['id']}",
+                    {
+                        "status": "in_progress",
+                        "conclusion": None,
+                        "completed_at": None,
+                        "output": {
+                            "title": "A fresh Bolt CI request is required",
+                            "summary": summary,
+                        },
+                    },
+                )
                 self.comment(pr, summary)
             return
-        if check.get("conclusion") == "neutral" and check.get("output", {}).get("title") == QUEUE_TITLE:
+        if (
+            check.get("conclusion") == "neutral"
+            and check.get("output", {}).get("title") == QUEUE_TITLE
+        ):
             return
         jobs = self.jobs(run_id)
         conclusion = gate_result(run, jobs)
         if conclusion == "in_progress":
             return
         title = "Bolt CI passed" if conclusion == "success" else "Bolt CI failed"
-        summary = f"Bolt CI · `{pr['head']['sha']}`\n\n[{title}]({check['details_url']})\n\n"
+        url = f"https://github.com/{self.repository}/actions/runs/{run_id}"
+        summary = f"Bolt CI · `{pr['head']['sha']}`\n\n[{title}]({url})\n\n"
         native = next((job for job in jobs if job["name"] == "native"), {})
         steps = {step["name"]: step for step in native.get("steps", [])}
-        for name in ("Compile native libraries, examples, benchmarks and test executables", "Run native UT"):
+        for name in (
+            "Compile native libraries, examples, benchmarks and test executables",
+            "Run native UT",
+        ):
             step = steps.get(name, {})
             summary += f"{name} — {step.get('conclusion') or step.get('status') or 'not executed'}\n\n"
         summary += "| Job | Result |\n| --- | --- |\n"
@@ -254,7 +387,9 @@ class Controller:
         for name in EXPECTED_JOBS:
             job = by_name.get(name)
             result = (job.get("conclusion") or job["status"]) if job else "not executed"
-            link = f"[{name}]({job['html_url']})" if job and job.get("html_url") else name
+            link = (
+                f"[{name}]({job['html_url']})" if job and job.get("html_url") else name
+            )
             summary += f"| {link} | {result} |\n"
         summary += "\nMaintainers can request a fresh run with `/bolt ci`."
         self.finish(pr, check, conclusion, title, summary)
@@ -273,55 +408,78 @@ class Controller:
                     return None
             except (OSError, RuntimeError, KeyError, ValueError):
                 window.reset()
-                print("Queue evidence interrupted. Restarting the observation interval.")
+                print(
+                    "Queue evidence interrupted. Restarting the observation interval."
+                )
             self.sleep(60)
         return None
 
     def expire(self, run_id, evidence):
         # This operation runs under the same per-PR concurrency lock as listen/report.
-        if (not evidence or evidence["last"] - evidence["first"] < 1800
-                or not 0 <= self.now() - evidence["last"] <= 90 or evidence["samples"] < 31):
+        if (
+            not evidence
+            or evidence["last"] - evidence["first"] < 1800
+            or not 0 <= self.now() - evidence["last"] <= 90
+            or evidence["samples"] < 31
+        ):
             return
         run = self.api.get(f"{self.base}/actions/runs/{run_id}")
         binding = self.binding(run)
-        if not binding or not eligible(run, self.jobs(run_id)):
+        jobs = self.jobs(run_id)
+        if not binding or not (
+            eligible(run, jobs)
+            or cancelled_without_execution(run, jobs, evidence["job_id"])
+        ):
             return
         pr, check = binding
-        native = next(job for job in self.jobs(run_id) if job["name"] == "native")
+        url = f"https://github.com/{self.repository}/actions/runs/{run_id}"
+        native = next(job for job in jobs if job["name"] == "native")
         if native["id"] != evidence["job_id"]:
             return
-        try:
-            self.api.post(f"{self.base}/actions/runs/{run_id}/cancel")
-        except RuntimeError:
-            return
+        if run["status"] != "completed":
+            try:
+                self.api.post(f"{self.base}/actions/runs/{run_id}/cancel")
+            except GitHubError as error:
+                if error.status != 409:
+                    return
+            except RuntimeError:
+                return
         for _ in range(24):
             run = self.api.get(f"{self.base}/actions/runs/{run_id}")
             jobs = self.jobs(run_id)
             if run["status"] == "completed":
                 break
             self.sleep(5)
-        native = [job for job in jobs if job["name"] == "native"]
-        waived = (run["status"] == "completed" and run["conclusion"] == "cancelled"
-                  and len(native) == 1 and native[0]["id"] == evidence["job_id"]
-                  and never_assigned(native[0])
-                  and all(job["conclusion"] in ("cancelled", "skipped")
-                          for job in jobs if job["name"] != "Validate Bolt CI request")
-                  and self.binding(run))
+        waived = cancelled_without_execution(
+            run, jobs, evidence["job_id"]
+        ) and self.binding(run)
         if waived and self.allow_queue_exemption:
-            summary = (f"Bolt CI · `{pr['head']['sha']}`\n\nRunner queue timeout exemption. "
-                       "The native job remained eligible and unassigned for at least 30 minutes. "
-                       "The monitor requested cancellation and verified that execution never started. "
-                       f"Tests were not executed. [Queue evidence]({check['details_url']}).")
+            summary = (
+                f"Bolt CI · `{pr['head']['sha']}`\n\nRunner queue timeout exemption. "
+                "The native job remained eligible and unassigned for at least 30 minutes. "
+                "The run was cancelled, and the monitor verified that execution never started. "
+                f"Tests were not executed. [Queue evidence]({url})."
+            )
             self.finish(pr, check, "neutral", QUEUE_TITLE, summary)
         elif waived:
-            self.finish(pr, check, "failure", "Queue timeout requires confirmation",
-                        f"Bolt CI · `{pr['head']['sha']}`\n\nThe native job waited at least 30 minutes "
-                        "without starting, and was cancelled. Automatic queue exemption is disabled "
-                        "until cancellation provenance semantics are confirmed for this repository.")
+            self.finish(
+                pr,
+                check,
+                "failure",
+                "Queue timeout requires confirmation",
+                f"Bolt CI · `{pr['head']['sha']}`\n\nThe native job waited at least 30 minutes "
+                "without starting, and was cancelled. Automatic queue exemption is disabled "
+                "by the repository's queue exemption policy.",
+            )
         else:
-            self.finish(pr, check, "failure", "Queue exemption could not be verified",
-                        f"Bolt CI · `{pr['head']['sha']}`\n\nCancellation or runner assignment "
-                        f"prevented a verified exemption. [Run]({check['details_url']}).")
+            self.finish(
+                pr,
+                check,
+                "failure",
+                "Queue exemption could not be verified",
+                f"Bolt CI · `{pr['head']['sha']}`\n\nCancellation or runner assignment "
+                f"prevented a verified exemption. [Run]({url}).",
+            )
 
     def validate(self, event, run_id):
         inputs = event.get("inputs", {})
@@ -332,16 +490,28 @@ class Controller:
                 binding = self.binding(run)
                 if binding:
                     pr, check = binding
-                    if (str(check["id"]) != check_id or str(pr["number"]) != inputs.get("pr")
-                            or pr["head"]["sha"] != inputs.get("head_sha")
-                            or pr["head"]["repo"]["full_name"] != inputs.get("head_repo")
-                            or check["status"] != "in_progress"):
-                        raise RuntimeError("The worker request is stale or does not match its gate")
-                    return dict(head_sha=pr["head"]["sha"], head_repo=pr["head"]["repo"]["full_name"])
+                    if (
+                        str(check["id"]) != check_id
+                        or str(pr["number"]) != inputs.get("pr")
+                        or pr["head"]["sha"] != inputs.get("head_sha")
+                        or pr["head"]["repo"]["full_name"] != inputs.get("head_repo")
+                        or check["status"] != "in_progress"
+                    ):
+                        raise RuntimeError(
+                            "The worker request is stale or does not match its gate"
+                        )
+                    return dict(
+                        head_sha=pr["head"]["sha"],
+                        head_repo=pr["head"]["repo"]["full_name"],
+                    )
                 self.sleep(5)
-            raise RuntimeError("The worker is not associated with an active authorized gate")
+            raise RuntimeError(
+                "The worker is not associated with an active authorized gate"
+            )
         if any(inputs.get(key) for key in ("pr", "head_repo", "head_sha")):
-            raise RuntimeError("PR builds must be dispatched through the Bolt CI listener")
+            raise RuntimeError(
+                "PR builds must be dispatched through the Bolt CI listener"
+            )
         # The standalone manual build retains the selected workflow branch.
         sha = os.environ["GITHUB_SHA"]
         if not SHA_RE.fullmatch(sha):
@@ -354,7 +524,11 @@ def output(values):
         return
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
         for key, value in values.items():
-            text = json.dumps(value, separators=(",", ":")) if isinstance(value, dict) else str(value)
+            text = (
+                json.dumps(value, separators=(",", ":"))
+                if isinstance(value, dict)
+                else str(value)
+            )
             if "\n" in text or "\r" in text:
                 raise ValueError("Invalid workflow output")
             stream.write(f"{key}={text}\n")
@@ -362,13 +536,18 @@ def output(values):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("operation", choices=("listen", "report", "route", "watch", "expire", "validate"))
+    parser.add_argument(
+        "operation",
+        choices=("listen", "report", "route", "watch", "expire", "validate"),
+    )
     args = parser.parse_args()
     with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as stream:
         event = json.load(stream)
     controller = Controller(
-        GitHub(os.environ["GH_TOKEN"]), os.environ["GITHUB_REPOSITORY"],
-        event["repository"]["default_branch"], os.environ["CONTROL_SHA"],
+        GitHub(os.environ["GH_TOKEN"]),
+        os.environ["GITHUB_REPOSITORY"],
+        event["repository"]["default_branch"],
+        os.environ["CONTROL_SHA"],
         f"{os.environ['GITHUB_RUN_ID']}/{os.environ['GITHUB_RUN_ATTEMPT']}",
     )
     if args.operation == "listen":
@@ -376,7 +555,9 @@ def main():
     elif args.operation == "validate":
         output(controller.validate(event, int(os.environ["GITHUB_RUN_ID"])))
     elif args.operation == "route":
-        run = controller.api.get(f"{controller.base}/actions/runs/{event['workflow_run']['id']}")
+        run = controller.api.get(
+            f"{controller.base}/actions/runs/{event['workflow_run']['id']}"
+        )
         binding = controller.binding(run, allow_rerun=True)
         if binding:
             output({"pr": binding[0]["number"]})
@@ -387,7 +568,9 @@ def main():
         if evidence:
             output({"evidence": evidence})
     else:
-        controller.expire(int(os.environ["BUILD_RUN_ID"]), json.loads(os.environ["QUEUE_EVIDENCE"]))
+        controller.expire(
+            int(os.environ["BUILD_RUN_ID"]), json.loads(os.environ["QUEUE_EVIDENCE"])
+        )
 
 
 if __name__ == "__main__":

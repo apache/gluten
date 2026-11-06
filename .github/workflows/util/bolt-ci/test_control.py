@@ -17,18 +17,30 @@ import copy
 import json
 import unittest
 
-from control import Controller
+from control import Controller, GitHubError
 from policy import EXPECTED_JOBS, GATE
 from test_policy import CONTROL_SHA, IDENTITY, SHA, job, queued_jobs, run
 
 
 class API:
     def __init__(self):
-        self.check = dict(id=300, name=GATE, head_sha=SHA, status="in_progress", conclusion=None,
-                          app={"slug": "github-actions"}, external_id=json.dumps(IDENTITY),
-                          details_url="https://github.com/owner/gluten/actions/runs/200", output={})
-        self.pr = dict(number=2, state="open", head={"sha": SHA, "repo": {"full_name": "someone/gluten"}},
-                       changed_files=1)
+        self.check = dict(
+            id=300,
+            name=GATE,
+            head_sha=SHA,
+            status="in_progress",
+            conclusion=None,
+            app={"slug": "github-actions"},
+            external_id=json.dumps(IDENTITY),
+            details_url="https://github.com/owner/gluten/runs/300",
+            output={},
+        )
+        self.pr = dict(
+            number=2,
+            state="open",
+            head={"sha": SHA, "repo": {"full_name": "someone/gluten"}},
+            changed_files=1,
+        )
         self.run = run("completed") | {"conclusion": "success"}
         self.jobs = [job(name) for name in EXPECTED_JOBS]
         self.permission = "read"
@@ -75,16 +87,18 @@ class API:
     def post(self, path, data=None):
         self.writes.append((path, data))
         if path.endswith("/cancel"):
-            if self.cancelled_before_post:
-                raise RuntimeError("409")
             self.run.update(status="completed", conclusion="cancelled")
             self.jobs = queued_jobs()
             self.jobs[1].update(status="completed", conclusion="cancelled")
             if self.assign_on_cancel:
                 self.jobs[1]["runner_id"] = 9
+            if self.cancelled_before_post:
+                raise GitHubError("POST", 409)
             return None
         if path.endswith("/comments"):
-            self.comments = [dict(id=400, user={"login": "github-actions[bot]"}, **data)]
+            self.comments = [
+                dict(id=400, user={"login": "github-actions[bot]"}, **data)
+            ]
             return self.comments[0]
         if path.endswith("/dispatches"):
             return {"workflow_run_id": 200}
@@ -95,8 +109,16 @@ class API:
 
 
 def controller(api):
-    return Controller(api, "owner/gluten", "main", CONTROL_SHA, "101/1", now=lambda: 1800,
-                      sleep=lambda seconds: None, allow_queue_exemption=True)
+    return Controller(
+        api,
+        "owner/gluten",
+        "main",
+        CONTROL_SHA,
+        "101/1",
+        now=lambda: 1800,
+        sleep=lambda seconds: None,
+        allow_queue_exemption=True,
+    )
 
 
 class ControlTest(unittest.TestCase):
@@ -118,11 +140,14 @@ class ControlTest(unittest.TestCase):
             self.assertEqual(api.check["conclusion"], "failure")
 
     def test_stale_sha_and_replaced_request_cannot_write(self):
-        for change in ("sha", "url", "app"):
+        for change in ("sha", "run_id", "app"):
             api = API()
-            if change == "sha": api.pr["head"]["sha"] = "c" * 40
-            if change == "url": api.check["details_url"] = "https://github.com/owner/gluten/actions/runs/201"
-            if change == "app": api.check["app"]["slug"] = "other"
+            if change == "sha":
+                api.pr["head"]["sha"] = "c" * 40
+            if change == "run_id":
+                api.check["external_id"] = json.dumps(IDENTITY | {"run_id": 201})
+            if change == "app":
+                api.check["app"]["slug"] = "other"
             controller(api).report(200)
             self.assertEqual(api.writes, [])
 
@@ -140,8 +165,11 @@ class ControlTest(unittest.TestCase):
 
     def test_unprivileged_comment_cannot_dispatch(self):
         api = API()
-        event = {"issue": {"number": 2, "pull_request": {}},
-                 "comment": {"body": "/bolt ci " + SHA}, "sender": {"login": "visitor"}}
+        event = {
+            "issue": {"number": 2, "pull_request": {}},
+            "comment": {"body": "/bolt ci " + SHA},
+            "sender": {"login": "visitor"},
+        }
         self.assertIsNone(controller(api).listen(event, "issue_comment"))
         self.assertEqual(api.writes, [])
 
@@ -159,21 +187,29 @@ class ControlTest(unittest.TestCase):
         api = API()
         api.permission = "write"
         api.check.update(status="completed", conclusion="success")
-        event = {"issue": {"number": 2, "pull_request": {}},
-                 "comment": {"body": "/bolt ci " + SHA}, "sender": {"login": "maintainer"}}
+        event = {
+            "issue": {"number": 2, "pull_request": {}},
+            "comment": {"body": "/bolt ci " + SHA},
+            "sender": {"login": "maintainer"},
+        }
         result = controller(api).listen(event, "issue_comment")
         self.assertEqual(result["run_id"], 200)
         self.assertEqual(api.check["status"], "in_progress")
         self.assertIsNone(api.check["conclusion"])
-        dispatch = next(data for path, data in api.writes if path.endswith("/dispatches"))
+        dispatch = next(
+            data for path, data in api.writes if path.endswith("/dispatches")
+        )
         self.assertEqual(dispatch["ref"], "main")
         self.assertEqual(dispatch["inputs"]["head_sha"], SHA)
 
     def test_old_authorization_does_not_authorize_new_fork_sha(self):
         api = API()
         api.permission = "admin"
-        event = {"issue": {"number": 2, "pull_request": {}},
-                 "comment": {"body": "/bolt ci " + "c" * 40}, "sender": {"login": "maintainer"}}
+        event = {
+            "issue": {"number": 2, "pull_request": {}},
+            "comment": {"body": "/bolt ci " + "c" * 40},
+            "sender": {"login": "maintainer"},
+        }
         self.assertIsNone(controller(api).listen(event, "issue_comment"))
         self.assertEqual(api.writes, [])
 
@@ -187,15 +223,21 @@ class ControlTest(unittest.TestCase):
         controller(api).report(200)
         self.assertEqual(api.check["conclusion"], "neutral")
 
-    def test_queue_waiver_is_disabled_by_default(self):
+    def test_confirmed_queue_waiver_is_enabled_by_default(self):
         api = API()
         api.run = run()
         api.jobs = queued_jobs()
-        control = Controller(api, "owner/gluten", "main", CONTROL_SHA, "101/1", now=lambda: 1800,
-                             sleep=lambda seconds: None)
+        control = Controller(
+            api,
+            "owner/gluten",
+            "main",
+            CONTROL_SHA,
+            "101/1",
+            now=lambda: 1800,
+            sleep=lambda seconds: None,
+        )
         control.expire(200, dict(first=0, last=1800, samples=31, job_id=44))
-        self.assertEqual(api.check["conclusion"], "failure")
-        self.assertIn("requires confirmation", api.check["output"]["title"])
+        self.assertEqual(api.check["conclusion"], "neutral")
 
     def test_assignment_during_cancellation_prevents_waiver(self):
         api = API()
@@ -205,17 +247,33 @@ class ControlTest(unittest.TestCase):
         controller(api).expire(200, dict(first=0, last=1800, samples=31, job_id=44))
         self.assertEqual(api.check["conclusion"], "failure")
 
+    def test_human_cancel_after_verified_queue_window_qualifies(self):
+        for timing in ("before_expire", "during_cancel"):
+            api = API()
+            api.run = run()
+            api.jobs = queued_jobs()
+            if timing == "before_expire":
+                api.run.update(status="completed", conclusion="cancelled")
+                api.jobs[1].update(status="completed", conclusion="cancelled")
+            else:
+                api.cancelled_before_post = True
+            controller(api).expire(200, dict(first=0, last=1800, samples=31, job_id=44))
+            self.assertEqual(api.check["conclusion"], "neutral")
+
     def test_manual_cancel_or_incomplete_evidence_never_grants_waiver(self):
-        for change in ("cancelled", "gap", "young", "samples", "conflict"):
+        for change in ("cancelled", "gap", "young", "samples"):
             api = API()
             api.run = run()
             api.jobs = queued_jobs()
             evidence = dict(first=0, last=1800, samples=31, job_id=44)
-            if change == "cancelled": api.run.update(status="completed", conclusion="cancelled")
-            if change == "gap": evidence["last"] = 1600
-            if change == "young": evidence["first"] = 1
-            if change == "samples": evidence["samples"] = 30
-            if change == "conflict": api.cancelled_before_post = True
+            if change == "cancelled":
+                api.run.update(status="completed", conclusion="cancelled")
+            if change == "gap":
+                evidence["last"] = 1600
+            if change == "young":
+                evidence["first"] = 1
+            if change == "samples":
+                evidence["samples"] = 30
             controller(api).expire(200, evidence)
             self.assertNotEqual(api.check["conclusion"], "neutral")
 
