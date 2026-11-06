@@ -82,7 +82,7 @@ jobs:
 
   native:
     needs: request
-    runs-on: [self-hosted, Linux, X64, bolt-medium]
+    runs-on: [self-hosted, Linux, X64, bolt-medium, bolt-queue-verification]
     timeout-minutes: 360
     env:
       CI_NUM_THREADS: '16'
