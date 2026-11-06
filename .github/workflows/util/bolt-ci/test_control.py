@@ -122,6 +122,39 @@ def controller(api):
 
 
 class ControlTest(unittest.TestCase):
+    def test_duplicate_event_recovers_observer_without_another_worker(self):
+        api = API()
+        event = {"number": 2, "pull_request": api.pr, "sender": {"login": "visitor"}}
+        result = controller(api).listen(event, "pull_request_target")
+        dispatches = [
+            (path, data) for path, data in api.writes if path.endswith("/dispatches")
+        ]
+        self.assertEqual(len(dispatches), 1)
+        self.assertTrue(dispatches[0][0].endswith("/bolt_ci_commenter.yml/dispatches"))
+        self.assertEqual(result["run_id"], 200)
+
+    def test_initial_comment_failure_keeps_observer_and_queue_monitor(self):
+        api = API()
+        api.permission = "write"
+        control = controller(api)
+
+        def failed_comment(*args):
+            raise GitHubError("POST", 503)
+
+        control.comment = failed_comment
+        event = {
+            "inputs": {"pr": "2", "head_sha": SHA},
+            "sender": {"login": "maintainer"},
+        }
+        result = control.listen(event, "workflow_dispatch")
+        self.assertEqual(result["run_id"], 200)
+        self.assertTrue(
+            any(
+                path.endswith("/bolt_ci_commenter.yml/dispatches")
+                for path, data in api.writes
+            )
+        )
+
     def test_listener_dispatches_an_independent_commenter(self):
         api = API()
         api.permission = "write"
