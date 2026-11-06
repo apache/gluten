@@ -305,10 +305,3 @@ org.apache.spark.sql.delta.storage.dv.DeletionVectorWriteDurabilitySuite#a MERGE
 org.apache.spark.sql.delta.storage.dv.DeletionVectorWriteDurabilitySuite#an UPDATE whose deletion vector was never written does not corrupt the table
 org.apache.spark.sql.delta.storage.dv.DeletionVectorWriteDurabilitySuite#control: an ordinary write whose close fails does not commit
 org.apache.spark.sql.delta.storage.dv.DeletionVectorWriteDurabilitySuite#the kill-switch flag off does not apply the propagate-close fix
-org.apache.spark.sql.delta.typewidening.TypeWideningAlterTableSuite#type widening DATE -> TIMESTAMP_NTZ, partitioned=false
-org.apache.spark.sql.delta.typewidening.TypeWideningInsertSchemaEvolutionBasicDSv2Suite#INSERT - always automatic type widening DATE -> TIMESTAMP_NTZ
-org.apache.spark.sql.delta.typewidening.TypeWideningInsertSchemaEvolutionBasicDSv2Suite#INSERT - automatic type widening DATE -> TIMESTAMP_NTZ
-org.apache.spark.sql.delta.typewidening.TypeWideningInsertSchemaEvolutionBasicSuite#INSERT - always automatic type widening DATE -> TIMESTAMP_NTZ
-org.apache.spark.sql.delta.typewidening.TypeWideningInsertSchemaEvolutionBasicSuite#INSERT - automatic type widening DATE -> TIMESTAMP_NTZ
-org.apache.spark.sql.delta.typewidening.TypeWideningMergeIntoSchemaEvolutionSuite#MERGE - automatic type widening DATE -> TIMESTAMP_NTZ
-org.apache.spark.sql.delta.typewidening.TypeWideningTableFeatureAdvancedSuite#drop feature after type change DATE -> TIMESTAMP_NTZ

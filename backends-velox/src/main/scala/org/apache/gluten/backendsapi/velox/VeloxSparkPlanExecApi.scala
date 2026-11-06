@@ -1276,7 +1276,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         ExpressionNames.FROM_JSON,
         FromJsonRestrictions.NOT_SUPPORT_COLUMN_CORRUPT_RECORD)
     }
-    GenericExpressionTransformer(substraitExprName, children, expr)
+    VeloxFromJsonTransformer(substraitExprName, children, expr)
   }
 
   /** Generate an expression transformer to transform StructsToJson to Substrait. */

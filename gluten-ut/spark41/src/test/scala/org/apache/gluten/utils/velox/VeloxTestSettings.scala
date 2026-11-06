@@ -189,6 +189,11 @@ class VeloxTestSettings extends BackendTestSettings {
     // Exception class different.
     .exclude("from_json - invalid data")
   enableSuite[GlutenJsonFunctionsSuite]
+    // Velox nulls the whole nested struct on a conversion error instead of returning
+    // partial results for it (facebookincubator/velox#19725).
+    .exclude("SPARK-33134: return partial results only for root JSON objects")
+    .exclude("SPARK-40646: return partial results for objects with values as JSON arrays")
+    .exclude("SPARK-48863: parse object as an array with partial results enabled")
     // * in get_json_object expression not supported in velox
     .exclude("SPARK-42782: Hive compatibility check for get_json_object")
     // Velox does not support single quotes in get_json_object function.
@@ -200,6 +205,7 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("default")
     // FIXME(yma11): ObjectType is not covered in RowEncoder/Serializer in vanilla spark
     .exclude("SPARK-37967: Literal.create support ObjectType")
+  enableSuite[GlutenTimestampNtzLiteralSuite]
   enableSuite[GlutenMathExpressionsSuite]
     // Spark round UT for round(3.1415,3) is not correct.
     .exclude("round/bround/floor/ceil")

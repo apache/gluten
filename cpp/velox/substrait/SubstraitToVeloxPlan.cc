@@ -33,6 +33,7 @@
 #endif
 #include "velox/connectors/hive/HiveDataSink.h"
 #include "velox/connectors/hive/iceberg/IcebergColumnHandle.h"
+#include "velox/connectors/hive/iceberg/IcebergTableHandle.h"
 #include "velox/exec/TableWriter.h"
 #include "velox/type/Type.h"
 
@@ -1715,8 +1716,14 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 #endif
   }
   common::SubfieldFilters subfieldFilters;
-  tableHandle = std::make_shared<connector::hive::HiveTableHandle>(
-      connectorId, "hive_table", std::move(subfieldFilters), remainingFilter, dataColumns);
+  if (connectorId == connectorIds_.iceberg) {
+    // The Iceberg connector's data source requires an IcebergTableHandle.
+    tableHandle = std::make_shared<connector::hive::iceberg::IcebergTableHandle>(
+        connectorId, "hive_table", std::move(subfieldFilters), remainingFilter, dataColumns);
+  } else {
+    tableHandle = std::make_shared<connector::hive::HiveTableHandle>(
+        connectorId, "hive_table", std::move(subfieldFilters), remainingFilter, dataColumns);
+  }
 
   // Required subfields of scan columns (map-key pruning), from the RequiredSubfieldsExtension the
   // ScanMapKeyPruning rule packs into the ReadRel advanced extension. Each path is transported as

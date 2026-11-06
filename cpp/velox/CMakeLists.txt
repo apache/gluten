@@ -378,11 +378,16 @@ if(BUILD_TESTS)
     INTERFACE facebook::velox::vector_fuzzer_util
               facebook::velox::constrained_vector_generator)
   import_library(
+    facebook::velox::local_exchange_source
+    ${VELOX_BUILD_PATH}/velox/exec/tests/utils/libvelox_local_exchange_source.a)
+  import_library(
     facebook::velox::exec_test_lib
     ${VELOX_BUILD_PATH}/velox/exec/tests/utils/libvelox_exec_test_lib.a)
   target_link_libraries(
     facebook::velox::exec_test_lib
-    INTERFACE facebook::velox::vector_test_lib facebook::velox::vector_fuzzer
+    INTERFACE facebook::velox::local_exchange_source
+              facebook::velox::vector_test_lib
+              facebook::velox::vector_fuzzer
               facebook::velox::dwio_common_test
               facebook::velox::file_test_utils)
   set(GLUTEN_VELOX_TEST_LIBRARIES facebook::velox::exec_test_lib)
