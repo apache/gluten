@@ -16,7 +16,10 @@
  */
 package org.apache.gluten.execution
 
+import org.apache.gluten.config.GlutenConfig
+
 import org.apache.spark.SparkConf
+import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.catalyst.expressions.{Alias, Literal}
 import org.apache.spark.sql.catalyst.optimizer.{ConstantFolding, NullPropagation}
 import org.apache.spark.sql.classic.ClassicColumn
@@ -653,6 +656,43 @@ class VeloxStringFunctionsSuite extends VeloxWholeStageTransformerSuite {
         s"from $LINEITEM_TABLE limit $LENGTH")(checkGlutenPlan[ProjectExecTransformer])
   }
 
+  private def withRightTable(body: => Unit): Unit = {
+    withTempPath {
+      path =>
+        spark
+          .sql("""
+                 |SELECT * FROM VALUES
+                 |  (1, 'Spark SQL', 3),
+                 |  (2, CAST(NULL AS STRING), 3),
+                 |  (3, 'abc', CAST(NULL AS INT)),
+                 |  (4, 'abc', -1),
+                 |  (5, 'abc', 0),
+                 |  (6, 'abc', 2),
+                 |  (7, 'abc', 4),
+                 |  (8, 'abc', -2147483648),
+                 |  (9, 'abc', 2147483647),
+                 |  (10, '', 2),
+                 |  (11, '\u00e9a\u4e2d', 1),
+                 |  (12, 'A\uD83D\uDE42B', 2),
+                 |  (13, 'e\u0301x', 2)
+                 |AS t(id, s, n)
+                 |""".stripMargin)
+          .write
+          .parquet(path.getCanonicalPath)
+        withTempView("right_tbl") {
+          spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("right_tbl")
+          body
+        }
+    }
+  }
+
+  private def checkNativeRight(expected: Boolean)(df: DataFrame): Unit = {
+    val plan = collectWithSubqueries(df.queryExecution.executedPlan) {
+      case stage: WholeStageTransformer => stage.substraitPlanJson
+    }.mkString("\n")
+    assert(plan.contains("\"right:") == expected, plan)
+  }
+
   test("right") {
     runQueryAndCompare(
       s"select l_orderkey, right(l_comment, 1) " +
@@ -665,6 +705,61 @@ class VeloxStringFunctionsSuite extends VeloxWholeStageTransformerSuite {
     runQueryAndCompare(
       s"select l_orderkey, right(l_comment, $NULL_STR_COL) " +
         s"from $LINEITEM_TABLE limit $LENGTH")(checkGlutenPlan[ProjectExecTransformer])
+
+    withRightTable {
+      // Spark replaces right with if/substring; Gluten converts that back to right.
+      Seq("right(s, n)", "right(s, CAST(n AS STRING))").foreach {
+        call =>
+          runQueryAndCompare(s"SELECT id, $call FROM right_tbl") {
+            df =>
+              checkGlutenPlan[ProjectExecTransformer](df)
+              checkNativeRight(expected = true)(df)
+          }
+      }
+    }
+  }
+
+  test("right is not converted when a function it uses is blacklisted") {
+    withRightTable {
+      Seq("right", "substring", "is_null", "if").foreach {
+        name =>
+          withSQLConf(GlutenConfig.EXPRESSION_BLACK_LIST.key -> name) {
+            runQueryAndCompare("SELECT id, right(s, n) FROM right_tbl", noFallBack = false) {
+              checkNativeRight(expected = false)
+            }
+          }
+      }
+    }
+  }
+
+  test("right is not converted from expressions that differ from Spark's replacement") {
+    // Fold the untyped NULL in the handwritten expressions into a string literal, as in Spark's
+    // replacement.
+    withSQLConf("spark.sql.optimizer.excludedRules" -> "") {
+      withRightTable {
+        val replacement = "IF(s IS NULL, NULL, IF(n <= 0, '', substring(s, -n, 2147483647)))"
+        runQueryAndCompare(s"SELECT id, $replacement FROM right_tbl")(
+          checkNativeRight(expected = true))
+
+        Seq(
+          "IF(s IS NULL, NULL, IF(n <= 1, '', substring(s, -n, 2147483647)))",
+          "IF(s IS NULL, NULL, IF(n <= 0, 'x', substring(s, -n, 2147483647)))",
+          "IF(s IS NULL, NULL, IF(n <= 0, '', substring(s, -n, 1)))",
+          "IF(s IS NULL, NULL, IF(n <= 0, '', substring(concat(s, 'x'), -n, 2147483647)))",
+          "IF(s IS NULL, NULL, IF(n <= 0, '', substring(s, -id, 2147483647)))"
+        ).foreach {
+          expr =>
+            runQueryAndCompare(s"SELECT id, $expr FROM right_tbl")(
+              checkNativeRight(expected = false))
+        }
+
+        // Nondeterministic expressions are never semantically equal, so they are not converted.
+        val df = spark.sql(
+          "SELECT right(s, CAST(monotonically_increasing_id() AS INT) + 1) FROM right_tbl")
+        df.collect()
+        checkNativeRight(expected = false)(df)
+      }
+    }
   }
 
   testWithMinSparkVersion("luhn_check", "3.5") {
