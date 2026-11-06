@@ -115,10 +115,24 @@ allocation error is preserved.
 
 `JNI_METHOD_END` also restores carriers inside standard `std::nested_exception`
 wrappers. Other native errors keep their existing `GlutenException` fallback.
-Backend-specific callback and output-boundary propagation is separate from this
-core contract; it does not by itself protect the full Velox driver path.
+
+Velox input-stream callbacks use `wrapJavaException` before returning to the
+driver, whose generic native-exception handler otherwise keeps only the message.
+At the output boundary, including lazy-vector loading, `rethrowJavaException`
+recovers the carrier through Velox and standard nested exception wrappers. The
+runtime/system wrapper prevents TRY expressions from suppressing failed Java
+callbacks. Other native errors keep their existing handling; this mechanism does
+not classify or translate native cast failures.
 Preserving the throwable does not merge Java and C++ frames into a hybrid stack
 trace (see [#9642](https://github.com/apache/gluten/issues/9642)).
+
+`GlutenDeltaNativeConstraintSuite` checks CHECK, NOT NULL, and replaceWhere violations
+through native writes, including partitioned writes. It requires the original Delta
+exception type and compares structured metadata with the JVM writer, including the
+replaceWhere invariant-violation cause, then verifies that a rejected write leaves
+the Delta version, active files, and rows unchanged.
+Successful writes are checked through Parquet footers so JVM fallback cannot make
+the native-path regression pass unnoticed.
 
 ### C++ code development
 
