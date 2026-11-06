@@ -58,7 +58,9 @@ runs:
         fi
         git commit --quiet --allow-empty -m "Squash-merge $GITHUB_SHA onto $base_sha"
         echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
-        if git diff --name-only "$base_sha" HEAD | grep -vE "$PATHS_IGNORE" | grep -qE "$PATHS"; then
+        # Not `grep -q`: it can exit before the upstream grep is done writing, and under
+        # pipefail the SIGPIPE would read as no match.
+        if git diff --name-only "$base_sha" HEAD | grep -vE "$PATHS_IGNORE" | grep -E "$PATHS" > /dev/null; then
           echo "relevant=true" >> "$GITHUB_OUTPUT"
         else
           echo "Nothing this workflow covers changed -- skipping."
@@ -75,4 +77,3 @@ runs:
         path: ${{ runner.temp }}/merged-tree.tar.gz
         compression-level: 0
         if-no-files-found: error
-        retention-days: 1
