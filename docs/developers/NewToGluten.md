@@ -127,8 +127,14 @@ wrappers. Other native errors keep their existing `GlutenException` fallback.
 If carrier restoration leaves no pending Java exception, the boundary attempts
 that same fallback using the caught exception's diagnostic. A newer pending Java
 exception is left untouched; failure to throw the fallback is logged.
-Backend-specific callback and output-boundary propagation is separate from this
-core contract; it does not by itself protect the full Velox driver path.
+
+Velox input-stream callbacks use `wrapJavaException` before returning to the
+driver, whose generic native-exception handler otherwise keeps only the message.
+At the output boundary, including lazy-vector loading, `rethrowJavaException`
+recovers the carrier through Velox and standard nested exception wrappers. The
+runtime/system wrapper prevents TRY expressions from suppressing failed Java
+callbacks. Other native errors keep their existing handling; this mechanism does
+not classify or translate native cast failures.
 Preserving the throwable does not merge Java and C++ frames into a hybrid stack
 trace (see [#9642](https://github.com/apache/gluten/issues/9642)).
 
@@ -142,6 +148,14 @@ a missing library fails the tests rather than skipping them. The existing
 `cpp-test-udf-test` CI job builds the bridge locally and enables this profile in
 its Java 17 Maven step. No separate test artifact is needed, and the bridge is
 neither installed nor bundled in production jars.
+
+`GlutenDeltaNativeConstraintSuite` checks CHECK, NOT NULL, and replaceWhere violations
+through native writes, including partitioned writes. It requires the original Delta
+exception type and compares structured metadata with the JVM writer, including the
+replaceWhere invariant-violation cause, then verifies that a rejected write leaves
+the Delta version, active files, and rows unchanged.
+Successful writes are checked through Parquet footers so JVM fallback cannot make
+the native-path regression pass unnoticed.
 
 ### C++ code development
 
