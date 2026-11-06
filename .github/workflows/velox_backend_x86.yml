@@ -123,7 +123,7 @@ jobs:
     runs-on: ubuntu-22.04
     outputs:
       # false only on a fork push that changes nothing in the `paths:` list above.
-      relevant: ${{ steps.filter.outputs.relevant }}
+      relevant: ${{ steps.merge.outputs.relevant }}
       full_run: ${{ steps.filter.outputs.full_run }}
       cpp:      ${{ steps.filter.outputs.cpp }}
       java:     ${{ steps.filter.outputs.java }}
@@ -146,18 +146,11 @@ jobs:
       - name: Squash-merge the pushed branch onto apache/gluten main
         id: merge
         if: github.event_name == 'push'
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git fetch --no-tags https://github.com/apache/gluten.git main
-          base_sha=$(git rev-parse FETCH_HEAD)
-          git checkout --quiet --detach "$base_sha"
-          if ! git merge --squash --no-commit "$GITHUB_SHA"; then
-            echo "::error::$GITHUB_REF_NAME does not merge cleanly into apache/gluten main ($base_sha). Rebase it and push again."
-            exit 1
-          fi
-          git commit --quiet --allow-empty -m "Squash-merge $GITHUB_SHA onto $base_sha"
-          echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/squash-merge-upstream
+        with:
+          # The `paths:` list above. Keep the two in sync.
+          paths: '^(\.github/workflows/(velox_backend_x86|iceberg_spark_ut|iceberg_upstream_revision|velox_native_build)\.yml$|\.github/workflows/util/(parallel-ut|iceberg-upstream)/|\.github/actions/|pom\.xml$|build/mvn$|(backends-velox|gluten-(uniffle|celeborn|core|substrait|arrow|delta|iceberg|hudi|paimon|ut)|package|shims|tools/gluten-it|ep/build-velox|cpp|dev)/)'
+          paths-ignore: '^cpp/bolt/|^cpp/bolt\.CMakeLists\.cmake$'
       - name: Detect changed paths
         id: filter
         run: |
@@ -185,6 +178,12 @@ jobs:
             exit 0
           fi
           echo "full_run=false" >> $GITHUB_OUTPUT
+          if [ "${{ steps.merge.outputs.relevant }}" = "false" ]; then
+            for flag in cpp java shims34 shims35 shims40 shims41 shims42 tools_it; do
+              echo "$flag=false" >> $GITHUB_OUTPUT
+            done
+            exit 0
+          fi
           if [ "$event" = "push" ]; then
             BASE=${{ steps.merge.outputs.base_sha }}
             HEAD=$(git rev-parse HEAD)
@@ -194,19 +193,6 @@ jobs:
           fi
           changed=$(git diff --name-only "$BASE" "$HEAD")
           echo "$changed"
-
-          # A `paths:` filter on push does not diff against main, so fork pushes
-          # apply the list here instead. Keep it in sync with `paths:`.
-          if [ "$event" = "push" ] && ! echo "$changed" \
-              | grep -vE '^cpp/bolt/|^cpp/bolt\.CMakeLists\.cmake$' \
-              | grep -qE '^(\.github/workflows/(velox_backend_x86|iceberg_spark_ut|iceberg_upstream_revision|velox_native_build)\.yml$|\.github/workflows/util/(parallel-ut|iceberg-upstream)/|\.github/actions/|pom\.xml$|build/mvn$|(backends-velox|gluten-(uniffle|celeborn|core|substrait|arrow|delta|iceberg|hudi|paimon|ut)|package|shims|tools/gluten-it|ep/build-velox|cpp|dev)/)'; then
-            echo "Nothing this workflow covers changed -- skipping."
-            for flag in cpp java shims34 shims35 shims40 shims41 shims42 tools_it; do
-              echo "$flag=false" >> $GITHUB_OUTPUT
-            done
-            echo "relevant=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
 
           match() { echo "$changed" | grep -qE "$1" && echo true || echo false; }
 
@@ -218,17 +204,6 @@ jobs:
           echo "shims41=$(match  '^(shims/(spark41|common)/|gluten-ut/spark41/)')"                           >> $GITHUB_OUTPUT
           echo "shims42=$(match  '^(shims/(spark42|common)/|gluten-ut/spark42/)')"                           >> $GITHUB_OUTPUT
           echo "tools_it=$(match '^tools/gluten-it/')"                                                       >> $GITHUB_OUTPUT
-      - name: Pack the merged tree
-        if: github.event_name == 'push' && steps.filter.outputs.relevant != 'false'
-        run: git archive --format=tar.gz -o "$RUNNER_TEMP/merged-tree.tar.gz" HEAD
-      - uses: actions/upload-artifact@v7
-        if: github.event_name == 'push' && steps.filter.outputs.relevant != 'false'
-        with:
-          name: merged-tree
-          path: ${{ runner.temp }}/merged-tree.tar.gz
-          compression-level: 0
-          if-no-files-found: error
-          retention-days: 1
 
   build-native-lib-centos-8:
     needs: detect-changes

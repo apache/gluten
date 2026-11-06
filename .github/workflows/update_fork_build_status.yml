@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# A pull request from a fork runs velox_backend_x86.yml in the fork, on push. This
-# workflow reports that run on the pull request as the check named below: it creates
+# A pull request from a fork runs the workflows listed below in the fork, on push. This
+# workflow reports each run on the pull request as the check named next to it: it creates
 # the check when it first finds the run, and updates it on later passes. It only reads
 # run metadata, so it never runs pull request code and needs no pull_request_target.
 # Ported from apache/spark's update_build_status.yml (SPARK-60578).
@@ -42,8 +42,10 @@ jobs:
       - uses: actions/github-script@v9
         with:
           script: |
-            const CHECK = 'Velox Backend (x86) in fork'
-            const WORKFLOW = 'velox_backend_x86.yml'
+            const WORKFLOWS = [
+              { file: 'velox_backend_x86.yml', check: 'Velox Backend (x86) in fork' },
+              { file: 'velox_backend_arm.yml', check: 'Velox Backend (ARM) in fork' },
+            ]
             const repo = { owner: context.repo.owner, repo: context.repo.repo }
 
             // 5xx, network errors and rate limiting are retried on a later pass.
@@ -60,7 +62,7 @@ jobs:
 
             const listChecks = (sha) => github.paginate(
               'GET /repos/{owner}/{repo}/commits/{ref}/check-runs',
-              { ...repo, ref: sha, check_name: CHECK, per_page: 100 })
+              { ...repo, ref: sha, per_page: 100 })
 
             // The fork run a check points at, or null for a check this workflow can't sync.
             const runParams = (cr) => {
@@ -90,32 +92,32 @@ jobs:
               return github.request('PATCH /repos/{owner}/{repo}/check-runs/{check_run_id}', body)
             }
 
-            // The fork's run for the pull request's head commit, re-polled because a run
-            // can take a few seconds to register after a push. undefined: no run, including
-            // a fork that has no such workflow (404).
-            const findForkRun = async (pr, attempts) => {
+            const runPath = (w) => '.github/workflows/' + w.file
+
+            // The fork's push runs for the pull request's head commit, re-polled until there
+            // is one for every workflow in `wanted`, because a run can take a few seconds to
+            // register after a push.
+            const listForkRuns = async (pr, wanted, attempts) => {
+              let runs = []
               for (let i = 0; i < attempts; i++) {
-                let runs
                 try {
-                  const { data } = await github.request(
-                    'GET /repos/{owner}/{repo}/actions/workflows/{id}/runs', {
-                      owner: pr.head.repo.owner.login, repo: pr.head.repo.name,
-                      id: WORKFLOW, branch: pr.head.ref, head_sha: pr.head.sha
-                    })
-                  runs = data.workflow_runs
+                  const { data } = await github.request('GET /repos/{owner}/{repo}/actions/runs', {
+                    owner: pr.head.repo.owner.login, repo: pr.head.repo.name,
+                    event: 'push', branch: pr.head.ref, head_sha: pr.head.sha, per_page: 100
+                  })
+                  runs = data.workflow_runs.filter(r => r.head_sha == pr.head.sha)
                 } catch (e) {
-                  if (e.status == 404) return undefined
+                  if (e.status == 404) return []
                   throw e
                 }
-                const run = runs.find(r => r.event == 'push' && r.head_sha == pr.head.sha)
-                if (run) return run
+                if (wanted.every(w => runs.some(r => r.path == runPath(w)))) break
                 if (i < attempts - 1) await new Promise(r => setTimeout(r, 3000))
               }
-              return undefined
+              return runs
             }
 
-            const createCheck = (pr, run) => github.rest.checks.create(run ? {
-              ...repo, name: CHECK, head_sha: pr.head.sha, status: 'queued',
+            const createCheck = (pr, w, run) => github.rest.checks.create(run ? {
+              ...repo, name: w.check, head_sha: pr.head.sha, status: 'queued',
               details_url: run.html_url,
               output: {
                 title: 'Fork run',
@@ -125,12 +127,12 @@ jobs:
                   owner: pr.head.repo.owner.login, repo: pr.head.repo.name, run_id: run.id })
               }
             } : {
-              ...repo, name: CHECK, head_sha: pr.head.sha,
+              ...repo, name: w.check, head_sha: pr.head.sha,
               status: 'completed', conclusion: 'action_required',
               output: {
                 title: 'No run found in your fork',
                 summary: [
-                  `${WORKFLOW} runs in your fork on each push to a branch other than main. No run was found for ${pr.head.sha}.`,
+                  `${w.file} runs in your fork on each push to a branch other than main. No run was found for ${pr.head.sha}.`,
                   '',
                   '1. Enable GitHub Actions in the Actions tab of your fork, then push again. See [Managing GitHub Actions settings for a repository](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository).',
                   '2. If your branch predates fork runs, rebase it on the latest apache/gluten main and push again.',
@@ -147,30 +149,40 @@ jobs:
                 if (!pr.head.repo || pr.head.repo.full_name == `${repo.owner}/${repo.repo}`) continue
                 try {
                   const checks = await listChecks(pr.head.sha)
-                  let synced = false
-                  for (const cr of checks) {
-                    const p = runParams(cr)
-                    if (!p) continue
-                    try {
-                      const { data: run } = await github.request(
-                        'GET /repos/{owner}/{repo}/actions/runs/{run_id}', p)
-                      await syncCheck(cr, run)
-                      synced = true
-                    } catch (e) {
-                      // A 404 means the run was deleted or Actions disabled: fall through and
-                      // create a fresh check. A transient error waits for the next pass.
-                      if (isTransient(e)) synced = true
-                      else if (e.status != 404) throw e
+                  const missing = []
+                  for (const w of WORKFLOWS) {
+                    let synced = false
+                    for (const cr of checks.filter(c => c.name == w.check)) {
+                      const p = runParams(cr)
+                      if (!p) continue
+                      try {
+                        const { data: run } = await github.request(
+                          'GET /repos/{owner}/{repo}/actions/runs/{run_id}', p)
+                        await syncCheck(cr, run)
+                        synced = true
+                      } catch (e) {
+                        // A 404 means the run was deleted or Actions disabled: fall through and
+                        // create a fresh check. A transient error waits for the next pass.
+                        if (isTransient(e)) synced = true
+                        else if (e.status != 404) throw e
+                      }
                     }
+                    if (synced) continue
+                    const hasNoRunCheck = checks.some(
+                      cr => cr.name == w.check && cr.conclusion == 'action_required')
+                    missing.push({ w, hasNoRunCheck })
                   }
-                  if (synced) continue
+                  if (!missing.length) continue
 
-                  // Once the action_required check exists, look once per pass, not three times.
-                  const hasNoRunCheck = checks.some(cr => cr.conclusion == 'action_required')
-                  const run = await findForkRun(pr, hasNoRunCheck ? 1 : 3)
-                  if (!run && hasNoRunCheck) continue
-                  console.log(`#${pr.number}: ${run ? 'tracking ' + run.html_url : 'no fork run'}`)
-                  await createCheck(pr, run)
+                  // Once the action_required checks exist, look once per pass, not three times.
+                  const runs = await listForkRuns(pr, missing.map(m => m.w),
+                    missing.every(m => m.hasNoRunCheck) ? 1 : 3)
+                  for (const { w, hasNoRunCheck } of missing) {
+                    const run = runs.find(r => r.path == runPath(w))
+                    if (!run && hasNoRunCheck) continue
+                    console.log(`#${pr.number} ${w.file}: ${run ? 'tracking ' + run.html_url : 'no fork run'}`)
+                    await createCheck(pr, w, run)
+                  }
                 } catch (e) {
                   if (isTransient(e)) continue
                   console.error(`#${pr.number}: ${e.message}`)
