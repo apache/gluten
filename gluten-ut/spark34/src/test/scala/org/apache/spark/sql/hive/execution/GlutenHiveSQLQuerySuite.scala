@@ -18,7 +18,6 @@ package org.apache.spark.sql.hive.execution
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
-import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.hive.{HiveExternalCatalog, HiveTableScanExecTransformer}
 import org.apache.spark.sql.hive.client.HiveClient
 
@@ -33,20 +32,17 @@ class GlutenHiveSQLQuerySuite extends GlutenHiveSQLQuerySuiteBase {
   }
 
   testGluten("hive orc scan") {
-    withSQLConf("spark.sql.hive.convertMetastoreOrc" -> "false") {
-      sql("DROP TABLE IF EXISTS test_orc")
-      sql(
-        "CREATE TABLE test_orc (name STRING, favorite_color STRING)" +
-          " USING hive OPTIONS(fileFormat 'orc')")
-      sql("INSERT INTO test_orc VALUES('test_1', 'red')")
-      val df = spark.sql("select * from test_orc")
-      checkAnswer(df, Seq(Row("test_1", "red")))
-      checkOperatorMatch[HiveTableScanExecTransformer](df)
+    withTable("test_orc") {
+      withSQLConf("spark.sql.hive.convertMetastoreOrc" -> "false") {
+        sql(
+          "CREATE TABLE test_orc (name STRING, favorite_color STRING)" +
+            " USING hive OPTIONS(fileFormat 'orc')")
+        sql("INSERT INTO test_orc VALUES('test_1', 'red')")
+        val df = spark.sql("select * from test_orc")
+        checkAnswer(df, Seq(Row("test_1", "red")))
+        checkOperatorMatch[HiveTableScanExecTransformer](df)
+      }
     }
-    spark.sessionState.catalog.dropTable(
-      TableIdentifier("test_orc"),
-      ignoreIfNotExists = true,
-      purge = false)
   }
 
   testGluten("orc.force.positional.evolution maps Hive ORC columns by position") {
@@ -173,22 +169,20 @@ class GlutenHiveSQLQuerySuite extends GlutenHiveSQLQuerySuiteBase {
   }
 
   testGluten("avoid unnecessary filter binding for subfield during scan") {
-    withSQLConf(
-      "spark.sql.hive.convertMetastoreParquet" -> "false") {
-      sql("DROP TABLE IF EXISTS test_subfield")
-      sql(
-        "CREATE TABLE test_subfield (name STRING, favorite_color STRING," +
-          " label STRUCT<label_1:STRING, label_2:STRING>) USING hive OPTIONS(fileFormat 'parquet')")
-      sql(
-        "INSERT INTO test_subfield VALUES('test_1', 'red', named_struct('label_1', 'label-a'," +
-          "'label_2', 'label-b'))")
-      val df = spark.sql("select * from test_subfield where name='test_1'")
-      checkAnswer(df, Seq(Row("test_1", "red", Row("label-a", "label-b"))))
-      checkOperatorMatch[HiveTableScanExecTransformer](df)
+    withTable("test_subfield") {
+      withSQLConf(
+        "spark.sql.hive.convertMetastoreParquet" -> "false") {
+        sql(
+          "CREATE TABLE test_subfield (name STRING, favorite_color STRING," +
+            " label STRUCT<label_1:STRING, label_2:STRING>)" +
+            " USING hive OPTIONS(fileFormat 'parquet')")
+        sql(
+          "INSERT INTO test_subfield VALUES('test_1', 'red', named_struct('label_1', 'label-a'," +
+            "'label_2', 'label-b'))")
+        val df = spark.sql("select * from test_subfield where name='test_1'")
+        checkAnswer(df, Seq(Row("test_1", "red", Row("label-a", "label-b"))))
+        checkOperatorMatch[HiveTableScanExecTransformer](df)
+      }
     }
-    spark.sessionState.catalog.dropTable(
-      TableIdentifier("test_subfield"),
-      ignoreIfNotExists = true,
-      purge = false)
   }
 }

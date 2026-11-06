@@ -55,7 +55,7 @@ std::unique_ptr<FileSplitReader> DeltaDataSource::createSplitReader() {
       ioStats_,
       fileHandleFactory_,
       ioExecutor_,
-      scanSpec_,
+      fileScanState_->scanSpec,
       &infoColumns_,
       std::move(bucketChannels),
       /*subfieldFiltersForValidation=*/getFilters());

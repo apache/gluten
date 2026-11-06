@@ -559,6 +559,71 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("sequence with integer arguments") {
+    withTempPath {
+      path =>
+        Seq[(Integer, Integer)](
+          (1, 5),
+          (5, 1),
+          (3, 3),
+          (-2, 2),
+          (null, 4),
+          (2, null)
+        ).toDF("start", "stop")
+          .write
+          .parquet(path.getCanonicalPath)
+
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("tbl")
+
+        runQueryAndCompare(
+          "SELECT sequence(start, stop), " +
+            "sequence(cast(start AS tinyint), cast(stop AS tinyint)), " +
+            "sequence(cast(start AS smallint), cast(stop AS smallint)), " +
+            "sequence(cast(start AS bigint), cast(stop AS bigint)) FROM tbl") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        runQueryAndCompare(
+          "SELECT sequence(start, stop, 2), " +
+            "sequence(cast(start AS tinyint), cast(stop AS tinyint), 2Y), " +
+            "sequence(cast(start AS bigint), cast(stop AS bigint), 3L) " +
+            "FROM tbl WHERE start <= stop") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        runQueryAndCompare(
+          "SELECT sequence(start, stop, -2), " +
+            "sequence(cast(start AS smallint), cast(stop AS smallint), -1S) " +
+            "FROM tbl WHERE start >= stop") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+    }
+  }
+
+  test("sequence with date arguments or a non-literal step falls back") {
+    withTempPath {
+      path =>
+        Seq[(Integer, Integer, Integer)](
+          (1, 5, 2),
+          (3, 3, 0)
+        ).toDF("start", "stop", "step")
+          .write
+          .parquet(path.getCanonicalPath)
+
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("tbl")
+
+        runQueryAndCompare("SELECT sequence(start, stop, step) FROM tbl") {
+          checkSparkPlan[ProjectExec]
+        }
+        runQueryAndCompare("SELECT sequence(start, start, 0) FROM tbl") {
+          checkSparkPlan[ProjectExec]
+        }
+        runQueryAndCompare(
+          "SELECT sequence(date_add(DATE'2024-01-01', start), " +
+            "date_add(DATE'2024-01-01', stop)) FROM tbl") {
+          checkSparkPlan[ProjectExec]
+        }
+    }
+  }
+
   test("map_from_arrays optimized by Spark constant folding") {
     withSQLConf(("spark.sql.optimizer.excludedRules", "")) {
       runQueryAndCompare("""SELECT map_from_arrays(sequence(1, 5),sequence(1, 5)), l_orderkey
@@ -588,6 +653,40 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
       }
 
       // EXCEPTION policy raises on a duplicate.
+      val df = sql(duplicateKeyQuery)
+      checkGlutenPlan[ProjectExecTransformer](df)
+      val e = intercept[SparkException] {
+        df.collect()
+      }
+      assert(e.getMessage.contains("Duplicate map key"))
+    }
+
+    withSQLConf(SQLConf.MAP_KEY_DEDUP_POLICY.key -> SQLConf.MapKeyDedupPolicy.LAST_WIN.toString) {
+      // LAST_WIN policy keeps the duplicate's first position and its last value.
+      runQueryAndCompare(duplicateKeyQuery) {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+    }
+  }
+
+  test("transform_keys offloads to Velox under both mapKeyDedupPolicy values") {
+    // k % 2 maps l_orderkey and l_orderkey + 2 to the same key.
+    val duplicateKeyQuery =
+      "select transform_keys(map(l_orderkey, l_partkey, l_orderkey + 1, l_suppkey, " +
+        "l_orderkey + 2, l_linenumber), (k, v) -> k % 2) as m, " +
+        "map_keys(transform_keys(map(l_orderkey, l_partkey, l_orderkey + 1, l_suppkey, " +
+        "l_orderkey + 2, l_linenumber), (k, v) -> k % 2)) as k from lineitem limit 10"
+
+    // k % 2 maps l_orderkey and l_orderkey + 1 to different keys.
+    val distinctKeyQuery =
+      "select transform_keys(map(l_orderkey, l_partkey, l_orderkey + 1, l_suppkey), " +
+        "(k, v) -> k % 2) from lineitem limit 10"
+
+    withSQLConf(SQLConf.MAP_KEY_DEDUP_POLICY.key -> SQLConf.MapKeyDedupPolicy.EXCEPTION.toString) {
+      runQueryAndCompare(distinctKeyQuery) {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+
       val df = sql(duplicateKeyQuery)
       checkGlutenPlan[ProjectExecTransformer](df)
       val e = intercept[SparkException] {
@@ -1806,6 +1905,38 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
           }
           // Default delimiters (, and :)
           runQueryAndCompare("SELECT s, str_to_map(s) FROM str_to_map_tbl") {
+            checkGlutenPlan[ProjectExecTransformer]
+          }
+        }
+    }
+  }
+
+  test("str_to_map with MAP_KEY_DEDUP_POLICY LAST_WIN") {
+    // Velox's str_to_map honors throw_exception_on_duplicate_map_keys, which Gluten derives
+    // from spark.sql.mapKeyDedupPolicy, so LAST_WIN no longer needs to fall back. Under
+    // LAST_WIN a repeated key keeps the position of its first occurrence and takes the last
+    // value. Entries without a key/value delimiter carry a NULL value and take part in
+    // deduplication as well.
+    withTempPath {
+      path =>
+        Seq("a:1,b:2,a:3", "x:10,x:20,x:30", "k,k", "k:1,k", "a:1,b:2,c:3")
+          .toDF("s")
+          .write
+          .parquet(path.getCanonicalPath)
+
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("str_to_map_tbl")
+
+        withSQLConf(
+          SQLConf.MAP_KEY_DEDUP_POLICY.key -> SQLConf.MapKeyDedupPolicy.LAST_WIN.toString) {
+          runQueryAndCompare("SELECT s, str_to_map(s, ',', ':') FROM str_to_map_tbl") {
+            checkGlutenPlan[ProjectExecTransformer]
+          }
+          runQueryAndCompare("SELECT s, str_to_map(s) FROM str_to_map_tbl") {
+            checkGlutenPlan[ProjectExecTransformer]
+          }
+          // Pin the entry order, which map equality ignores.
+          runQueryAndCompare(
+            "SELECT s, map_keys(str_to_map(s, ',', ':')) FROM str_to_map_tbl") {
             checkGlutenPlan[ProjectExecTransformer]
           }
         }
