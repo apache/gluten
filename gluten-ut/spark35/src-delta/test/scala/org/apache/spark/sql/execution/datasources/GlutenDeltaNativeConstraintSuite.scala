@@ -146,11 +146,11 @@ class GlutenDeltaNativeConstraintSuite extends GlutenQueryTest with SharedSparkS
           val errorClass =
             if (notNull) "DELTA_NOT_NULL_CONSTRAINT_VIOLATED"
             else "DELTA_VIOLATE_CONSTRAINT_WITH_VALUES"
-          val expected = withSQLConf(nativeWriteKey -> "false") {
-            rejectedWrite(path, invalidRows, errorClass)
-          }
           val actual = rejectedWrite(path, invalidRows, errorClass)
-          assertSameError(actual, expected)
+          withSQLConf(nativeWriteKey -> "false") {
+            val expected = rejectedWrite(path, invalidRows, errorClass)
+            assertSameError(actual, expected)
+          }
       }
     }
   }
@@ -181,17 +181,17 @@ class GlutenDeltaNativeConstraintSuite extends GlutenQueryTest with SharedSparkS
               error
             }
 
-            val expected = withSQLConf(nativeWriteKey -> "false") {
-              rejectOverwrite()
-            }
             val actual = rejectOverwrite()
-            assertSameError(actual, expected)
-            (actual.getCause, expected.getCause) match {
-              case (
-                    actualCause: DeltaInvariantViolationException,
-                    expectedCause: DeltaInvariantViolationException) =>
-                assertSameError(actualCause, expectedCause)
-              case _ => fail("Original Delta invariant violation cause was lost")
+            withSQLConf(nativeWriteKey -> "false") {
+              val expected = rejectOverwrite()
+              assertSameError(actual, expected)
+              (actual.getCause, expected.getCause) match {
+                case (
+                      actualCause: DeltaInvariantViolationException,
+                      expectedCause: DeltaInvariantViolationException) =>
+                  assertSameError(actualCause, expectedCause)
+                case _ => fail("Original Delta invariant violation cause was lost")
+              }
             }
         }
       }
