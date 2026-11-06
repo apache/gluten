@@ -22,6 +22,13 @@ workflow. GitHub-hosted jobs maintain `Bolt CI / gate` and a single PR comment.
 The worker runs native tests, fourteen packaging combinations and twenty-seven
 Spark test groups on `bolt-medium` runners.
 
+The listener explicitly dispatches an independent commenter as well as the
+worker. The commenter observes the bound run with read-only permissions, then
+uses a short write-enabled job to publish the terminal result. It hands long
+observations to a fresh workflow after five hours. This avoids depending on
+`workflow_run` delivery after a `GITHUB_TOKEN` dispatch; lifecycle events remain
+an additional path for user-initiated Actions reruns.
+
 ## Request a build
 
 A same-repository PR starts automatically when its changes affect Bolt.

@@ -122,6 +122,44 @@ def controller(api):
 
 
 class ControlTest(unittest.TestCase):
+    def test_listener_dispatches_an_independent_commenter(self):
+        api = API()
+        api.permission = "write"
+        event = {
+            "inputs": {"pr": "2", "head_sha": SHA},
+            "sender": {"login": "maintainer"},
+        }
+        controller(api).listen(event, "workflow_dispatch")
+        reporters = [
+            data
+            for path, data in api.writes
+            if path.endswith("/bolt_ci_commenter.yml/dispatches")
+        ]
+        self.assertEqual(reporters, [{"ref": "main", "inputs": {"run_id": "200"}}])
+
+    def test_observer_waits_for_terminal_run_without_writing_checks(self):
+        api = API()
+        api.run.update(status="in_progress", conclusion=None)
+        control = controller(api)
+        control.sleep = lambda seconds: api.run.update(
+            status="completed", conclusion="failure"
+        )
+        result = control.observe(200)
+        self.assertEqual(result, {"pr": 2, "pending": "false"})
+        self.assertEqual(api.writes, [])
+
+    def test_observer_hands_off_long_runs_and_rejects_stale_requests(self):
+        api = API()
+        api.run.update(status="in_progress", conclusion=None)
+        elapsed = [0]
+        control = controller(api)
+        control.now = lambda: elapsed[0]
+        control.sleep = lambda seconds: elapsed.__setitem__(0, elapsed[0] + 18000)
+        self.assertEqual(control.observe(200), {"pr": 2, "pending": "true"})
+        self.assertEqual(api.writes, [])
+        api.pr["head"]["sha"] = "c" * 40
+        self.assertIsNone(control.observe(200))
+
     def test_complete_matrix_updates_gate_and_one_comment(self):
         api = API()
         control = controller(api)
