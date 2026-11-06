@@ -58,10 +58,14 @@ requests cancellation and verifies the terminal state. A neutral result requires
 no runner assignment or started steps before or after cancellation. A terminal
 state that cannot be verified keeps the check blocking.
 
-Automatic neutral results are initially disabled in `ALLOW_QUEUE_EXEMPTION`.
-GitHub's cancellation response cannot independently distinguish simultaneous
-human and monitor requests. Until the repository confirms the intended policy,
-a thirty-minute queue timeout cancels the build and keeps the gate blocking.
+Verified queue timeouts receive a neutral result. This also applies when a human
+cancels at the same time as the monitor: eligibility, thirty-minute observation
+and proof that execution never started determine the exemption. A human cancel
+before the monitor establishes those conditions does not qualify.
+
+The controller stores the dispatched run ID in the check's `external_id`.
+GitHub rewrites `details_url` for checks created with `GITHUB_TOKEN`, so that URL
+is not used to bind a request to its result.
 
 ## Deploy in a fork
 
