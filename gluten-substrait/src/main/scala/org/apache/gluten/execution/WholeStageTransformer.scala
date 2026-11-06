@@ -304,6 +304,8 @@ case class WholeStageTransformer(child: SparkPlan, materializeInput: Boolean = f
         Seq(transformer)
       case shj: HashJoinLikeExecTransformer =>
         collectLeafTransformers(shj.streamedPlan) ++ collectLeafTransformers(shj.buildPlan)
+      case smj: SortMergeJoinExecTransformerBase =>
+        collectLeafTransformers(smj.streamedPlan) ++ collectLeafTransformers(smj.bufferedPlan)
       case t: TransformSupport =>
         t.children.flatMap(collectLeafTransformers)
       case _ =>
