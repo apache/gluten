@@ -161,7 +161,18 @@ void JavaException::check(JNIEnv* env) {
   env->ExceptionClear();
   const auto release = [env](jthrowable ref) { env->DeleteLocalRef(ref); };
   std::unique_ptr<_jthrowable, decltype(release)> local(throwable, release);
-  throw JavaException(env, throwable);
+  // Guard construction only: successful carrier propagation must leave JNI clear.
+  auto error = [env, throwable]() {
+    try {
+      return JavaException(env, throwable);
+    } catch (...) {
+      if (!env->ExceptionCheck() && env->Throw(throwable) != JNI_OK) {
+        LOG(ERROR) << "Unable to restore original Java exception";
+      }
+      throw;
+    }
+  }();
+  throw error;
 }
 
 } // namespace gluten
