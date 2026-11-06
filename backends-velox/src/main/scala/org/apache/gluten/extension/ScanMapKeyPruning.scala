@@ -34,16 +34,19 @@ import scala.collection.mutable
 import scala.util.control.NonFatal
 
 /**
- * Physical plan rule that derives Velox required subfields for map columns read by a native Parquet
- * scan, so that the reader prunes map entries the query never accesses.
+ * Physical plan rule that derives Velox required subfields for map columns read by a native
+ * Parquet, ORC or DWRF scan, so that the reader prunes map entries the query never accesses.
  *
  * Background. Parquet stores a map as a repeated `key_value` group: one key column chunk and one
- * value column chunk per row group, covering every entry of every row. Evaluating `m['k1']` on the
- * scan output therefore decodes all entries into a MapVector, although only one key is needed.
- * Velox's Hive connector lets a `HiveColumnHandle` declare required subfields, written in Velox
- * `Subfield` syntax such as `m["k1"].f1`; `makeScanSpec` turns the map keys they name into a key
- * filter on the map's key stream, so the SelectiveMapColumnReader materializes only matching
- * entries. Struct fields not covered by any required subfield are filled with nulls.
+ * value column chunk per row group, covering every entry of every row. ORC and DWRF likewise store
+ * one key stream and one value stream per stripe. Evaluating `m['k1']` on the scan output therefore
+ * decodes all entries into a MapVector, although only one key is needed. Velox's Hive connector
+ * lets a `HiveColumnHandle` declare required subfields, written in Velox `Subfield` syntax such as
+ * `m["k1"].f1`; `makeScanSpec` turns the map keys they name into a key filter on the map's key
+ * stream, so the selective map column reader materializes only matching entries. A DWRF map written
+ * with flat-map encoding keeps one stream per key instead, and the reader does not open the streams
+ * of keys the filter rejects. Struct fields not covered by any required subfield are filled with
+ * nulls.
  *
  * Velox treats the declared set as complete and returns null for anything outside it, so the
  * declared paths must cover every read of the column. The rule therefore only handles one plan
@@ -134,7 +137,7 @@ object ScanMapKeyPruning extends Rule[SparkPlan] {
     val declarationsByScan =
       new java.util.IdentityHashMap[SparkPlan, Map[String, Seq[SubfieldPath]]]()
     def collectDeclarations(node: SparkPlan, chain: List[SparkPlan]): Unit = node match {
-      case scan: BasicScanExecTransformer if isPrunableParquetScan(scan) =>
+      case scan: BasicScanExecTransformer if isPrunableScan(scan) =>
         val mapAttrs = scan.output.filter(a => containsMapType(a.dataType) && a.name.nonEmpty)
         if (mapAttrs.nonEmpty) {
           val filters = scan.filterExprs()
@@ -165,10 +168,15 @@ object ScanMapKeyPruning extends Rule[SparkPlan] {
     }
   }
 
-  /** A native Parquet scan that supports the declaration and has none yet. */
-  private def isPrunableParquetScan(scan: BasicScanExecTransformer): Boolean =
+  /** A native Parquet, ORC or DWRF scan that supports the declaration and has none yet. */
+  private def isPrunableScan(scan: BasicScanExecTransformer): Boolean =
     scan.supportsMapKeyPruning && scan.requiredMapSubfields.isEmpty &&
-      scan.fileFormat == ReadFileFormat.ParquetReadFormat
+      prunableFormats.contains(scan.fileFormat)
+
+  private val prunableFormats: Set[ReadFileFormat] = Set(
+    ReadFileFormat.ParquetReadFormat,
+    ReadFileFormat.OrcReadFormat,
+    ReadFileFormat.DwrfReadFormat)
 
   /**
    * The operators a chain may consist of: Filters and Projects, which use the input rows through
