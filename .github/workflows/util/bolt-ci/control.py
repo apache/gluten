@@ -230,9 +230,13 @@ class Controller:
             identity = parse_identity(previous["external_id"])
             already_dispatched = bool(identity.get("run_id"))
             if already_dispatched and (
-                explicit_sha is None or identity["request"] == self.request
+                explicit_sha is None
+                or identity["request"].split("/")[0] == self.request.split("/")[0]
             ):
-                return None
+                self.start_commenter(identity["run_id"])
+                return dict(
+                    pr=number, check_id=previous["id"], run_id=identity["run_id"]
+                )
         files = self.api.list(f"{self.base}/pulls/{number}/files")
         check = self.begin(pr, previous)
         if not affected(files, pr["changed_files"]):
@@ -286,12 +290,17 @@ class Controller:
                 },
             },
         )
-        self.comment(
-            pr,
-            f"Bolt CI · `{sha}`\n\n[Build and tests]({url}) are waiting to run.\n\n"
-            "Maintainers can request a fresh run with `/bolt ci`.",
-        )
         self.start_commenter(run_id)
+        try:
+            self.comment(
+                pr,
+                f"Bolt CI · `{sha}`\n\n[Build and tests]({url}) are waiting to run.\n\n"
+                "Maintainers can request a fresh run with `/bolt ci`.",
+            )
+        except (OSError, GitHubError):
+            print(
+                "Initial comment unavailable; the independent commenter will publish the result."
+            )
         return dict(pr=number, check_id=check["id"], run_id=run_id)
 
     def start_commenter(self, run_id):
