@@ -62,7 +62,8 @@ serve it:
 | Pushed-down aggregation (e.g. `COUNT(*)`) | Fallback |
 | Full-text query (`_score`)     | Fallback |
 | Float16 vector, `FixedSizeBinary` or `Date(MILLISECOND)` column | Fallback |
-| Blob or JSON column            | Fallback |
+| Vector of integers or of vectors | Fallback |
+| Blob or JSON column, also nested in a struct, list or map | Fallback |
 | Metadata column (`_rowid`, `_rowaddr`, `_fragid`, row versions) | Fallback |
 | No columns read (e.g. `SELECT 1 FROM t`) | Fallback |
 
@@ -87,5 +88,6 @@ engages automatically whenever lance-spark is present on the classpath.
 - Rare schemas that require JVM post-processing (for example `_rowid` / `_rowaddr` / blob columns)
   are not offloaded.
 - With lance-spark 0.8.0, a scan over an unsigned integer, `LargeList`, time, or non-microsecond
-  timestamp column fails at execution instead of falling back: lance-spark's Spark schema does not
-  record these Arrow types, so the offload cannot detect them at plan time.
+  timestamp column, or a timestamp column with a time zone other than UTC, fails at execution
+  instead of falling back: lance-spark's Spark schema does not record these Arrow types, so the
+  offload cannot detect them at plan time.

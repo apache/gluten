@@ -22,8 +22,17 @@ import org.apache.spark.sql.execution.{ColumnarShuffleExchangeExec, ColumnarToRo
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.types._
 
+import org.apache.arrow.memory.RootAllocator
+import org.apache.arrow.vector.{Float4Vector, IntVector, TinyIntVector, VectorSchemaRoot}
+import org.apache.arrow.vector.complex.FixedSizeListVector
+import org.apache.arrow.vector.ipc.{ArrowStreamReader, ArrowStreamWriter}
+import org.apache.arrow.vector.types.FloatingPointPrecision
+import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType, Schema}
+import org.lance.{Dataset => LanceDataset}
 import org.lance.spark.utils.BlobUtils
 
+import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
+import java.nio.channels.Channels
 import java.sql.Date
 
 import scala.collection.JavaConverters._
@@ -162,6 +171,41 @@ class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
           .options(writeOptions)
           .option("path", uri)
           .save()
+        f(spark.read.format("lance").option("path", uri).load())
+    }
+  }
+
+  /**
+   * Writes one batch to a Lance dataset with lance-core, for Arrow types lance-spark does not
+   * write, e.g. a vector of integers. `fill` sets the batch's values and row count.
+   */
+  private def withLanceCoreData(schema: Schema)(fill: VectorSchemaRoot => Unit)(
+      f: DataFrame => Unit): Unit = {
+    withTempPath {
+      path =>
+        val uri = s"${path.getCanonicalPath}/data.lance"
+        val allocator = new RootAllocator()
+        try {
+          val ipc = new ByteArrayOutputStream()
+          val root = VectorSchemaRoot.create(schema, allocator)
+          try {
+            fill(root)
+            val writer = new ArrowStreamWriter(root, null, Channels.newChannel(ipc))
+            writer.start()
+            writer.writeBatch()
+            writer.end()
+          } finally {
+            root.close()
+          }
+          val reader = new ArrowStreamReader(new ByteArrayInputStream(ipc.toByteArray), allocator)
+          try {
+            LanceDataset.write().allocator(allocator).reader(reader).uri(uri).execute().close()
+          } finally {
+            reader.close()
+          }
+        } finally {
+          allocator.close()
+        }
         f(spark.read.format("lance").option("path", uri).load())
     }
   }
@@ -461,6 +505,90 @@ class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
           () => df.selectExpr("1 as one"),
           customCheck = assertFallback,
           noFallBack = false)
+    }
+  }
+
+  test("lance scan falls back on nested blob and JSON fields") {
+    // The native scan returns these in their stored form at any depth, as at the top level.
+    val json = new MetadataBuilder().putString("ARROW:extension:name", "arrow.json").build()
+    val blob = new MetadataBuilder().putString("lance-encoding:blob", "true").build()
+    val jsonInStruct = new StructType().add("j", StringType, nullable = true, json)
+    val cases = Seq(
+      StructField("s", jsonInStruct) -> Row("""{"a":1}"""),
+      StructField("l", ArrayType(jsonInStruct)) -> Seq(Row("""{"a":1}""")),
+      // lance-spark embeds the metadata of a map's values in the map field's.
+      StructField(
+        "m",
+        MapType(StringType, StringType),
+        nullable = true,
+        new MetadataBuilder().putString("_lance.value", json.json).build()) ->
+        Map("k" -> """{"a":1}"""),
+      StructField(
+        "b",
+        new StructType().add("name", StringType).add("blob", BinaryType, nullable = true, blob)) ->
+        Row("a", Array[Byte](3))
+    )
+    cases.foreach {
+      case (field, value) =>
+        val schema = new StructType().add("id", IntegerType).add(field)
+        withLanceData(schema, Seq(Row(0, value), Row(1, null))) {
+          df =>
+            compareDfResultsAgainstVanillaSpark(
+              () => df,
+              customCheck = assertFallback,
+              noFallBack = false)
+            checkGlutenPlan[LanceScanTransformer](df.select("id"))
+        }
+    }
+  }
+
+  test("lance scan falls back on vectors lance-spark maps to lists") {
+    // lance-spark 0.8.0 maps only vectors of floats and doubles back to a FixedSizeList, but the
+    // native scan returns every vector as one. lance-spark does not write these, so lance-core does.
+    def field(name: String, arrowType: ArrowType, children: Field*): Field =
+      new Field(name, FieldType.nullable(arrowType), children.asJava)
+    def vector(name: String, element: Field): Field =
+      field(name, new ArrowType.FixedSizeList(2), element)
+    val float32 = new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE)
+    val cases = Seq(
+      (
+        vector("v", field("item", new ArrowType.Int(8, true))),
+        (v: FixedSizeListVector) => {
+          val items = v.getDataVector.asInstanceOf[TinyIntVector]
+          items.setSafe(0, 1)
+          items.setSafe(1, 2)
+        },
+        Seq(1.toByte, 2.toByte)),
+      (
+        vector("v", vector("item", field("item", float32))),
+        (v: FixedSizeListVector) => {
+          val inner = v.getDataVector.asInstanceOf[FixedSizeListVector]
+          val items = inner.getDataVector.asInstanceOf[Float4Vector]
+          inner.setNotNull(0)
+          inner.setNotNull(1)
+          (0 until 4).foreach(i => items.setSafe(i, i + 0.5f))
+        },
+        Seq(Seq(0.5f, 1.5f), Seq(2.5f, 3.5f)))
+    )
+    cases.foreach {
+      case (vectorField, fillVector, value) =>
+        val schema = new Schema(Seq(field("id", new ArrowType.Int(32, true)), vectorField).asJava)
+        withLanceCoreData(schema) {
+          root =>
+            val id = root.getVector("id").asInstanceOf[IntVector]
+            val v = root.getVector("v").asInstanceOf[FixedSizeListVector]
+            id.setSafe(0, 0)
+            id.setSafe(1, 1)
+            v.setNotNull(0)
+            fillVector(v)
+            v.setNull(1)
+            root.setRowCount(2)
+        } {
+          df =>
+            assertFallback(df)
+            checkAnswer(df, Seq(Row(0, value), Row(1, null)))
+            checkGlutenPlan[LanceScanTransformer](df.select("id"))
+        }
     }
   }
 }
