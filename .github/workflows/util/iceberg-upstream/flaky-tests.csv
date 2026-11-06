@@ -18,3 +18,4 @@
 class,method
 # Example
 # org.apache.iceberg.spark.extensions.TestAlterTablePartitionFields,testDropPartitionAndSourceColumnLong
+org.apache.iceberg.spark.extensions.TestViews,createViewWithCTEReferencingTempView
