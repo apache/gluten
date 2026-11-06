@@ -16,7 +16,7 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
-import org.apache.spark.sql.GlutenExpressionOffloadTracker
+import org.apache.spark.sql.{DataFrame, GlutenExpressionOffloadTracker}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeProjection
 import org.apache.spark.sql.catalyst.util.DateTimeConstants._
@@ -27,6 +27,8 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.shim.GlutenTestsTrait
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
+
+import org.scalatest.exceptions.TestFailedException
 
 import java.sql.{Date, Timestamp}
 import java.text.SimpleDateFormat
@@ -39,28 +41,24 @@ class GlutenDateExpressionsSuite
   with GlutenExpressionOffloadTracker
   with GlutenTestsTrait {
 
-  // Velox also fails on the overflow, but with a VeloxUserError ("Could not convert Timestamp(...)
-  // to microseconds") instead of an ArithmeticException. Accept either.
-  testGluten("TruncTimestamp of Long.MinValue overflows with ArithmeticException") {
-    withDefaultTimeZone(UTC) {
-      val minTimestamp = Literal.create(Long.MinValue, TimestampType)
-      Seq("YEAR", "QUARTER", "MONTH", "WEEK", "DAY", "HOUR", "MINUTE", "SECOND", "MILLISECOND")
-        .foreach {
-          fmt =>
-            val e = intercept[Exception] {
-              checkEvaluation(TruncTimestamp(Literal.create(fmt, StringType), minTimestamp), null)
-            }
-            val causes = Iterator.iterate[Throwable](e)(_.getCause).takeWhile(_ != null).toSeq
-            assert(
-              causes.exists(
-                c =>
-                  c.isInstanceOf[ArithmeticException] ||
-                    Option(c.getMessage).exists(_.contains("Could not convert Timestamp"))),
-              s"Unexpected exception for $fmt: $e"
-            )
-        }
+  // Velox raises the TruncTimestamp overflow with Spark's "long overflow" message, but it reaches
+  // the driver as a GlutenException instead of an ArithmeticException. Rethrow it as the
+  // ArithmeticException that Spark's test expects.
+  override protected def doCheckExpression(
+      expression: Expression,
+      expected: Any,
+      inputRow: InternalRow,
+      resultDF: DataFrame): Unit = {
+    try {
+      super.doCheckExpression(expression, expected, inputRow, resultDF)
+    } catch {
+      case e: TestFailedException
+          if expression.isInstanceOf[TruncTimestamp] &&
+            String.valueOf(e.getCause).contains("long overflow") =>
+        fail(e.getMessage, new ArithmeticException("long overflow"))
     }
   }
+
   override protected def offloadCategory: String = "datetime"
   override def testIntegralInput(testFunc: Number => Unit): Unit = {
     def checkResult(input: Long): Unit = {
