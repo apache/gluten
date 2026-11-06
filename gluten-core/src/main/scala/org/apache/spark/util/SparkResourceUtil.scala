@@ -79,15 +79,24 @@ object SparkResourceUtil extends Logging {
     val executorCores = SparkResourceUtil.getExecutorCores(conf)
     // spark.task.cpus is read raw here, which bypasses Spark's own checkValue(_ > 0) (and on
     // Spark < 4.2 that positivity check does not exist at all). getTaskSlots runs during driver
-    // plugin init, before Spark validates the value, so fail fast on a non-positive setting rather
-    // than dividing by it: a zero would throw an opaque "/ by zero" ArithmeticException and a
-    // negative would silently produce negative task slots and off-heap budgets.
-    val taskCores = conf.getInt("spark.task.cpus", 1)
-    require(taskCores > 0, s"spark.task.cpus should be positive, but was $taskCores")
+    // plugin init, before Spark validates the value. Spark 4.3 allows fractional task cpus
+    // (SPARK-58192), so read it as a decimal.
+    getTaskSlots(executorCores, BigDecimal(conf.get("spark.task.cpus", "1").trim))
+  }
+
+  /** Returns floor(executorCores / taskCpus), at least one, like Spark's own slot computation. */
+  def getTaskSlots(executorCores: Int, taskCpus: BigDecimal): Int = {
+    // Fail fast on a non-positive setting rather than dividing by it: a zero would throw an opaque
+    // ArithmeticException and a negative would silently produce negative task slots and off-heap
+    // budgets.
+    require(taskCpus > 0, s"spark.task.cpus should be positive, but was $taskCpus")
     // Floor at one slot. spark.task.cpus > executor cores is an invalid combination that Spark
     // rejects later with a dedicated message, but callers divide by the slot count during init, so
     // a 0 quotient would throw before Spark can report the real misconfiguration.
-    Math.max(executorCores / taskCores, 1)
+    val slots = BigDecimal(
+      BigDecimal(executorCores).bigDecimal
+        .divide(taskCpus.bigDecimal, 0, java.math.RoundingMode.FLOOR))
+    Math.max(slots.min(Int.MaxValue).toInt, 1)
   }
 
   def isLocalMaster(conf: SparkConf): Boolean = {
