@@ -36,6 +36,8 @@ ENV VCPKG_PATH=/var/cache/vcpkg
 # Set vcpkg cache path.
 ENV VCPKG_BINARY_SOURCES=clear;files,${VCPKG_PATH},readwrite
 
+COPY dev/docker/verify-native-ci-tools.sh /usr/local/bin/verify-native-ci-tools
+
 RUN --mount=type=bind,source=dev/docker/install-ci-tools.sh,target=/tmp/install-ci-tools.sh \
     set -ex; \
     # AlmaLinux 8 repos are live — no mirror fixup needed. \
@@ -76,6 +78,7 @@ RUN --mount=type=bind,source=dev/docker/install-ci-tools.sh,target=/tmp/install-
     dnf module -y install python39; \
     alternatives --set python3 /usr/bin/python3.9; \
     bash /tmp/install-ci-tools.sh; \
+    bash /usr/local/bin/verify-native-ci-tools; \
     dnf clean all; \
     rm -rf /opt/gluten; \
     rm -rf /root/.cache/ccache;
