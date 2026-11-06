@@ -142,8 +142,9 @@ class VeloxTestSettings extends BackendTestSettings {
     // Excluded in favour of the GlutenCastWithAnsiOffSuite rewrite, which drops the Long.MinValue
     // assertion: collect() -> toJavaTimestamp -> rebaseGregorianToJulianMicros overflows.
     .exclude("cast from timestamp II")
-    .exclude("SPARK-39749: cast Decimal to string")
   enableSuite[GlutenTryCastSuite]
+    // Rewrite to set ANSI on explicitly.
+    .exclude("SPARK-39749: cast Decimal to string")
     .exclude(
       "Process Infinity, -Infinity, NaN in case insensitive manner" // +inf not supported in folly.
     )
@@ -152,8 +153,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("data type casting")
     // Revised by setting timezone through config and commented unsupported cases.
     .exclude("cast string to timestamp")
-    // TODO: fix after https://github.com/facebookincubator/velox/pull/14910
-    .exclude("SPARK-39749: cast Decimal to string")
   enableSuite[GlutenCollectionExpressionsSuite]
     // Rewrite in Gluten to replace Seq with Array
     .exclude("Shuffle")
