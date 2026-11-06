@@ -17,15 +17,17 @@
 package org.apache.spark.sql.delta
 
 import org.apache.gluten.config.VeloxDeltaConfig
-import org.apache.gluten.execution.DeltaScanTransformer
+import org.apache.gluten.execution.{DeltaScanTransformer, HashAggregateExecBaseTransformer}
 
 import org.apache.spark.sql.{DataFrame, QueryTest, Row}
+import org.apache.spark.sql.catalyst.expressions.aggregation.BitmapAggregator
 import org.apache.spark.sql.delta.DataFrameUtils
 import org.apache.spark.sql.delta.files.TahoeLogFileIndex
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.test.{DeltaSQLCommandTest, DeltaSQLTestUtils}
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
+import org.apache.spark.sql.execution.aggregate.BaseAggregateExec
 import org.apache.spark.sql.execution.datasources.{HadoopFsRelation, LogicalRelation}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSparkSession
@@ -48,6 +50,24 @@ class DeltaDeletionVectorHandoffSuite
 
   private def containsNativeDeltaScan(plan: SparkPlan): Boolean = {
     collectWithSubqueries(plan) { case scan: DeltaScanTransformer => scan }.nonEmpty
+  }
+
+  /**
+   * Checks that Delta's BitmapAggregator, which builds the deletion vectors of a DML command, ran
+   * in Velox: every aggregate over it is a Gluten transformer.
+   */
+  private def assertNativeBitmapAggregate(plans: Seq[SparkPlan]): Unit = {
+    val aggregates = plans.flatMap {
+      collectWithSubqueries(_) {
+        case agg: BaseAggregateExec
+            if agg.aggregateExpressions.exists(
+              _.aggregateFunction.isInstanceOf[BitmapAggregator]) =>
+          agg
+      }
+    }
+    val planText = plans.map(_.treeString).mkString("\n\n")
+    assert(aggregates.nonEmpty, planText)
+    assert(aggregates.forall(_.isInstanceOf[HashAggregateExecBaseTransformer]), planText)
   }
 
   private def captureDeletePlans(path: String, predicate: String): Seq[SparkPlan] = {
@@ -270,6 +290,9 @@ class DeltaDeletionVectorHandoffSuite
               assert(
                 executedPlans.exists(containsNativeDeltaScan) === useMetadataRowIndex,
                 planText)
+              if (useMetadataRowIndex) {
+                assertNativeBitmapAggregate(executedPlans)
+              }
 
               assert(activeDvCardinality(path) === 2L)
               checkAnswer(spark.read.format("delta").load(path), Seq((1, "a"), (2, "b")).toDF())
@@ -337,6 +360,7 @@ class DeltaDeletionVectorHandoffSuite
                 assert(
                   executedPlans.exists(containsNativeDeltaScan),
                   executedPlans.map(_.treeString).mkString("\n\n"))
+                assertNativeBitmapAggregate(executedPlans)
               }
 
               val log = DeltaLog.forTable(spark, new Path(path))
@@ -347,6 +371,64 @@ class DeltaDeletionVectorHandoffSuite
             }
         }
       }
+  }
+
+  test("Delta DV UPDATE should write correct deletion vectors natively") {
+    withTempDir {
+      tempDir =>
+        val path = tempDir.getCanonicalPath
+        writeDvTable(path, Seq((1, "a"), (2, "b"), (3, "c"), (4, "d")))
+
+        withSQLConf(DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key -> "true") {
+          val executedPlans = DeltaTestUtils.withAllPlansCaptured(spark) {
+            spark.sql(s"UPDATE delta.`$path` SET value = 'z' WHERE id IN (3, 4)").collect()
+          }.map(_.executedPlan)
+          assert(
+            executedPlans.exists(containsNativeDeltaScan),
+            executedPlans.map(_.treeString).mkString("\n\n"))
+          assertNativeBitmapAggregate(executedPlans)
+        }
+
+        // The updated rows are marked deleted in the original file and rewritten to a new one.
+        assert(activeDvCardinality(path) === 2L)
+        checkAnswer(
+          spark.read.format("delta").load(path),
+          Seq((1, "a"), (2, "b"), (3, "z"), (4, "z")).toDF())
+    }
+  }
+
+  test("Delta DV MERGE with update and insert clauses should write deletion vectors natively") {
+    withTempDir {
+      tempDir =>
+        val path = tempDir.getCanonicalPath
+        writeDvTable(path, Seq((1, "a"), (2, "b"), (3, "c"), (4, "d")))
+
+        withTempView("merge_source") {
+          Seq((3, "c2"), (5, "e")).toDF("id", "value").createOrReplaceTempView("merge_source")
+
+          withSQLConf(DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX.key -> "true") {
+            val executedPlans = DeltaTestUtils.withAllPlansCaptured(spark) {
+              spark
+                .sql(s"""MERGE INTO delta.`$path` AS t
+                        |USING merge_source AS s
+                        |ON t.id = s.id
+                        |WHEN MATCHED THEN UPDATE SET *
+                        |WHEN NOT MATCHED THEN INSERT *""".stripMargin)
+                .collect()
+            }.map(_.executedPlan)
+            assert(
+              executedPlans.exists(containsNativeDeltaScan),
+              executedPlans.map(_.treeString).mkString("\n\n"))
+            assertNativeBitmapAggregate(executedPlans)
+          }
+
+          // Only the matched row's old version is marked deleted.
+          assert(activeDvCardinality(path) === 1L)
+          checkAnswer(
+            spark.read.format("delta").load(path),
+            Seq((1, "a"), (2, "b"), (3, "c2"), (4, "d"), (5, "e")).toDF())
+        }
+    }
   }
 
   test("Delta DV DML row-index scan should stay on Spark when disabled") {
