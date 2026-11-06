@@ -291,7 +291,42 @@ class Controller:
             f"Bolt CI · `{sha}`\n\n[Build and tests]({url}) are waiting to run.\n\n"
             "Maintainers can request a fresh run with `/bolt ci`.",
         )
+        self.start_commenter(run_id)
         return dict(pr=number, check_id=check["id"], run_id=run_id)
+
+    def start_commenter(self, run_id):
+        # GITHUB_TOKEN dispatches do not reliably emit a subsequent workflow_run.
+        self.api.post(
+            f"{self.base}/actions/workflows/bolt_ci_commenter.yml/dispatches",
+            {
+                "ref": self.default_branch,
+                "inputs": {"run_id": str(run_id)},
+            },
+        )
+
+    def observe(self, run_id):
+        # Hand off after five hours to stay below the hosted runner job limit.
+        deadline = self.now() + 18000
+        while True:
+            try:
+                run = self.api.get(f"{self.base}/actions/runs/{run_id}")
+                binding = self.binding(run, allow_rerun=True)
+                if not binding:
+                    return None
+                if run["status"] == "completed":
+                    return {"pr": binding[0]["number"], "pending": "false"}
+                if self.now() >= deadline:
+                    return {"pr": binding[0]["number"], "pending": "true"}
+            except (OSError, RuntimeError, KeyError, ValueError):
+                print("Result temporarily unavailable; preserving the blocking check.")
+                if self.now() >= deadline:
+                    return {"pending": "true"}
+            self.sleep(60)
+
+    def resume_report(self, run_id):
+        run = self.api.get(f"{self.base}/actions/runs/{run_id}")
+        if self.binding(run, allow_rerun=True):
+            self.start_commenter(run_id)
 
     def binding(self, run, allow_rerun=False):
         title = parse_title(run.get("display_title", ""))
@@ -538,7 +573,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "operation",
-        choices=("listen", "report", "route", "watch", "expire", "validate"),
+        choices=(
+            "listen",
+            "report",
+            "route",
+            "watch",
+            "expire",
+            "validate",
+            "resume-report",
+        ),
     )
     args = parser.parse_args()
     with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as stream:
@@ -555,14 +598,24 @@ def main():
     elif args.operation == "validate":
         output(controller.validate(event, int(os.environ["GITHUB_RUN_ID"])))
     elif args.operation == "route":
-        run = controller.api.get(
-            f"{controller.base}/actions/runs/{event['workflow_run']['id']}"
-        )
-        binding = controller.binding(run, allow_rerun=True)
-        if binding:
-            output({"pr": binding[0]["number"]})
+        if os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch":
+            output(controller.observe(int(event["inputs"]["run_id"])))
+        else:
+            run = controller.api.get(
+                f"{controller.base}/actions/runs/{event['workflow_run']['id']}"
+            )
+            binding = controller.binding(run, allow_rerun=True)
+            if binding:
+                output({"pr": binding[0]["number"]})
     elif args.operation == "report":
-        controller.report(event["workflow_run"]["id"])
+        run_id = (
+            int(event["inputs"]["run_id"])
+            if os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch"
+            else event["workflow_run"]["id"]
+        )
+        controller.report(run_id)
+    elif args.operation == "resume-report":
+        controller.resume_report(int(event["inputs"]["run_id"]))
     elif args.operation == "watch":
         evidence = controller.watch(int(os.environ["BUILD_RUN_ID"]))
         if evidence:

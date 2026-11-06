@@ -16,6 +16,12 @@
 name: Bolt CI Commenter
 
 on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Bound Bolt build run supplied by the trusted listener
+        required: true
+        type: string
   workflow_run:
     workflows: [Bolt Backend Build (x86), 'Bolt CI PR *']
     types: [in_progress, completed]
@@ -28,7 +34,7 @@ env:
 jobs:
   route:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 330
     permissions:
       contents: read
       actions: read
@@ -36,6 +42,7 @@ jobs:
       pull-requests: read
     outputs:
       pr: ${{ steps.route.outputs.pr }}
+      pending: ${{ steps.route.outputs.pending }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -49,7 +56,7 @@ jobs:
 
   report:
     needs: route
-    if: needs.route.outputs.pr != ''
+    if: needs.route.outputs.pr != '' && needs.route.outputs.pending != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:
@@ -70,3 +77,23 @@ jobs:
       - env:
           GH_TOKEN: ${{ github.token }}
         run: python3 .github/workflows/util/bolt-ci/control.py report
+
+  continue-observation:
+    needs: route
+    if: needs.route.outputs.pending == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: write
+      checks: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: .github/workflows/util/bolt-ci
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/workflows/util/bolt-ci/control.py resume-report
