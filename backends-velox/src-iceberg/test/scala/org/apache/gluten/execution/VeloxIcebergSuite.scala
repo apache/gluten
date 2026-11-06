@@ -20,22 +20,307 @@ import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.utils.VeloxFileSystemValidationJniWrapper
 
+import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.catalyst.expressions.{AttributeMap, AttributeReference}
+import org.apache.spark.sql.catalyst.util._
 import org.apache.spark.sql.connector.catalog.{Identifier, TableCatalog}
+import org.apache.spark.sql.execution.QueryExecution
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
+import org.apache.spark.sql.util.QueryExecutionListener
 import org.apache.spark.utils.GlutenSuiteUtils
 
-import org.apache.iceberg.{FileScanTask, UpdateSchema}
+import org.apache.iceberg.{FileScanTask, MetadataColumns, UpdateSchema}
 import org.apache.iceberg.expressions.Literal
 import org.apache.iceberg.hadoop.HadoopCatalog
 import org.apache.iceberg.io.{ResolvingFileIO, StorageCredential}
-import org.apache.iceberg.spark.{ScanTaskSetManager, Spark3Util, SparkCatalog, SparkTableCache}
+import org.apache.iceberg.spark.{ScanTaskSetManager, Spark3Util, SparkCatalog, SparkSQLProperties, SparkTableCache}
 import org.apache.iceberg.spark.source.{GlutenIcebergSourceUtil, SparkTable}
 import org.apache.iceberg.types.{Type, Types}
+
+import java.util.concurrent.{ConcurrentLinkedQueue, CountDownLatch, TimeUnit}
 
 import scala.collection.JavaConverters._
 
 class VeloxIcebergSuite extends IcebergSuite {
+  override protected def sparkConf: SparkConf =
+    super.sparkConf.set("spark.sql.ansi.enabled", "false")
+
+  test("iceberg metadata file paths and row positions offload in a plain batch scan") {
+    withTable("iceberg_metadata_tb") {
+      withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+        spark.sql("CREATE TABLE iceberg_metadata_tb (id BIGINT) USING iceberg")
+        spark.range(20).coalesce(1).writeTo("iceberg_metadata_tb").append()
+      }
+
+      runQueryAndCompare("SELECT _file FROM iceberg_metadata_tb") {
+        df =>
+          checkGlutenPlanCount[IcebergScanTransformer](df, 1)
+          assert(df.collect().forall(_.getString(0).endsWith(".parquet")))
+      }
+      runQueryAndCompare("SELECT _file, _pos FROM iceberg_metadata_tb") {
+        df =>
+          checkGlutenPlanCount[IcebergScanTransformer](df, 1)
+          val scan = getExecutedPlan(df).collect { case scan: IcebergScanTransformer => scan }.head
+          assert(scan.scan.getClass.getSimpleName == "SparkBatchQueryScan")
+          assert(scan.output.filter(_.name == "_file").forall(_.isMetadataCol))
+          val rows = df.collect()
+          assert(rows.map(_.getString(0)).distinct.length == 1)
+          assert(rows.forall(_.getString(0).endsWith(".parquet")))
+          assert(rows.map(_.getLong(1)).sorted.toSeq == (0L until 20L))
+      }
+      runQueryAndCompare("SELECT _pos FROM iceberg_metadata_tb") {
+        df =>
+          checkGlutenPlanCount[IcebergScanTransformer](df, 1)
+          checkAnswer(df, (0L until 20L).map(Row(_)))
+      }
+    }
+  }
+
+  test("iceberg metadata columns offload after schema evolution") {
+    withTable("iceberg_metadata_evolved_tb") {
+      withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+        spark.sql("CREATE TABLE iceberg_metadata_evolved_tb (id BIGINT) USING iceberg")
+        spark.range(20).coalesce(1).writeTo("iceberg_metadata_evolved_tb").append()
+        spark.sql("ALTER TABLE iceberg_metadata_evolved_tb ADD COLUMN data STRING")
+      }
+
+      runQueryAndCompare("SELECT id, data, _file, _pos FROM iceberg_metadata_evolved_tb") {
+        df =>
+          checkGlutenPlanCount[IcebergScanTransformer](df, 1)
+          val rows = df.collect()
+          assert(rows.map(_.getLong(0)).sorted.toSeq == (0L until 20L))
+          assert(rows.forall(row => row.isNullAt(1) && row.getLong(0) == row.getLong(3)))
+          assert(rows.map(_.getString(2)).distinct.length == 1)
+      }
+    }
+  }
+
+  test("iceberg metadata row positions are file-relative across splits and filters") {
+    withTable("iceberg_metadata_split_tb") {
+      withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+        spark.sql("""
+                    |CREATE TABLE iceberg_metadata_split_tb (id BIGINT, data STRING)
+                    |USING iceberg
+                    |TBLPROPERTIES (
+                    |  'write.parquet.row-group-size-bytes' = '1024',
+                    |  'write.parquet.compression-codec' = 'uncompressed',
+                    |  'write.distribution-mode' = 'none',
+                    |  'read.split.target-size' = '1024',
+                    |  'read.split.open-file-cost' = '0')
+                    |""".stripMargin)
+        spark.range(0, 2000, 1, 1)
+          .selectExpr("id", "sha2(cast(id as string), 256) AS data")
+          .writeTo("iceberg_metadata_split_tb")
+          .append()
+      }
+
+      Seq(
+        "" -> (0L until 2000L),
+        "WHERE id >= 1000" -> (1000L until 2000L),
+        "WHERE _pos >= 1000 AND _pos < 1500" -> (1000L until 1500L),
+        "WHERE id % 3 = 0" -> (0L until 2000L by 3)
+      ).foreach {
+        case (filter, expectedIds) =>
+          runQueryAndCompare(
+            s"SELECT id, _file, _pos FROM iceberg_metadata_split_tb $filter") {
+            df =>
+              checkGlutenPlanCount[IcebergScanTransformer](df, 1)
+              val scans = getExecutedPlan(df).collect { case scan: IcebergScanTransformer => scan }
+              assert(scans.size == 1)
+              assert(
+                scans.head.inputRDD.partitions.length > 1,
+                "The single data file must be read using multiple splits")
+              val rows = df.collect()
+              assert(rows.map(_.getString(1)).distinct.length == 1)
+              assert(rows.map(_.getLong(0)).sorted.toSeq == expectedIds)
+              assert(rows.forall(row => !row.isNullAt(2)))
+              assert(rows.forall(row => row.getLong(0) == row.getLong(2)))
+          }
+      }
+    }
+  }
+
+  test("iceberg metadata ORC row positions fall back but file paths offload") {
+    withTable("iceberg_metadata_orc_tb") {
+      withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+        spark.sql("""
+                    |CREATE TABLE iceberg_metadata_orc_tb (id BIGINT) USING iceberg
+                    |TBLPROPERTIES ('write.format.default' = 'orc')
+                    |""".stripMargin)
+        spark.range(20).coalesce(1).writeTo("iceberg_metadata_orc_tb").append()
+      }
+
+      runQueryAndCompare("SELECT _file FROM iceberg_metadata_orc_tb") {
+        df =>
+          checkGlutenPlanCount[IcebergScanTransformer](df, 1)
+          assert(df.collect().forall(_.getString(0).endsWith(".orc")))
+      }
+      runQueryAndCompare(
+        "SELECT _file, _pos FROM iceberg_metadata_orc_tb",
+        noFallBack = false) {
+        df =>
+          checkGlutenPlanCount[IcebergScanTransformer](df, 0)
+          val scans = getExecutedPlan(df).collect { case scan: BatchScanExec => scan }
+          assert(scans.size == 1)
+          assert(FallbackTags.get(scans.head.logicalLink.get).reason()
+            .contains("Iceberg row position reads with ORC files are not supported"))
+          assert(df.collect().map(_.getLong(1)).sorted.toSeq == (0L until 20L))
+      }
+    }
+  }
+
+  for (
+    (dataType, value) <- Seq(
+      "TIMESTAMP" -> "TIMESTAMP '2000-01-01 00:00:00'",
+      "STRUCT<ts: TIMESTAMP>" -> "named_struct('ts', TIMESTAMP '2000-01-01 00:00:00')")
+  ) {
+    test(s"iceberg ORC timestamps fall back when projected out or dropped - $dataType") {
+      withTable("iceberg_orc_timestamp_tb") {
+        withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+          spark.sql(s"""
+                       |CREATE TABLE iceberg_orc_timestamp_tb (id INT, value $dataType) USING iceberg
+                       |TBLPROPERTIES ('write.format.default' = 'orc')
+                       |""".stripMargin)
+          spark.sql(s"INSERT INTO iceberg_orc_timestamp_tb VALUES (1, $value)")
+        }
+        for (dropColumn <- Seq(false, true)) {
+          if (dropColumn) {
+            spark.sql("ALTER TABLE iceberg_orc_timestamp_tb DROP COLUMN value")
+          }
+          runQueryAndCompare(
+            "SELECT id, _file FROM iceberg_orc_timestamp_tb",
+            noFallBack = false) {
+            df =>
+              checkGlutenPlanCount[IcebergScanTransformer](df, 0)
+              val scans = getExecutedPlan(df).collect { case scan: BatchScanExec => scan }
+              assert(scans.size == 1)
+              assert(FallbackTags.get(scans.head.logicalLink.get).reason()
+                .contains("Iceberg ORC timestamp-with-zone reads are not supported"))
+              assert(df.collect().map(_.getInt(0)).toSeq == Seq(1))
+          }
+        }
+      }
+    }
+  }
+
+  test("iceberg mixed file formats fall back before split generation") {
+    withTable("iceberg_mixed_formats_tb") {
+      withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+        spark.sql("CREATE TABLE iceberg_mixed_formats_tb (id BIGINT) USING iceberg")
+        spark.range(0, 3).coalesce(1).writeTo("iceberg_mixed_formats_tb").append()
+        spark.sql("""
+                    |ALTER TABLE iceberg_mixed_formats_tb
+                    |SET TBLPROPERTIES ('write.format.default' = 'orc')
+                    |""".stripMargin)
+        spark.range(3, 6).coalesce(1).writeTo("iceberg_mixed_formats_tb").append()
+      }
+      runQueryAndCompare("SELECT id, _file FROM iceberg_mixed_formats_tb", noFallBack = false) {
+        df =>
+          checkGlutenPlanCount[IcebergScanTransformer](df, 0)
+          val scans = getExecutedPlan(df).collect { case scan: BatchScanExec => scan }
+          assert(scans.size == 1)
+          assert(FallbackTags.get(scans.head.logicalLink.get).reason()
+            .contains("Iceberg scans with mixed file formats are not supported"))
+          val rows = df.collect()
+          assert(rows.map(_.getLong(0)).sorted.toSeq == (0L until 6L))
+          assert(rows.exists(_.getString(1).endsWith(".parquet")))
+          assert(rows.exists(_.getString(1).endsWith(".orc")))
+      }
+      runQueryAndCompare("SELECT id, _file FROM iceberg_mixed_formats_tb WHERE id >= 3") {
+        df =>
+          checkGlutenPlanCount[IcebergScanTransformer](df, 1)
+          assert(df.collect().map(_.getLong(0)).sorted.toSeq == (3L until 6L))
+      }
+    }
+  }
+
+  test("iceberg partitioned scans with fresh expression IDs have the same result") {
+    withTable("iceberg_canonical_scan_tb") {
+      withSQLConf(
+        "spark.sql.sources.v2.bucketing.enabled" -> "true",
+        SparkSQLProperties.PRESERVE_DATA_GROUPING -> "true") {
+        spark.sql("""
+                    |CREATE TABLE iceberg_canonical_scan_tb (id INT, dep STRING) USING iceberg
+                    |PARTITIONED BY (dep)
+                    |""".stripMargin)
+        spark.sql("INSERT INTO iceberg_canonical_scan_tb VALUES (1, 'hr'), (2, 'hardware')")
+        val df = spark.sql("SELECT * FROM iceberg_canonical_scan_tb")
+        val scan = getExecutedPlan(df).collect { case scan: IcebergScanTransformer => scan }.head
+        assert(scan.keyGroupedPartitioning.nonEmpty)
+        val newOutput = scan.output.map(_.newInstance())
+        val attributes = AttributeMap(scan.output.zip(newOutput))
+        val equivalent = scan.copy(
+          output = newOutput,
+          keyGroupedPartitioning = scan.keyGroupedPartitioning.map(_.map(_.transform {
+            case attribute: AttributeReference => attributes.getOrElse(attribute, attribute)
+          }))
+        )
+        assert(scan.sameResult(equivalent))
+      }
+    }
+  }
+
+  for (format <- Seq("parquet", "orc")) {
+    test(
+      s"iceberg metadata file path keeps its Spark metadata flag in copy-on-write MERGE - $format") {
+      withTable("iceberg_metadata_merge_tb") {
+        withSQLConf("spark.sql.adaptive.enabled" -> "false") {
+          spark.sql(s"""
+                       |CREATE TABLE iceberg_metadata_merge_tb (id INT, data STRING) USING iceberg
+                       |TBLPROPERTIES (
+                       |  'write.merge.mode' = 'copy-on-write',
+                       |  'write.format.default' = '$format')
+                       |""".stripMargin)
+          spark.sql("INSERT INTO iceberg_metadata_merge_tb VALUES (1, 'a'), (2, 'b'), (3, 'c')")
+
+          val scans = new ConcurrentLinkedQueue[IcebergScanTransformer]()
+          val scanSeen = new CountDownLatch(1)
+          val listener = new QueryExecutionListener {
+            override def onSuccess(funcName: String, qe: QueryExecution, durationNs: Long): Unit = {
+              qe.executedPlan.collect {
+                case scan: IcebergScanTransformer
+                    if scan.scan.getClass.getSimpleName == "SparkCopyOnWriteScan" => scan
+              }.foreach {
+                scan =>
+                  scans.add(scan)
+                  scanSeen.countDown()
+              }
+            }
+
+            override def onFailure(
+                funcName: String,
+                qe: QueryExecution,
+                exception: Exception): Unit = {}
+          }
+          try {
+            spark.listenerManager.register(listener)
+            spark.sql("""
+                        |MERGE INTO iceberg_metadata_merge_tb t
+                        |USING (SELECT * FROM VALUES (2, 'updated'), (4, 'new') AS s(id, data)) s
+                        |ON t.id = s.id
+                        |WHEN MATCHED THEN UPDATE SET data = s.data
+                        |WHEN NOT MATCHED THEN INSERT *
+                        |""".stripMargin).collect()
+            assert(
+              scanSeen.await(10, TimeUnit.SECONDS),
+              "MERGE must use a native copy-on-write scan")
+            val metadata = scans.asScala.flatMap(_.output).filter {
+              _.name == MetadataColumns.FILE_PATH.name()
+            }.toSeq
+            assert(metadata.nonEmpty)
+            assert(metadata.forall(_.isMetadataCol))
+          } finally {
+            spark.listenerManager.unregister(listener)
+          }
+          checkAnswer(
+            spark.sql("SELECT * FROM iceberg_metadata_merge_tb"),
+            Seq(Row(1, "a"), Row(2, "updated"), Row(3, "c"), Row(4, "new")))
+        }
+      }
+    }
+  }
+
   private def withCredentialTable(catalogName: String)(
       f: (String, ResolvingFileIO) => Unit): Unit = {
     withTempDir {

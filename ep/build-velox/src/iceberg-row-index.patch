@@ -1,0 +1,15 @@
+diff --git a/velox/connectors/hive/iceberg/IcebergSplitReader.cpp b/velox/connectors/hive/iceberg/IcebergSplitReader.cpp
+--- a/velox/connectors/hive/iceberg/IcebergSplitReader.cpp
++++ b/velox/connectors/hive/iceberg/IcebergSplitReader.cpp
+@@ -1307,5 +1307,11 @@ std::vector<TypePtr> IcebergSplitReader::adaptColumns(
+   // Iceberg table stores all column's data in data file.
+   for (const auto& childSpec : childrenSpecs) {
++    // Generated row indexes are not stored in the file. Preserve their scan
++    // specs so the Parquet reader can generate file-relative positions.
++    if (childSpec->columnType() != common::ScanSpec::ColumnType::kRegular) {
++      continue;
++    }
++
+     const std::string& fieldName = childSpec->fieldName();
+     if (auto iter = splitInfoColumns.find(fieldName);
+         iter != splitInfoColumns.end()) {
