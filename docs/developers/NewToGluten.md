@@ -111,6 +111,15 @@ nesting also preserves allocation callbacks returning directly through core JNI,
 without introducing a backend dependency there. Other
 native errors keep their existing handling; this mechanism does not classify or
 translate native cast failures.
+Preserving the throwable does not merge C++ frames into its Java stack trace.
+
+`GlutenDeltaNativeConstraintSuite` checks CHECK, NOT NULL, and replaceWhere violations
+through native writes, including partitioned writes. It requires the original Delta
+exception type and compares structured metadata with the JVM writer, including the
+replaceWhere invariant-violation cause, then verifies that a rejected write leaves
+the Delta version, active files, and rows unchanged.
+Successful writes are checked through Parquet footers so JVM fallback cannot make
+the native-path regression pass unnoticed.
 
 ### C++ code development
 
