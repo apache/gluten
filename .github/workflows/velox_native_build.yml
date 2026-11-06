@@ -40,12 +40,6 @@ jobs:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
       CCACHE_DIR: '${{ github.workspace }}/.ccache'
     steps:
-      - name: Install CI tools (temporary - until image is rebuilt with gh/jq/bison/python3.9)
-        run: |
-          dnf install -y jq bison tzdata
-          dnf module -y install python39 && alternatives --set python3 /usr/bin/python3.9
-          dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
-          dnf install -y gh
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.revision }}
