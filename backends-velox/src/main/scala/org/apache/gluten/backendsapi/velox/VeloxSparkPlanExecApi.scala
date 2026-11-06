@@ -28,6 +28,7 @@ import org.apache.gluten.shuffle.NeedCustomColumnarBatchSerializer
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.expression.{ExpressionBuilder, ExpressionNode, WindowFunctionNode}
+import org.apache.gluten.utils.VeloxIntermediateData
 import org.apache.gluten.vectorized.{ColumnarBatchSerializer, ColumnarBatchSerializeResult}
 
 import org.apache.spark.{ShuffleDependency, SparkEnv}
@@ -68,11 +69,13 @@ import org.apache.commons.lang3.ClassUtils
 import java.net.URI
 import java.util.{ArrayList => JArrayList, List => JList}
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
 
 class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
+  import VeloxSparkPlanExecApi._
 
   /** Transform GetArrayItem to Substrait. */
   override def genGetArrayItemTransformer(
@@ -165,9 +168,27 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     }
   }
 
-  override def getDecimalArithmeticExprName(exprName: String, allowPrecisionLoss: Boolean): String =
-    if (!allowPrecisionLoss) { exprName + "_deny_precision_loss" }
-    else { exprName }
+  /**
+   * In ANSI mode, decimal Add, Subtract and Multiply map to Velox's checked_ functions, which throw
+   * on overflow instead of returning null.
+   */
+  override def getDecimalArithmeticExprName(
+      exprName: String,
+      original: BinaryArithmetic,
+      allowPrecisionLoss: Boolean): String = {
+    val name = if (ExpressionUtils.withAnsiEvalMode(original)) {
+      original match {
+        case _: Add => ExpressionNames.CHECKED_ADD
+        case _: Subtract => ExpressionNames.CHECKED_SUBTRACT
+        case _: Multiply => ExpressionNames.CHECKED_MULTIPLY
+        case _ => exprName
+      }
+    } else {
+      exprName
+    }
+    if (!allowPrecisionLoss) { name + "_deny_precision_loss" }
+    else { name }
+  }
 
   /** Transform map_entries to Substrait. */
   override def genMapEntriesTransformer(
@@ -175,6 +196,14 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       child: ExpressionTransformer,
       expr: Expression): ExpressionTransformer = {
     GenericExpressionTransformer(substraitExprName, Seq(child), expr)
+  }
+
+  /** Transform transform_keys to Substrait. Velox honors either map key dedup policy. */
+  override def genTransformKeysTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      expr: TransformKeys): ExpressionTransformer = {
+    GenericExpressionTransformer(substraitExprName, children, expr)
   }
 
   /** Transform array filter to Substrait. */
@@ -750,6 +779,17 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         // IdentityBroadcastMode
         Seq.empty
     }
+    if (
+      mode.isInstanceOf[HashedRelationBroadcastMode] &&
+      VeloxConfig.get.benchmarkDumpRequested &&
+      VeloxConfig.get.getConf(VeloxConfig.VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR) &&
+      warnedBroadcastBuildOncePerExecutorIgnored.compareAndSet(false, true)
+    ) {
+      logWarning(
+        s"${VeloxConfig.VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR.key} is ignored " +
+          "while whole stage dumping is requested: the broadcast hash table is built per task " +
+          "so that the micro benchmark can replay the dumped build side.")
+    }
     var offload = true
     val (newChild, newOutput, newBuildKeys) =
       if (VeloxConfig.get.enableBroadcastBuildOncePerExecutor) {
@@ -1150,25 +1190,6 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     }
   }
 
-  override def genStringToMapTransformer(
-      substraitExprName: String,
-      children: Seq[ExpressionTransformer],
-      expr: Expression): ExpressionTransformer = {
-    // Calling `.toString` on both sides ensures compatibility across all Spark versions.
-    // Starting from Spark 4.1, `SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY)` returns
-    // an enum instead of a String.
-    if (
-      SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY).toString
-        != SQLConf.MapKeyDedupPolicy.EXCEPTION.toString
-    ) {
-      GlutenExceptionUtil.throwsNotFullySupported(
-        ExpressionNames.STR_TO_MAP,
-        StrToMapRestrictions.ONLY_SUPPORT_MAP_KEY_DEDUP_POLICY
-      )
-    }
-    GenericExpressionTransformer(substraitExprName, children, expr)
-  }
-
   override def genFormatNumberTransformer(
       substraitExprName: String,
       children: Seq[ExpressionTransformer],
@@ -1386,9 +1407,33 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       Sig[VeloxBloomFilterAggregate](ExpressionNames.BLOOM_FILTER_AGG),
       Sig[MapFilter](ExpressionNames.MAP_FILTER),
       Sig[AssertNotNull](ExpressionNames.ASSERT_NOT_NULL),
+      Sig[MonotonicallyIncreasingID](ExpressionNames.MONOTONICALLY_INCREASING_ID),
       // For test purpose.
       Sig[VeloxDummyExpression](VeloxDummyExpression.VELOX_DUMMY_EXPRESSION)
     )
+  }
+
+  override def extraExpressionConverter(
+      substraitExprName: String,
+      expr: Expression,
+      attributeSeq: Seq[Attribute]): Option[ExpressionTransformer] = {
+    expr match {
+      case rc: RoundCeil if rc.child.dataType.isInstanceOf[DecimalType] =>
+        Some(
+          DecimalCeilFloorTransformer(
+            substraitExprName,
+            ExpressionConverter.replaceWithExpressionTransformer(rc.child, attributeSeq),
+            rc,
+            rc.scale))
+      case rf: RoundFloor if rf.child.dataType.isInstanceOf[DecimalType] =>
+        Some(
+          DecimalCeilFloorTransformer(
+            substraitExprName,
+            ExpressionConverter.replaceWithExpressionTransformer(rf.child, attributeSeq),
+            rf,
+            rf.scale))
+      case _ => None
+    }
   }
 
   override def rewriteSpillPath(path: String): String = {
@@ -1492,6 +1537,12 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
 
   override def getRDDScanTransform(plan: RDDScanExec): RDDScanTransformer =
     VeloxRDDScanTransformer.replace(plan)
+
+  override def genOneRowRelationExecTransformer(plan: SparkPlan): SparkPlan = {
+    val transformer = OneRowRelationExecTransformer()
+    transformer.copyTagsFrom(plan)
+    transformer
+  }
 
   override def genColumnarTailExec(limit: Int, child: SparkPlan): ColumnarCollectTailBaseExec =
     ColumnarCollectTailExec(limit, child)
@@ -1632,7 +1683,8 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
                   }
               }
 
-            val childrenNodeList = aggregateFunc.children
+            val childrenNodeList = VeloxIntermediateData
+              .getRawInputs(aggregateFunc)
               .map(
                 ExpressionConverter
                   .replaceWithExpressionTransformer(_, originalInputAttributes)
@@ -1729,4 +1781,10 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         }
     }
   }
+}
+
+object VeloxSparkPlanExecApi {
+  // A new VeloxSparkPlanExecApi is created per call to Backend.sparkPlanExecApi(), so state that
+  // must be shared across calls lives here.
+  private val warnedBroadcastBuildOncePerExecutorIgnored = new AtomicBoolean(false)
 }

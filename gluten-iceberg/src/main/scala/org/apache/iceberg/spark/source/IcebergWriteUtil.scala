@@ -16,10 +16,15 @@
  */
 package org.apache.iceberg.spark.source
 
-import org.apache.spark.sql.connector.write.{Write, WriterCommitMessage}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, SortOrder => CatalystSortOrder}
+import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, Sort}
+import org.apache.spark.sql.connector.distributions.{Distribution, Distributions}
+import org.apache.spark.sql.connector.expressions.{SortOrder => ConnectorSortOrder}
+import org.apache.spark.sql.connector.write.{RequiresDistributionAndOrdering, Write, WriterCommitMessage}
+import org.apache.spark.sql.execution.datasources.v2.DistributionAndOrderingUtils
 
 import org.apache.iceberg._
-import org.apache.iceberg.spark.SparkWriteConf
+import org.apache.iceberg.spark.{SparkFunctionCatalog, SparkWriteConf}
 import org.apache.iceberg.spark.source.SparkWrite.TaskCommit
 import org.apache.iceberg.types.Type
 import org.apache.iceberg.types.Type.TypeID
@@ -114,7 +119,27 @@ object IcebergWriteUtil {
   }
 
   def getSortOrder(write: Write): SortOrder = {
-    getTable(write).sortOrder()
+    if (write.asInstanceOf[SparkWrite].requiredOrdering().nonEmpty) {
+      getTable(write).sortOrder()
+    } else {
+      SortOrder.unsorted()
+    }
+  }
+
+  def getRequiredOrdering(write: Write, output: Seq[Attribute]): Seq[CatalystSortOrder] = {
+    // Distribution may reference metadata columns, such as _file, absent from the writer's input.
+    val orderingOnly = new RequiresDistributionAndOrdering {
+      override def requiredDistribution(): Distribution = Distributions.unspecified()
+      override def requiredOrdering(): Array[ConnectorSortOrder] = write match {
+        case ordered: RequiresDistributionAndOrdering => ordered.requiredOrdering()
+        case _ => Array.empty
+      }
+    }
+    DistributionAndOrderingUtils
+      .prepareQuery(orderingOnly, LocalRelation(output), Some(SparkFunctionCatalog.get())) match {
+      case sort: Sort => sort.order
+      case _ => Nil
+    }
   }
 
   def getPartitionSpec(write: Write): PartitionSpec = {

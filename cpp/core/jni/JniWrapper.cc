@@ -186,7 +186,7 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
   metricsBuilderClass = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/metrics/Metrics;");
 
   metricsBuilderConstructor =
-      getMethodIdOrError(env, metricsBuilderClass, "<init>", "(Ljava/lang/String;IJLjava/lang/String;)V");
+      getMethodIdOrError(env, metricsBuilderClass, "<init>", "(Ljava/lang/String;ILjava/lang/String;)V");
 
   nativeColumnarToRowInfoClass =
       createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/NativeColumnarToRowInfo;");
@@ -475,10 +475,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ColumnarBatchOutIterat
   }
 
   std::shared_ptr<ColumnarBatch> batch = iter->next();
-  auto batchHandle = ctx->saveObject(batch);
-
-  iter->setExportNanos(batch->getExportNanos());
-  return batchHandle;
+  return ctx->saveObject(batch);
   JNI_METHOD_END(kInvalidObjectHandle)
 }
 
@@ -497,12 +494,7 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_metrics_IteratorMetricsJniWrapp
   jstring metricsJson = env->NewStringUTF(metrics ? metrics->json.c_str() : "");
   jstring taskStats = metrics && metrics->stats.has_value() ? env->NewStringUTF(metrics->stats->c_str()) : nullptr;
   return env->NewObject(
-      metricsBuilderClass,
-      metricsBuilderConstructor,
-      metricsJson,
-      static_cast<jint>(numMetrics),
-      metrics ? metrics->veloxToArrow : -1,
-      taskStats);
+      metricsBuilderClass, metricsBuilderConstructor, metricsJson, static_cast<jint>(numMetrics), taskStats);
 
   JNI_METHOD_END(nullptr)
 }

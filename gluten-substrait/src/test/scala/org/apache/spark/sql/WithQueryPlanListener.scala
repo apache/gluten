@@ -28,6 +28,8 @@ import org.scalactic.source.Position
 import org.scalatest.Tag
 import org.scalatest.funsuite.AnyFunSuiteLike
 
+import java.util.concurrent.TimeUnit
+
 import scala.collection.mutable
 import scala.reflect.ClassTag
 // format: off
@@ -53,6 +55,8 @@ trait WithQueryPlanListener extends SharedSparkSession with AnyFunSuiteLike {
       pos: Position): Unit = {
     super.test(testName, testTags: _*) {
       testFun
+      // Query execution listeners are notified asynchronously; wait for all the plans.
+      waitForListenerBus()
       listeners().foreach(_.invokeAll())
     }(pos)
   }
@@ -63,9 +67,18 @@ trait WithQueryPlanListener extends SharedSparkSession with AnyFunSuiteLike {
   }
 
   override def afterEach(): Unit = {
-    listeners().foreach(listener => spark.sessionState.listenerManager.unregister(listener))
-    super.afterEach()
+    // Let any in-flight notifications finish before unregistering, e.g. when the test failed.
+    try {
+      waitForListenerBus()
+    } finally {
+      listeners().foreach(listener => spark.sessionState.listenerManager.unregister(listener))
+      super.afterEach()
+    }
   }
+
+  // The no-arg waitUntilEmpty() gives up after 10s, which a slow CI runner can exceed.
+  private def waitForListenerBus(): Unit =
+    spark.sparkContext.listenerBus.waitUntilEmpty(TimeUnit.SECONDS.toMillis(30))
 
   private def listeners() = {
     spark.sessionState.listenerManager
@@ -83,19 +96,28 @@ object WithQueryPlanListener {
     with AdaptiveSparkPlanHelper {
     private val plans = mutable.ArrayBuffer[SparkPlan]()
 
+    // Called on the listener bus thread, while invokeAll() runs on the test thread.
     override def onSuccess(funcName: String, qe: QueryExecution, durationNs: Long): Unit = {
       val plan = qe.executedPlan
-      plans += plan
+      plans.synchronized {
+        plans += plan
+      }
     }
 
     override def onFailure(funcName: String, qe: QueryExecution, exception: Exception): Unit = {}
 
     def invokeAll(): Unit = {
-      while (plans.nonEmpty) {
-        val plansCopy = Seq[SparkPlan](plans.toSeq: _*)
-        plans.clear()
+      var plansCopy = takePlans()
+      while (plansCopy.nonEmpty) {
         plansCopy.foreach(plan => listeners.foreach(listener => listener.apply(plan)))
+        plansCopy = takePlans()
       }
+    }
+
+    private def takePlans(): Seq[SparkPlan] = plans.synchronized {
+      val plansCopy = plans.toList
+      plans.clear()
+      plansCopy
     }
   }
 

@@ -154,19 +154,6 @@ def format_command(commit, files, fix):
     return ok
 
 
-def header_command(commit, files, fix):
-    options = "-vk" if fix == "show" else "-i"
-
-    status, stdout, stderr = util.run(
-        f"{SCRIPTS}/license-header.py {options} -", input=files
-    )
-
-    if stdout != "":
-        print(stdout)
-
-    return status
-
-
 def tidy_command(commit, files, fix):
     files = [file for file in files if regex.match(r".*\.(cc|cpp|h)$", file)]
 
@@ -256,17 +243,18 @@ def parse_args():
     global parser
     parser = argparse.ArgumentParser(
         formatter_class=argparse.RawTextHelpFormatter,
-        description="""Check format/header/tidy
+        description="""Check format/tidy
 
-    check.py {format,header,tidy} {commit,branch} [--fix]
-    check.py {format,header,tidy} {tree} [--fix] PATH
+    check.py {format,tidy} {commit,branch} [--fix]
+    check.py {format,tidy} {tree} [--fix] PATH
+
+License headers are checked by .github/workflows/util/check.py.
 """,
     )
     command = parser.add_subparsers(dest="command")
     command.add_parser("help")
 
     format_command_parser = add_check_command(command, "format")
-    header_command_parser = add_check_command(command, "header")
     tidy_command_parser = add_check_command(command, "tidy")
 
     parser.set_defaults(path="")
@@ -284,10 +272,6 @@ def run_command(args, command):
 
 def format(args):
     return run_command(args, format_command)
-
-
-def header(args):
-    return run_command(args, header_command)
 
 
 def tidy(args):

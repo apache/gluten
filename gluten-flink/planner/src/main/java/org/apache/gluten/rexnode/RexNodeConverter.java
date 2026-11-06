@@ -32,6 +32,7 @@ import io.github.zhztheplayer.velox4j.variant.DoubleValue;
 import io.github.zhztheplayer.velox4j.variant.HugeIntValue;
 import io.github.zhztheplayer.velox4j.variant.IntegerValue;
 import io.github.zhztheplayer.velox4j.variant.SmallIntValue;
+import io.github.zhztheplayer.velox4j.variant.TimestampValue;
 import io.github.zhztheplayer.velox4j.variant.TinyIntValue;
 import io.github.zhztheplayer.velox4j.variant.VarBinaryValue;
 import io.github.zhztheplayer.velox4j.variant.VarCharValue;
@@ -96,7 +97,43 @@ public class RexNodeConverter {
     return LogicalTypeConverter.toVLType(FlinkTypeFactory.toLogicalType(relDataType));
   }
 
+  private static Variant toNullVariant(SqlTypeName sqlTypeName) {
+    // A typed null needs no per-type carrier: the velox-side
+    // ConstantTypedExpr renders a null variant as a null constant of the
+    // EXPRESSION type (the variant kind is irrelevant on the null path).
+    // The velox serde accepts both an explicit "value": null (what velox4j
+    // emits today via @JsonInclude(ALWAYS)) and an absent "value" member as
+    // the typed null. VarCharValue is the natural null-accepting carrier.
+    switch (sqlTypeName) {
+      case BOOLEAN:
+      case TINYINT:
+      case SMALLINT:
+      case INTEGER:
+      case BIGINT:
+      case DOUBLE:
+      case FLOAT:
+      case VARCHAR:
+      case CHAR:
+      case BINARY:
+      case DECIMAL:
+      case DATE:
+      case INTERVAL_SECOND:
+      case SYMBOL:
+      case TIMESTAMP:
+        return new VarCharValue(null);
+      default:
+        throw new RuntimeException("Unsupported null rex node type: " + sqlTypeName);
+    }
+  }
+
   public static Variant toVariant(RexLiteral literal) {
+    if (literal.getValue() == null || literal.isNull()) {
+      // A typed null literal. velox4j serializes null carriers with an
+      // explicit "value": null (@JsonInclude(ALWAYS) on the Variant base
+      // class); the velox-side serde accepts both an explicit null and an
+      // absent "value" member as the typed null.
+      return toNullVariant(literal.getType().getSqlTypeName());
+    }
     switch (literal.getType().getSqlTypeName()) {
       case BOOLEAN:
         return new BooleanValue((boolean) literal.getValue());
@@ -130,6 +167,13 @@ public class RexNodeConverter {
         }
       case SYMBOL:
         return new VarCharValue(literal.getValue().toString());
+      case TIMESTAMP:
+        // RexLiteral#getValueAs does not support java.sql.Timestamp, so take the
+        // epoch millis directly. It keeps the wall time as UTC, which is the same
+        // base as TimestampData#getMillisecond used by the row serializer.
+        long epochMillis = literal.getValueAs(Long.class);
+        return TimestampValue.create(
+            Math.floorDiv(epochMillis, 1000L), Math.floorMod(epochMillis, 1000L) * 1_000_000L);
       default:
         throw new RuntimeException(
             "Unsupported rex node type: " + literal.getType().getSqlTypeName());

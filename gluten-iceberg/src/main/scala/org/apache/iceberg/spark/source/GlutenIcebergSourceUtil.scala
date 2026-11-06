@@ -20,6 +20,7 @@ import org.apache.gluten.IcebergDefaultValueUtil
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.execution.SparkDataSourceRDDPartition
+import org.apache.gluten.expression.ConverterUtils
 import org.apache.gluten.substrait.rel.{IcebergLocalFilesBuilder, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
@@ -28,6 +29,7 @@ import org.apache.spark.sql.catalyst.catalog.ExternalCatalogUtils
 import org.apache.spark.sql.connector.read.Scan
 import org.apache.spark.sql.types.StructType
 
+import org.apache.hadoop.fs.Path
 import org.apache.iceberg._
 import org.apache.iceberg.io.{FileIO, SupportsStorageCredentials}
 import org.apache.iceberg.spark.SparkSchemaUtil
@@ -35,7 +37,6 @@ import org.apache.iceberg.util.PropertyUtil
 
 import java.lang.{Long => JLong}
 import java.util.{ArrayList => JArrayList, HashMap => JHashMap, List => JList, Map => JMap}
-import java.util.Locale
 
 import scala.collection.JavaConverters._
 
@@ -176,7 +177,8 @@ object GlutenIcebergSourceUtil {
     val metadataColumns = new JHashMap[String, String]()
     metadataColumnNames.foreach {
       name =>
-        name.toLowerCase(Locale.ROOT) match {
+        val normalizedName = ConverterUtils.normalizeColName(name)
+        normalizedName match {
           case InputFileNameCol => metadataColumns.put(name, filePath)
           case InputFileBlockStartCol => metadataColumns.put(name, start.toString)
           case InputFileBlockLengthCol => metadataColumns.put(name, length.toString)
@@ -186,16 +188,70 @@ object GlutenIcebergSourceUtil {
     metadataColumns
   }
 
-  def getFileFormat(sparkScan: Scan): ReadFileFormat = {
+  /**
+   * Derives both the file format and, optionally, the root path(s) actually scanned from the
+   * planned Iceberg scan tasks in a single pass over `getScanTasks(sparkScan)`.
+   *
+   * Root paths are derived from the real per-file (and, when present, per-delete-file) paths rather
+   * than table metadata (Table.location() / write.data.path), since data files can live at a
+   * location the static metadata does not reflect (e.g. after write.data.path is changed without
+   * moving previously-written files). One representative path per distinct scheme prefix is kept,
+   * since callers only need this to validate that the native filesystem implementation supports
+   * every scheme in play, not to enumerate every file.
+   *
+   * NOTE: this deliberately reuses the same `getScanTasks(sparkScan)` (Iceberg's own
+   * SparkPartitioningAwareScan#tasks()) that `getReadPartitionSchema` already calls unconditionally
+   * from `doValidateInternal()`, not Spark's BatchScanExecShim#filteredPartitions (which
+   * additionally calls SupportsRuntimeV2Filtering#filter() and
+   * Scan#toBatch().planInputPartitions(), and was the root cause of the DPP regression from
+   * https://github.com/apache/gluten/issues/12712 when a prior revision of this fix read paths from
+   * BatchScanExecTransformerBase#finalPartitions).
+   */
+  def getFileFormatAndRootPaths(
+      sparkScan: Scan,
+      collectRootPaths: Boolean): (ReadFileFormat, Seq[String]) = {
+    var fileFormat: ReadFileFormat = ReadFileFormat.UnknownFormat
+    // Built with plain mutable local collections that are never returned or captured, then
+    // copied into an immutable Seq at the end: the result is cached in a `lazy val` on
+    // IcebergScanTransformer (a case class captured by Spark task closures), so it must not
+    // retain any reference to a non-serializable mutable collection.
+    val seenSchemes = scala.collection.mutable.HashSet.empty[String]
+    val rootPathsBuilder = Seq.newBuilder[String]
+
+    def recordPath(path: String): Unit = {
+      if (collectRootPaths) {
+        // Use Hadoop's Path to extract the scheme rather than java.net.URI (whose strict RFC
+        // 3986 parsing throws URISyntaxException on characters like spaces or '[' / ']' that
+        // Hadoop-style paths otherwise tolerate, e.g. from a partition value baked into the file
+        // name) or plain "://"-based string slicing (which mis-detects single-slash Hadoop paths
+        // like "file:/tmp/x.parquet" or "hdfs:/warehouse/x.parquet" as having no scheme at all,
+        // causing them to collide with each other and silently drop a real scheme).
+        val scheme = Option(new Path(path).toUri.getScheme).getOrElse("")
+        if (seenSchemes.add(scheme)) {
+          rootPathsBuilder += path
+        }
+      }
+    }
+
     asFileScanTask(getScanTasks(sparkScan)).foreach {
       task =>
-        task.file().format() match {
-          case FileFormat.PARQUET => return ReadFileFormat.ParquetReadFormat
-          case FileFormat.ORC => return ReadFileFormat.OrcReadFormat
-          case _ =>
+        if (fileFormat == ReadFileFormat.UnknownFormat) {
+          task.file().format() match {
+            case FileFormat.PARQUET => fileFormat = ReadFileFormat.ParquetReadFormat
+            case FileFormat.ORC => fileFormat = ReadFileFormat.OrcReadFormat
+            case _ =>
+          }
+        }
+        if (collectRootPaths) {
+          recordPath(task.file().path().toString)
+          task.deletes().asScala.foreach(deleteFile => recordPath(deleteFile.path().toString))
         }
     }
-    throw new GlutenNotSupportException("Iceberg Only support parquet and orc file format.")
+
+    if (fileFormat == ReadFileFormat.UnknownFormat) {
+      throw new GlutenNotSupportException("Iceberg Only support parquet and orc file format.")
+    }
+    (fileFormat, rootPathsBuilder.result())
   }
 
   def getReadPartitionSchema(sparkScan: Scan): StructType = {

@@ -19,14 +19,16 @@ package org.apache.gluten.execution
 import org.apache.gluten.backendsapi.arrow.ArrowBatchTypes.ArrowJavaBatchType
 import org.apache.gluten.extension.columnar.transition.Convention
 import org.apache.gluten.iterator.Iterators
-import org.apache.gluten.vectorized.ArrowWritableColumnVector
+import org.apache.gluten.vectorized.ArrowColumnVectors
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.expressions.SortOrder
 import org.apache.spark.sql.catalyst.plans.logical.{Range => LogicalRange}
 import org.apache.spark.sql.catalyst.plans.physical.{Partitioning, RangePartitioning, SinglePartition, UnknownPartitioning}
 import org.apache.spark.sql.execution.{ColumnarRangeBaseExec, SparkPlan}
-import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
+import org.apache.spark.sql.vectorized.ColumnarBatch
+
+import org.apache.arrow.vector.BigIntVector
 
 /**
  * ColumnarRangeExec is a concrete implementation of ColumnarRangeBaseExec that executes the Range
@@ -98,17 +100,17 @@ case class ColumnarRangeExec(range: LogicalRange) extends ColumnarRangeBaseExec 
                   batchSize
                 )
 
-                val vectors = ArrowWritableColumnVector.allocateColumns(numRows, schema)
-
+                val root = ArrowColumnVectors.allocateRoot(schema)
+                val vector = root.getVector(0).asInstanceOf[BigIntVector]
+                vector.allocateNew(numRows)
                 for (i <- 0 until numRows) {
                   val value = current + i * step
-                  vectors(0).putLong(i, getSafeMargin(value))
+                  vector.set(i, getSafeMargin(value))
                 }
-                vectors.foreach(_.setValueCount(numRows))
+                root.setRowCount(numRows)
                 current += numRows * step
 
-                val batch = new ColumnarBatch(vectors.asInstanceOf[Array[ColumnVector]], numRows)
-                batch
+                ArrowColumnVectors.toBatch(root)
               }
             }
             Iterators

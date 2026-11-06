@@ -18,6 +18,8 @@ package org.apache.gluten.spi
 
 import org.apache.gluten.jni.JniLibLoader
 
+import java.util.Locale
+
 class SharedLibraryLoaderCentos8 extends SharedLibraryLoader {
 
   override def accepts(osName: String, osVersion: String): Boolean = {
@@ -26,7 +28,7 @@ class SharedLibraryLoaderCentos8 extends SharedLibraryLoader {
     (osName.contains("Anolis") && osVersion.startsWith("8")) ||
     (osName.contains("Red Hat") && osVersion.startsWith("8")) ||
     (osName.contains("Alibaba Cloud Linux") && osVersion.startsWith("3")) ||
-    (osName.contains("tencentos") && osVersion.contains("3.2"))
+    (osName.toLowerCase(Locale.ROOT).contains("tencentos") && osVersion.contains("3.2"))
   }
 
   override def loadLib(loader: JniLibLoader): Unit = {

@@ -555,9 +555,10 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-35640: int as long should throw schema incompatible error")
     // TODO: fix in Spark-4.0
     .exclude("explode nested lists crossing a rowgroup boundary")
-    // TODO: fix on Spark-4.1
-    .excludeByPrefix("SPARK-53535") // see https://issues.apache.org/jira/browse/SPARK-53535
-    .excludeByPrefix("vectorized reader: missing all struct fields")
+    // These run the scan node alone with VerifyNoAdditionalScanOutputExec, which does not work
+    // for Gluten's scan node. Rewritten in GlutenParquetIOSuite.
+    .exclude(
+      "SPARK-53535: vectorized reader: missing all struct fields, struct with complex fields")
     .exclude("SPARK-54220: vectorized reader: missing all struct fields, struct with NullType only")
   enableSuite[GlutenParquetV1PartitionDiscoverySuite]
   enableSuite[GlutenParquetV2PartitionDiscoverySuite]
@@ -1121,6 +1122,8 @@ class VeloxTestSettings extends BackendTestSettings {
     // Rewrite from ORC scan to Parquet scan because ORC is not well supported.
     .exclude("SPARK-28156: self-join should not miss cached view")
     .exclude("SPARK-33338: GROUP BY using literal map should not fail")
+    // Spark checks its own plan node, which Gluten replaces with a native transformer.
+    .excludeByPrefix("SPARK-52060: one row relation with codegen enabled")
     // Rewrite to disable plan check for SMJ because SHJ is preferred in Gluten.
     .exclude("SPARK-11111 null-safe join should not use cartesian product")
     // Rewrite to change the information of a caught exception.

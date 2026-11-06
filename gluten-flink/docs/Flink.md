@@ -8,7 +8,7 @@ nav_order: 1
 
 | Type  | Version                      |
 |-------|------------------------------|
-| Flink | 1.19.2                       |
+| Flink | 1.19.3                       |
 | OS    | Ubuntu20.04/22.04, Centos7/8 |
 | jdk   | openjdk11/jdk17              |
 | scala | 2.12                         |
@@ -17,7 +17,7 @@ nav_order: 1
 
 Currently, with static build Gluten+Flink+Velox backend supports all the Linux OSes, but is only tested on **Ubuntu20.04**. With dynamic build, Gluten+Velox backend support **Ubuntu20.04/Ubuntu22.04/Centos7/Centos8** and their variants.
 
-Currently, the officially supported Flink version is 1.19.2.
+Currently, the officially supported Flink version is 1.19.3.
 
 We need to set up the `JAVA_HOME` env. Currently, Gluten supports **java 11** and **java 17**.
 
@@ -48,7 +48,7 @@ As some features have not been committed to upstream, you have to use the follow
 ## fetch velox4j code
 git clone -b gluten-20260829 https://github.com/bigo-sg/velox4j.git
 cd velox4j
-git reset --hard 26c7715278e6f6795084f6334998cb2ce382f7aa
+git reset --hard 2d08448f556bff669fe413874d04dd8cd96f65b2
 mvn clean install -DskipTests -Dgpg.skip -Dspotless.skip=true
 ```
 **Get gluten**
@@ -98,8 +98,8 @@ export FLINK_HOME=
 cd $FLINK_HOME
 mkdir -p gluten_lib
 ln -s $VELOX4J_HOME/target/velox4j-0.1.0-SNAPSHOT.jar $FLINK_HOME/gluten_lib/velox4j-0.1.0-SNAPSHOT.jar
-ln -s $GLUTEN_FLINK_HOME/runtime/target/gluten-flink-runtime-1.8.0-SNAPSHOT.jar $FLINK_HOME/gluten_lib/gluten-flink-runtime-1.8.0-SNAPSHOT.jar
-ln -s $GLUTEN_FLINK_HOME/loader/target/gluten-flink-loader-1.8.0-SNAPSHOT.jar $FLINK_HOME/gluten_lib/gluten-flink-loader-1.8.0-SNAPSHOT.jar
+ln -s $GLUTEN_FLINK_HOME/runtime/target/gluten-flink-runtime-1.9.0-SNAPSHOT.jar $FLINK_HOME/gluten_lib/gluten-flink-runtime-1.9.0-SNAPSHOT.jar
+ln -s $GLUTEN_FLINK_HOME/loader/target/gluten-flink-loader-1.9.0-SNAPSHOT.jar $FLINK_HOME/gluten_lib/gluten-flink-loader-1.9.0-SNAPSHOT.jar
 ```
 
 And make them loaded before flink libraries.
@@ -110,7 +110,7 @@ Gluten classes need to be loaded first in Flink,
 you can modify the constructFlinkClassPath function in `$FLINK_HOME/bin/config.sh` like this: 
 
 ```
-GLUTEN_JAR="$FLINK_HOME/gluten_lib/gluten-flink-loader-1.8.0-SNAPSHOT.jar:$FLINK_HOME/gluten_lib/velox4j-0.1.0-SNAPSHOT.jar:$FLINK_HOME/gluten_lib/gluten-flink-runtime-1.8.0-SNAPSHOT.jar:"
+GLUTEN_JAR="$FLINK_HOME/gluten_lib/gluten-flink-loader-1.9.0-SNAPSHOT.jar:$FLINK_HOME/gluten_lib/velox4j-0.1.0-SNAPSHOT.jar:$FLINK_HOME/gluten_lib/gluten-flink-runtime-1.9.0-SNAPSHOT.jar:"
 echo "$GLUTEN_JAR""$FLINK_CLASSPATH""$FLINK_DIST"
 ```
 
@@ -156,7 +156,7 @@ make rocksdbjava -i
     ```
 - modify `${FLINK_HOME}/bin/config.sh` as follows
     ```
-    GLUTEN_JAR="$FLINK_HOME/gluten_lib/gluten-flink-loader-1.8.0-SNAPSHOT.jar:$FLINK_HOME/gluten_lib/velox4j-0.1.0-SNAPSHOT.jar:$FLINK_HOME/gluten_lib/gluten-flink-runtime-1.8.0-SNAPSHOT.jar:$FLINK_HOME/gluten_lib/rocksdbjni-6.20.3-linux64.jar"
+    GLUTEN_JAR="$FLINK_HOME/gluten_lib/gluten-flink-loader-1.9.0-SNAPSHOT.jar:$FLINK_HOME/gluten_lib/velox4j-0.1.0-SNAPSHOT.jar:$FLINK_HOME/gluten_lib/gluten-flink-runtime-1.9.0-SNAPSHOT.jar:$FLINK_HOME/gluten_lib/rocksdbjni-6.20.3-linux64.jar"
     echo "$GLUTEN_JAR""$FLINK_CLASSPATH""$FLINK_DIST"
     ```
 - set rocksdb config in `${FLINK_HOME}/conf/config.yaml`

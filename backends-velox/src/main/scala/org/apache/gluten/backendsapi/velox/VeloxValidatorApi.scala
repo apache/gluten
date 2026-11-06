@@ -124,7 +124,7 @@ object VeloxValidatorApi {
     }
     schema match {
       case map: MapType =>
-        validateSchema(map.keyType).orElse(validateSchema(map.valueType))
+        validateNested(map.keyType).orElse(validateNested(map.valueType))
       case struct: StructType =>
         // Detect variant shredded struct produced by Spark's PushVariantIntoScan.
         // These structs have all fields annotated with __VARIANT_METADATA_KEY metadata.
@@ -137,16 +137,28 @@ object VeloxValidatorApi {
         }
         struct.foreach {
           field =>
-            val reason = validateSchema(field.dataType)
+            val reason = validateNested(field.dataType)
             if (reason.isDefined) {
               return reason
             }
         }
         None
       case array: ArrayType =>
-        validateSchema(array.elementType)
+        validateNested(array.elementType)
       case _ =>
         Some(s"Schema / data type not supported: $schema")
     }
+  }
+
+  /**
+   * A struct value (column, field, element, key or value) with no fields, or whose fields are all
+   * VOID, has no real children, as Velox has no VOID type. Velox reads such a struct as NULL, and a
+   * constant of this type divides by zero (e.g. the struct() Delta writes when it drops VOID
+   * fields). A plan's row schema may still have no columns, or VOID columns only.
+   */
+  private def validateNested(dataType: DataType): Option[String] = dataType match {
+    case struct: StructType if struct.forall(_.dataType == NullType) =>
+      Some(s"Struct with no fields, or whose fields are all VOID, is not supported: $struct")
+    case _ => validateSchema(dataType)
   }
 }

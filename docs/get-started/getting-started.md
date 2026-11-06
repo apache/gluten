@@ -15,14 +15,14 @@ Gluten supports two native backends:
 
 | Backend | Description | Guide |
 |---------|-------------|-------|
-| **Velox** | Meta's C++ execution library| [Velox Backend](Velox.md) |
-| **ClickHouse** | Column-oriented DBMS ported as a native library| [ClickHouse Backend](ClickHouse.md) |
+| **Velox** | Meta's C++ execution library| [Velox Backend](../backends/velox/get-started/Velox.md) |
+| **ClickHouse** | Column-oriented DBMS ported as a native library| [ClickHouse Backend](../backends/clickhouse/get-started/ClickHouse.md) |
 
 ## Quick Start (Velox Backend)
 
 ### 1. Prerequisites
 
-- **OS**: Ubuntu 20.04/22.04 or CentOS 7/8 (other Linux distros may work with static build but are not officially tested)
+- **OS**: Ubuntu 20.04/22.04 or CentOS 8 (other Linux distros may work with static build but are not officially tested)
 - **JDK**: OpenJDK 8 or 17 (Spark 4.x requires JDK 17+)
 - **Spark**: 3.4.4, 3.5.5, 4.0.2, or 4.1.1
 - **Scala**: 2.12 (Spark 4.x requires Scala 2.13)
@@ -69,9 +69,9 @@ spark-shell \
   --jars /path/to/gluten-velox-bundle-*.jar
 ```
 
-With dynamic sizing, `spark.memory.offHeap.enabled` and `spark.memory.offHeap.size` are not needed - Velox uses the on-heap size as its memory budget. See [Dynamic Off-Heap Sizing](../developers/VeloxDynamicSizingOffheap.md) for details.
+With dynamic sizing, `spark.memory.offHeap.enabled` and `spark.memory.offHeap.size` are not needed - Velox uses the on-heap size as its memory budget. See [Dynamic Off-Heap Sizing](../backends/velox/developers/VeloxDynamicSizingOffheap.md) for details.
 
-See the [Velox Backend](Velox.md) guide for a complete example with executor and driver settings.
+See the [Velox Backend](../backends/velox/get-started/Velox.md) guide for a complete example with executor and driver settings.
 
 ### 4. Verify
 
@@ -80,7 +80,7 @@ Run a simple query and check the Spark UI for nodes containing `Transformer` or 
 ## Next Steps
 
 - [Configuration](../Configuration.md) — Tune Gluten settings
-- [Velox Configuration](../velox-configuration.md) — Velox-specific knobs
+- [Velox Configuration](../backends/velox/velox-configuration.md) — Velox-specific knobs
 - [Gluten UI](GlutenUI.md) — Monitor native execution in Spark UI
-- [Troubleshooting](../velox-backend-troubleshooting.md) — Common issues and solutions
+- [Troubleshooting](../backends/velox/velox-backend-troubleshooting.md) — Common issues and solutions
 

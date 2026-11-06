@@ -31,6 +31,7 @@ static const char* kInteger = "int";
 static const char* kBigInt = "bigint";
 static const char* kDate = "date";
 static const char* kVarChar = "varchar";
+static const char* kStructAB = "struct<a:bigint,b:bigint>";
 
 namespace hivestringstring {
 
@@ -108,6 +109,91 @@ class MyUdfPlusOneRegisterer final : public gluten::UdfRegisterer {
 
 } // namespace myudfplusone
 
+namespace myudfsumrow {
+
+template <typename T>
+struct MyUdfSumRowFunction {
+  VELOX_DEFINE_FUNCTION_TYPES(T);
+
+  FOLLY_ALWAYS_INLINE bool callNullable(int64_t& result, const arg_type<Row<int64_t, int64_t>>* row) {
+    if (row == nullptr) {
+      return false;
+    }
+    const auto a = row->template at<0>();
+    const auto b = row->template at<1>();
+    if (!a.has_value() || !b.has_value()) {
+      return false;
+    }
+    result = a.value() + b.value();
+    return true;
+  }
+};
+
+// name: myudf_sum_row
+// signatures:
+//    struct<a:bigint,b:bigint> -> bigint
+// type: SimpleFunction
+class MyUdfSumRowRegisterer final : public gluten::UdfRegisterer {
+ public:
+  int getNumUdf() override {
+    return 1;
+  }
+
+  void populateUdfEntries(int& index, gluten::UdfEntry* udfEntries) override {
+    udfEntries[index++] = {name_.c_str(), kBigInt, 1, arg_, false, false};
+  }
+
+  void registerSignatures() override {
+    facebook::velox::registerFunction<MyUdfSumRowFunction, int64_t, Row<int64_t, int64_t>>({name_});
+  }
+
+ private:
+  const std::string name_ = "myudf_sum_row";
+  const char* arg_[1] = {kStructAB};
+};
+
+} // namespace myudfsumrow
+
+namespace myudfmakerow {
+
+template <typename T>
+struct MyUdfMakeRowFunction {
+  VELOX_DEFINE_FUNCTION_TYPES(T);
+
+  FOLLY_ALWAYS_INLINE bool callNullable(out_type<Row<int64_t, int64_t>>& result, const int64_t* a) {
+    if (a == nullptr) {
+      return false;
+    }
+    result = std::make_tuple(*a, *a + 1);
+    return true;
+  }
+};
+
+// name: myudf_make_row
+// signatures:
+//    bigint -> struct<a:bigint,b:bigint>
+// type: SimpleFunction
+class MyUdfMakeRowRegisterer final : public gluten::UdfRegisterer {
+ public:
+  int getNumUdf() override {
+    return 1;
+  }
+
+  void populateUdfEntries(int& index, gluten::UdfEntry* udfEntries) override {
+    udfEntries[index++] = {name_.c_str(), kStructAB, 1, arg_, false, false};
+  }
+
+  void registerSignatures() override {
+    facebook::velox::registerFunction<MyUdfMakeRowFunction, Row<int64_t, int64_t>, int64_t>({name_});
+  }
+
+ private:
+  const std::string name_ = "myudf_make_row";
+  const char* arg_[1] = {kBigInt};
+};
+
+} // namespace myudfmakerow
+
 std::vector<std::shared_ptr<gluten::UdfRegisterer>>& globalRegisters() {
   static std::vector<std::shared_ptr<gluten::UdfRegisterer>> registerers;
   return registerers;
@@ -121,6 +207,8 @@ void setupRegisterers() {
   auto& registerers = globalRegisters();
   registerers.push_back(std::make_shared<hivestringstring::HiveStringStringRegisterer>());
   registerers.push_back(std::make_shared<myudfplusone::MyUdfPlusOneRegisterer>());
+  registerers.push_back(std::make_shared<myudfsumrow::MyUdfSumRowRegisterer>());
+  registerers.push_back(std::make_shared<myudfmakerow::MyUdfMakeRowRegisterer>());
   inited = true;
 }
 } // namespace

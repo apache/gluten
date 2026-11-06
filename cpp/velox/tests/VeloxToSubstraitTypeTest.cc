@@ -71,4 +71,28 @@ TEST_F(VeloxToSubstraitTypeTest, timestampUtc) {
   ASSERT_TRUE(SubstraitParser::parseType(substraitType)->equivalent(*TIMESTAMP_UTC()));
 }
 
+TEST_F(VeloxToSubstraitTypeTest, rowFieldNames) {
+  // given
+  google::protobuf::Arena arena;
+  const auto expected = ROW({"a", "b"}, {BIGINT(), ROW({"x", "y"}, {BOOLEAN(), VARCHAR()})});
+
+  // when
+  const auto actual = SubstraitParser::parseType(typeConvertor_->toSubstraitType(arena, expected));
+
+  // then
+  ASSERT_TRUE(*actual == *expected) << "Expected: " << expected->toString() << ", but got: " << actual->toString();
+}
+
+TEST_F(VeloxToSubstraitTypeTest, rowFieldNamesInContainers) {
+  // given
+  google::protobuf::Arena arena;
+  const auto expected = ROW({"arr", "m"}, {ARRAY(ROW({"elem"}, {VARCHAR()})), MAP(VARCHAR(), ROW({"v"}, {DOUBLE()}))});
+
+  // when
+  const auto actual = SubstraitParser::parseType(typeConvertor_->toSubstraitType(arena, expected));
+
+  // then
+  ASSERT_TRUE(*actual == *expected) << "Expected: " << expected->toString() << ", but got: " << actual->toString();
+}
+
 } // namespace gluten

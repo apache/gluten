@@ -20,4 +20,9 @@ object DeltaInsertIntoTableSuiteShims {
   val INSERT_INTO_TMP_VIEW_ERROR_MSG = "Inserting into a view is not allowed"
 
   val INVALID_COLUMN_DEFAULT_VALUE_ERROR_MSG = "INVALID_DEFAULT_VALUE.UNRESOLVED_EXPRESSION"
+
+  val METADATA_MISMATCH_ERROR_CLASS = "_LEGACY_ERROR_TEMP_DELTA_0007"
+
+  val METADATA_MISMATCH_ERROR_PARAMETERS: Map[String, String] =
+    Map("message" -> "A schema mismatch detected when writing to the Delta table(.|\\n)*")
 }
