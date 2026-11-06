@@ -95,7 +95,7 @@ WholeStageResultIterator::WholeStageResultIterator(
     folly::Executor* executor,
     folly::Executor* spillExecutor,
     VeloxConnectorIds connectorIds,
-    const std::string spillDir,
+    const std::string& spillDir,
     const std::shared_ptr<facebook::velox::config::ConfigBase>& veloxCfg,
     const SparkTaskInfo& taskInfo)
     : memoryManager_(memoryManager),
@@ -375,7 +375,7 @@ void WholeStageResultIterator::getOrderedNodeIds(
       if (projectedChild != nullptr) {
         const auto projectSources = projectedChild->sources();
         GLUTEN_CHECK(projectSources.size() == 1, "Illegal state");
-        const auto projectSource = projectSources.at(0);
+        const auto& projectSource = projectSources.at(0);
         getOrderedNodeIds(projectSource, nodeIds);
       } else {
         getOrderedNodeIds(source, nodeIds);
@@ -565,15 +565,17 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
       // Partial aggregation memory configurations.
       // TODO: Move the calculations to Java side.
       auto offHeapMemory = veloxCfg_->get<int64_t>(kSparkTaskOffHeapMemory, facebook::velox::memory::kMaxMemory);
+      const auto partialAggregationMemory = veloxCfg_->get<int64_t>(kMaxPartialAggregationMemory);
       auto maxPartialAggregationMemory = std::max<int64_t>(
           1 << 24,
-          veloxCfg_->get<int64_t>(kMaxPartialAggregationMemory).has_value()
-              ? veloxCfg_->get<int64_t>(kMaxPartialAggregationMemory).value()
+          partialAggregationMemory.has_value()
+              ? *partialAggregationMemory
               : static_cast<int64_t>(veloxCfg_->get<double>(kMaxPartialAggregationMemoryRatio, 0.1) * offHeapMemory));
+      const auto extendedPartialAggregationMemory = veloxCfg_->get<int64_t>(kMaxExtendedPartialAggregationMemory);
       auto maxExtendedPartialAggregationMemory = std::max<int64_t>(
           1 << 26,
-          veloxCfg_->get<int64_t>(kMaxExtendedPartialAggregationMemory).has_value()
-              ? veloxCfg_->get<int64_t>(kMaxExtendedPartialAggregationMemory).value()
+          extendedPartialAggregationMemory.has_value()
+              ? *extendedPartialAggregationMemory
               : static_cast<int64_t>(
                     veloxCfg_->get<double>(kMaxExtendedPartialAggregationMemoryRatio, 0.15) * offHeapMemory));
       configs[velox::core::QueryConfig::kMaxPartialAggregationMemory] = std::to_string(maxPartialAggregationMemory);
