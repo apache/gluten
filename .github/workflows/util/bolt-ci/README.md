@@ -42,9 +42,10 @@ reviewed SHA. A standalone manual dispatch of the build workflow builds its
 selected branch. PR checks are associated with listener requests.
 
 Use `/bolt ci` for PR retries. A retry registered through the listener resets
-the check before dispatching a fresh run. An Actions UI rerun is blocked by the
-worker's request validation; its lifecycle event resets the recorded gate and
-reports that a fresh listener request is required.
+the check before dispatching a fresh run. Actions UI retries do not register a
+new authorized PR request and are not a supported way to refresh this gate.
+The gate describes the latest listener request; lifecycle handlers reject
+unregistered attempts when GitHub delivers their events.
 
 ## Gate policy
 
@@ -58,6 +59,10 @@ The GitHub-hosted watcher samples native job eligibility every minute. Approval
 and workflow-concurrency waits do not count. An API error or sampling gap over
 ninety seconds restarts the interval. Runner assignment permanently ends queue
 waiver monitoring for the request.
+
+Thirty minutes is the minimum observed eligible queue interval, not a hard
+wall-clock deadline: GitHub-hosted controller scheduling and API availability
+can delay observation or cancellation. Unverifiable cases remain blocking.
 
 After at least thirty continuous minutes and thirty-one samples, the monitor
 rechecks the job under the same per-PR lock as the listener and commenter,
