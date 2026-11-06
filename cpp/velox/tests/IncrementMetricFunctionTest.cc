@@ -138,7 +138,7 @@ TEST_F(IncrementMetricFunctionTest, rejectsCountersOutsideProjections) {
   ASSERT_FALSE(usesIncrementMetricFunctions(*inFilter));
   VELOX_ASSERT_THROW(
       checkIncrementMetricFunctionsInProjects(functionMap, *inFilter),
-      "Delta counter increment_metric_5 is called outside a projection");
+      "Delta counter increment_metric_5 is declared but no projection calls it");
 
   // Plans without counters are not inspected.
   checkIncrementMetricFunctionsInProjects({{1, "greaterthan:i32_i32"}}, *inFilter);
