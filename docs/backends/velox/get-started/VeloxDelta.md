@@ -214,9 +214,8 @@ The node also shows when Velox writes no data files. This happens for a DELETE t
 
 The Status column assumes Spark 3.5 or 4.x with native write on and ANSI mode off. On Spark 4.x, an Offload write still falls back in the cases in [Native write on Spark 4.x](#native-write-on-spark-4x). Otherwise every row is at best PartialOffload. In PartialOffload rows, Delta writes the files and the query that feeds the write can run in Velox.
 
-Gluten's CI checks that a partitioned `save(path)` on 3.5 to 4.1 and OPTIMIZE on 3.5 run as Gluten native write commands. It also checks on 3.5 and 4.0 that a DELETE that rewrites a file runs in Gluten's transaction and that its scan runs in Velox. On 3.5 and 4.0, the copied Delta Lake suites also run UPDATE, DELETE, `save(path)` and `CREATE TABLE ... AS SELECT` with native write on. They check results only. On 4.1, the nightly job shows every Offload row except DELETE going through Velox's writer. The other Offload cases are from code.
+Gluten's CI checks that partitioned `save(path)` and `OPTIMIZE` run as Gluten native write commands on Spark 3.5, 4.0, 4.1 and 4.2. The Spark 4.x jobs explicitly select `DeltaNativeWriteSuite`. CI also checks on 3.5 and 4.0 that a DELETE that rewrites a file runs in Gluten's transaction and that its scan runs in Velox. On 3.5 and 4.0, the copied Delta Lake suites also run UPDATE, DELETE, `save(path)` and `CREATE TABLE ... AS SELECT` with native write on. They check results only. On 4.1, the nightly job shows every Offload row except DELETE going through Velox's writer. The other Offload cases are from code.
 
-The standard Spark 4.0, 4.1 and 4.2 CI jobs also select `DeltaNativeWriteSuite`.
 `VeloxDelta4WriteSuite` checks the physical files produced by materialized UPDATE, DELETE,
 CDF DML and OPTIMIZE, including writer identity and stored partition values rather than only
 the command plan or values reconstructed from the Delta log.
