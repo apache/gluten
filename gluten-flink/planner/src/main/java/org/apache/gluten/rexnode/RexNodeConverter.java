@@ -171,6 +171,7 @@ public class RexNodeConverter {
       case DATE:
       case INTERVAL_SECOND:
       case SYMBOL:
+      case TIME:
       case TIMESTAMP:
       case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
         return new VarCharValue(null);

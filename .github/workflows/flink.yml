@@ -73,6 +73,8 @@ jobs:
         run: |
           source /opt/rh/gcc-toolset-12/enable
           sudo dnf install -y patchelf ccache
+          curl -sL https://github.com/NixOS/patchelf/releases/download/0.17.2/patchelf-0.17.2-x86_64.tar.gz | sudo tar xz -C /usr/local
+          patchelf --version
           export CCACHE_DIR=${CCACHE_DIR}
           export CCACHE_MAXSIZE=2G
           mkdir -p ${CCACHE_DIR}
