@@ -1215,12 +1215,20 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("NOT NULL checks for nested struct fields (byPosition)")
     .exclude("NOT NULL checks for nested structs, arrays, maps (byName)")
     .exclude("NOT NULL checks for nested structs, arrays, maps (byPosition)")
+    // Overridden.
+    .exclude("NOT NULL checks for nullable array with required element (byName)")
+    // Overridden.
     .exclude("NOT NULL checks for nullable array with required element (byPosition)")
+    // Overridden.
+    .exclude("NOT NULL checks for fields inside nullable array (byName)")
+    // Overridden.
     .exclude("not null checks for fields inside nullable array (byPosition)")
     // Overridden.
     .exclude("NOT NULL checks for nullable map with required values (byName)")
     // Overridden.
     .exclude("NOT NULL checks for nullable map with required values (byPosition)")
+    // Overridden.
+    .exclude("NOT NULL checks for fields inside nullable maps (byName)")
     // Overridden.
     .exclude("NOT NULL checks for fields inside nullable maps (byPosition)")
   enableSuite[GlutenTableOptionsConstantFoldingSuite]
