@@ -83,6 +83,13 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       left: ExpressionTransformer,
       right: ExpressionTransformer,
       original: Expression): ExpressionTransformer = {
+    original match {
+      case g: GetArrayItem if g.failOnError =>
+        // Velox's get returns NULL for an invalid index; there is no form that throws yet.
+        throw new GlutenNotSupportException(
+          s"$substraitExprName with failOnError is not supported")
+      case _ =>
+    }
     GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
   }
 
