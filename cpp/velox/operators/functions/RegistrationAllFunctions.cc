@@ -37,13 +37,6 @@
 
 using namespace facebook;
 
-namespace facebook::velox::functions {
-void registerPrestoVectorFunctions() {
-  // Presto function. To be removed.
-  VELOX_REGISTER_VECTOR_FUNCTION(udf_arrays_overlap, "arrays_overlap");
-}
-} // namespace facebook::velox::functions
-
 namespace gluten {
 namespace {
 
@@ -66,8 +59,6 @@ void registerFunctionOverwrite() {
   velox::exec::registerFunctionCallToSpecialForm(
       kRowConstructorWithAllNull,
       std::make_unique<RowConstructorWithNullCallToSpecialForm>(kRowConstructorWithAllNull));
-
-  velox::functions::registerPrestoVectorFunctions();
 }
 
 } // namespace
