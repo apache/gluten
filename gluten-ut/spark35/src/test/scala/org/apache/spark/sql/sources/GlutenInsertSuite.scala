@@ -17,15 +17,14 @@
 package org.apache.spark.sql.sources
 
 import org.apache.gluten.GlutenColumnarWriteTestSupport
-import org.apache.gluten.execution.GlutenPlan
-import org.apache.gluten.execution.SortExecTransformer
+import org.apache.gluten.execution.{GlutenPlan, ProjectExecTransformer, SortExecTransformer}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.executor.OutputMetrics
 import org.apache.spark.scheduler.{SparkListener, SparkListenerTaskEnd}
 import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.TableIdentifier
-import org.apache.spark.sql.execution.{CommandResultExec, GlutenImplicits, QueryExecution, SparkPlan}
+import org.apache.spark.sql.execution.{ColumnarWriteFilesExec, CommandResultExec, GlutenImplicits, QueryExecution, SparkPlan}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.execution.command.DataWritingCommandExec
 import org.apache.spark.sql.execution.metric.SQLMetric
@@ -158,6 +157,35 @@ class GlutenInsertSuite
 
     val parts = spark.sessionState.catalog.listPartitionNames(TableIdentifier("pt")).toSet
     assert(parts == expectedPartitionNames)
+  }
+
+  testGluten("offload empty2null when v1writes fallback") {
+    withSQLConf((SQLConf.MAX_RECORDS_PER_FILE.key, "1000")) {
+      withTable("pt") {
+        spark.sql("CREATE TABLE pt (c1 int) USING PARQUET PARTITIONED BY(p string)")
+
+        val df = spark.sql(s"""
+                              |INSERT OVERWRITE TABLE pt PARTITION(p)
+                              |SELECT c1, c2 as p FROM source
+                              |""".stripMargin)
+
+        val writeFiles = stripAQEPlan(
+          df.queryExecution.executedPlan
+            .asInstanceOf[CommandResultExec]
+            .commandPhysicalPlan).children.head
+        assert(!writeFiles.isInstanceOf[ColumnarWriteFilesExec])
+        val projectExecTransformer = writeFiles.collectFirst {
+          case p: ProjectExecTransformer => p
+        }
+        assert(projectExecTransformer.isDefined)
+        assert(projectExecTransformer.get.projectList.exists(_.toString().contains("empty2null")))
+
+        // The partition column should never be empty
+        checkAnswer(
+          spark.sql("SELECT * FROM pt"),
+          spark.sql("SELECT c1, if(c2 = '', null, c2) FROM source"))
+      }
+    }
   }
 
   testGluten("remove v1writes sort and project") {
