@@ -104,7 +104,6 @@ apply to every suite:
 
 | Setting | Default |
 |---|---|
-| `spark.default.parallelism` | `1` |
 | `spark.sql.shuffle.partitions` | `5` |
 | `spark.unsafe.exceptionOnMemoryLeak` | `true` |
 | `spark.sql.ansi.enabled` | `false` |
@@ -112,6 +111,12 @@ apply to every suite:
 | `spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite` | `true` |
 | `spark.databricks.delta.snapshotPartitions` | `2` |
 | `spark.gluten.sql.fallbackUnexpectedMetadataParquet` | `true` |
+
+The shared defaults leave `spark.default.parallelism` unset, preserving each
+Delta test context's upstream Spark default (normally two in `TestSparkSession`).
+Forcing one changes small `LocalTableScan` fixtures from two one-row files to
+one two-row file. That changes Delta DML candidate-file skipping for swapped
+temp-view projections and can change UPDATE/DELETE results even without Gluten.
 
 Suites can still override these defaults through their Spark configuration.
 In particular, ANSI-specific tests can enable ANSI explicitly.
