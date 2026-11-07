@@ -42,7 +42,8 @@ reviewed SHA. A standalone manual dispatch of the build workflow builds its
 selected branch. PR checks are associated with listener requests.
 
 Use `/bolt ci` for PR retries. A retry registered through the listener resets
-the check before dispatching a fresh run. Actions UI retries do not register a
+the gate by creating a fresh check before dispatching a run. Previous checks
+for the same commit are renamed as superseded while retaining their history. Actions UI retries do not register a
 new authorized PR request and are not a supported way to refresh this gate.
 The gate describes the latest listener request; lifecycle handlers reject
 unregistered attempts when GitHub delivers their events.

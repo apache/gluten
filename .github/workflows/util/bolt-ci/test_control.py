@@ -35,6 +35,7 @@ class API:
             details_url="https://github.com/owner/gluten/runs/300",
             output={},
         )
+        self.checks = {300: self.check}
         self.pr = dict(
             number=2,
             state="open",
@@ -53,8 +54,8 @@ class API:
     def get(self, path):
         if path.endswith("/pulls/2"):
             return copy.deepcopy(self.pr)
-        if path.endswith("/check-runs/300"):
-            return copy.deepcopy(self.check)
+        if "/check-runs/" in path:
+            return copy.deepcopy(self.checks[int(path.rsplit("/", 1)[1])])
         if path.endswith("/actions/runs/200"):
             return copy.deepcopy(self.run)
         if path.endswith("/permission"):
@@ -65,7 +66,7 @@ class API:
 
     def list(self, path, field=None):
         if "check-runs?" in path:
-            return [copy.deepcopy(self.check)]
+            return [copy.deepcopy(c) for c in self.checks.values() if c["name"] == GATE]
         if path.endswith("/jobs"):
             return copy.deepcopy(self.jobs)
         if path.endswith("/files"):
@@ -80,11 +81,14 @@ class API:
         ):
             raise GitHubError("PATCH", 422)
         self.writes.append((path, data))
-        if path.endswith("/check-runs/300"):
-            self.check.update(copy.deepcopy(data))
-            if data.get("status") == "in_progress":
-                self.check.update(conclusion=None, completed_at=None)
-            return copy.deepcopy(self.check)
+        if "/check-runs/" in path:
+            check = self.checks[int(path.rsplit("/", 1)[1])]
+            data = copy.deepcopy(data)
+            # A completed check retains its terminal state when patched in progress.
+            if check["status"] == "completed" and data.get("status") == "in_progress":
+                data.pop("status")
+            check.update(data)
+            return copy.deepcopy(check)
         if "/issues/comments/" in path:
             self.comments[0].update(data)
             return self.comments[0]
@@ -107,9 +111,20 @@ class API:
             ]
             return self.comments[0]
         if path.endswith("/dispatches"):
+            if "check_id" in data["inputs"]:
+                self.run["display_title"] = (
+                    f'Bolt CI PR 2 check {data["inputs"]["check_id"]}'
+                )
             return {"workflow_run_id": 200}
         if path.endswith("/check-runs"):
-            self.check.update(copy.deepcopy(data))
+            self.check = dict(
+                id=max(self.checks) + 1,
+                app={"slug": "github-actions"},
+                conclusion=None,
+                completed_at=None,
+                **copy.deepcopy(data),
+            )
+            self.checks[self.check["id"]] = self.check
             return copy.deepcopy(self.check)
         raise AssertionError(path)
 
@@ -228,13 +243,13 @@ class ControlTest(unittest.TestCase):
             controller(api).report(200)
             self.assertEqual(api.writes, [])
 
-    def test_ui_rerun_clears_old_success_and_reports_invalid_attempt(self):
+    def test_ui_rerun_immediately_reports_invalid_attempt(self):
         api = API()
         api.check.update(status="completed", conclusion="success")
         api.run.update(status="in_progress", conclusion=None, run_attempt=2)
         controller(api).report(200)
-        self.assertEqual(api.check["status"], "in_progress")
-        self.assertIsNone(api.check["conclusion"])
+        self.assertEqual(api.check["status"], "completed")
+        self.assertEqual(api.check["conclusion"], "failure")
         api.run.update(status="completed", conclusion="failure")
         controller(api).report(200)
         self.assertEqual(api.check["conclusion"], "failure")
@@ -260,7 +275,7 @@ class ControlTest(unittest.TestCase):
         self.assertFalse(any(path.endswith("/dispatches") for path, _ in api.writes))
         self.assertIn("/bolt ci " + SHA, api.comments[0]["body"])
 
-    def test_writer_authorizes_exact_sha_and_resets_previous_success(self):
+    def test_writer_authorizes_exact_sha_with_a_fresh_check(self):
         api = API()
         api.permission = "write"
         api.check.update(status="completed", conclusion="success")
@@ -271,6 +286,9 @@ class ControlTest(unittest.TestCase):
         }
         result = controller(api).listen(event, "issue_comment")
         self.assertEqual(result["run_id"], 200)
+        self.assertEqual(api.check["id"], 301)
+        self.assertEqual(api.checks[300]["name"], GATE + " (superseded)")
+        self.assertEqual(api.checks[300]["conclusion"], "success")
         self.assertEqual(api.check["status"], "in_progress")
         self.assertIsNone(api.check["conclusion"])
         dispatch = next(
@@ -278,6 +296,40 @@ class ControlTest(unittest.TestCase):
         )
         self.assertEqual(dispatch["ref"], "main")
         self.assertEqual(dispatch["inputs"]["head_sha"], SHA)
+
+    def test_retry_recovers_partial_archival_without_accepting_old_results(self):
+        api = API()
+        api.permission = "write"
+        api.check.update(status="completed", conclusion="failure")
+        event = {
+            "inputs": {"pr": "2", "head_sha": ""},
+            "sender": {"login": "maintainer"},
+        }
+        patch = api.patch
+
+        def unavailable(path, data):
+            if "name" in data:
+                raise GitHubError("PATCH", 503)
+            return patch(path, data)
+
+        api.patch = unavailable
+        with self.assertRaises(GitHubError):
+            controller(api).listen(event, "workflow_dispatch")
+        self.assertEqual(api.check["id"], 301)
+        self.assertEqual(api.check["status"], "in_progress")
+        self.assertFalse(any(path.endswith("/dispatches") for path, _ in api.writes))
+        api.patch = patch
+        result = controller(api).listen(event, "workflow_dispatch")
+        self.assertEqual(result["check_id"], 302)
+        self.assertEqual(api.checks[300]["name"], GATE + " (superseded)")
+        self.assertEqual(api.checks[301]["name"], GATE + " (superseded)")
+        self.assertEqual(api.checks[300]["conclusion"], "failure")
+        # An old run still points at the old check and cannot overwrite the retry.
+        api.run["display_title"] = "Bolt CI PR 2 check 300"
+        writes = len(api.writes)
+        controller(api).report(200)
+        self.assertEqual(len(api.writes), writes)
+        self.assertEqual(api.check["status"], "in_progress")
 
     def test_old_authorization_does_not_authorize_new_fork_sha(self):
         api = API()

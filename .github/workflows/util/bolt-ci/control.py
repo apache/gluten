@@ -120,7 +120,7 @@ class Controller:
         self.sleep = sleep
         self.allow_queue_exemption = allow_queue_exemption
 
-    def latest_check(self, pr):
+    def matching_checks(self, pr):
         query = urlencode({"check_name": GATE, "filter": "all"})
         checks = self.api.list(
             f"{self.base}/commits/{pr['head']['sha']}/check-runs?{query}", "check_runs"
@@ -135,7 +135,12 @@ class Controller:
                 and identity["sha"] == pr["head"]["sha"]
             ):
                 matches.append(check)
-        return max(matches, key=lambda check: check["id"], default=None)
+        return matches
+
+    def latest_check(self, pr):
+        return max(
+            self.matching_checks(pr), key=lambda check: check["id"], default=None
+        )
 
     def comment(self, pr, body):
         body = MARKER + "\n" + body
@@ -155,7 +160,7 @@ class Controller:
         else:
             self.api.post(f"{self.base}/issues/{pr['number']}/comments", {"body": body})
 
-    def begin(self, pr, previous):
+    def begin(self, pr, authorized):
         identity = dict(
             v=1,
             pr=pr["number"],
@@ -163,6 +168,7 @@ class Controller:
             repo=pr["head"]["repo"]["full_name"],
             request=self.request,
             control=self.control_sha,
+            authorized=authorized,
         )
         data = dict(
             name=GATE,
@@ -174,12 +180,18 @@ class Controller:
                 "summary": f"Commit `{identity['sha']}` is awaiting verification.",
             },
         )
-        if previous:
-            # The Checks API rejects null terminal fields. Changing status reopens it.
-            return self.api.patch(f"{self.base}/check-runs/{previous['id']}", data)
-        return self.api.post(
+        check = self.api.post(
             f"{self.base}/check-runs", data | {"head_sha": identity["sha"]}
         )
+        # Completed checks cannot be reopened. Retire every older required context
+        # only after the fresh blocking check exists, including partial retry recovery.
+        for previous in self.matching_checks(pr):
+            if previous["id"] < check["id"]:
+                self.api.patch(
+                    f"{self.base}/check-runs/{previous['id']}",
+                    {"name": GATE + " (superseded)"},
+                )
+        return check
 
     def finish(self, pr, check, conclusion, title, summary):
         self.api.patch(
@@ -237,17 +249,21 @@ class Controller:
                 return dict(
                     pr=number, check_id=previous["id"], run_id=identity["run_id"]
                 )
+        same_repo = pr["head"]["repo"]["full_name"].lower() == self.repository.lower()
+        old_identity = parse_identity(previous["external_id"]) if previous else {}
+        previously_authorized = old_identity.get("repo") == pr["head"]["repo"][
+            "full_name"
+        ] and (
+            bool(old_identity.get("run_id")) or old_identity.get("authorized") is True
+        )
+        authorized = same_repo or explicit_sha == sha or previously_authorized
         files = self.api.list(f"{self.base}/pulls/{number}/files")
-        check = self.begin(pr, previous)
+        check = self.begin(pr, authorized)
         if not affected(files, pr["changed_files"]):
             summary = f"Bolt CI · `{sha}`\n\nThe changed paths do not require Bolt CI."
             self.finish(pr, check, "success", "No Bolt changes", summary)
             return None
-        same_repo = pr["head"]["repo"]["full_name"].lower() == self.repository.lower()
-        previously_authorized = previous and bool(
-            parse_identity(previous["external_id"]).get("run_id")
-        )
-        if not same_repo and explicit_sha != sha and not previously_authorized:
+        if not authorized:
             self.comment(
                 pr,
                 f"Bolt CI · `{sha}`\n\nAwaiting maintainer authorization for this commit. "
@@ -387,22 +403,9 @@ class Controller:
                 f"Bolt CI · `{pr['head']['sha']}`\n\nThis attempt was rerun through Actions. "
                 "A maintainer must comment `/bolt ci` to register and verify a fresh request."
             )
-            if run["status"] == "completed":
-                self.finish(
-                    pr, check, "failure", "A fresh Bolt CI request is required", summary
-                )
-            else:
-                self.api.patch(
-                    f"{self.base}/check-runs/{check['id']}",
-                    {
-                        "status": "in_progress",
-                        "output": {
-                            "title": "A fresh Bolt CI request is required",
-                            "summary": summary,
-                        },
-                    },
-                )
-                self.comment(pr, summary)
+            self.finish(
+                pr, check, "failure", "A fresh Bolt CI request is required", summary
+            )
             return
         if (
             check.get("conclusion") == "neutral"
