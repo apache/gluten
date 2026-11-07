@@ -19,6 +19,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/velox_kafka.yml'
+      - '.github/actions/**'
       - 'pom.xml'
       - 'backends-velox/**'
       - 'gluten-kafka/**'
@@ -32,6 +33,12 @@ on:
       - 'ep/build-velox/**'
       - 'dev/**'
       - 'build/mvn'
+  # A pull request from a fork is tested in the fork: each push to a branch
+  # other than main runs this workflow there (see merge-upstream). In
+  # apache/gluten a push run skips every job.
+  push:
+    branches-ignore:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -39,7 +46,10 @@ permissions:
   actions: read
 
 concurrency:
-  group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
+  # head_ref is empty on push. Keying push runs by branch lets a new push cancel the previous run.
+  group: >-
+    ${{ github.repository }}-${{ github.head_ref || (github.event_name == 'push' && github.ref) ||
+    github.sha }}-${{ github.workflow }}
   cancel-in-progress: true
 
 env:
@@ -47,12 +57,45 @@ env:
   PROMPT_ALWAYS_RESPOND: 'y'
 
 jobs:
+  # Every job chains off this one, so this `if` decides whether the workflow runs:
+  # push only in forks; pull_request only in apache/gluten and only from its own
+  # branches (Dependabot), since a fork's pull request is tested by the push run
+  # in the fork.
+  merge-upstream:
+    if: >-
+      (github.event_name == 'push' && github.repository_owner != 'apache') ||
+      (github.event_name == 'pull_request' && github.repository_owner == 'apache' &&
+       github.event.pull_request.head.repo.full_name == github.repository) ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    outputs:
+      # false only on a fork push that changes nothing in the `paths:` list above.
+      relevant: ${{ steps.merge.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@v7
+        if: github.event_name == 'push'
+        with:
+          fetch-depth: 0
+      # Fork push: test the tree a pull request merge ref would hold. The jobs below
+      # swap it in with .github/actions/checkout-merged.
+      - name: Squash-merge the pushed branch onto apache/gluten main
+        id: merge
+        if: github.event_name == 'push'
+        uses: ./.github/actions/squash-merge-upstream
+        with:
+          # The `paths:` list above. Keep the two in sync.
+          paths: '^(\.github/workflows/velox_kafka\.yml$|\.github/actions/|pom\.xml$|build/mvn$|(backends-velox|gluten-(kafka|core|substrait|ut)|shims|cpp|ep/build-velox|dev)/)'
+          paths-ignore: '^cpp/bolt/|^cpp/bolt\.CMakeLists\.cmake$'
+
   build-native:
+    needs: merge-upstream
+    if: needs.merge-upstream.outputs.relevant != 'false'
     runs-on: ubuntu-22.04
     container: apache/gluten:vcpkg-almalinux-8-gcc13
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-merged
       - name: Install build tools
         run: |
           dnf install -y jq bison tzdata
@@ -66,8 +109,15 @@ jobs:
         with:
           path: ${{ env.CCACHE_DIR }}
           key: ccache-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+      - name: Get Ccache from apache/gluten main (fork push on Stash miss)
+        id: ccache-upstream
+        if: github.event_name == 'push' && steps.ccache-stash.outputs.stash-hit != 'true'
+        uses: ./.github/actions/restore-upstream-ccache
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
       - name: Get Ccache from actions/cache (fallback on Stash miss)
-        if: steps.ccache-stash.outputs.stash-hit != 'true'
+        if: steps.ccache-stash.outputs.stash-hit != 'true' && steps.ccache-upstream.outputs.hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.CCACHE_DIR }}
@@ -79,6 +129,8 @@ jobs:
         run: |
           source /opt/rh/gcc-toolset-13/enable
           export NUM_THREADS=2 CCACHE_MAXSIZE=1G
+          # As in dev/ci-velox-build*.sh, which build the stash restored above.
+          export CCACHE_BASEDIR=$GITHUB_WORKSPACE
           ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --enable_kafka=ON \
             --build_arrow=OFF --build_tests=ON --build_benchmarks=OFF --build_examples=OFF \
             --enable_s3=OFF --enable_gcs=OFF --enable_hdfs=OFF --enable_abfs=OFF
@@ -127,6 +179,7 @@ jobs:
           --health-retries 12
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-merged
       - name: Setup java
         run: |
           sudo apt-get update

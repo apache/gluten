@@ -13,11 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# A pull request from a fork runs velox_backend_x86.yml and velox_backend_arm.yml in the
-# fork, on push. This workflow reports those runs as checks on the pull request, using
-# util/update-fork-build-status.js. It only reads run metadata, so it never runs pull
-# request code and needs no pull_request_target. Adapted from apache/spark's
-# update_build_status.yml (SPARK-60578).
+# A pull request from a fork runs velox_backend_x86.yml, velox_backend_arm.yml and
+# velox_kafka.yml in the fork, on push. This workflow reports those runs as checks on
+# the pull request, using util/update-fork-build-status.js. It only reads run metadata,
+# so it never runs pull request code and needs no pull_request_target. Adapted from
+# apache/spark's update_build_status.yml (SPARK-60578).
 name: Update fork build status
 
 on:

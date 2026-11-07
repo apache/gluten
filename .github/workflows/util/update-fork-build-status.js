@@ -21,6 +21,7 @@
 const WORKFLOWS = [
   { file: 'velox_backend_x86.yml', check: 'Velox Backend (x86) in fork' },
   { file: 'velox_backend_arm.yml', check: 'Velox Backend (ARM) in fork' },
+  { file: 'velox_kafka.yml', check: 'Velox Kafka in fork' },
 ];
 
 // Check runs accept fewer conclusions than a workflow run reports; anything else
