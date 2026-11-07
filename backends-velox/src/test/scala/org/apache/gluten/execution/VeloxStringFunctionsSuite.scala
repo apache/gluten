@@ -20,6 +20,7 @@ import org.apache.spark.SparkConf
 import org.apache.spark.sql.catalyst.expressions.{Alias, Literal}
 import org.apache.spark.sql.catalyst.optimizer.{ConstantFolding, NullPropagation}
 import org.apache.spark.sql.classic.ClassicColumn
+import org.apache.spark.sql.execution.{FilterExec, ProjectExec}
 import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.types.StringType
 
@@ -428,6 +429,39 @@ class VeloxStringFunctionsSuite extends VeloxWholeStageTransformerSuite {
     runQueryAndCompare(
       s"select l_orderkey, ilike($NULL_STR_COL, '%a%') " +
         s"from $LINEITEM_TABLE limit $LENGTH")(checkGlutenPlan[ProjectExecTransformer])
+  }
+
+  test("like and ilike with escape character") {
+    import testImplicits._
+    // U+00E9 (e with acute accent) is two bytes in UTF-8.
+    val e = 0xe9.toChar.toString
+    withTempPath {
+      path =>
+        Seq("a%xb", "a%b", "A%XB", s"a${e}xb", "axxb", null)
+          .toDF("s")
+          .write
+          .parquet(path.getCanonicalPath)
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("like_tbl")
+
+        // An ASCII escape character is offloaded. The unescaped `_` keeps LikeSimplification
+        // from rewriting the pattern.
+        runQueryAndCompare("select s, s like 'a#%_b' escape '#' from like_tbl") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        runQueryAndCompare("select s, s ilike 'a#%_b' escape '#' from like_tbl") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        // Velox requires a single-byte escape character, so a non-ASCII one falls back.
+        runQueryAndCompare(s"select s, s like 'a$e%_b' escape '$e' from like_tbl") {
+          checkSparkPlan[ProjectExec]
+        }
+        runQueryAndCompare(s"select s, s ilike 'a$e%_b' escape '$e' from like_tbl") {
+          checkSparkPlan[ProjectExec]
+        }
+        runQueryAndCompare(s"select s from like_tbl where s like 'a$e%_b' escape '$e'") {
+          checkSparkPlan[FilterExec]
+        }
+    }
   }
 
   test("regexp") {

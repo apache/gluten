@@ -298,6 +298,12 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     original match {
       case Like(_, r: Literal, '\\') if !r.value.toString.contains('\\') =>
         GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
+      case _ if original.escapeChar > 0x7f =>
+        // Velox requires the escape string to be a single byte. A non-ASCII escape character
+        // is longer than one byte in UTF-8, and Velox fails at runtime.
+        throw new GlutenNotSupportException(
+          s"$substraitExprName with non-ASCII escape character '${original.escapeChar}'" +
+            " is not supported")
       case _ =>
         GenericExpressionTransformer(
           substraitExprName,
