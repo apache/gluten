@@ -66,6 +66,10 @@ DECLARE_bool(velox_memory_pool_capacity_transfer_across_tasks);
 #include "operators/serializer/VeloxGpuColumnarBatchSerializer.h"
 #endif
 
+#ifdef ENABLE_KAFKA
+#include "operators/reader/KafkaSplitInfo.h"
+#endif
+
 using namespace facebook;
 
 namespace gluten {
@@ -391,22 +395,27 @@ void VeloxRuntime::parsePlan(const uint8_t* data, int32_t size) {
 }
 
 void VeloxRuntime::parseSplitInfo(const uint8_t* data, int32_t size, int32_t splitIndex) {
+  auto splitInfo = VeloxPlanConverter::parseSplitInfo(veloxCfg_.get(), data, size);
   if (debugModeEnabled_ || dumper_ != nullptr) {
+    std::string_view splitType = "ReadRel.LocalFiles";
+#ifdef ENABLE_KAFKA
+    if (std::dynamic_pointer_cast<KafkaSplitInfo>(splitInfo)) {
+      splitType = "ReadRel.ExtensionTable";
+    }
+#endif
     try {
-      auto splitJson = substraitFromPbToJson("ReadRel.LocalFiles", data, size);
+      auto splitJson = substraitFromPbToJson(splitType, data, size);
       if (dumper_ != nullptr) {
         dumper_->dumpInputSplit(splitIndex, splitJson);
       }
       LOG_IF(INFO, debugModeEnabled_ && taskInfo_.has_value())
-          << std::string(50, '#') << " received substrait::ReadRel.LocalFiles: " << taskInfo_.value() << std::endl
+          << std::string(50, '#') << " received substrait::" << splitType << ": " << taskInfo_.value() << std::endl
           << splitJson;
     } catch (const std::exception& e) {
-      LOG(WARNING) << "Error converting substrait::ReadRel.LocalFiles to JSON: " << e.what();
+      LOG(WARNING) << "Error converting substrait::" << splitType << " to JSON: " << e.what();
     }
   }
-  ::substrait::ReadRel_LocalFiles localFile;
-  GLUTEN_CHECK(parseProtobuf(data, size, &localFile) == true, "Parse substrait plan failed");
-  localFiles_.push_back(localFile);
+  scanSplitInfos_.emplace_back(std::move(splitInfo));
 }
 
 void VeloxRuntime::getInfoAndIds(
@@ -444,7 +453,7 @@ std::string VeloxRuntime::planString(bool details, const std::unordered_map<std:
   auto veloxMemoryPool = gluten::defaultLeafVeloxMemoryPool();
   VeloxPlanConverter veloxPlanConverter(
       veloxMemoryPool.get(), veloxCfg_.get(), {}, connectorIds_, std::nullopt, std::nullopt, true);
-  auto veloxPlan = veloxPlanConverter.toVeloxPlan(substraitPlan_, localFiles_);
+  auto veloxPlan = veloxPlanConverter.toVeloxPlan(substraitPlan_, {});
   return veloxPlan->toString(details, true);
 }
 
@@ -466,7 +475,7 @@ std::shared_ptr<ResultIterator> VeloxRuntime::createResultIterator(
       connectorIds_,
       *localWriteFilesTempPath(),
       *localWriteFileName());
-  veloxPlan_ = veloxPlanConverter.toVeloxPlan(substraitPlan_, std::move(localFiles_));
+  veloxPlan_ = veloxPlanConverter.toVeloxPlanWithSplitInfos(substraitPlan_, std::move(scanSplitInfos_));
   LOG_IF(INFO, debugModeEnabled_ && taskInfo_.has_value())
       << "############### Velox plan for task " << taskInfo_.value() << " ###############" << std::endl
       << veloxPlan_->toString(true, true);

@@ -18,6 +18,7 @@
 #pragma once
 
 #include <jni.h>
+#include <optional>
 #include "memory/ColumnarBatch.h"
 #include "memory/VeloxMemoryManager.h"
 #include "operators/hashjoin/HashTableBuilder.h"
@@ -52,7 +53,11 @@ class JniHashTableContext {
     return hashTableObjStore_.get();
   }
 
-  jlong callJavaGet(const std::string& id) const;
+  // Returns the handle registered under the given id by the JVM side
+  // VeloxBroadcastBuildSideCache, or std::nullopt when that cache cannot be reached at all because
+  // no JVM is attached to this process. The latter is the case for the standalone micro benchmark
+  // and the native unit tests, where JNI_OnLoad never runs.
+  std::optional<jlong> callJavaGet(const std::string& id) const;
 
  private:
   JniHashTableContext() : hashTableObjStore_(ObjectStore::create()) {}
@@ -89,6 +94,8 @@ std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
     std::vector<std::shared_ptr<ColumnarBatch>>& batches,
     std::shared_ptr<facebook::velox::memory::MemoryPool> memoryPool);
 
+// Returns the handle of the pre-built hash table registered for the given id, or 0 if there is
+// none. Safe to call from a process with no JVM attached, in which case it always returns 0.
 long getJoin(const std::string& hashTableId);
 
 // Return the exact serialized hash table size for direct buffer allocation.

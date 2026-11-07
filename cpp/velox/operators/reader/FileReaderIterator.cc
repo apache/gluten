@@ -31,6 +31,9 @@ std::shared_ptr<gluten::ResultIterator> FileReaderIterator::getInputIteratorFrom
     std::shared_ptr<facebook::velox::memory::MemoryPool> pool) {
   std::filesystem::path input{path};
   auto suffix = input.extension().string();
+  if (suffix == kEmptyInputMarkerSuffix) {
+    return std::make_shared<gluten::ResultIterator>(std::make_unique<EmptyInputMarkerIterator>());
+  }
   if (suffix == kParquetSuffix) {
     if (readerType == FileReaderType::kStream) {
       return std::make_shared<gluten::ResultIterator>(

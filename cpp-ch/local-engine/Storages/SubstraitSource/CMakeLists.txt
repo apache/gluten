@@ -15,12 +15,32 @@
 
 set(ARROW_INCLUDE_DIR "${ClickHouse_SOURCE_DIR}/contrib/arrow/cpp/src")
 
+option(GLUTEN_ENABLE_NATIVE_PAIMON "Enable Paimon native read in libch" ON)
+
 add_headers_and_sources(substrait_source .)
 add_headers_and_sources(substrait_source Delta)
 add_headers_and_sources(substrait_source Delta/Bitmap)
 add_headers_and_sources(substrait_source Iceberg)
+if(GLUTEN_ENABLE_NATIVE_PAIMON)
+  add_headers_and_sources(substrait_source Paimon)
+endif()
 
 add_library(substrait_source ${substrait_source_sources})
+
+if(GLUTEN_ENABLE_NATIVE_PAIMON)
+  find_package(Paimon 0.3.0 CONFIG REQUIRED)
+  if(NOT PAIMON_BUNDLED_DEPS_DIR)
+    message(FATAL_ERROR "PAIMON_BUNDLED_DEPS_DIR is required for native Paimon")
+  endif()
+  target_compile_definitions(substrait_source
+                             PUBLIC GLUTEN_ENABLE_NATIVE_PAIMON=1)
+  target_link_libraries(substrait_source PUBLIC Paimon::paimon_shared)
+  target_link_options(substrait_source PUBLIC "-Wl,-rpath,\$ORIGIN")
+else()
+  target_compile_definitions(substrait_source
+                             PUBLIC GLUTEN_ENABLE_NATIVE_PAIMON=0)
+endif()
+
 target_compile_options(
   substrait_source PRIVATE -Wno-suggest-destructor-override
                            -Wno-inconsistent-missing-destructor-override)

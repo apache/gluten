@@ -1,0 +1,46 @@
+Subject: [PATCH] Match Delta CDF pushed-filter assertions to Gluten
+
+Gluten's file scans omit Spark's handled-filter '*' marker
+(apache/gluten#12753). They also quote special-character column names,
+unlike Delta's vanilla CDF scan.
+
+Adjust only these three shared assertions, covering 13 concrete test cases;
+keep their predicate, column-pruning, and result checks intact. Remove this
+workaround when #12753 is fixed or Delta no longer requires the starred form.
+
+diff --git a/spark/src/test/scala/org/apache/spark/sql/delta/DeltaCDCSuite.scala b/spark/src/test/scala/org/apache/spark/sql/delta/DeltaCDCSuite.scala
+--- a/spark/src/test/scala/org/apache/spark/sql/delta/DeltaCDCSuite.scala
++++ b/spark/src/test/scala/org/apache/spark/sql/delta/DeltaCDCSuite.scala
+@@ -1045,7 +1045,7 @@ class DeltaCDCScalaSuite extends DeltaCDCSuiteBase {
+             .withColumn("_change_type", lit("insert")))
+       }
+       assert(plans.map(_.executedPlan).toString
+-        .contains("PushedFilters: [*IsNotNull(id), *LessThan(id,5)]"))
++        .contains("PushedFilters: [IsNotNull(id), LessThan(id,5)]"))
+     }
+   }
+
+diff --git a/spark/src/test/scala/org/apache/spark/sql/delta/DeltaCDCSQLSuite.scala b/spark/src/test/scala/org/apache/spark/sql/delta/DeltaCDCSQLSuite.scala
+--- a/spark/src/test/scala/org/apache/spark/sql/delta/DeltaCDCSQLSuite.scala
++++ b/spark/src/test/scala/org/apache/spark/sql/delta/DeltaCDCSQLSuite.scala
+@@ -145,7 +145,7 @@ class DeltaCDCSQLSuite extends DeltaCDCSuiteBase with DeltaColumnMappingTestUtils {
+             .withColumn("_change_type", lit("insert")))
+       }
+       assert(plans.map(_.executedPlan).toString
+-        .contains("PushedFilters: [*IsNotNull(id), *LessThan(id,5)]"))
++        .contains("PushedFilters: [IsNotNull(id), LessThan(id,5)]"))
+     }
+   }
+
+diff --git a/spark/src/test/scala/org/apache/spark/sql/delta/DeltaCDCColumnMappingSuite.scala b/spark/src/test/scala/org/apache/spark/sql/delta/DeltaCDCColumnMappingSuite.scala
+--- a/spark/src/test/scala/org/apache/spark/sql/delta/DeltaCDCColumnMappingSuite.scala
++++ b/spark/src/test/scala/org/apache/spark/sql/delta/DeltaCDCColumnMappingSuite.scala
+@@ -668,7 +668,7 @@ trait DeltaCDCColumnMappingSuiteBase extends DeltaColumnMappingSelectedTestMixin {
+             .withColumn("_change_type", lit("insert")))
+       }
+       assert(plans.map(_.executedPlan).toString
+-        .contains("PushedFilters: [*IsNotNull(id with space), *LessThan(id with space,5)]"))
++        .contains("PushedFilters: [IsNotNull(`id with space`), LessThan(`id with space`,5)]"))
+     }
+   }
+ }

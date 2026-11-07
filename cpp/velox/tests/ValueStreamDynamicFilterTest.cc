@@ -116,6 +116,38 @@ TEST_F(ValueStreamDynamicFilterTest, noFilterPassesAllRows) {
   ASSERT_EQ(ids, (std::vector<int64_t>{10, 20, 30}));
 }
 
+TEST_F(ValueStreamDynamicFilterTest, trimsExtraTrailingColumns) {
+  auto batch = makeRowVector(
+      {"id", "col_0"},
+      {makeNullableFlatVector<int64_t>({10, std::nullopt, 30}), makeFlatVector<int64_t>({11, 21, 31})});
+  auto originalType = batch->type();
+  auto outputType = ROW({"renamed_id"}, {BIGINT()});
+  auto expected = makeRowVector({"renamed_id"}, {makeNullableFlatVector<int64_t>({10, std::nullopt, 30})});
+  auto scanNode = makeTableScanNode("vs-extra-columns", outputType);
+
+  auto queryCtx = core::QueryCtx::create();
+  auto task =
+      Task::create("test-extra-columns", core::PlanFragment{scanNode}, 0, queryCtx, Task::ExecutionMode::kSerial);
+  task->addSplit(scanNode->id(), Split{makeSplit({batch})});
+  task->noMoreSplits(scanNode->id());
+
+  ContinueFuture future = ContinueFuture::makeEmpty();
+  auto output = task->next(&future);
+  ASSERT_NE(output, nullptr);
+  EXPECT_EQ(output->type(), outputType);
+  EXPECT_EQ(output->size(), 3);
+  ASSERT_EQ(output->childrenSize(), 1);
+  assertEqualVectors(expected, output);
+
+  // Broadcast batches can be shared; trimming must not modify the source batch.
+  EXPECT_EQ(batch->type(), originalType);
+  EXPECT_EQ(batch->size(), 3);
+  ASSERT_EQ(batch->childrenSize(), 2);
+  assertEqualVectors(expected->childAt(0), batch->childAt(0));
+  assertEqualVectors(makeFlatVector<int64_t>({11, 21, 31}), batch->childAt(1));
+  EXPECT_EQ(task->next(&future), nullptr);
+}
+
 TEST_F(ValueStreamDynamicFilterTest, emptySplitProducesNoRows) {
   auto outputType = ROW({"id"}, {BIGINT()});
   auto scanNode = makeTableScanNode("vs-empty-split", outputType);

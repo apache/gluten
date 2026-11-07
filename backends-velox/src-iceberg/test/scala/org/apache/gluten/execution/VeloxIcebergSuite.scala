@@ -29,7 +29,7 @@ import org.apache.iceberg.{FileScanTask, UpdateSchema}
 import org.apache.iceberg.expressions.Literal
 import org.apache.iceberg.hadoop.HadoopCatalog
 import org.apache.iceberg.io.{ResolvingFileIO, StorageCredential}
-import org.apache.iceberg.spark.{ScanTaskSetManager, Spark3Util, SparkCatalog, SparkReadOptions}
+import org.apache.iceberg.spark.{ScanTaskSetManager, Spark3Util, SparkCatalog, SparkTableCache}
 import org.apache.iceberg.spark.source.{GlutenIcebergSourceUtil, SparkTable}
 import org.apache.iceberg.types.{Type, Types}
 
@@ -120,15 +120,20 @@ class VeloxIcebergSuite extends IcebergSuite {
         val table = Spark3Util.loadIcebergTable(spark, tableName)
         val taskSetId = "vended-credentials"
         val taskSetManager = ScanTaskSetManager.get()
+        val tableCache = SparkTableCache.get()
         val tasks = table.newScan().planFiles()
         try {
+          // Register the table under the task set ID and load by that ID, which resolves to a
+          // staged scan on both Iceberg 1.10 (needs the "scan-task-set-id" option) and Iceberg
+          // 1.11+ (removed SparkReadOptions.SCAN_TASK_SET_ID, resolves cached tables directly).
+          tableCache.add(taskSetId, table)
           taskSetManager.stageTasks(table, taskSetId, tasks.asScala.toList.asJava)
           compareDfResultsAgainstVanillaSpark(
             () =>
               spark.read
                 .format("iceberg")
-                .option(SparkReadOptions.SCAN_TASK_SET_ID, taskSetId)
-                .load(tableName),
+                .option("scan-task-set-id", taskSetId)
+                .load(taskSetId),
             noFallBack = false,
             customCheck = df => {
               checkAnswer(df, Seq(Row(1), Row(2)))
@@ -142,6 +147,7 @@ class VeloxIcebergSuite extends IcebergSuite {
             }
           )
         } finally {
+          tableCache.remove(taskSetId)
           taskSetManager.removeTasks[FileScanTask](table, taskSetId)
           tasks.close()
         }

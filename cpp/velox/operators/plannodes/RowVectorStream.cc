@@ -102,8 +102,13 @@ facebook::velox::RowVectorPtr RowVectorStream::next() {
   const std::shared_ptr<VeloxColumnarBatch>& vb = VeloxColumnarBatch::from(pool_, cb);
   auto vp = vb->getRowVector();
   VELOX_DCHECK(vp != nullptr);
+  // Broadcast preprojection can append join-key columns beyond the stream's output schema.
+  VELOX_CHECK_GE(
+      vp->childrenSize(), outputType_->size(), "Value stream batch has fewer columns than the declared output type");
+  std::vector<facebook::velox::VectorPtr> children(
+      vp->children().begin(), vp->children().begin() + outputType_->size());
   return std::make_shared<facebook::velox::RowVector>(
-      vp->pool(), outputType_, facebook::velox::BufferPtr(0), vp->size(), vp->children());
+      vp->pool(), outputType_, facebook::velox::BufferPtr(0), vp->size(), std::move(children));
 }
 
 ValueStreamDataSource::ValueStreamDataSource(

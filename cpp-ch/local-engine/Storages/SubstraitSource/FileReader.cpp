@@ -290,7 +290,7 @@ std::unique_ptr<NormalFileReader> createNormalFileReader(
         return nullptr;
 
     // when there is a '__delta_internal_is_row_deleted' column, it needs to use DeltaReader to read data and add column
-    if (DeltaVirtualMeta::hasMetaColumns(to_read_header_))
+    if (!file->getFileInfo().has_paimon() && DeltaVirtualMeta::hasMetaColumns(to_read_header_))
     {
         String row_index_ids_encoded;
         String row_index_filter_type;

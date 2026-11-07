@@ -106,6 +106,9 @@ if(ENABLE_GPU)
   add_velox_gpu_test(velox_gpu_shuffle_writer_test SOURCES
                      VeloxGpuShuffleWriterTest.cc)
   add_velox_gpu_test(velox_gpu_lock_test SOURCES GpuLockTest.cc)
+  add_velox_gpu_test(velox_gpu_cudf_functions_test SOURCES CudfFunctionsTest.cc)
+  add_velox_gpu_test(velox_cudf_value_stream_test SOURCES
+                     CudfValueStreamTest.cc)
 endif()
 
 set(VELOX_TEST_COMMON_SRCS JsonToProtoConverter.cc FilePathGenerator.cc)
@@ -151,7 +154,7 @@ add_velox_test(
   VeloxSubstraitSignatureTest.cc
   VeloxToSubstraitTypeTest.cc)
 add_velox_test(spark_functions_test SOURCES SparkFunctionTest.cc
-               FunctionTest.cc)
+               FunctionTest.cc IncrementMetricFunctionTest.cc)
 add_velox_test(runtime_test SOURCES RuntimeTest.cc)
 add_velox_test(velox_backend_test SOURCES VeloxBackendTest.cc)
 add_velox_test(velox_memory_test SOURCES MemoryManagerTest.cc)
@@ -163,6 +166,7 @@ if(ENABLE_S3)
 endif()
 add_velox_test(scoped_timer_test SOURCES ScopedTimerTest.cc)
 add_velox_test(row_based_checksum_test SOURCES RowBasedChecksumTest.cc)
+add_velox_test(jni_hash_table_test SOURCES JniHashTableTest.cc)
 if(BUILD_EXAMPLES)
   add_velox_test(my_udf_test SOURCES MyUdfTest.cc)
   # UDF loading exercises the production shared library, so use the same
