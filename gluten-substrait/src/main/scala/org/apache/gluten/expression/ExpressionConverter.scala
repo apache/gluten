@@ -257,6 +257,14 @@ object ExpressionConverter extends SQLConfHelper with Logging {
         case "isLuhnNumber" =>
           validateAndTransform(ExpressionNames.LUHN_CHECK, Seq(doTransform(i.arguments.head)))
 
+        case "decode"
+            if objName.endsWith("UrlCodec") && i.arguments.length == 2 &&
+              i.arguments(1) == Literal.FalseLiteral =>
+          // Spark 4.0+ try_url_decode calls UrlCodec.decode(str, failOnError = false), which
+          // returns NULL on an invalid escape. The native url_decode always throws.
+          throw new GlutenNotSupportException(
+            "url_decode with failOnError = false (try_url_decode) is not supported")
+
         case fn @ ("encode" | "decode") if objName.endsWith("UrlCodec") =>
           validateAndTransform("url_" + fn, Seq(doTransform(i.arguments.head)))
 
