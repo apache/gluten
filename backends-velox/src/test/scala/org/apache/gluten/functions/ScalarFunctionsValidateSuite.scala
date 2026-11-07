@@ -18,7 +18,7 @@ package org.apache.gluten.functions
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.{BatchScanExecTransformer, ColumnarPartialProjectExec, FilterExecTransformer, ProjectExecTransformer}
-import org.apache.gluten.expression.FormatNumberRestrictions
+import org.apache.gluten.expression.{EncodeRestrictions, FormatNumberRestrictions}
 import org.apache.gluten.extension.columnar.FallbackTags
 
 import org.apache.spark.SparkException
@@ -991,6 +991,45 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
         assert(
           fallbackReasons(df).exists(
             _.contains(FormatNumberRestrictions.NOT_SUPPORT_STRING_FORMAT)))
+    }
+  }
+
+  // On Spark 4.x, Encode is a StaticInvoke that Gluten does not offload.
+  testWithMaxSparkVersion("encode", "3.5") {
+    withTempPath {
+      path =>
+        // scalastyle:off nonascii
+        Seq[(String, String)](
+          ("abc", "UTF-8"),
+          ("caf\u00e9", "utf8"),
+          ("\u65e5\u672c\u8a9e", "US-ASCII"),
+          ("a\ud83d\ude00b", "UTF-16"),
+          ("", "UTF-16"),
+          (null, "UTF-8"))
+          // scalastyle:on nonascii
+          .toDF("s", "cs")
+          .write
+          .parquet(path.getCanonicalPath)
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("encode_tbl")
+        // Spark 3.x replaces characters the charset cannot represent with '?'.
+        Seq("US-ASCII", "iso-8859-1", "utf-8", "UTF-16BE", "UTF-16LE", "UTF-16", "UTF-32")
+          .foreach {
+            charset =>
+              runQueryAndCompare(s"SELECT encode(s, '$charset') FROM encode_tbl") {
+                checkGlutenPlan[ProjectExecTransformer]
+              }
+          }
+        // JDK aliases and a non-literal charset fall back.
+        Seq("encode(s, 'utf8')", "encode(s, 'latin1')", "encode(s, cs)").foreach {
+          expr =>
+            runQueryAndCompare(s"SELECT $expr FROM encode_tbl") {
+              df =>
+                checkSparkPlan[ProjectExec](df)
+                assert(
+                  fallbackReasons(df).exists(
+                    _.contains(EncodeRestrictions.ONLY_STANDARD_CHARSET_LITERAL)))
+            }
+        }
     }
   }
 
