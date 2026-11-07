@@ -94,6 +94,32 @@ To format Java/Scala code using the [Spotless](https://github.com/diffplug/spotl
 ./dev/format-scala-code.sh
 ```
 
+### Java exceptions crossing native code
+
+JNI callbacks must call `checkException(env)` after invoking Java. It throws
+`gluten::JavaException`, which owns a shared global reference to the original Java
+throwable. `JNI_METHOD_END` restores that same object with JNI `Throw`, retaining
+its class, cause, suppressed exceptions, stack trace, and structured Spark error
+metadata. Native diagnostic formatting is best-effort after capturing the throwable.
+If native carrier construction fails, `checkException` restores the original
+throwable before local-reference cleanup unless a newer Java exception is pending.
+Successful carrier propagation keeps JNI clear until the return boundary restores
+the throwable.
+Do not replace this carrier with an exception constructed from `what()`.
+
+Copies and `std::exception_ptr` instances keep the throwable alive until the last
+owner releases it. Cleanup uses the current thread's JNI environment and detaches
+only threads it attached itself. Failures while describing the captured throwable
+do not replace it; if creating its global reference fails, the pending Java
+allocation error is preserved.
+
+`JNI_METHOD_END` also restores carriers inside standard `std::nested_exception`
+wrappers. Other native errors keep their existing `GlutenException` fallback.
+Backend-specific callback and output-boundary propagation is separate from this
+core contract; it does not by itself protect the full Velox driver path.
+Preserving the throwable does not merge Java and C++ frames into a hybrid stack
+trace (see [#9642](https://github.com/apache/gluten/issues/9642)).
+
 ### C++ code development
 
 This guide is for remote debugging by connecting to the remote Linux server using `SSH`.
