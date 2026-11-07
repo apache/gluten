@@ -38,9 +38,9 @@ else
   exit 1
 fi
 
-# Build Gluten for Spark 3.4 and 3.5 with Java 17. The version of Iceberg being used requires Java 11 or higher.
+# Build Gluten for Spark 3.5 with Java 17. The version of Iceberg being used requires Java 11 or higher.
 # All feature modules are enabled.
-for spark_version in 3.4 3.5
+for spark_version in 3.5
 do
   ${GLUTEN_HOME}/build/mvn clean install -Pjava-17 -Pbackends-velox -Pspark-${spark_version} -Pceleborn,uniffle \
                     -Piceberg,delta,hudi,paimon -DskipTests
