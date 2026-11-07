@@ -182,4 +182,44 @@ class AnsiModeMismatchSuite extends WholeStageTransformerSuite {
       }
     }
   }
+
+  // Spark throws on ceil / floor overflow of a double only since 4.3 (SPARK-58052). The suite
+  // compiles only against earlier versions, which saturate in both modes, so Velox matches Spark
+  // only with ANSI mode off.
+  private def withDoubleTable(f: => Unit): Unit = {
+    withTempPath {
+      path =>
+        sql("SELECT * FROM VALUES (1.5D, 7L), (-2.5D, -7L), (1e20D, 1L), (-1e20D, -1L) AS t(c, l)")
+          .write
+          .parquet(path.getCanonicalPath)
+        withTempView("double_tab") {
+          spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("double_tab")
+          f
+        }
+    }
+  }
+
+  test("ceil and floor of a double fall back with ANSI on before Spark 4.3") {
+    withDoubleTable {
+      withSQLConf(SQLConf.ANSI_ENABLED.key -> "true") {
+        runQueryAndCompare("SELECT ceil(c), floor(c) FROM double_tab", noFallBack = false) {
+          df => checkFallback[ProjectExecTransformer](df)
+        }
+        // Only doubles can overflow: ceil and floor of a bigint stay native.
+        runQueryAndCompare("SELECT ceil(l), floor(l) FROM double_tab") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+      }
+    }
+  }
+
+  test("ceil and floor of a double stay native with ANSI off") {
+    withDoubleTable {
+      withSQLConf(SQLConf.ANSI_ENABLED.key -> "false") {
+        runQueryAndCompare("SELECT ceil(c), floor(c) FROM double_tab") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+      }
+    }
+  }
 }
