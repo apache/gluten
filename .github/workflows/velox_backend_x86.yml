@@ -24,6 +24,7 @@ on:
       - '.github/workflows/iceberg_upstream_revision.yml'
       - '.github/workflows/velox_native_build.yml'
       - '.github/workflows/util/iceberg-upstream/**'
+      - '.github/actions/**'
       - 'pom.xml'
       - 'backends-velox/**'
       - 'gluten-uniffle/**'
@@ -45,6 +46,12 @@ on:
       - '!cpp/bolt.CMakeLists.cmake'
       - 'dev/**'
       - 'build/mvn'
+  # A pull request from a fork is tested in the fork: each push to a branch
+  # other than main runs this workflow there (see detect-changes). In
+  # apache/gluten a push run skips every job.
+  push:
+    branches-ignore:
+      - main
   # Nightly full run. PR runs trim the TPC matrices to representative JDKs and
   # skip the OOM / random-kill chaos jobs unless native code changed (see
   # detect-changes' `full_run` output); this scheduled run restores the full
@@ -73,7 +80,10 @@ env:
   UT_PARALLELISM: 3
 
 concurrency:
-  group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
+  # head_ref is empty on push. Keying push runs by branch lets a new push cancel the previous run.
+  group: >-
+    ${{ github.repository }}-${{ github.head_ref || (github.event_name == 'push' && github.ref) ||
+    github.sha }}-${{ github.workflow }}
   cancel-in-progress: true
 
 jobs:
@@ -98,12 +108,22 @@ jobs:
   # widen their matrices to the extended combos that PR runs skip (alternative
   # JDKs, older Celeborn, chaos tests on java-only changes).
   detect-changes:
-    # Every job chains off this one, so the fork guard here skips the whole
-    # workflow: a fork with Actions enabled would otherwise burn ~1800 runner
-    # minutes nightly on a signal nobody reads.
-    if: github.event_name != 'schedule' || github.repository_owner == 'apache'
+    # Every job chains off this one, so this `if` decides whether the workflow runs:
+    #   • push: only in forks.
+    #   • pull_request: only in apache/gluten and only from its own branches
+    #     (Dependabot); a fork's pull request is tested by the push run in the fork.
+    #   • schedule: only in apache/gluten. A fork with Actions enabled would
+    #     otherwise burn ~1800 runner minutes nightly on a signal nobody reads.
+    if: >-
+      (github.event_name == 'push' && github.repository_owner != 'apache') ||
+      (github.event_name == 'pull_request' && github.repository_owner == 'apache' &&
+       github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'schedule' && github.repository_owner == 'apache') ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
     outputs:
+      # false only on a fork push that changes nothing in the `paths:` list above.
+      relevant: ${{ steps.merge.outputs.relevant }}
       full_run: ${{ steps.filter.outputs.full_run }}
       cpp:      ${{ steps.filter.outputs.cpp }}
       java:     ${{ steps.filter.outputs.java }}
@@ -121,6 +141,16 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      # Fork push: test the tree a pull request merge ref would hold. The jobs below
+      # swap it in with .github/actions/checkout-merged.
+      - name: Squash-merge the pushed branch onto apache/gluten main
+        id: merge
+        if: github.event_name == 'push'
+        uses: ./.github/actions/squash-merge-upstream
+        with:
+          # The `paths:` list above. Keep the two in sync.
+          paths: '^(\.github/workflows/(velox_backend_x86|iceberg_spark_ut|iceberg_upstream_revision|velox_native_build)\.yml$|\.github/workflows/util/(parallel-ut|iceberg-upstream)/|\.github/actions/|pom\.xml$|build/mvn$|(backends-velox|gluten-(uniffle|celeborn|core|substrait|arrow|delta|iceberg|hudi|paimon|ut)|package|shims|tools/gluten-it|ep/build-velox|cpp|dev)/)'
+          paths-ignore: '^cpp/bolt/|^cpp/bolt\.CMakeLists\.cmake$'
       - name: Detect changed paths
         id: filter
         run: |
@@ -148,15 +178,26 @@ jobs:
             exit 0
           fi
           echo "full_run=false" >> $GITHUB_OUTPUT
-          BASE=${{ github.event.pull_request.base.sha }}
-          HEAD=${{ github.sha }}
+          if [ "${{ steps.merge.outputs.relevant }}" = "false" ]; then
+            for flag in cpp java shims34 shims35 shims40 shims41 shims42 tools_it; do
+              echo "$flag=false" >> $GITHUB_OUTPUT
+            done
+            exit 0
+          fi
+          if [ "$event" = "push" ]; then
+            BASE=${{ steps.merge.outputs.base_sha }}
+            HEAD=$(git rev-parse HEAD)
+          else
+            BASE=${{ github.event.pull_request.base.sha }}
+            HEAD=${{ github.sha }}
+          fi
           changed=$(git diff --name-only "$BASE" "$HEAD")
           echo "$changed"
 
           match() { echo "$changed" | grep -qE "$1" && echo true || echo false; }
 
           echo "cpp=$(match      '^(cpp/|ep/build-velox/|dev/)')"                                            >> $GITHUB_OUTPUT
-          echo "java=$(match     '^(\.github/workflows/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi|paimon)/|gluten-ut/(common/|test/|src-iceberg-upstream/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
+          echo "java=$(match     '^(\.github/(workflows|actions)/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi|paimon)/|gluten-ut/(common/|test/|src-iceberg-upstream/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
           echo "shims34=$(match  '^(shims/(spark34|common)/|gluten-ut/spark34/)')"                           >> $GITHUB_OUTPUT
           echo "shims35=$(match  '^(shims/(spark35|common)/|gluten-ut/spark35/)')"                           >> $GITHUB_OUTPUT
           echo "shims40=$(match  '^(shims/(spark40|common)/|gluten-ut/spark40/)')"                           >> $GITHUB_OUTPUT
@@ -166,6 +207,7 @@ jobs:
 
   build-native-lib-centos-8:
     needs: detect-changes
+    if: needs.detect-changes.outputs.relevant != 'false'
     runs-on: ubuntu-22.04
     container: apache/gluten:vcpkg-almalinux-8-gcc13
     steps:
@@ -176,14 +218,22 @@ jobs:
           dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
           dnf install -y gh --setopt=gpgcheck=0
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-merged
       - name: Get Ccache from Apache Stash
         id: ccache-stash
         uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+      - name: Get Ccache from apache/gluten main (fork push on Stash miss)
+        id: ccache-upstream
+        if: github.event_name == 'push' && steps.ccache-stash.outputs.stash-hit != 'true'
+        uses: ./.github/actions/restore-upstream-ccache
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
       - name: Get Ccache from actions/cache (fallback on Stash miss)
-        if: steps.ccache-stash.outputs.stash-hit != 'true'
+        if: steps.ccache-stash.outputs.stash-hit != 'true' && steps.ccache-upstream.outputs.hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
@@ -262,6 +312,7 @@ jobs:
     container: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-merged
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -392,6 +443,7 @@ jobs:
     container: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-merged
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -472,6 +524,7 @@ jobs:
           sudo docker image prune --all --force > /dev/null
           df -h
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-merged
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -590,6 +643,7 @@ jobs:
           sudo docker image prune --all --force > /dev/null
           df -h
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-merged
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -632,6 +686,7 @@ jobs:
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-merged
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -689,6 +744,7 @@ jobs:
     container: centos:8
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-merged
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -764,6 +820,7 @@ jobs:
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-merged
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -835,6 +892,7 @@ jobs:
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-merged
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -886,6 +944,7 @@ jobs:
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-merged
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -959,6 +1018,7 @@ jobs:
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-merged
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -1022,6 +1082,7 @@ jobs:
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-merged
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -1070,6 +1131,7 @@ jobs:
           # 'check.py tidy commit' diffs HEAD^..HEAD, which a depth-1 clone lacks: the
           # diff comes back empty and the check passes without inspecting anything.
           fetch-depth: 2
+      - uses: ./.github/actions/checkout-merged
       - name: Install Stash restore dependencies # the stash action needs gh and jq, absent from this container
         run: |
           case "$(uname -m)" in
@@ -1088,8 +1150,15 @@ jobs:
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos9-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+      - name: Get Ccache from apache/gluten main (fork push on Stash miss)
+        id: ccache-upstream
+        if: github.event_name == 'push' && steps.ccache-stash.outputs.stash-hit != 'true'
+        uses: ./.github/actions/restore-upstream-ccache
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos9-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
       - name: Get Ccache from actions/cache (fallback on Stash miss)
-        if: steps.ccache-stash.outputs.stash-hit != 'true'
+        if: steps.ccache-stash.outputs.stash-hit != 'true' && steps.ccache-upstream.outputs.hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
@@ -1107,6 +1176,8 @@ jobs:
       - name: Check Clang Tidy
         # Advisory until observed green: clang-tidy re-parses a database written by
         # gcc-toolset-12, so toolchain-level diagnostics are still possible.
+        # Skipped on fork pushes: the merged tree from checkout-merged has no git history.
+        if: github.event_name != 'push'
         continue-on-error: true
         env:
           # Make the GCC-generated database clang-safe: point clang at the libstdc++ the
@@ -1187,9 +1258,11 @@ jobs:
 
   # Reuse the head revision's static native libraries. Iceberg runs alongside the
   # Spark/TPC jobs once the shared build completes, without waiting for their results.
+  # Not on fork pushes yet: on a push, iceberg_spark_ut.yml would check out the pushed
+  # commit and its parent instead of the merged tree and apache/gluten main.
   iceberg-spark-ut:
     needs: [detect-changes, build-native-lib-centos-8]
-    if: needs.detect-changes.outputs.spark35_needed == 'true'
+    if: github.event_name != 'push' && needs.detect-changes.outputs.spark35_needed == 'true'
     permissions:
       contents: read
       actions: read
@@ -1211,14 +1284,22 @@ jobs:
       - run: df -h | sort -k 5 -nr # check disk space for debug
 
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-merged
       - name: Get Ccache from Apache Stash
         id: ccache-stash
         uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos9-cudf-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+      - name: Get Ccache from apache/gluten main (fork push on Stash miss)
+        id: ccache-upstream
+        if: github.event_name == 'push' && steps.ccache-stash.outputs.stash-hit != 'true'
+        uses: ./.github/actions/restore-upstream-ccache
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos9-cudf-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
       - name: Get Ccache from actions/cache (fallback on Stash miss)
-        if: steps.ccache-stash.outputs.stash-hit != 'true'
+        if: steps.ccache-stash.outputs.stash-hit != 'true' && steps.ccache-upstream.outputs.hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
@@ -1267,6 +1348,7 @@ jobs:
     container: apache/gluten:centos-8-jdk17
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-merged
       - name: Build with fast-build profile (Spark 4.0, Java 17)
         run: |
           cd $GITHUB_WORKSPACE/
@@ -1282,6 +1364,7 @@ jobs:
     container: apache/gluten:centos-8-jdk17
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-merged
       - name: Build Spark 4.2 Velox (Java 17, Scala 2.13)
         run: |
           cd $GITHUB_WORKSPACE/
@@ -1303,6 +1386,7 @@ jobs:
     container: apache/gluten:centos-8-jdk17
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-merged
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -1369,6 +1453,7 @@ jobs:
     container: apache/gluten:centos-8-jdk17
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-merged
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -1426,6 +1511,7 @@ jobs:
     container: apache/gluten:centos-9-jdk17
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-merged
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -1498,6 +1584,7 @@ jobs:
     container: apache/gluten:centos-9-jdk17
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-merged
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -1555,6 +1642,7 @@ jobs:
     container: apache/gluten:centos-9-jdk17
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-merged
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -1630,6 +1718,7 @@ jobs:
     container: apache/gluten:centos-9-jdk17
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-merged
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
