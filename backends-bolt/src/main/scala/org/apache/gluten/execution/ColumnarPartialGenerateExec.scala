@@ -228,7 +228,7 @@ case class ColumnarPartialGenerateExec(generateExec: GenerateExec, child: SparkP
         leftInputData
       }
     } finally {
-      // offload/toBoltBatch transfer their vectors into rightTargetBatch. Close that ownership once.
+      // offload/toBoltBatch transfer vector ownership to rightTargetBatch.
       rightTargetBatch.close()
       a2v += System.currentTimeMillis() - start
     }

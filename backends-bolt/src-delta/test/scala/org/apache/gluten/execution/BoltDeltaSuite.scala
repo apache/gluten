@@ -41,7 +41,8 @@ class BoltDeltaSuite extends DeltaSuite {
               Seq(1, 2).toDF("id").write.format("delta").save(path)
               if (enableDvs) {
                 spark.sql(
-                  s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('delta.enableDeletionVectors' = true)")
+                  s"ALTER TABLE delta.`$path` SET TBLPROPERTIES " +
+                    "('delta.enableDeletionVectors' = true)")
               }
               val log = DeltaLog.forTable(spark, new Path(path))
               val scan = spark.read.format("delta").load(path).queryExecution.executedPlan.collect {
@@ -49,7 +50,10 @@ class BoltDeltaSuite extends DeltaSuite {
               }.head
               var listings = 0
               val snapshot = log.update()
+              val tableLogPath = log.logPath
               val index = new TahoeFileIndex(spark, log, new Path(path)) {
+                // SnapshotDescriptor requires the log path on Delta 4.x.
+                def logPath: Path = tableLogPath
                 override def version: Long = snapshot.version
                 override def metadata = snapshot.metadata
                 override def protocol = snapshot.protocol
@@ -104,14 +108,14 @@ class BoltDeltaSuite extends DeltaSuite {
               .exists(_.deletionVector != null))
           assert(
             BoltOffloadDeltaScan().offload(scan).isInstanceOf[DeltaScanTransformer],
-            "Delta's injected deleted-row filter must not invalidate the prepared partition selection"
+            "Delta's deleted-row filter must preserve the prepared partition selection"
           )
           Seq(Nil, scan.dataFilters).foreach {
             dataFilters =>
               val unpruned = scan.copy(partitionFilters = Nil, dataFilters = dataFilters)
               assert(
                 BoltOffloadDeltaScan().offload(unpruned) eq unpruned,
-                "Dropping partition filters must not reuse a stale DV-free selection, even with the injected row filter"
+                "Dropping partition filters must invalidate a stale DV-free selection"
               )
           }
       }

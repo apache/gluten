@@ -1,0 +1,114 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Bolt CI Listener
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
+        type: string
+      head_sha:
+        description: Full reviewed commit SHA (required for a new external-fork commit)
+        type: string
+
+permissions: {}
+
+env:
+  CONTROL_SHA: ${{ github.workflow_sha }}
+
+jobs:
+  listen:
+    if: github.event_name != 'issue_comment' || github.event.issue.pull_request
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: bolt-control-pr-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
+      cancel-in-progress: false
+      queue: max
+    permissions:
+      contents: read
+      actions: write
+      checks: write
+      pull-requests: write
+    outputs:
+      pr: ${{ steps.listen.outputs.pr }}
+      run_id: ${{ steps.listen.outputs.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: .github/workflows/util/bolt-ci
+      - id: listen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/workflows/util/bolt-ci/control.py listen
+
+  watch:
+    needs: listen
+    if: needs.listen.outputs.run_id != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+      pull-requests: read
+    outputs:
+      evidence: ${{ steps.watch.outputs.evidence }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: .github/workflows/util/bolt-ci
+      - id: watch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN_ID: ${{ needs.listen.outputs.run_id }}
+        run: python3 .github/workflows/util/bolt-ci/control.py watch
+
+  expire:
+    needs: [listen, watch]
+    if: needs.watch.outputs.evidence != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: bolt-control-pr-${{ needs.listen.outputs.pr }}
+      cancel-in-progress: false
+      queue: max
+    permissions:
+      contents: read
+      actions: write
+      checks: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: .github/workflows/util/bolt-ci
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN_ID: ${{ needs.listen.outputs.run_id }}
+          QUEUE_EVIDENCE: ${{ needs.watch.outputs.evidence }}
+        run: python3 .github/workflows/util/bolt-ci/control.py expire

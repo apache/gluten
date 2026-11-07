@@ -23,6 +23,18 @@ import org.apache.gluten.backendsapi.BackendsApiManager
 //  on legacy backend-specific code in UTs. The new usages of the methods should
 //  be better avoided. We'd remove them until the time is ripe.
 object BackendTestUtils {
+  // Each backend profile supplies only its own implementation of these plan nodes.
+  // scalastyle:off classforname
+  private def planClass(name: String): Class[_] = {
+    val backend = if (isBoltBackendLoaded()) "Bolt" else "Velox"
+    Class.forName(s"org.apache.gluten.execution.$backend$name", false, getClass.getClassLoader)
+  }
+  // scalastyle:on classforname
+
+  lazy val resizeBatchesClass: Class[_] = planClass("ResizeBatchesExec")
+  lazy val broadcastNestedLoopJoinClass: Class[_] =
+    planClass("BroadcastNestedLoopJoinExecTransformer")
+
   def isVeloxBackendLoaded(): Boolean = {
     BackendsApiManager.getBackendName == "velox" // the same with VeloxBackend.BACKEND_NAME
   }

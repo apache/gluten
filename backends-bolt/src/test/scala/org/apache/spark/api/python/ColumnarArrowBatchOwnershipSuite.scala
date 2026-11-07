@@ -124,8 +124,12 @@ class ColumnarArrowBatchOwnershipSuite extends WholeStageTransformerSuite {
   }
 
   Seq(
-    "merge" -> "    batches = list(iterator)\n    if batches:\n        yield pd.concat(batches, ignore_index=True)",
-    "split" -> "    for batch in iterator:\n        for i in range(len(batch)):\n            yield batch.iloc[i:i + 1]"
+    "merge" -> """    batches = list(iterator)
+                 |    if batches:
+                 |        yield pd.concat(batches, ignore_index=True)""".stripMargin,
+    "split" -> """    for batch in iterator:
+                 |        for i in range(len(batch)):
+                 |            yield batch.iloc[i:i + 1]""".stripMargin
   ).foreach {
     case (name, body) =>
       testWithMaxSparkVersion(

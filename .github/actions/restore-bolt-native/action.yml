@@ -1,0 +1,46 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Restore Bolt native libraries
+description: Restore the verified native artifact using the Bolt CI download cache.
+inputs:
+  artifact:
+    description: Artifact published by the native job
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v7
+      with:
+        repository: bytedance/bolt
+        ref: 72f74589df524b2f4a7695b4f10c5b13a95812e8
+        path: bolt-ci-driver
+        sparse-checkout: .github/scripts
+        persist-credentials: false
+    - shell: bash
+      run: |
+        if ! command -v jq || ! command -v xmllint || ! command -v unzip; then
+          apt-get update
+          apt-get install -y --no-install-recommends jq libxml2-utils unzip
+        fi
+    - shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        NATIVE_ARTIFACT: ${{ inputs.artifact }}
+      run: |
+        export GLUTEN_REPORTS_DIR="$RUNNER_TEMP/bolt-native-input"
+        source bolt-ci-driver/.github/scripts/gluten_ci.sh
+        ci_download_artifact "$NATIVE_ARTIFACT"
+        tar -xzf "$GLUTEN_REPORTS_DIR/bolt-native.tar.gz"

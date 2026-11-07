@@ -52,6 +52,7 @@ public class BoltShuffleWriterJniWrapper implements RuntimeAware {
    */
   public native void addShuffleWriter(
       long iterHandle, byte[] shuffleWriterInfo, Object celebornPusher);
+
   /**
    * Get shuffle writer result from Runtime, including metrics and partition information
    *
