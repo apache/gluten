@@ -204,7 +204,7 @@ jobs:
           cd /work
           bash dev/builddeps-veloxbe.sh --run_setup_script=OFF --build_arrow=OFF --build_tests=ON --build_benchmarks=ON --enable_gpu=ON # TODO: re-enable tests with more disk space
           rm -rf ep/build-velox/build/velox_ep
-          ./build/mvn clean package -Pbackends-velox -Pspark-3.4 -DskipTests
+          ./build/mvn clean package -Pbackends-velox -Pspark-3.5 -DskipTests
           ccache -s
           "
       - name: Save Ccache

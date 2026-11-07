@@ -94,7 +94,6 @@ jobs:
       - name: Build package for Spark
         run: |
           cd $GITHUB_WORKSPACE/ && \
-          ./build/mvn clean install -Pspark-3.4 -Pbackends-velox -Pceleborn -Puniffle -DskipTests -Dmaven.source.skip
           ./build/mvn clean install -Pspark-3.5 -Pbackends-velox -Pceleborn -Puniffle -DskipTests -Dmaven.source.skip
       - name: Upload bundle package
         uses: actions/upload-artifact@v7
@@ -131,7 +130,6 @@ jobs:
       - name: Build package for Spark
         run: |
           cd $GITHUB_WORKSPACE/ && \
-          ./build/mvn clean install -Pspark-3.4 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
           ./build/mvn clean install -Pspark-3.5 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
           ./build/mvn clean install -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
           ./build/mvn clean install -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
@@ -240,7 +238,6 @@ jobs:
       - name: Build package for Spark
         run: |
           cd $GITHUB_WORKSPACE/ && \
-          ./build/mvn clean install -Pspark-3.4 -Pbackends-velox -Pceleborn -Puniffle -DskipTests -Dmaven.source.skip
           ./build/mvn clean install -Pspark-3.5 -Pbackends-velox -Pceleborn -Puniffle -DskipTests -Dmaven.source.skip
       - name: Upload bundle package
         uses: actions/upload-artifact@v7
@@ -277,7 +274,6 @@ jobs:
       - name: Build package for Spark
         run: |
           cd $GITHUB_WORKSPACE/ && \
-          ./build/mvn clean install -Pspark-3.4 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
           ./build/mvn clean install -Pspark-3.5 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
           ./build/mvn clean install -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
           ./build/mvn clean install -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
@@ -479,7 +475,6 @@ jobs:
       - name: Build package for Spark
         run: |
           cd $GITHUB_WORKSPACE/ && \
-          ./build/mvn clean install -Pspark-3.4 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
           ./build/mvn clean install -Pspark-3.5 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
           ./build/mvn clean install -Pspark-4.0 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip
           ./build/mvn clean install -Pspark-4.1 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -Piceberg -Phudi -Pdelta -Ppaimon -DskipTests -Dmaven.source.skip

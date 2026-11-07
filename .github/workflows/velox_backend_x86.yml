@@ -78,14 +78,14 @@ concurrency:
 
 jobs:
   # Detect which parts of the codebase were modified so downstream jobs can
-  # skip work that is irrelevant to the change (e.g. a Spark-3.4-shim-only change does
-  # not need to run spark-test-spark35/40/41; C++ changes still run spark-test-*
+  # skip work that is irrelevant to the change (e.g. a Spark-3.5-shim-only change does
+  # not need to run spark-test-spark40/41/42; C++ changes still run spark-test-*
   # jobs to validate JNI/native integration).
   #
   # Output flags:
   #   cpp      – C++ sources, Velox build scripts, or dev tooling changed
   #   java     – any cross-version Java/Scala/Maven source changed
-  #   shims34/35/40/41 – version-specific shim layer changed
+  #   shims35/40/41/42 – version-specific shim layer changed
   #   tools_it – tools/gluten-it changed
   #
   # A job runs when ANY of the relevant flags is true, so:
@@ -107,7 +107,6 @@ jobs:
       full_run: ${{ steps.filter.outputs.full_run }}
       cpp:      ${{ steps.filter.outputs.cpp }}
       java:     ${{ steps.filter.outputs.java }}
-      shims34:  ${{ steps.filter.outputs.shims34 }}
       shims35:  ${{ steps.filter.outputs.shims35 }}
       shims40:  ${{ steps.filter.outputs.shims40 }}
       shims41:  ${{ steps.filter.outputs.shims41 }}
@@ -133,7 +132,7 @@ jobs:
               recent=$(git log --oneline --after="24 hours ago" HEAD | wc -l)
               if [ "$recent" -eq 0 ]; then
                 echo "No commits in the last 24 hours -- skipping nightly run."
-                for flag in cpp java shims34 shims35 shims40 shims41 shims42 tools_it; do
+                for flag in cpp java shims35 shims40 shims41 shims42 tools_it; do
                   echo "$flag=false" >> $GITHUB_OUTPUT
                 done
                 echo "full_run=false" >> $GITHUB_OUTPUT
@@ -141,7 +140,7 @@ jobs:
               fi
             fi
             # Run everything, including the extended matrices PR runs skip.
-            for flag in cpp java shims34 shims35 shims40 shims41 shims42 tools_it; do
+            for flag in cpp java shims35 shims40 shims41 shims42 tools_it; do
               echo "$flag=true" >> $GITHUB_OUTPUT
             done
             echo "full_run=true" >> $GITHUB_OUTPUT
@@ -157,7 +156,6 @@ jobs:
 
           echo "cpp=$(match      '^(cpp/|ep/build-velox/|dev/)')"                                            >> $GITHUB_OUTPUT
           echo "java=$(match     '^(\.github/workflows/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi|paimon)/|gluten-ut/(common/|test/|src-iceberg-upstream/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
-          echo "shims34=$(match  '^(shims/(spark34|common)/|gluten-ut/spark34/)')"                           >> $GITHUB_OUTPUT
           echo "shims35=$(match  '^(shims/(spark35|common)/|gluten-ut/spark35/)')"                           >> $GITHUB_OUTPUT
           echo "shims40=$(match  '^(shims/(spark40|common)/|gluten-ut/spark40/)')"                           >> $GITHUB_OUTPUT
           echo "shims41=$(match  '^(shims/(spark41|common)/|gluten-ut/spark41/)')"                           >> $GITHUB_OUTPUT
@@ -222,9 +220,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ "ubuntu:22.04" ]
-        spark: [ "spark-3.4", "spark-3.5", "spark-4.0", "spark-4.1"  ]
+        spark: [ "spark-3.5", "spark-4.0", "spark-4.1"  ]
         # PR runs test the primary JDK per Spark line (8 for 3.x, 17 for 4.x --
-        # after the static excludes below that is 4 combos instead of 8). The
+        # after the static excludes below that is 3 combos instead of 6). The
         # alternative-JDK combos (11/21/25) validate build + TPC run under JDKs
         # that Gluten changes rarely break in a JDK-specific way; the nightly
         # full_run keeps covering them daily so a break surfaces within a day
@@ -235,20 +233,12 @@ jobs:
           || '["java-8", "java-17"]') }}
         # Spark supports JDK17 since 3.3.
         exclude:
-          - spark: spark-3.4
-            java: java-25
           - spark: spark-3.5
             java: java-25
-          - spark: spark-3.4
-            java: java-21
           - spark: spark-3.5
             java: java-21
-          - spark: spark-3.4
-            java: java-17
           - spark: spark-3.5
             java: java-17
-          - spark: spark-3.4
-            java: java-11
           - spark: spark-4.0
             java: java-8
           - spark: spark-4.0
@@ -365,7 +355,7 @@ jobs:
         os: [ "centos:8" ]
         spark: >-
           ${{ fromJSON(needs.detect-changes.outputs.full_run == 'true'
-          && '["spark-3.4", "spark-3.5", "spark-4.0", "spark-4.1"]'
+          && '["spark-3.5", "spark-4.0", "spark-4.1"]'
           || '["spark-3.5", "spark-4.1"]') }}
         java: >-
           ${{ fromJSON(needs.detect-changes.outputs.full_run == 'true'
@@ -373,12 +363,8 @@ jobs:
           || '["java-8", "java-17"]') }}
         # Spark supports JDK17 since 3.3.
         exclude:
-          - spark: spark-3.4
-            java: java-17
           - spark: spark-3.5
             java: java-17
-          - spark: spark-3.4
-            java: java-11
           - spark: spark-4.0
             java: java-8
           - spark: spark-4.0
@@ -749,129 +735,6 @@ jobs:
               --benchmark-type=ds --error-on-memleak \
               --off-heap-size=16g -s=1.0 --threads=16 --iterations=1
           fi
-
-  spark-test-spark34:
-    needs: [detect-changes, build-native-lib-centos-8]
-    if: >-
-      needs.detect-changes.outputs.java == 'true' ||
-      needs.detect-changes.outputs.shims34 == 'true' ||
-      needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: false
-      matrix:
-        group: [1, 2, 3]
-    container: apache/gluten:centos-8-jdk8
-    steps:
-      - uses: actions/checkout@v7
-      - name: Download All Artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: velox-native-lib-centos-8-${{github.sha}}
-          path: ./cpp/build/releases/
-      - name: Prepare spark.test.home for Spark 3.4.4 (other tests)
-        run: |
-          dnf module -y install python39 && \
-          alternatives --set python3 /usr/bin/python3.9 && \
-          pip3 install setuptools==77.0.3 && \
-          pip3 install pyspark==3.4.4 cython && \
-          pip3 install pandas==2.2.3 pyarrow==20.0.0
-      - name: Build and Run unit test for Spark 3.4.4 (other tests, group ${{ matrix.group }})
-        run: |
-          cd $GITHUB_WORKSPACE/
-          export SPARK_SCALA_VERSION=2.12
-          yum install -y java-17-openjdk-devel
-          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
-          export PATH=$JAVA_HOME/bin:$PATH
-          java -version
-          export SPARK_HOME=/opt/shims/spark34/spark_home/
-          TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest"
-          if [ "${{ matrix.group }}" = "1" ]; then
-            $PARALLEL_UT $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Piceberg-test -Pdelta -Phudi -Ppaimon -Pspark-ut \
-            -DtagsToExclude="$TAGS_EXCLUDE" -DargLine="-Dspark.test.home=$SPARK_HOME" \
-            -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
-          elif [ "${{ matrix.group }}" = "2" ]; then
-            $PARALLEL_UT $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Piceberg-test -Pdelta -Phudi -Ppaimon -Pspark-ut \
-            -DtagsToExclude="$TAGS_EXCLUDE" -DargLine="-Dspark.test.home=$SPARK_HOME" \
-            -DwildcardSuites="org.apache.spark.sql.execution,org.apache.spark.sql.catalyst,org.apache.spark.sql.errors,org.apache.spark.sql.extension"
-          else
-            $PARALLEL_UT $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Piceberg-test -Pdelta -Phudi -Ppaimon -Pspark-ut \
-            -DtagsToExclude="$TAGS_EXCLUDE" -DargLine="-Dspark.test.home=$SPARK_HOME" \
-            -DwildcardSuites="org.apache.spark.sql.GlutenSQL,org.apache.spark.sql.Gluten,org.apache.spark.sql.connector,org.apache.spark.sql.sources,org.apache.spark.sql.hive,org.apache.spark.sql.gluten,org.apache.spark.sql.shim"
-          fi
-      - name: Upload test report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: spark-test-spark34-group${{ matrix.group }}-report
-          path: '**/surefire-reports/TEST-*.xml'
-      - name: Upload unit tests log files
-        if: ${{ !success() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: spark-test-spark34-group${{ matrix.group }}-test-log
-          path: |
-            **/target/*.log
-            **/gluten-ut/**/hs_err_*.log
-            **/gluten-ut/**/core.*
-      - name: Upload golden files
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: spark-test-spark34-group${{ matrix.group }}-golden-files
-          path: /tmp/tpch-approved-plan/**
-
-  spark-test-spark34-slow:
-    needs: [detect-changes, build-native-lib-centos-8]
-    if: >-
-      needs.detect-changes.outputs.java == 'true' ||
-      needs.detect-changes.outputs.shims34 == 'true' ||
-      needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: false
-      matrix:
-        suite: [extended, slow-hive]
-    container: apache/gluten:centos-8-jdk8
-    steps:
-      - uses: actions/checkout@v7
-      - name: Download All Artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: velox-native-lib-centos-8-${{github.sha}}
-          path: ./cpp/build/releases/
-      - name: Build and Run unit test for Spark 3.4.4 (slow tests, ${{ matrix.suite }})
-        run: |
-          cd $GITHUB_WORKSPACE/
-          yum install -y java-17-openjdk-devel
-          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
-          export PATH=$JAVA_HOME/bin:$PATH
-          java -version
-          export SPARK_HOME=/opt/shims/spark34/spark_home/
-          if [ "${{ matrix.suite }}" = "extended" ]; then
-            $PARALLEL_UT $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
-            -DtagsToInclude=org.apache.spark.tags.ExtendedSQLTest \
-            -DargLine="-Dspark.test.home=$SPARK_HOME"
-          else
-            $PARALLEL_UT $MVN_CMD clean test -Pspark-3.4 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Pspark-ut \
-            -DtagsToInclude=org.apache.spark.tags.SlowHiveTest \
-            -DargLine="-Dspark.test.home=$SPARK_HOME"
-          fi
-      - name: Upload test report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: spark-test-spark34-slow-${{ matrix.suite }}-report
-          path: '**/surefire-reports/TEST-*.xml'
-      - name: Upload unit tests log files
-        if: ${{ !success() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: spark-test-spark34-slow-${{ matrix.suite }}-test-log
-          path: |
-            **/target/*.log
-            **/gluten-ut/**/hs_err_*.log
-            **/gluten-ut/**/core.*
 
   spark-test-spark35:
     needs: [detect-changes, build-native-lib-centos-8]
@@ -1246,7 +1109,7 @@ jobs:
           cd /work
           bash dev/builddeps-veloxbe.sh --run_setup_script=OFF --build_arrow=OFF --build_tests=ON --build_benchmarks=ON --enable_gpu=ON
           rm -rf ep/build-velox/build/velox_ep
-          build/mvn clean package -Pbackends-velox -Pspark-3.4 -DskipTests
+          build/mvn clean package -Pbackends-velox -Pspark-3.5 -DskipTests
           ccache -s
           "
 
