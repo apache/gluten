@@ -24,6 +24,7 @@ import org.apache.gluten.expression._
 import org.apache.gluten.expression.aggregate.{HLLAdapter, VeloxBloomFilterAggregate, VeloxCollectList, VeloxCollectSet}
 import org.apache.gluten.extension.{BroadcastJoinContextInfo, BroadcastJoinContextTag}
 import org.apache.gluten.extension.columnar.FallbackTags
+import org.apache.gluten.extension.columnar.offload.OffloadJoin
 import org.apache.gluten.shuffle.NeedCustomColumnarBatchSerializer
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.SubstraitContext
@@ -43,14 +44,15 @@ import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, CollectList, CollectSet}
 import org.apache.spark.sql.catalyst.expressions.objects.{AssertNotNull, StaticInvoke}
-import org.apache.spark.sql.catalyst.optimizer.BuildSide
+import org.apache.spark.sql.catalyst.optimizer.{BuildLeft, BuildSide}
 import org.apache.spark.sql.catalyst.plans.{ExistenceJoin, FullOuter, InnerLike, JoinType, LeftAnti, LeftOuter, LeftSemi, RightOuter}
+import org.apache.spark.sql.catalyst.plans.logical.Join
 import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.adaptive.AQEShuffleReadExec
 import org.apache.spark.sql.execution.datasources.FileFormat
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
-import org.apache.spark.sql.execution.joins.{BuildSideRelation, HashedRelationBroadcastMode, SparkHashJoinUtils}
+import org.apache.spark.sql.execution.joins.{BuildSideRelation, HashedRelationBroadcastMode, SortMergeJoinExec, SparkHashJoinUtils}
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.execution.python.ArrowEvalPythonExec
 import org.apache.spark.sql.execution.unsafe.UnsafeColumnarBuildSideRelation
@@ -557,6 +559,32 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       seed: Long,
       child: SparkPlan): SampleExecTransformer = {
     SampleExecTransformer(lowerBound, upperBound, withReplacement, seed, child)
+  }
+
+  override def genSortMergeJoinExecTransformer(
+      plan: SortMergeJoinExec): SortMergeJoinExecTransformerBase = {
+    val swappable = plan.joinType match {
+      case _: InnerLike | LeftOuter | RightOuter | FullOuter => true
+      case _ => false
+    }
+    val switchChildren = VeloxConfig.get.optimizeSortMergeJoinStreamedSide &&
+      !GlutenConfig.get.forceShuffledHashJoin && swappable && !plan.isSkewJoin &&
+      plan.leftKeys.nonEmpty && plan.logicalLink.exists {
+        case join: Join =>
+          val sizes = Seq(join.left.stats.sizeInBytes, join.right.stats.sizeInBytes)
+          sizes.forall(size => size >= 0 && size != SQLConf.get.defaultSizeInBytes) &&
+          OffloadJoin.getOptimalBuildSide(join) == BuildLeft
+        case _ => false
+      }
+    SortMergeJoinExecTransformer(
+      plan.leftKeys,
+      plan.rightKeys,
+      plan.joinType,
+      plan.condition,
+      plan.left,
+      plan.right,
+      plan.isSkewJoin,
+      switchChildren = switchChildren)
   }
 
   override def genSortMergeJoinExecTransformer(
