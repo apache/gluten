@@ -158,12 +158,12 @@ or 4 types of dumped file:
 
 ### Broadcast hash join
 
-By default the hash table of a BHJ is built once per executor and handed to the native join through
-a process-local cache, so its build side never reaches the native operator as input data. While
+The hash table of a BHJ is built once per executor and handed to the native join through a
+process-local cache, so its build side never reaches the native operator as input data. While
 `spark.gluten.sql.benchmark_task.stageId` or `spark.gluten.sql.benchmark_task.taskId` is set,
-Gluten therefore ignores `spark.gluten.velox.buildHashTableOncePerExecutor.enabled` for every query
-and builds the hash table in each task from the streamed build side, which is dumped as a regular
-data file. Note that the replayed stage includes building the hash table in its measurement.
+Gluten therefore builds the hash table in each task from the streamed build side, which is dumped
+as a regular data file. Note that the replayed stage includes building the hash table in its
+measurement.
 
 Run benchmark. By default, the result will be printed to stdout. You can use `--noprint-result` to
 suppress this output.

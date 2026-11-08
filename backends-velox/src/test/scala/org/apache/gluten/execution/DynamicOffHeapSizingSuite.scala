@@ -36,10 +36,6 @@ class DynamicOffHeapSizingSuite extends VeloxWholeStageTransformerSuite {
       .set("spark.executor.memory", "2GB")
       .set("spark.memory.offHeap.enabled", "false")
       .set("spark.gluten.sql.columnar.backend.velox.driverSideBroadcastHashTableBuild", "false")
-      .set(
-        "spark.gluten.velox.buildHashTableOncePerExecutor.enabled",
-        "false"
-      ) // build native hash table need use off heap memory.
       .set(GlutenCoreConfig.DYNAMIC_OFFHEAP_SIZING_MEMORY_FRACTION.key, "0.95")
       .set(GlutenCoreConfig.DYNAMIC_OFFHEAP_SIZING_ENABLED.key, "true")
   }
