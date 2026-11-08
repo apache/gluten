@@ -186,9 +186,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .excludeGlutenTest("from_unixtime")
     // Replaced by a gluten test to pass timezone through config.
     .exclude("months_between")
-    .exclude(
-      "TruncTimestamp of Long.MinValue overflows with ArithmeticException"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenDecimalExpressionSuite]
   enableSuite[GlutenDecimalPrecisionSuite]
   enableSuite[GlutenGeneratorExpressionSuite]
