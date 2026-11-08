@@ -1950,10 +1950,12 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
   }
 
   test("Support multi-children count with row construct") {
-    // Spark before 4.3 (SPARK-58213) throws DIVIDE_BY_ZERO for corr on a column with zero variance
-    // in ANSI mode, while Velox returns NULL as Spark 4.3 does. Run with ANSI mode disabled for
-    // now, see https://github.com/apache/gluten/issues/13255.
-    withSQLConf(SQLConf.ANSI_ENABLED.key -> "false") {
+    // Spark before 4.3 throws DIVIDE_BY_ZERO for corr on a column with zero variance in ANSI mode,
+    // while Spark 4.3+ (SPARK-58213) and Velox return NULL. So run with ANSI mode enabled on
+    // Spark 4.3+ and disabled before that, see https://github.com/apache/gluten/issues/13255.
+    withSQLConf(
+      SQLConf.ANSI_ENABLED.key -> isSparkVersionGE("4.3").toString,
+      GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false") {
       runQueryAndCompare(
         """
           |select l_orderkey, count(distinct l_partkey, l_comment), corr(l_partkey, l_partkey+1)

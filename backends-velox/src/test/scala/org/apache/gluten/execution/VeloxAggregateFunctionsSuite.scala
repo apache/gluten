@@ -360,6 +360,23 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
     }
   }
 
+  // Spark before 4.3 throws DIVIDE_BY_ZERO for corr on a column with zero variance in ANSI mode,
+  // while Spark 4.3+ (SPARK-58213) and Velox return NULL, see
+  // https://github.com/apache/gluten/issues/13255.
+  test("corr with zero variance column in ANSI mode") {
+    assume(isSparkVersionGE("4.3"))
+    withSQLConf(
+      SQLConf.ANSI_ENABLED.key -> "true",
+      GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false") {
+      runQueryAndCompare("""
+                           |select l_orderkey, corr(l_partkey, l_partkey + 1)
+                           |from lineitem group by l_orderkey
+                           |""".stripMargin) {
+        checkGlutenPlan[HashAggregateExecTransformer]
+      }
+    }
+  }
+
   test("corr covar_pop covar_samp") {
     runQueryAndCompare("""
                          |select corr(l_partkey, l_suppkey) from lineitem;
