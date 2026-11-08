@@ -8,7 +8,7 @@ vcpkg_from_github(
   HEAD_REF
   master
   SHA512
-  a7e683625fa7e17cfe39cf3915b13fa34c589a8bcace51a9a8a98948f4cbdb1fd4346a273a44d934aced4aad1da7bc695b3b4f9fea078ae4bdf2b48234e99de3
+  e0aee07decb7d6f82b4b32d3a6f41ec35c1902558c7278a6fad595fbe151a957fab4f16292a13a103a6d1f828003656f7ae855f725fcac96e91585425c868eb4
   PATCHES
   add-definition.patch)
 
