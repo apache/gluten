@@ -248,15 +248,6 @@ class VeloxTestSettings extends BackendTestSettings {
       "SPARK-58968: no GroupPartitionsExec when a join collection member needs none"
     ) // GLUTEN-13517 Spark 4.3 UT enablement
     .exclude(
-      "SPARK-58968: window top-k over union output partitioning coalesces partitions"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-59022: keyed shuffle follows the declared partition key order over a union"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-57881: storage-partitioned join leverages union output KeyedPartitioning to avoid shuffle"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
       "SPARK-57881: storage-partitioned join over union: compatible expressions, disjoint child partition keys"
     ) // GLUTEN-13517 Spark 4.3 UT enablement
     .exclude(
@@ -279,9 +270,6 @@ class VeloxTestSettings extends BackendTestSettings {
     ) // GLUTEN-13517 Spark 4.3 UT enablement
     .exclude(
       "SPARK-59057: several splits per partition key are grouped without allowKeysSubsetOfPartitionKeys"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-59057: filtering partition keys out is not a key collapse"
     ) // GLUTEN-13517 Spark 4.3 UT enablement
     .exclude(
       "SPARK-59057: a shuffle built from a template that collapsed nothing needs no opt-in"
@@ -580,34 +568,6 @@ class VeloxTestSettings extends BackendTestSettings {
     // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException.
     // Rewritten in GlutenUpdateTableSuiteBase.
     .exclude("update with constraint violation and transactional checks")
-    .exclude("update with CTE and transactional checks") // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "update with subquery on source table and transactional checks"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude("update using view with transactional checks") // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-57681: update with dynamic options and a subquery on the same table"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-58330: update keeps its own options when a subquery references the same table with different options"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-57681: update with dynamic options and a CTE on the same table"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-58330: update keeps its own options when a CTE references the same table with different options"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "update with subquery handles metadata columns correctly"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude("update runtime group filtering") // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude("update runtime filter subquery reuse") // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "update does not double plan table (group filter enabled)"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "update does not double plan table (group filter disabled)"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
   enableSuite[GlutenMergeIntoDataFrameSuite]
   enableSuite[GlutenProcedureSuite]
   enableSuite[GlutenPushablePredicateSuite]
@@ -2008,9 +1968,6 @@ class VeloxTestSettings extends BackendTestSettings {
     // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException
     .exclude("merge with NOT NULL checks")
   enableSuite[GlutenGroupBasedRowLevelOperationCatalystRuntimeFilterSuite]
-    .exclude(
-      "update runtime group filtering with SupportsRuntimeCatalystFiltering"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
   enableSuite[GlutenFileSourceCustomMetadataStructSuite]
   enableSuite[GlutenParquetFileMetadataStructRowIndexSuite]
   enableSuite[GlutenTableLocationSuite]

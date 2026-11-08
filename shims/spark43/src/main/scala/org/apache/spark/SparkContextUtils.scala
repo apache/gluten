@@ -18,6 +18,7 @@ package org.apache.spark
 
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.{RDD, SQLPartitioningAwareUnionRDD}
+import org.apache.spark.sql.catalyst.plans.physical.{KeyedPartitioning, Partitioning}
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 import scala.reflect.ClassTag
@@ -30,7 +31,12 @@ object SparkContextUtils {
   def createPartitioningAwareUnionRDD(
       sc: SparkContext,
       rdds: Seq[RDD[ColumnarBatch]],
-      numPartitions: Int): RDD[ColumnarBatch] = {
-    new SQLPartitioningAwareUnionRDD(sc, rdds, numPartitions)
+      partitioning: Partitioning): RDD[ColumnarBatch] = {
+    partitioning match {
+      // A union over KeyedPartitioning concatenates its children's partitions, one partition key
+      // per output partition, instead of interleaving same-index partitions.
+      case _: KeyedPartitioning => sc.union(rdds)
+      case _ => new SQLPartitioningAwareUnionRDD(sc, rdds, partitioning.numPartitions)
+    }
   }
 }
