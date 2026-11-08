@@ -38,6 +38,9 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
   val SUPPORTED_SQL_QUERY_LIST: Set[String] = Set(
     "ansi/conditional-functions.sql",
     "ansi/decimalArithmeticOperations.sql",
+    // TODO: fix on Spark-4.3, TIMESTAMP_NTZ(9) cast falls back and fails in codegen
+    // (the nanosecond timestamp types are not supported)
+    // "cast.sql",
     "change-column.sql",
     "ceil-floor-with-scale-param.sql",
     "column-resolution-aggregate.sql",
@@ -55,6 +58,7 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "current_database_catalog.sql",
     // "datetime-formatting-invalid.sql",
     "datetime-special.sql",
+    "decimalArithmeticOperations.sql",
     // TODO: fix on Spark-4.1 "describe.sql",
     "describe-part-after-analyze.sql",
     "describe-table-after-alter-table.sql",
@@ -76,12 +80,16 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "identifier-clause.sql",
     "ignored.sql",
     "ilike.sql",
+    "ilike-all.sql",
+    "ilike-any.sql",
     "inline-table.sql",
     "inner-join.sql",
     "intersect-all.sql",
     "join-empty-relation.sql",
     "join-lateral.sql",
     "json-functions.sql",
+    "like-all.sql",
+    "like-any.sql",
     // TODO: fix on Spark-4.3 "keywords.sql",
     // "limit.sql",
     "literals.sql",
@@ -103,6 +111,7 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "pred-pushdown.sql",
     "predicate-functions.sql",
     "query_regex_column.sql",
+    "random.sql",
     "show-create-table.sql",
     "show-tables.sql",
     "show-tblproperties.sql",
@@ -113,6 +122,7 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "subexp-elimination.sql",
     "table-aliases.sql",
     "table-valued-functions.sql",
+    "tablesample-negative.sql",
     "try-string-functions.sql",
     "subquery/exists-subquery/exists-aggregate.sql",
     "subquery/exists-subquery/exists-basic.sql",
@@ -143,6 +153,7 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "subquery/negative-cases/invalid-correlation.sql",
     "subquery/negative-cases/subq-input-typecheck.sql",
     "subquery/scalar-subquery/scalar-subquery-count-bug.sql",
+    "subquery/scalar-subquery/scalar-subquery-predicate.sql",
     "subquery/scalar-subquery/scalar-subquery-select.sql",
     "subquery/scalar-subquery/scalar-subquery-set-op.sql",
     "subquery/subquery-in-from.sql",
@@ -154,6 +165,7 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "postgreSQL/case.sql",
     "postgreSQL/comments.sql",
     "postgreSQL/create_view.sql",
+    "postgreSQL/date.sql",
     "postgreSQL/float4.sql",
     // TODO: fix on Spark-4.3 "postgreSQL/float8.sql",
     "postgreSQL/groupingsets.sql",
@@ -179,6 +191,7 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "timestamp-ltz.sql",
     "timestamp-ntz.sql",
     "timezone.sql",
+    "transform.sql",
     "try-string-functions.sql",
     "try_aggregates.sql",
     "typeCoercion/native/arrayJoin.sql",
@@ -186,6 +199,8 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "typeCoercion/native/booleanEquality.sql",
     "typeCoercion/native/caseWhenCoercion.sql",
     "typeCoercion/native/concat.sql",
+    "typeCoercion/native/dateTimeOperations.sql",
+    "typeCoercion/native/decimalPrecision.sql",
     "typeCoercion/native/division.sql",
     "typeCoercion/native/elt.sql",
     "typeCoercion/native/ifCoercion.sql",
@@ -222,6 +237,9 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     // "timestampNTZ/timestamp-ansi.sql",
     // "timestampNTZ/timestamp.sql",
     // "nonansi/array.sql",
+    // TODO: fix on Spark-4.3, TIMESTAMP_NTZ(9) cast falls back and fails in codegen
+    // (the nanosecond timestamp types are not supported)
+    // "nonansi/cast.sql",
     "nonansi/conditional-functions.sql",
     // "nonansi/date.sql",
     // "nonansi/datetime-parsing-invalid.sql",
@@ -237,6 +255,9 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "nonansi/parse-schema-string.sql",
     // "nonansi/string-functions.sql",
     // "nonansi/timestamp.sql",
+    // TODO: fix on Spark-4.3, try_sum(decimal) fails in Velox partial aggregation
+    // (ROW vs. FLAT in SimpleNumericAggregate::doExtractValues)
+    // "nonansi/try_aggregates.sql",
     // "nonansi/try_arithmetic.sql",
     // "nonansi/try_datetime_functions.sql",
     // "nonansi/try_element_at.sql"
@@ -250,22 +271,30 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "cte-recursion.sql",
     "extract-value-resolution-edge-cases.sql",
     "generators.sql",
+    "having-and-order-by-recursive-type-name-resolution.sql",
     // TODO: fix on Spark-4.3 "identifier-clause-legacy.sql",
     "join-resolution-edge-cases.sql",
     "kllquantiles.sql",
     "name-precedence-in-order-by-and-having-with-conflicting-attributes.sql",
     // TODO: fix on Spark-4.1 "nonansi/st-functions.sql",
     "order-by-alias.sql",
+    "order-by-and-having-on-top-of-aggregate-with-join.sql",
+    "replacing-missing-expression-with-alias.sql",
     "runtime-replaceable-edge-cases.sql",
     // TODO: fix on Spark-4.1 "scripting/randomly_generated_scripts.sql",
     "session-variable-precedence.sql",
     // TODO: fix on Spark-4.1 "st-functions.sql",
     "subquery/resolution-edge-cases.sql",
     "thetasketch.sql",
+    // Gluten's time.sql omits the two SPARK-58296 `typeof(to_time(.., null))` queries: they fall
+    // back, and TypeOf codegen fails to compile in Spark when ConstantFolding is excluded.
+    "time.sql",
+    "type-coercion-edge-cases.sql",
     "union-per-child-output-deduplication.sql",
     "union-resolution-edge-cases.sql",
     // TODO: fix on Spark-4.1 "variant-field-extractions.sql",
-    "view-conf.sql"
+    "view-conf.sql",
+    "window-with-aggregates.sql"
   )
 
   val OVERWRITE_SQL_QUERY_LIST: Set[String] = Set(
