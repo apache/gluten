@@ -1697,6 +1697,7 @@ class VeloxTestSettings extends BackendTestSettings {
       "project every value row from dense and sparse long-key hash broadcasts"
     ) // SPARK-58265 fails open with columnar broadcasts
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOffDisableScan]
+    .excludeGlutenTest("SPARK-58265: projected broadcast values come from a separate row broadcast")
     .exclude(
       "reuse ancestor broadcast value rows for composite-key date partition pruning"
     ) // SPARK-58265 asserts metric scopes on a vanilla plan
@@ -1726,6 +1727,7 @@ class VeloxTestSettings extends BackendTestSettings {
       "project every value row from dense and sparse long-key hash broadcasts"
     ) // SPARK-58265 fails open with columnar broadcasts
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOnDisableScan]
+    .excludeGlutenTest("SPARK-58265: projected broadcast values fail open on a columnar broadcast")
     .exclude(
       "reuse ancestor broadcast value rows for composite-key date partition pruning"
     ) // SPARK-58265 fails open with columnar broadcasts
@@ -1739,6 +1741,7 @@ class VeloxTestSettings extends BackendTestSettings {
       "project every value row from dense and sparse long-key hash broadcasts"
     ) // SPARK-58265 fails open with columnar broadcasts
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOffDisableScan]
+    .excludeGlutenTest("SPARK-58265: projected broadcast values come from a separate row broadcast")
     .exclude(
       "reuse ancestor broadcast value rows for composite-key date partition pruning"
     ) // SPARK-58265 asserts metric scopes on a vanilla plan
