@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.gluten.sql.shims.spark42
+package org.apache.gluten.sql.shims.spark43
 
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.AttributeReference
@@ -26,13 +26,13 @@ import org.scalatest.funsuite.AnyFunSuite
 
 /**
  * Spark 4.1+ only: LocalTableScanExec carries an optional streaming source (`stream`). This suite
- * verifies the Spark42Shims accessor that VeloxSparkPlanExecApi.isSupportLocalTableScanExec uses to
+ * verifies the Spark43Shims accessor that VeloxSparkPlanExecApi.isSupportLocalTableScanExec uses to
  * skip offload for streaming sources. The Velox backend test lives here (not in the shared
  * cross-version suite) because the `stream` constructor parameter does not exist on Spark 3.x.
  */
-class Spark42LocalTableScanStreamSuite extends AnyFunSuite {
+class Spark43LocalTableScanStreamSuite extends AnyFunSuite {
 
-  private val shims = new Spark42Shims
+  private val shims = new Spark43Shims
 
   private def output = Seq(AttributeReference("id", IntegerType)())
 

@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.gluten.sql.shims.spark42
+package org.apache.gluten.sql.shims.spark43
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
@@ -29,8 +29,8 @@ private case class OneRowRelationExec() extends LeafExecNode {
     throw new UnsupportedOperationException("test-only plan")
 }
 
-class Spark42ShimsOneRowRelationSuite extends SharedSparkSession {
-  private val shims = new Spark42Shims()
+class Spark43ShimsOneRowRelationSuite extends SharedSparkSession {
+  private val shims = new Spark43Shims()
 
   test("recognizes OneRowRelationExec") {
     assert(shims.isOneRowRelationExec(SparkOneRowRelationExec()))
