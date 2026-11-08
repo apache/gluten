@@ -52,12 +52,6 @@ class VeloxTestSettings extends BackendTestSettings {
   import SuiteSettings._
   private val ansiNoFallback: Boolean =
     sys.props.get(GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key).contains("false")
-  // GLUTEN-13517 Spark 4.3 UT enablement: commons-compress 1.28.0 (Spark 4.3) calls commons-io
-  // APIs missing from the commons-io 2.14.0 pinned by gluten-ut (Spark 4.3 uses 2.22.0), e.g.
-  // BoundedInputStream.builder and FileTimes.toUnixTime. Tar/7z archive tests then hit
-  // NoSuchMethodError/NoClassDefFoundError, which aborts the whole ScalaTest run.
-  private val archiveCommonsIoReason: String =
-    "GLUTEN-13517 Spark 4.3 UT enablement: tar/7z archive I/O needs commons-io > 2.14.0"
   enableSuite[GlutenStringFunctionsSuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuiteCGOff]
@@ -675,16 +669,16 @@ class VeloxTestSettings extends BackendTestSettings {
   // Generated suites for org.apache.spark.sql.execution.datasources
   enableSuite[GlutenBasicWriteJobStatsTrackerMetricSuite]
   enableSuite[GlutenBasicWriteTaskStatsTrackerSuite]
-  disableSuite[GlutenBinaryFileSevenZArchiveReadSuite](archiveCommonsIoReason)
-  disableSuite[GlutenBinaryFileTarArchiveReadSuite](archiveCommonsIoReason)
+  enableSuite[GlutenBinaryFileSevenZArchiveReadSuite]
+  enableSuite[GlutenBinaryFileTarArchiveReadSuite]
   enableSuite[GlutenBinaryFileZipArchiveReadSuite]
   enableSuite[GlutenCustomWriteTaskStatsTrackerSuite]
   enableSuite[GlutenDataSourceManagerSuite]
   enableSuite[GlutenDataSourceResolverSuite]
   enableSuite[GlutenFileResolverSuite]
   enableSuite[GlutenInMemoryTableMetricSuite]
-  disableSuite[GlutenJSONSevenZArchiveReadSuite](archiveCommonsIoReason)
-  disableSuite[GlutenJSONTarArchiveReadSuite](archiveCommonsIoReason)
+  enableSuite[GlutenJSONSevenZArchiveReadSuite]
+  enableSuite[GlutenJSONTarArchiveReadSuite]
   enableSuite[GlutenJSONZipArchiveReadSuite]
   enableSuite[GlutenPushVariantIntoScanSuite]
     .exclude(
@@ -694,7 +688,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenSaveIntoDataSourceCommandSuite]
   disableSuite[GlutenStructPredicatePushdownSuite](
     "GLUTEN-13517 Spark 4.3 UT enablement: reads DataFilters from vanilla FileSourceScanExec/BatchScanExec")
-  disableSuite[GlutenSupportsArchiveFormatSuite](archiveCommonsIoReason)
+  enableSuite[GlutenSupportsArchiveFormatSuite]
   // Generated suites for org.apache.spark.sql.execution.datasources.csv
   enableSuite[GlutenCSVParsingOptionsSuite]
   // Generated suites for org.apache.spark.sql.execution.datasources.json
@@ -1069,35 +1063,30 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenFileTableSuite]
   enableSuite[GlutenV2PredicateSuite]
   enableSuite[GlutenBucketingUtilsSuite]
-  disableSuite[GlutenCSVHeaderSevenZArchiveReadSuite](archiveCommonsIoReason)
-  disableSuite[GlutenCSVHeaderTarArchiveReadSuite](archiveCommonsIoReason)
+  enableSuite[GlutenCSVHeaderSevenZArchiveReadSuite]
+  enableSuite[GlutenCSVHeaderTarArchiveReadSuite]
   enableSuite[GlutenCSVHeaderZipArchiveReadSuite]
-  disableSuite[GlutenCSVHeaderlessSevenZArchiveReadSuite](archiveCommonsIoReason)
-  disableSuite[GlutenCSVHeaderlessTarArchiveReadSuite](archiveCommonsIoReason)
+  enableSuite[GlutenCSVHeaderlessSevenZArchiveReadSuite]
+  enableSuite[GlutenCSVHeaderlessTarArchiveReadSuite]
   enableSuite[GlutenCSVHeaderlessZipArchiveReadSuite]
   enableSuite[GlutenDataSourceStrategySuite]
   enableSuite[GlutenDataSourceSuite]
   enableSuite[GlutenFileFormatWriterSuite]
   enableSuite[GlutenFileIndexSuite]
   enableSuite[GlutenFileMetadataStructSuite]
-    .exclude(
-      "SPARK-43450: Filter on full _metadata column struct"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
   enableSuite[GlutenParquetV1AggregatePushDownSuite]
   enableSuite[GlutenParquetV2AggregatePushDownSuite]
     .exclude(
       "SPARK-57746: aggregate push-down fails when Parquet statistics are missing"
     ) // GLUTEN-13517 Spark 4.3 UT enablement
-  disableSuite[GlutenParquetZipArchiveReadSuite](
-    "GLUTEN-13517 Spark 4.3 UT enablement: native scan reads the archive file as raw Parquet")
+  enableSuite[GlutenParquetZipArchiveReadSuite]
   enableSuite[GlutenPartitioningUtilsSuite]
   enableSuite[GlutenOrcV1AggregatePushDownSuite]
     .exclude("nested column: Count(nested sub-field) not push down")
   enableSuite[GlutenOrcV2AggregatePushDownSuite]
     .exclude("nested column: Max(top level column) not push down")
     .exclude("nested column: Count(nested sub-field) not push down")
-  disableSuite[GlutenOrcZipArchiveReadSuite](
-    "GLUTEN-13517 Spark 4.3 UT enablement: native scan reads the archive file as raw ORC")
+  enableSuite[GlutenOrcZipArchiveReadSuite]
   enableSuite[GlutenOrcCodecSuite]
   enableSuite[GlutenFileSourceStrategySuite]
     // Plan comparison.
@@ -1112,16 +1101,16 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenMarkSingleTaskExecutionSuite]
     .exclude("bucketed scan does not run in a single task") // GLUTEN-13517 Spark 4.3 UT enablement
   enableSuite[GlutenOrcReadSchemaSuite]
-  disableSuite[GlutenOrcSevenZArchiveReadSuite](archiveCommonsIoReason)
-  disableSuite[GlutenOrcTarArchiveReadSuite](archiveCommonsIoReason)
+  enableSuite[GlutenOrcSevenZArchiveReadSuite]
+  enableSuite[GlutenOrcTarArchiveReadSuite]
   enableSuite[GlutenVectorizedOrcReadSchemaSuite]
   enableSuite[GlutenMergedOrcReadSchemaSuite]
   enableSuite[GlutenParquetReadSchemaSuite]
-  disableSuite[GlutenParquetSevenZArchiveReadSuite](archiveCommonsIoReason)
-  disableSuite[GlutenParquetTarArchiveReadSuite](archiveCommonsIoReason)
+  enableSuite[GlutenParquetSevenZArchiveReadSuite]
+  enableSuite[GlutenParquetTarArchiveReadSuite]
   enableSuite[GlutenVectorizedParquetReadSchemaSuite]
-  disableSuite[GlutenXMLSevenZArchiveReadSuite](archiveCommonsIoReason)
-  disableSuite[GlutenXMLTarArchiveReadSuite](archiveCommonsIoReason)
+  enableSuite[GlutenXMLSevenZArchiveReadSuite]
+  enableSuite[GlutenXMLTarArchiveReadSuite]
   enableSuite[GlutenXMLZipArchiveReadSuite]
   enableSuite[GlutenMergedParquetReadSchemaSuite]
   enableSuite[GlutenParquetCodecSuite]
@@ -2014,8 +2003,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenFileSourceCustomMetadataStructSuite]
   enableSuite[GlutenParquetFileMetadataStructRowIndexSuite]
   enableSuite[GlutenTableLocationSuite]
-  disableSuite[GlutenTextSevenZArchiveReadSuite](archiveCommonsIoReason)
-  disableSuite[GlutenTextTarArchiveReadSuite](archiveCommonsIoReason)
+  enableSuite[GlutenTextSevenZArchiveReadSuite]
+  enableSuite[GlutenTextTarArchiveReadSuite]
   enableSuite[GlutenRemoveRedundantWindowGroupLimitsSuite]
     // rewrite with Gluten test
     .exclude("remove redundant WindowGroupLimits")
