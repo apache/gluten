@@ -18,8 +18,20 @@ package org.apache.spark.sql.catalyst.expressions
 
 import org.apache.spark.sql.GlutenExpressionOffloadTracker
 import org.apache.spark.sql.shim.GlutenTestsTrait
+import org.apache.spark.sql.types.{TimestampLTZNanosType, TimestampNTZNanosType}
+import org.apache.spark.unsafe.types.TimestampNanosVal
 
 class GlutenTimestampNanosRowSuite
   extends TimestampNanosRowSuite
   with GlutenExpressionOffloadTracker
-  with GlutenTestsTrait {}
+  with GlutenTestsTrait {
+
+  // collect() converts through the external type, which truncates to the type's precision, so
+  // the LTZ(7) value must already be at that precision. Spark's test uses 999 nanos.
+  testGluten("checkEvaluation roundtrip for nanos timestamp Literal") {
+    val ntzValue = TimestampNanosVal.fromParts(1234567890123L, 42.toShort)
+    val ltzValue = TimestampNanosVal.fromParts(9876543210987L, 900.toShort)
+    checkEvaluation(Literal.create(ntzValue, TimestampNTZNanosType(9)), ntzValue)
+    checkEvaluation(Literal.create(ltzValue, TimestampLTZNanosType(7)), ltzValue)
+  }
+}

@@ -401,6 +401,8 @@ trait GlutenTestsTrait extends GlutenTestsCommonTrait {
         case _: MapData => return false
         case _: ArrayData => return false
         case _: InternalRow => return false
+        // The row does not carry the nanos type or precision (Spark 4.3).
+        case v if v != null && v.getClass.getSimpleName == "TimestampNanosVal" => return false
         case _ =>
       }
     }
