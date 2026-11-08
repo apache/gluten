@@ -868,8 +868,9 @@ class VeloxTestSettings extends BackendTestSettings {
     .excludeByPrefix("bucket coalescing is applied when join expressions match")
   enableSuite[GlutenBucketedWriteWithoutHiveSupportSuite]
   enableSuite[GlutenCreateTableAsSelectSuite]
-    // Rewritten in GlutenCreateTableAsSelectSuite so that it is skipped when running as root,
-    // where removing the write permission does not stop writes. Gluten's CI runs as root.
+    // The CTAS writes JSON, which the Velox backend does not write natively (only Parquet is
+    // supported), so the write falls back to Spark's writer. The test also depends on a read-only
+    // directory, which does not stop writes when running as root like Gluten's CI.
     .exclude("CREATE TABLE USING AS SELECT based on the file without write permission")
   enableSuite[GlutenDDLSourceLoadSuite]
   disableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuite](
