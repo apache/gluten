@@ -701,8 +701,6 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenJsonParsingOptionsSuite]
   // Generated suites for org.apache.spark.sql.execution.datasources.parquet
   enableSuite[GlutenParquetAvroCompatibilitySuite]
-    // TODO: https://github.com/apache/gluten/issues/11865
-    .exclude("various complex types")
   enableSuite[GlutenParquetByteStreamSplitEncodingDoubleSuite]
   enableSuite[GlutenParquetByteStreamSplitEncodingFLBASuite]
   enableSuite[GlutenParquetByteStreamSplitEncodingFLBAWidth5Suite]
@@ -797,20 +795,13 @@ class VeloxTestSettings extends BackendTestSettings {
       "SPARK-57572: infer TimeType from CSV via spark.read.csv"
     ) // GLUTEN-13517 Spark 4.3 UT enablement
   enableSuite[GlutenJsonV1Suite]
-    // FIXME: Array direct selection fails
-    .exclude("Complex field and type inferring")
-    .exclude("SPARK-4228 DataFrame to JSON")
   enableSuite[GlutenJsonV2Suite]
     // exception test
     .exclude("SPARK-39731: Correctly parse dates and timestamps with yyyyMMdd pattern")
-    .exclude("Complex field and type inferring")
-    .exclude("SPARK-4228 DataFrame to JSON")
   enableSuite[GlutenEmbeddedArraySplitterSuite]
   enableSuite[GlutenExplodeEmbeddedArrayJsonV1Suite]
   enableSuite[GlutenExplodeEmbeddedArrayJsonV2Suite]
   enableSuite[GlutenJsonLegacyTimeParserSuite]
-    .exclude("Complex field and type inferring")
-    .exclude("SPARK-4228 DataFrame to JSON")
   enableSuite[GlutenValidateRequirementsSuite]
   enableSuite[GlutenOrcColumnarBatchReaderSuite]
   enableSuite[GlutenOrcEncryptionSuite]
