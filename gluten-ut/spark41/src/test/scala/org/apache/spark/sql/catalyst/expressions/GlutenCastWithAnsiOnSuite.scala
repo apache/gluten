@@ -17,6 +17,7 @@
 package org.apache.spark.sql.catalyst.expressions
 
 import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.tags.AnsiTest
 
 import org.apache.spark.sql.GlutenExpressionOffloadTracker
 import org.apache.spark.sql.catalyst.util.DateTimeTestUtils.{withDefaultTimeZone, ALL_TIMEZONES, UTC, UTC_OPT}
@@ -29,6 +30,7 @@ import org.apache.spark.util.DebuggableThreadUtils
 import java.sql.{Date, Timestamp}
 import java.util.{Calendar, TimeZone}
 
+@AnsiTest
 class GlutenCastWithAnsiOnSuite
   extends CastWithAnsiOnSuite
   with GlutenExpressionOffloadTracker

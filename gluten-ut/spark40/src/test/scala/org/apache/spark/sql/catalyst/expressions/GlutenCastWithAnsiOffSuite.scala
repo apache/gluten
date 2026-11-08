@@ -16,6 +16,8 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
+import org.apache.gluten.tags.AnsiTest
+
 import org.apache.spark.sql.GlutenExpressionOffloadTracker
 import org.apache.spark.sql.catalyst.util.DateTimeTestUtils.{withDefaultTimeZone, ALL_TIMEZONES, UTC, UTC_OPT}
 import org.apache.spark.sql.catalyst.util.DateTimeUtils.{fromJavaTimestamp, millisToMicros, TimeZoneUTC}
@@ -26,6 +28,7 @@ import org.apache.spark.util.DebuggableThreadUtils
 import java.sql.{Date, Timestamp}
 import java.util.{Calendar, TimeZone}
 
+@AnsiTest
 class GlutenCastWithAnsiOffSuite extends CastWithAnsiOffSuite with GlutenExpressionOffloadTracker {
   override protected def offloadCategory: String = "cast"
   override protected def panoramaMeta(expression: Expression): Map[String, String] =

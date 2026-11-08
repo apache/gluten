@@ -16,6 +16,7 @@
  */
 package org.apache.spark.sql
 
+import org.apache.gluten.tags.AnsiTest
 import org.apache.gluten.utils.BackendTestUtils
 
 import org.apache.spark.SparkException
@@ -27,6 +28,7 @@ import java.sql.{Date, Timestamp}
 import java.time.{LocalDateTime, ZoneId}
 import java.util.concurrent.TimeUnit
 
+@AnsiTest
 class GlutenDateFunctionsSuite extends DateFunctionsSuite with GlutenSQLTestsTrait {
   import testImplicits._
 

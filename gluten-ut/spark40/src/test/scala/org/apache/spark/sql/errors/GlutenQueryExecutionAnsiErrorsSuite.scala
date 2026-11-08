@@ -16,8 +16,11 @@
  */
 package org.apache.spark.sql.errors
 
+import org.apache.gluten.tags.AnsiTest
+
 import org.apache.spark.sql.GlutenSQLTestsTrait
 
+@AnsiTest
 class GlutenQueryExecutionAnsiErrorsSuite
   extends QueryExecutionAnsiErrorsSuite
   with GlutenSQLTestsTrait {}

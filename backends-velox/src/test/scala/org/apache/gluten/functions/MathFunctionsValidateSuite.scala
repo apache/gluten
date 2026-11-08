@@ -18,6 +18,7 @@ package org.apache.gluten.functions
 
 import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.execution.{BatchScanExecTransformer, ProjectExecTransformer}
+import org.apache.gluten.tags.AnsiTest
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
@@ -26,6 +27,7 @@ import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.DecimalType
 
+@AnsiTest
 class MathFunctionsValidateSuiteAnsiOn extends FunctionsValidateSuite {
 
   override protected def sparkConf: SparkConf = {
@@ -69,6 +71,7 @@ class MathFunctionsValidateSuiteAnsiOn extends FunctionsValidateSuite {
   }
 }
 
+@AnsiTest
 class MathFunctionsValidateSuite extends FunctionsValidateSuite {
 
   disableFallbackCheck

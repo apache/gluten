@@ -16,4 +16,7 @@
  */
 package org.apache.spark.sql
 
+import org.apache.gluten.tags.AnsiTest
+
+@AnsiTest
 class GlutenMathFunctionsSuite extends MathFunctionsSuite with GlutenSQLTestsTrait {}

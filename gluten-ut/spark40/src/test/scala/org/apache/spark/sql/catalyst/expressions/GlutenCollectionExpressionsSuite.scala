@@ -16,6 +16,8 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
+import org.apache.gluten.tags.AnsiTest
+
 import org.apache.spark.SparkRuntimeException
 import org.apache.spark.sql.GlutenExpressionOffloadTracker
 import org.apache.spark.sql.catalyst.InternalRow
@@ -26,6 +28,7 @@ import org.apache.spark.sql.types._
 
 import scala.util.Random
 
+@AnsiTest
 class GlutenCollectionExpressionsSuite
   extends CollectionExpressionsSuite
   with GlutenExpressionOffloadTracker {

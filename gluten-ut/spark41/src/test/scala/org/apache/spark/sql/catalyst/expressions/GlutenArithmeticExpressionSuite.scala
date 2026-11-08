@@ -16,9 +16,12 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
+import org.apache.gluten.tags.AnsiTest
+
 import org.apache.spark.sql.GlutenExpressionOffloadTracker
 import org.apache.spark.sql.shim.GlutenTestsTrait
 
+@AnsiTest
 class GlutenArithmeticExpressionSuite
   extends ArithmeticExpressionSuite
   with GlutenExpressionOffloadTracker
