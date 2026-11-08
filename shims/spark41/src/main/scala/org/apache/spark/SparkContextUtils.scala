@@ -18,6 +18,7 @@ package org.apache.spark
 
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.{RDD, SQLPartitioningAwareUnionRDD}
+import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 import scala.reflect.ClassTag
@@ -30,7 +31,7 @@ object SparkContextUtils {
   def createPartitioningAwareUnionRDD(
       sc: SparkContext,
       rdds: Seq[RDD[ColumnarBatch]],
-      numPartitions: Int): RDD[ColumnarBatch] = {
-    new SQLPartitioningAwareUnionRDD(sc, rdds, numPartitions)
+      partitioning: Partitioning): RDD[ColumnarBatch] = {
+    new SQLPartitioningAwareUnionRDD(sc, rdds, partitioning.numPartitions)
   }
 }
