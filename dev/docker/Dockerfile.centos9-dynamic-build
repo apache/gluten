@@ -48,6 +48,7 @@ RUN --mount=type=bind,source=dev/docker/install-ci-tools.sh,target=/tmp/install-
     ./install-spark-resources.sh 4.0; \
     ./install-spark-resources.sh 4.1; \
     ./install-spark-resources.sh 4.2; \
+    ./install-spark-resources.sh 4.3; \
     ARCH=$(uname -m); \
     if [[ "$ARCH" == "aarch64" || "$ARCH" == "ppc64le" ]]; then \
         export CPU_TARGET="$ARCH"; \

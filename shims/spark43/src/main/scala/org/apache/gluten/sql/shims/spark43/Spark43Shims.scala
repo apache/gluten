@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.gluten.sql.shims.spark42
+package org.apache.gluten.sql.shims.spark43
 
 import org.apache.gluten.execution.PartitionedFileUtilShim
 import org.apache.gluten.expression.{ExpressionNames, Sig}
@@ -53,7 +53,7 @@ import java.util.{Map => JMap}
 
 import scala.jdk.CollectionConverters._
 
-class Spark42Shims extends SparkShims {
+class Spark43Shims extends SparkShims {
 
   override def getSampleSeed(plan: SampleExec): Long = plan.resolvedSeed
 
@@ -442,6 +442,10 @@ class Spark42Shims extends SparkShims {
   }
   override def getFileSourceScanStream(scan: FileSourceScanExec): Option[SparkDataStream] = {
     scan.stream
+  }
+
+  override def isSingleTaskExecutionScan(scan: FileSourceScanExec): Boolean = {
+    scan.useSingleTaskExecution
   }
 
   override def unsupportedCodec: Seq[CompressionCodecName] = {
