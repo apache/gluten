@@ -81,6 +81,8 @@ For a pull request from a fork, the Velox x86, ARM and Kafka workflows (`velox_b
 - Enable GitHub Actions in the Actions tab of your fork.
 - Open the pull request from a branch other than your fork's `main`.
 
+Each run tests your branch merged onto the current apache/gluten `main`, but it runs the workflow files from your branch. After a CI change lands on `main`, merge or rebase onto `main` and push to pick it up.
+
 The `Velox Backend (x86) in fork`, `Velox Backend (ARM) in fork` and `Velox Kafka in fork` checks on your pull request link to the runs in your fork and are updated every 15 minutes. To rerun failed jobs, rerun them in your fork.
 
 To see the perf. impact on Velox backend, you can comment `/Benchmark Velox` on PR page to trigger a pretest. The benchmark
