@@ -16,8 +16,35 @@
  */
 package org.apache.spark.sql.execution.datasources
 
-import org.apache.spark.sql.GlutenSQLTestsTrait
+import org.apache.gluten.execution.FileSourceScanExecTransformer
+
+import org.apache.spark.sql.{GlutenSQLTestsTrait, Row}
+import org.apache.spark.sql.execution.FileSourceScanExec
+import org.apache.spark.sql.internal.SQLConf
 
 class GlutenMarkSingleTaskExecutionSuite
   extends MarkSingleTaskExecutionSuite
-  with GlutenSQLTestsTrait {}
+  with GlutenSQLTestsTrait {
+
+  testGluten("bucketed scan does not run in a single task") {
+    val bucketed = "single_task_bucketed"
+    withTable(bucketed) {
+      spark.range(0, 2).selectExpr("id as col").write.bucketBy(2, "col").saveAsTable(bucketed)
+      withSQLConf(
+        SQLConf.SINGLE_TASK_EXECUTION_ENABLED.key -> "true",
+        SQLConf.SINGLE_TASK_EXECUTION_MIN_NUM_FILES.key -> "0",
+        SQLConf.SINGLE_TASK_EXECUTION_MIN_NUM_BYTES.key -> "0",
+        SQLConf.SINGLE_TASK_EXECUTION_LOCAL_TABLE_SCAN_MIN_ROWS.key -> "0",
+        SQLConf.SINGLE_TASK_EXECUTION_MAX_NUM_FILES.key -> "4"
+      ) {
+        val df = sql(s"select col, count(1) as c from $bucketed group by col")
+        checkAnswer(df, Seq(Row(0, 1), Row(1, 1)))
+        // A scan that runs in a single task falls back to the vanilla FileSourceScanExec, so the
+        // bucketed scan must be offloaded.
+        val plan = df.queryExecution.executedPlan
+        assert(collect(plan) { case s: FileSourceScanExecTransformer => s }.nonEmpty, plan)
+        assert(collect(plan) { case s: FileSourceScanExec => s }.isEmpty, plan)
+      }
+    }
+  }
+}

@@ -16,6 +16,10 @@
  */
 package org.apache.spark.sql
 
+import org.apache.gluten.execution.BroadcastHashJoinExecTransformer
+
+import org.apache.spark.sql.internal.SQLConf
+
 class GlutenJoinSuite extends JoinSuite with GlutenSQLTestsTrait {
 
   override def testNameBlackList: Seq[String] = Seq(
@@ -53,5 +57,32 @@ class GlutenJoinSuite extends JoinSuite with GlutenSQLTestsTrait {
         |order by t0.a, t0.b
         |""".stripMargin
     checkAnswer(spark.sql(sql), Seq(Row(0, 1), Row(1, 2), Row(2, 3)))
+  }
+
+  testGluten("SPARK-36082: NAAJ hash join preserves floating-point equality") {
+    import testImplicits._
+    Seq(false, true).foreach {
+      adaptiveEnabled =>
+        withSQLConf(
+          SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> adaptiveEnabled.toString,
+          SQLConf.OPTIMIZE_NULL_AWARE_ANTI_JOIN.key -> "true",
+          SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "0"
+        ) {
+          withTempView("naajHashLeft", "naajHashRight") {
+            Seq[java.lang.Double](-0.0d, 2.0d, null)
+              .toDF("key")
+              .createOrReplaceTempView("naajHashLeft")
+            Seq[java.lang.Double](0.0d, 1.0d).toDF("key").createOrReplaceTempView("naajHashRight")
+
+            val result =
+              sql("select * from naajHashLeft where key not in (select key from naajHashRight)")
+            checkAnswer(result, Row(2.0d))
+            val joinExec = collect(result.queryExecution.executedPlan) {
+              case join: BroadcastHashJoinExecTransformer if join.isNullAwareAntiJoin => join
+            }
+            assert(joinExec.size === 1)
+          }
+        }
+    }
   }
 }
