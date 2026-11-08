@@ -127,7 +127,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   4.2)
       # Spark-4.x, scala 2.12 // using 2.12 as a hack as 4.2 does not have a 2.13 suffix
       cd ${INSTALL_DIR} && \
-      install_spark "4.2.0" "3" "2.12"
+      install_spark "4.2.1" "3" "2.12"
       mv "${INSTALL_DIR}/shims/spark42/spark_home/assembly/target/scala-2.12" \
          "${INSTALL_DIR}/shims/spark42/spark_home/assembly/target/scala-2.13"
       ;;
