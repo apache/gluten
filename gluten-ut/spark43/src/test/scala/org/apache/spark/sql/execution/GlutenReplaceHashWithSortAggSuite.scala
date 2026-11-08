@@ -16,10 +16,10 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.gluten.execution.HashAggregateExecBaseTransformer
+import org.apache.gluten.execution.{HashAggregateExecBaseTransformer, SortAggregateExecTransformer}
 
 import org.apache.spark.sql.{DataFrame, GlutenSQLTestsBaseTrait}
-import org.apache.spark.sql.execution.aggregate.{ObjectHashAggregateExec, SortAggregateExec}
+import org.apache.spark.sql.execution.aggregate.{BaseAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
 import org.apache.spark.sql.internal.SQLConf
 
 class GlutenReplaceHashWithSortAggSuite
@@ -140,6 +140,114 @@ class GlutenReplaceHashWithSortAggSuite
                |FROM t1
            """.stripMargin
           checkAggs(query, 2, 0, 2, 0)
+      }
+    }
+  }
+
+  // Gluten offloads a SortAggregateExec to a SortAggregateExecTransformer and any other
+  // aggregate to a regular native hash aggregate, so count them separately.
+  private def checkNativeAggs(df: DataFrame, hashAggCount: Int, sortAggCount: Int): Unit = {
+    val aggs = collectWithSubqueries(df.queryExecution.executedPlan) {
+      case a: BaseAggregateExec => a
+    }
+    val sortAggs = aggs.filter {
+      case _: SortAggregateExec | _: SortAggregateExecTransformer => true
+      case _ => false
+    }
+    assert(aggs.size - sortAggs.size == hashAggCount, df.queryExecution.executedPlan)
+    assert(sortAggs.size == sortAggCount, df.queryExecution.executedPlan)
+  }
+
+  testGluten("SPARK-58210: bottom-up traversal replaces both partial and final hash aggregate") {
+    withTempView("t1", "t2") {
+      spark.range(100).selectExpr("id as key").createOrReplaceTempView("t1")
+      spark.range(50).selectExpr("id as key").createOrReplaceTempView("t2")
+      Seq("COUNT", "COLLECT_LIST").foreach {
+        aggExpr =>
+          val query =
+            s"""
+               |SELECT key, $aggExpr(key)
+               |FROM
+               |(
+               |   SELECT /*+ SHUFFLE_MERGE(t1) */ t1.key AS key
+               |   FROM t1
+               |   JOIN t2
+               |   ON t1.key = t2.key
+               |)
+               |GROUP BY key
+           """.stripMargin
+          val expected = withSQLConf(
+            SQLConf.REPLACE_HASH_WITH_SORT_AGG_ENABLED.key -> "false",
+            SQLConf.COMBINE_ADJACENT_AGGREGATION_ENABLED.key -> "false") {
+            sql(query).collect()
+          }
+          withSQLConf(
+            SQLConf.REPLACE_HASH_WITH_SORT_AGG_ENABLED.key -> "true",
+            SQLConf.COMBINE_ADJACENT_AGGREGATION_ENABLED.key -> "false") {
+            val df = sql(query)
+            // Both aggregates are replaced with sort aggregates, which Gluten then merges into a
+            // single complete mode aggregate. A partially replaced pair would not be merged.
+            checkNativeAggs(df, hashAggCount = 0, sortAggCount = 1)
+            checkAnswer(df, expected)
+          }
+      }
+    }
+  }
+
+  testGluten("combine adjacent aggregate then replace it with sort aggregate") {
+    withTempView("t1", "t2") {
+      spark.range(100).selectExpr("id as key").createOrReplaceTempView("t1")
+      spark.range(50).selectExpr("id as key").createOrReplaceTempView("t2")
+      val query =
+        """SELECT key, count(key) FROM (
+          |  SELECT /*+ SHUFFLE_MERGE(t1) */ t1.key AS key FROM t1 JOIN t2 ON t1.key = t2.key
+          |) GROUP BY key""".stripMargin
+
+      val expected = withSQLConf(
+        SQLConf.COMBINE_ADJACENT_AGGREGATION_ENABLED.key -> "false",
+        SQLConf.REPLACE_HASH_WITH_SORT_AGG_ENABLED.key -> "false") {
+        sql(query).collect()
+      }
+
+      withSQLConf(
+        SQLConf.COMBINE_ADJACENT_AGGREGATION_ENABLED.key -> "true",
+        SQLConf.REPLACE_HASH_WITH_SORT_AGG_ENABLED.key -> "false") {
+        val df = sql(query)
+        checkNativeAggs(df, hashAggCount = 1, sortAggCount = 0)
+        checkAnswer(df, expected)
+      }
+
+      withSQLConf(
+        SQLConf.COMBINE_ADJACENT_AGGREGATION_ENABLED.key -> "true",
+        SQLConf.REPLACE_HASH_WITH_SORT_AGG_ENABLED.key -> "true") {
+        val df = sql(query)
+        checkNativeAggs(df, hashAggCount = 0, sortAggCount = 1)
+        checkAnswer(df, expected)
+      }
+    }
+  }
+
+  testGluten("SPARK-43317: Combined sort aggregate keeps the FILTER clause") {
+    withTempView("t1", "t2") {
+      spark.range(100).selectExpr("id as key").createOrReplaceTempView("t1")
+      spark.range(50).selectExpr("id as key").createOrReplaceTempView("t2")
+      val query =
+        """SELECT key, count(*) FILTER (WHERE key > 10) FROM (
+          |  SELECT /*+ SHUFFLE_MERGE(t1) */ t1.key AS key FROM t1 JOIN t2 ON t1.key = t2.key
+          |) GROUP BY key""".stripMargin
+
+      val expected = withSQLConf(
+        SQLConf.COMBINE_ADJACENT_AGGREGATION_ENABLED.key -> "false",
+        SQLConf.REPLACE_HASH_WITH_SORT_AGG_ENABLED.key -> "false") {
+        sql(query).collect()
+      }
+
+      withSQLConf(
+        SQLConf.COMBINE_ADJACENT_AGGREGATION_ENABLED.key -> "true",
+        SQLConf.REPLACE_HASH_WITH_SORT_AGG_ENABLED.key -> "true") {
+        val df = sql(query)
+        checkNativeAggs(df, hashAggCount = 0, sortAggCount = 1)
+        checkAnswer(df, expected)
       }
     }
   }

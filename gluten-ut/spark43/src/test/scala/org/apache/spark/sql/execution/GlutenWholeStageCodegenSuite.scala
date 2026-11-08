@@ -97,10 +97,135 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
   }
 
   testGluten("SortAggregate should be included in WholeStageCodegen") {
-    withSQLConf("spark.sql.test.forceApplySortAggregate" -> "true") {
+    withSQLConf(SQLConf.USE_HASH_AGG.key -> "false") {
       val df = spark.range(10).agg(max(col("id")), avg(col("id")))
       assertWholeStageContains[SortHashAggregateExecTransformer](df)
       checkAnswer(df, Row(9, 4.5))
+    }
+  }
+
+  // Gluten offloads the forced SortAggregateExec to a native aggregate, so instead of Spark's
+  // sort aggregate code-gen this checks the native plan against vanilla Spark's result.
+  private def checkNativeSortAggregate(data: Dataset[Row])(
+      query: Dataset[Row] => Dataset[Row]): Unit = {
+    val forceSortAggregate =
+      Seq(SQLConf.USE_HASH_AGG.key -> "false", SQLConf.USE_OBJECT_HASH_AGG.key -> "false")
+    val expected =
+      withSQLConf((forceSortAggregate :+ (GlutenConfig.GLUTEN_ENABLED.key -> "false")): _*) {
+        query(data).collect().toSeq
+      }
+    withSQLConf(forceSortAggregate: _*) {
+      val df = query(data)
+      assertWholeStageContains[SortHashAggregateExecTransformer](df)
+      checkAnswer(df, expected)
+    }
+  }
+
+  testGluten("SPARK-32750: SortAggregate code-gen with grouping keys") {
+    val data = spark
+      .range(200)
+      .selectExpr(
+        "id",
+        "id % 7 as k1",
+        "id % 3 as k2",
+        "case when id % 5 = 0 then null else id end as v",
+        "case when id % 4 = 0 then null else cast(id % 11 as string) end as s"
+      )
+
+    checkNativeSortAggregate(data) {
+      _.groupBy("k1", "k2")
+        .agg(count(col("v")), sum(col("v")), max(col("v")), min(col("v")))
+        .orderBy("k1", "k2")
+    }
+    checkNativeSortAggregate(data) {
+      _.groupBy((col("k1") + col("k2")).as("k"))
+        .agg(
+          (sum(col("v") * lit(2)) + lit(1)).as("weighted"),
+          (max(col("v")) - min(col("v"))).as("spread"),
+          count(col("v")).as("cnt"))
+        .orderBy("k")
+    }
+    checkNativeSortAggregate(data) {
+      _.groupBy("k1")
+        .agg(
+          expr("sum(v) FILTER (WHERE v > 50)"),
+          expr("count(v) FILTER (WHERE s IS NOT NULL)"),
+          avg(col("v")))
+        .orderBy("k1")
+    }
+    checkNativeSortAggregate(data) {
+      _.groupBy("s")
+        .agg(count(col("v")).as("cnt"), sum(col("v")).as("total"))
+        .where(col("cnt") > 2)
+        .orderBy("s")
+    }
+    checkNativeSortAggregate(data) {
+      _.groupBy("k2").agg(countDistinct(col("v")), sum(col("v"))).orderBy("k2")
+    }
+    checkNativeSortAggregate(data)(_.groupBy("id").agg(max(col("v"))).orderBy("id"))
+    checkNativeSortAggregate(data)(_.groupBy(lit(1)).agg(sum(col("v")), avg(col("v"))))
+    checkNativeSortAggregate(data)(
+      _.groupBy("k1").agg(sum(col("v"))).orderBy("k1").limit(3))
+  }
+
+  testGluten("SPARK-32750: SortAggregate code-gen with grouping keys - empty input") {
+    val data = spark.range(0).selectExpr("id", "id % 3 as k", "id as v")
+    checkNativeSortAggregate(data)(
+      _.groupBy("k").agg(sum(col("v")), count(col("v"))).orderBy("k"))
+  }
+
+  testGluten("SPARK-32750: SortAggregate code-gen with grouping keys - single partition") {
+    val data = spark.range(50).repartition(1).selectExpr("id", "id % 4 as k", "id as v")
+    checkNativeSortAggregate(data) {
+      _.groupBy((col("k") + lit(1)).as("k"))
+        .agg(
+          (sum(col("v")) + max(col("v"))).as("mixed"),
+          avg(col("v") * col("v")).as("avg_sq"),
+          expr("count(v) FILTER (WHERE v % 2 = 0)").as("evens"))
+        .orderBy("k")
+    }
+  }
+
+  testGluten("SPARK-32750: SortAggregate code-gen with decimal grouping keys") {
+    val data = spark
+      .range(200)
+      .selectExpr(
+        "id",
+        "cast(id % 5 as decimal(10, 2)) as k",
+        "case when id % 6 = 0 then null else cast(id as decimal(20, 4)) end as v")
+    checkNativeSortAggregate(data) {
+      _.groupBy("k").agg(sum(col("v")), count(col("v")), max(col("v"))).orderBy("k")
+    }
+  }
+
+  testGluten("SPARK-32750: SortAggregate code-gen with grouping keys - no aggregate functions") {
+    val data = spark.range(200).selectExpr("id % 7 as k1", "id % 3 as k2")
+    checkNativeSortAggregate(data)(_.select("k1").distinct().orderBy("k1"))
+    checkNativeSortAggregate(data)(_.select("k1", "k2").distinct().orderBy("k1", "k2"))
+  }
+
+  testGluten("SPARK-32750: SortAggregate code-gen with grouping keys - split aggregate functions") {
+    val data = spark.range(200).selectExpr("id", "id % 7 as k", "id as v")
+    withSQLConf(
+      SQLConf.CODEGEN_SPLIT_AGGREGATE_FUNC.key -> "true",
+      SQLConf.CODEGEN_METHOD_SPLIT_THRESHOLD.key -> "1") {
+      checkNativeSortAggregate(data) {
+        _.groupBy("k")
+          .agg(sum(col("v")), count(col("v")), max(col("v")), min(col("v")), avg(col("v")))
+          .orderBy("k")
+      }
+    }
+  }
+
+  testGluten("SPARK-32750: SortAggregate code-gen with grouping keys - config gate") {
+    // The vanilla code-gen gate does not affect the native sort aggregate.
+    val data = spark.range(200).selectExpr("id % 7 as k", "id as v")
+    Seq(true, false).foreach {
+      withKeys =>
+        withSQLConf(
+          SQLConf.ENABLE_SORT_AGGREGATE_CODEGEN_WITH_KEYS.key -> withKeys.toString) {
+          checkNativeSortAggregate(data)(_.groupBy("k").agg(sum(col("v"))).orderBy("k"))
+        }
     }
   }
 

@@ -3,7 +3,7 @@ VeloxColumnarToRow (75)
 +- ^ ProjectExecTransformer (73)
    +- ^ RegularHashAggregateExecTransformer (72)
       +- ^ FlushableHashAggregateExecTransformer (71)
-         +- ^ RegularHashAggregateExecTransformer (70)
+         +- ^ SortHashAggregateExecTransformer (70)
             +- ^ FlushableHashAggregateExecTransformer (69)
                +- ^ ProjectExecTransformer (68)
                   +- ^ BroadcastHashJoinExecTransformer Inner BuildRight (67)
@@ -349,7 +349,7 @@ Functions [2]: [partial_sum(_pre_1#28), partial_sum(_pre_2#29)]
 Aggregate Attributes [2]: [sum(UnscaledValue(ws_ext_ship_cost#5))#30, sum(UnscaledValue(ws_net_profit#6))#31]
 Results [3]: [ws_order_number#4, sum#32, sum#33]
 
-(70) RegularHashAggregateExecTransformer
+(70) SortHashAggregateExecTransformer
 Input [3]: [ws_order_number#4, sum#32, sum#33]
 Keys [1]: [ws_order_number#4]
 Functions [2]: [merge_sum(UnscaledValue(ws_ext_ship_cost#5)), merge_sum(UnscaledValue(ws_net_profit#6))]

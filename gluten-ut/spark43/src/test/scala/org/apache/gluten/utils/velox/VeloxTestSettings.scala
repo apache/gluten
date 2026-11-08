@@ -62,24 +62,13 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenBloomFilterAggregateQuerySuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuiteCGOff]
   enableSuite[GlutenDataSourceV2CatalystRuntimeFilterSuite]
-    .exclude(
-      "scalar subquery on partition column -> pushed as Catalyst expression"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "Catalyst runtime filtering fixture fully pushes only identity partition sources"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "non-deterministic predicate on fully pushed attributes -> evaluated after the scan"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "predicate on partly fully pushed filter attributes -> evaluated after the scan"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "sibling of a nested filter attribute remains evaluated after the scan"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "filter on column outside filterAttributes -> not pushed"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    // Rewritten to check FilterExecTransformer.
+    .exclude("scalar subquery on partition column -> pushed as Catalyst expression")
+    .exclude("Catalyst runtime filtering fixture fully pushes only identity partition sources")
+    .exclude("non-deterministic predicate on fully pushed attributes -> evaluated after the scan")
+    .exclude("predicate on partly fully pushed filter attributes -> evaluated after the scan")
+    .exclude("sibling of a nested filter attribute remains evaluated after the scan")
+    .exclude("filter on column outside filterAttributes -> not pushed")
   enableSuite[GlutenDataSourceV2DataFrameSessionCatalogSuite]
   enableSuite[GlutenDataSourceV2DataFrameSuite]
   enableSuite[GlutenDataSourceV2EnhancedDeleteFilterSuite]
@@ -1110,7 +1099,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenHeaderCSVReadSchemaSuite]
   enableSuite[GlutenJsonReadSchemaSuite]
   enableSuite[GlutenMarkSingleTaskExecutionSuite]
-    .exclude("bucketed scan does not run in a single task") // GLUTEN-13517 Spark 4.3 UT enablement
+    // Rewritten to check FileSourceScanExecTransformer.
+    .exclude("bucketed scan does not run in a single task")
   enableSuite[GlutenOrcReadSchemaSuite]
   disableSuite[GlutenOrcSevenZArchiveReadSuite](archiveCommonsIoReason)
   disableSuite[GlutenOrcTarArchiveReadSuite](archiveCommonsIoReason)
@@ -1153,8 +1143,18 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenCoGroupedIteratorSuite]
   enableSuite[GlutenColumnarRulesSuite]
   enableSuite[GlutenColumnarToRowExecSuite]
-  disableSuite[GlutenCombineAdjacentAggregationSuite](
-    "GLUTEN-13517 Spark 4.3 UT enablement: asserts on vanilla HashAggregateExec/SortAggregateExec plan shape")
+  enableSuite[GlutenCombineAdjacentAggregationSuite]
+    // Rewritten to check the native sort aggregate.
+    .exclude("Combine adjacent sort aggregate")
+    // Apply the rule to hand-built vanilla aggregate plans that Gluten does not produce.
+    .exclude("Do not combine adjacent aggregates with mismatched grouping expressions")
+    .exclude("Combine adjacent partial merge and final hash aggregates")
+    .exclude(
+      "Combined aggregate retains its distribution requirement under AQE"
+    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    // With one shuffle partition, repartition(k) already satisfies GROUP BY k + 1, so no
+    // exchange separates the partial and final aggregates.
+    .exclude("Do not combine when a shuffle sits between the partial and final aggregate")
   enableSuite[GlutenDataSourceScanExecRedactionSuite]
     .exclude("explain is redacted using SQLConf")
     .exclude("SPARK-31793: FileSourceScanExec metadata should contain limited file paths")
@@ -1182,8 +1182,19 @@ class VeloxTestSettings extends BackendTestSettings {
   disableSuite[GlutenPlannerSuite]("Validates Spark planner implementation details")
   disableSuite[GlutenProjectedOrderingAndPartitioningSuite](
     "Validates Spark planner output ordering and partitioning metadata")
-  disableSuite[GlutenPushDownLocalSortSuite](
-    "GLUTEN-13517 Spark 4.3 UT enablement: counts vanilla SortExec nodes, Gluten plans SortExecTransformer")
+  enableSuite[GlutenPushDownLocalSortSuite]
+    // Rewritten to count SortExecTransformer.
+    .exclude(
+      "Push a wider local sort down across stacked windows with prefix-compatible order specs")
+    .exclude("No-op when the wider sort is already below the narrower one")
+    .exclude("Push-down still applies and stays correct with a filter on a window output")
+    .exclude("Push a wider sort down through a renaming project by rewriting the ordering")
+    .exclude("Negative: no push-down when the two orderings are disjoint")
+    .exclude("Negative: no push-down when a shuffle separates the two sorts")
+    .exclude("Negative: no push-down when the sort directions differ")
+    .exclude("Negative: no push-down when an intermediate project computes the ordering column")
+    // Gluten removes the sort below the offloaded sort aggregate.
+    .exclude("Push a wider sort down through a window to feed a sort aggregate above it")
   enableSuite[GlutenQueryPlanningTrackerEndToEndSuite]
   enableSuite[GlutenRemoveRedundantProjectsSuite]
     // Rewrite as result checks because Gluten transforms and may pull out additional projects.
@@ -1222,30 +1233,17 @@ class VeloxTestSettings extends BackendTestSettings {
   disableSuite[GlutenWholeStageCodegenSparkSubmitSuite](
     "The SparkSubmit test launches Spark's main class without the Gluten plugin")
   enableSuite[GlutenWholeStageCodegenSuite]
-    .exclude(
-      "SPARK-32750: SortAggregate code-gen with grouping keys"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-32750: SortAggregate code-gen with grouping keys - empty input"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-32750: SortAggregate code-gen with grouping keys - single partition"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    // Rewritten to check the native sort aggregate.
+    .exclude("SPARK-32750: SortAggregate code-gen with grouping keys")
+    .exclude("SPARK-32750: SortAggregate code-gen with grouping keys - empty input")
+    .exclude("SPARK-32750: SortAggregate code-gen with grouping keys - single partition")
     .exclude(
       "SPARK-32750: SortAggregate code-gen with float/double grouping keys"
     ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-32750: SortAggregate code-gen with decimal grouping keys"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-32750: SortAggregate code-gen with grouping keys - no aggregate functions"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-32750: SortAggregate code-gen with grouping keys - split aggregate functions"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-32750: SortAggregate code-gen with grouping keys - config gate"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    .exclude("SPARK-32750: SortAggregate code-gen with decimal grouping keys")
+    .exclude("SPARK-32750: SortAggregate code-gen with grouping keys - no aggregate functions")
+    .exclude("SPARK-32750: SortAggregate code-gen with grouping keys - split aggregate functions")
+    .exclude("SPARK-32750: SortAggregate code-gen with grouping keys - config gate")
     .exclude(
       "SPARK-58437: SortExec generates assignable iterator type"
     ) // GLUTEN-13517 Spark 4.3 UT enablement
@@ -1257,9 +1255,6 @@ class VeloxTestSettings extends BackendTestSettings {
     ) // GLUTEN-13517 Spark 4.3 UT enablement
     .exclude(
       "SPARK-60403: MergeRows compiles with its function spilled to a nested class"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .excludeGlutenTest(
-      "SortAggregate should be included in WholeStageCodegen"
     ) // GLUTEN-13517 Spark 4.3 UT enablement
     // Rewrite with Gluten-aware native whole-stage plan assertions.
     .exclude("range/filter should be combined")
@@ -1306,15 +1301,9 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("replace partial and final hash aggregate together with sort aggregate")
     .exclude("do not replace hash aggregate if child does not have sort order")
     .exclude("do not replace hash aggregate if there is no group-by column")
-    .exclude(
-      "SPARK-58210: bottom-up traversal replaces both partial and final hash aggregate"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "combine adjacent aggregate then replace it with sort aggregate"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-43317: Combined sort aggregate keeps the FILTER clause"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    .exclude("SPARK-58210: bottom-up traversal replaces both partial and final hash aggregate")
+    .exclude("combine adjacent aggregate then replace it with sort aggregate")
+    .exclude("SPARK-43317: Combined sort aggregate keeps the FILTER clause")
   enableSuite[GlutenRestrictedModeCommandSuite]
   enableSuite[GlutenReuseExchangeAndSubquerySuite]
   enableSuite[GlutenSameResultSuite]
@@ -1431,13 +1420,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenTPCDSQueryTestSuite]
   enableSuite[GlutenTPCDSQueryWithStatsSuite]
   enableSuite[GlutenTPCDSV1_4_PlanStabilitySuite]
-    .exclude("check simplified (tpcds-v1.4/q16)") // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude("check simplified (tpcds-v1.4/q94)") // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude("check simplified (tpcds-v1.4/q95)") // GLUTEN-13517 Spark 4.3 UT enablement
   enableSuite[GlutenTPCDSV1_4_PlanStabilityWithStatsSuite]
-    .exclude("check simplified sf100 (tpcds-v1.4/q16)") // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude("check simplified sf100 (tpcds-v1.4/q94)") // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude("check simplified sf100 (tpcds-v1.4/q95)") // GLUTEN-13517 Spark 4.3 UT enablement
     .exclude("check simplified sf100 (tpcds-v1.4/q23a)") // GLUTEN-13517 Spark 4.3 UT enablement
     .exclude("check simplified sf100 (tpcds-v1.4/q23b)") // GLUTEN-13517 Spark 4.3 UT enablement
   enableSuite[GlutenTPCDSV2_7_PlanStabilitySuite]
@@ -1817,9 +1800,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-36794: Ignore duplicated key when building relation for semi/anti hash join")
     // TODO: fix on Spark-4.1 introduced by https://github.com/apache/spark/pull/47856
     .exclude("SPARK-49386: test SortMergeJoin (with spill by size threshold)")
-    .exclude(
-      "SPARK-36082: NAAJ hash join preserves floating-point equality"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    // Rewritten to check BroadcastHashJoinExecTransformer.
+    .exclude("SPARK-36082: NAAJ hash join preserves floating-point equality")
   enableSuite[GlutenMathFunctionsSuite]
   enableSuite[GlutenMapStatusEndToEndSuite]
   enableSuite[GlutenMetadataCacheSuite]
@@ -1895,10 +1877,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenHivePlanTest]
   enableSuite[GlutenHiveQuerySuite]
   enableSuite[GlutenHiveResolutionSuite]
-  // GLUTEN-13517 Spark 4.3 UT enablement: Spark 4.3 SparkSessionBinderBase.afterEach uses
-  // classicSpark, which GlutenHiveSQLQuerySuiteBase does not override (NPE, suite aborts).
-  disableSuite[GlutenHiveSQLQuerySuite](
-    "Spark 4.3 SparkSessionBinderBase.afterEach NPE on classicSpark")
+  enableSuite[GlutenHiveSQLQuerySuite]
   enableSuite[GlutenHiveSQLViewSuite]
   enableSuite[GlutenHiveScriptTransformationSuite]
   enableSuite[GlutenHiveSerDeReadWriteSuite]

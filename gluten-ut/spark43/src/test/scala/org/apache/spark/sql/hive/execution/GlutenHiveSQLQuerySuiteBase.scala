@@ -44,6 +44,10 @@ abstract class GlutenHiveSQLQuerySuiteBase extends GlutenSQLTestsTrait {
 
   override protected def spark: SparkSession = _spark
 
+  // Spark 4.3's SparkSessionBinderBase.afterEach clears the cache through `classicSpark`, which
+  // defaults to the binder's own session field. This suite creates its own Hive-enabled session.
+  override protected def classicSpark: SparkSession = _spark
+
   override def afterAll(): Unit = {
     try {
       super.afterAll()
