@@ -1779,38 +1779,44 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenGeographyDataFrameSuite]
   enableSuite[GlutenGeometryDataFrameSuite]
   enableSuite[GlutenInjectRuntimeFilterSuite]
+    // Fails in ColumnarArrowEvalPythonExec with "Cannot retain a released vector", not in the
+    // runtime filter path.
     .exclude(
       "SPARK-58310: skip runtime bloom filter when pruned creation side contains Python UDF"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    )
     // FIXME: yan
     .exclude("Merge runtime bloom filters")
+    // SPARK-58272 only trusts a cache whose physical plan matches a private allowlist of Spark
+    // operators (InMemoryRelation.hasRepeatablePhysicalPlan). A cache built from Gluten
+    // transformers never qualifies, so its materialized stats are unavailable. See the Gluten
+    // test for a cache built without Gluten.
     .exclude(
       "SPARK-58272: safely use fully materialized selectively filtered caches"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    )
     .exclude(
       "SPARK-58272: bound materialized caches by Bloom filter capacity"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    )
     .exclude(
       "SPARK-58272: size projected cached runtime filters using exact materialized rows"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    )
     .exclude(
       "SPARK-58272: preserve selective runtime filters over all cache states"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    )
     .exclude(
       "SPARK-58272: reject materialized runtime filters for nonbinary collated join keys"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    )
     .exclude(
       "SPARK-58272: use materialized caches without predicates only with pruning statistics"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    )
     .exclude(
       "SPARK-58272: use filtered application-side distinct counts"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    )
     .exclude(
       "SPARK-58272: preserve transitive selective filters past materialized caches"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    )
     .exclude(
       "SPARK-58272: use materialized selectively filtered file-backed caches"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    )
   enableSuite[GlutenIntervalFunctionsSuite]
   enableSuite[GlutenJoinSuite]
     // exclude as it check spark plan
