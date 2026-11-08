@@ -1072,9 +1072,6 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenFileFormatWriterSuite]
   enableSuite[GlutenFileIndexSuite]
   enableSuite[GlutenFileMetadataStructSuite]
-    .exclude(
-      "SPARK-43450: Filter on full _metadata column struct"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
   enableSuite[GlutenParquetV1AggregatePushDownSuite]
   enableSuite[GlutenParquetV2AggregatePushDownSuite]
     .exclude(

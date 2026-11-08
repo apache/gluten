@@ -29,7 +29,7 @@
   <name>Gluten Unit Test Spark43</name>
 
   <properties>
-    <parquet.version>1.16.0</parquet.version>
+    <parquet.version>1.17.0</parquet.version>
     <parquet.test.deps.scope>test</parquet.test.deps.scope>
     <avro.version>1.12.1</avro.version>
   </properties>
