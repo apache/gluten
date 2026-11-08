@@ -1662,90 +1662,94 @@ class VeloxTestSettings extends BackendTestSettings {
     // exception when format is "yyyy-dd-aa".
     .exclude("function to_date")
   enableSuite[GlutenDeprecatedAPISuite]
+  // The SPARK-58265 tests below need broadcastProjection.enabled, an internal conf that is off by
+  // default. See the Gluten variants in GlutenDynamicPartitionPruningSuite for what runs natively.
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOff]
     .exclude(
       "reuse ancestor broadcast value rows for composite-key date partition pruning"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 asserts metric scopes on a vanilla plan
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOn]
     .exclude(
       "reuse ancestor broadcast value rows for composite-key date partition pruning"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 fails open with columnar broadcasts
     .exclude(
       "reuse ancestor broadcast string values with a residual join predicate"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 fails open with columnar broadcasts
     .exclude(
       "bind reordered broadcast value columns for partition pruning"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 fails open with columnar broadcasts
     .exclude(
       "project every value row from dense and sparse long-key hash broadcasts"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 fails open with columnar broadcasts
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOnDisableScan]
+    // This inherited Gluten test asserts the native scan.
+    .excludeGlutenTest("SPARK-58265: projected broadcast values fail open on a columnar broadcast")
     .exclude(
       "reuse ancestor broadcast value rows for composite-key date partition pruning"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 fails open with columnar broadcasts
     .exclude(
       "reuse ancestor broadcast string values with a residual join predicate"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 fails open with columnar broadcasts
     .exclude(
       "bind reordered broadcast value columns for partition pruning"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 fails open with columnar broadcasts
     .exclude(
       "project every value row from dense and sparse long-key hash broadcasts"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 fails open with columnar broadcasts
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOffDisableScan]
     .exclude(
       "reuse ancestor broadcast value rows for composite-key date partition pruning"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 asserts metric scopes on a vanilla plan
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOffWSCGOnDisableProject]
     .exclude(
       "reuse ancestor broadcast value rows for composite-key date partition pruning"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 asserts metric scopes on a vanilla plan
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOffWSCGOffDisableProject]
     .exclude(
       "reuse ancestor broadcast value rows for composite-key date partition pruning"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 asserts metric scopes on a vanilla plan
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOff]
     .exclude(
       "reuse ancestor broadcast value rows for composite-key date partition pruning"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 asserts metric scopes on a vanilla plan
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOn]
     .exclude(
       "reuse ancestor broadcast value rows for composite-key date partition pruning"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 fails open with columnar broadcasts
     .exclude(
       "reuse ancestor broadcast string values with a residual join predicate"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 fails open with columnar broadcasts
     .exclude(
       "bind reordered broadcast value columns for partition pruning"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 fails open with columnar broadcasts
     .exclude(
       "project every value row from dense and sparse long-key hash broadcasts"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 fails open with columnar broadcasts
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOnDisableScan]
     .exclude(
       "reuse ancestor broadcast value rows for composite-key date partition pruning"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 fails open with columnar broadcasts
     .exclude(
       "reuse ancestor broadcast string values with a residual join predicate"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 fails open with columnar broadcasts
     .exclude(
       "bind reordered broadcast value columns for partition pruning"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 fails open with columnar broadcasts
     .exclude(
       "project every value row from dense and sparse long-key hash broadcasts"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 fails open with columnar broadcasts
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOffDisableScan]
     .exclude(
       "reuse ancestor broadcast value rows for composite-key date partition pruning"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 asserts metric scopes on a vanilla plan
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOffWSCGOnDisableProject]
     .exclude(
       "reuse ancestor broadcast value rows for composite-key date partition pruning"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 asserts metric scopes on a vanilla plan
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOffWSCGOffDisableProject]
     .exclude(
       "reuse ancestor broadcast value rows for composite-key date partition pruning"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
+    ) // SPARK-58265 asserts metric scopes on a vanilla plan
   enableSuite[GlutenExpressionsSchemaSuite]
   enableSuite[GlutenExtraStrategiesSuite]
   enableSuite[GlutenFileBasedDataSourceSuite]

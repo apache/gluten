@@ -26,7 +26,7 @@ import org.apache.spark.sql.connector.catalog.InMemoryTableCatalog
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.adaptive._
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
-import org.apache.spark.sql.execution.exchange.{BroadcastExchangeLike, ReusedExchangeExec}
+import org.apache.spark.sql.execution.exchange.{BroadcastExchangeExec, BroadcastExchangeLike, ReusedExchangeExec}
 import org.apache.spark.sql.execution.joins.BroadcastHashJoinExec
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.execution.streaming.runtime.{MemoryStream, StreamingQueryWrapper}
@@ -337,6 +337,67 @@ abstract class GlutenDynamicPartitionPruningV1Suite extends GlutenDynamicPartiti
 
   import testImplicits._
 
+  /**
+   * Runs a query that derives partition values from an ancestor broadcast (SPARK-58265), with the
+   * native scan and join, then hands the projecting subquery and its pruning filter to `check`.
+   */
+  protected def withProjectedBroadcastQuery(
+      check: (DataFrame, ProjectedBroadcastValueSubqueryExec, InSubqueryExec) => Unit): Unit = {
+    withTable("dpp_projection_products", "dpp_projection_promotions", "dpp_projection_sales") {
+      Seq((101, "books"), (202, "toys"), (303, "clothing"))
+        .toDF("product_id", "category")
+        .write
+        .format(tableFormat)
+        .saveAsTable("dpp_projection_products")
+      Seq((101, true), (202, true), (303, false))
+        .toDF("product_id", "active")
+        .write
+        .format(tableFormat)
+        .saveAsTable("dpp_projection_promotions")
+      Seq((101, "books"), (202, "toys"), (303, "clothing"), (909, "electronics"))
+        .toDF("product_id", "category")
+        .write
+        .partitionBy("category")
+        .format(tableFormat)
+        .saveAsTable("dpp_projection_sales")
+
+      withSQLConf(
+        SQLConf.ANSI_ENABLED.key -> "false",
+        SQLConf.DYNAMIC_PARTITION_PRUNING_ENABLED.key -> "true",
+        SQLConf.DYNAMIC_PARTITION_PRUNING_REUSE_BROADCAST_ONLY.key -> "true",
+        SQLConf.DYNAMIC_PARTITION_PRUNING_BROADCAST_PROJECTION_ENABLED.key -> "true",
+        SQLConf.EXCHANGE_REUSE_ENABLED.key -> "true",
+        SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1"
+      ) {
+        val df = sql("""
+                       |WITH eligible AS (
+                       |  SELECT /*+ BROADCAST(p) */ p.product_id, p.category
+                       |  FROM dpp_projection_products p
+                       |  JOIN dpp_projection_promotions promo
+                       |    ON p.product_id = promo.product_id
+                       |  WHERE promo.active AND promo.product_id > 0
+                       |)
+                       |SELECT s.product_id, s.category
+                       |FROM dpp_projection_sales s
+                       |JOIN eligible e
+                       |  ON s.product_id = e.product_id AND s.category = e.category
+                       |""".stripMargin)
+        checkAnswer(df, Seq(Row(101, "books"), Row(202, "toys")))
+
+        val plan = df.queryExecution.executedPlan
+        assert(collect(plan) { case s: FileSourceScanExecTransformer => s }.nonEmpty, plan)
+        val projected = collectWithSubqueries(plan) {
+          case s: ProjectedBroadcastValueSubqueryExec => s
+        }
+        assert(projected.size === 1, plan)
+        val pruning = collectDynamicPruningExpressions(plan).collectFirst {
+          case in: InSubqueryExec => in
+        }.get
+        check(df, projected.head, pruning)
+      }
+    }
+  }
+
   /** Check the static scan metrics with and without DPP */
   testGluten("static scan metrics", DisableAdaptiveExecution("DPP in AQE must reuse broadcast")) {
     withSQLConf(
@@ -456,6 +517,19 @@ abstract class GlutenDynamicPartitionPruningV1Suite extends GlutenDynamicPartiti
 class GlutenDynamicPartitionPruningV1SuiteAEOff
   extends GlutenDynamicPartitionPruningV1Suite
   with DisableAdaptiveExecutionSuite {
+
+  testGluten("SPARK-58265: projected broadcast values come from a separate row broadcast") {
+    withProjectedBroadcastQuery {
+      (df, projected, pruning) =>
+        // Without AQE the exchange under the subquery stays row based, so values are projected
+        // and pruning works, but it does not reuse the join's columnar broadcast.
+        assert(pruning.values().get.map(String.valueOf).toSet === Set("books", "toys", "clothing"))
+        assert(projected.child.isInstanceOf[BroadcastExchangeExec], projected)
+        val plan = df.queryExecution.executedPlan
+        assert(collect(plan) { case b: ColumnarBroadcastExchangeExec => b }.nonEmpty, plan)
+        assert(collect(plan) { case r: ReusedExchangeExec => r }.isEmpty, plan)
+    }
+  }
 
   import testImplicits._
 
@@ -579,6 +653,18 @@ class GlutenDynamicPartitionPruningV1SuiteAEOff
 class GlutenDynamicPartitionPruningV1SuiteAEOn
   extends GlutenDynamicPartitionPruningV1Suite
   with EnableAdaptiveExecutionSuite {
+
+  testGluten("SPARK-58265: projected broadcast values fail open on a columnar broadcast") {
+    withProjectedBroadcastQuery {
+      (_, projected, pruning) =>
+        // The AQE broadcast is columnar, and Spark's projection only reads a HashedRelation. The
+        // domain is unavailable, which must keep every partition rather than prune them all.
+        assert(pruning.isResultUnavailable)
+        assert(pruning.values().isEmpty)
+        assert(projected.metrics("projectionDisabled").value === 1)
+        assert(projected.metrics("projectionErrors").value === 1)
+    }
+  }
 
   testGluten("SPARK-39447: Avoid AssertionError in AdaptiveSparkPlanExec.doExecuteBroadcast") {
     val df = sql("""
