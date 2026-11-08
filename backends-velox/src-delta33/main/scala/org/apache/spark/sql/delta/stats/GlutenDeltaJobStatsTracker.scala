@@ -48,12 +48,11 @@ import org.apache.spark.task.TaskResources
 import org.apache.spark.util.{SerializableConfiguration, SparkDirectoryUtil, Utils}
 
 import com.google.common.collect.Lists
-import com.google.common.util.concurrent.Uninterruptibles
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 
 import java.util.UUID
-import java.util.concurrent.{Callable, Executors, Future, SynchronousQueue}
+import java.util.concurrent.{Callable, Executors, Future, SynchronousQueue, TimeUnit}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
@@ -230,11 +229,24 @@ object GlutenDeltaJobStatsTracker extends Logging {
     TaskResources.addRecycler("GlutenDeltaTaskStatsTracker", 101) {
       Option(currentJsonFuture).foreach(_.cancel(true))
       resultThreadRunner.shutdownNow()
-      Uninterruptibles.awaitTerminationUninterruptibly(resultThreadRunner)
+      var interrupted = false
       try {
-        veloxAggTask.close()
+        while (!resultThreadRunner.isTerminated) {
+          try {
+            resultThreadRunner.awaitTermination(Long.MaxValue, TimeUnit.NANOSECONDS)
+          } catch {
+            case _: InterruptedException => interrupted = true
+          }
+        }
+        try {
+          veloxAggTask.close()
+        } finally {
+          c2r.close()
+        }
       } finally {
-        c2r.close()
+        if (interrupted) {
+          Thread.currentThread().interrupt()
+        }
       }
     }
 
