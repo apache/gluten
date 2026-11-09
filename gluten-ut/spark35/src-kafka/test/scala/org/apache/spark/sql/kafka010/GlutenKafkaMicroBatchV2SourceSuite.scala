@@ -49,6 +49,8 @@ class GlutenKafkaMicroBatchV2SourceSuite
       .selectExpr("CAST(value AS STRING)")
 
     testStream(input)(
+      // Records were sent before testStream, so CheckAnswer has no AddData offset to await.
+      makeSureGetOffsetCalled,
       CheckAnswer(values: _*),
       AssertOnQuery {
         query =>
@@ -79,6 +81,8 @@ class GlutenKafkaMicroBatchV2SourceSuite
       .selectExpr("CAST(value AS STRING)", "headers")
 
     testStream(input)(
+      // Wait for the preloaded record before checking its value and retained headers.
+      makeSureGetOffsetCalled,
       CheckAnswer(Row("value", Seq(Row("header-key", headerValue)))),
       AssertOnQuery {
         query =>
