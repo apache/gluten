@@ -61,7 +61,8 @@ trait ColumnarShuffledJoin extends BaseJoinExec {
 
   override def outputPartitioning: Partitioning = joinType match {
     case _: InnerLike =>
-      PartitioningCollection(Seq(left.outputPartitioning, right.outputPartitioning))
+      SparkShimLoader.getSparkShims.innerShuffledJoinOutputPartitioning(
+        Seq(left.outputPartitioning, right.outputPartitioning))
     case LeftOuter => left.outputPartitioning
     // LeftSingle (Spark 4.0+) has same partitioning as LeftOuter
     case leftSingle if SparkShimLoader.getSparkShims.isLeftSingleJoinType(leftSingle) =>

@@ -60,6 +60,13 @@ class Spark43Shims extends SparkShims {
   override def isKeyGroupedPartitioning(partitioning: Partitioning): Boolean =
     partitioning.isInstanceOf[KeyedPartitioning]
 
+  override def innerShuffledJoinOutputPartitioning(
+      partitionings: Seq[Partitioning]): Partitioning =
+    StoragePartitionedJoinShim.innerShuffledJoinOutputPartitioning(partitionings)
+
+  override def dropUnsafeKWayMerge(plan: SparkPlan): SparkPlan =
+    StoragePartitionedJoinShim.dropUnsafeKWayMerge(plan)
+
   override def getLocalTableScanStream(plan: LocalTableScanExec): Option[SparkDataStream] =
     plan.stream
 
