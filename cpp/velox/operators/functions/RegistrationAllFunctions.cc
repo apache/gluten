@@ -16,6 +16,7 @@
  */
 #include "operators/functions/RegistrationAllFunctions.h"
 
+#include "operators/functions/IncrementMetricFunction.h"
 #include "operators/functions/RowConstructorWithNull.h"
 #include "operators/functions/RowFunctionWithNull.h"
 #include "operators/functions/delta/DeltaBitmapAggregator.h"
@@ -40,8 +41,6 @@ namespace facebook::velox::functions {
 void registerPrestoVectorFunctions() {
   // Presto function. To be removed.
   VELOX_REGISTER_VECTOR_FUNCTION(udf_arrays_overlap, "arrays_overlap");
-  VELOX_REGISTER_VECTOR_FUNCTION(udf_transform_keys, "transform_keys");
-  VELOX_REGISTER_VECTOR_FUNCTION(udf_transform_values, "transform_values");
 }
 } // namespace facebook::velox::functions
 
@@ -87,6 +86,8 @@ void registerAllFunctions() {
 
   velox::functions::iceberg::registerFunctions();
   registerDeltaBitmapAggregator();
+  // Fixed counter slots for Delta's IncrementMetric; see IncrementMetricFunction.h.
+  registerIncrementMetricFunctions();
 
   // Gluten-managed function implementations. Registered last so they take
   // precedence over same-name, same-signature Velox functions.

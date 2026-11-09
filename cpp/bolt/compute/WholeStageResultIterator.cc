@@ -19,6 +19,7 @@
 #include <bolt/connectors/hive/PaimonConstants.h>
 #include <fmt/ranges.h>
 #include <folly/json.h>
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include "BoltBackend.h"
@@ -675,6 +676,9 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
       boltCfg_->get<std::string>(kRegexMatchDanglingRightBrackets, "true");
   configs[bolt::core::QueryConfig::kSparkLegacyCastComplexTypesToStringEnabled] =
       boltCfg_->get<std::string>(kLegacyCastComplexTypesToStringEnabled, "false");
+  // Spark 3.4 always chunks; later versions forward their registered SQL option.
+  configs[bolt::core::QueryConfig::kSparkChunkBase64StringEnabled] =
+      boltCfg_->get<std::string>("spark.sql.chunkBase64String.enabled", "true");
   configs[bolt::core::QueryConfig::kRowBasedSpillMode] =
       boltCfg_->get<std::string>(kRowBasedSpillMode, bolt::core::QueryConfig::kDefaultRowBasedSpillMode);
   configs[bolt::core::QueryConfig::kBoltJitEnabled] = std::to_string(boltCfg_->get<bool>(kBoltJitEnabled, true));
@@ -705,8 +709,14 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
           std::to_string(boltCfg_->get<int32_t>(kAbandonPartialAggregationMinPct, 90));
       configs[bolt::core::QueryConfig::kAbandonPartialAggregationMinRows] =
           std::to_string(boltCfg_->get<int32_t>(kAbandonPartialAggregationMinRows, 100000));
+      // Bolt requires the spill threshold not to exceed either abandonment threshold.
+      // Adapt only the default so explicitly configured spill thresholds retain Bolt's validation.
+      const auto partialAggregationSpillMaxPctDefault = std::min(
+          {50,
+           boltCfg_->get<int32_t>(kAbandonPartialAggregationMinPct, 90),
+           boltCfg_->get<int32_t>(kAbandonPartialAggregationMinFinalPct, 75)});
       configs[bolt::core::QueryConfig::kPartialAggregationSpillMaxPct] =
-          std::to_string(boltCfg_->get<int32_t>(kPartialAggregationSpillMaxPct, 50));
+          std::to_string(boltCfg_->get<int32_t>(kPartialAggregationSpillMaxPct, partialAggregationSpillMaxPctDefault));
       configs[bolt::core::QueryConfig::kAbandonPartialAggregationMinFinalPct] =
           std::to_string(boltCfg_->get<int32_t>(kAbandonPartialAggregationMinFinalPct, 75));
       configs[bolt::core::QueryConfig::kSpilledAggregationBypassHTRatio] =

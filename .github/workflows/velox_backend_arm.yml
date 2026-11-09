@@ -36,6 +36,8 @@ on:
       - 'tools/gluten-it/**'
       - 'ep/build-velox/**'
       - 'cpp/**'
+      - '!cpp/bolt/**'
+      - '!cpp/bolt.CMakeLists.cmake'
       - 'dev/**'
       - 'build/mvn'
 
@@ -214,6 +216,13 @@ jobs:
           df -a
           bash dev/ci-velox-buildshared-centos-9.sh
           ccache -s
+      - name: "Save ccache"
+        if: always()
+        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos9-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+          include-hidden-files: true
       - name: Run CPP unit test
         run: |
           cd ./cpp/build && ctest -V

@@ -21,7 +21,9 @@
 #include "compute/delta/DeltaSplit.h"
 
 #ifndef GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER
-#if __has_include("velox/connectors/hive/FileSplitReader.h")
+#if __has_include("velox/connectors/common/FileSplitReader.h")
+#define GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER 1
+#elif __has_include("velox/connectors/hive/FileSplitReader.h")
 #define GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER 1
 #else
 #define GLUTEN_VELOX_DELTA_USE_FILE_SPLIT_READER 0

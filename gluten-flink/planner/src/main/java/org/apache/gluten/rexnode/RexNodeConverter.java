@@ -97,7 +97,44 @@ public class RexNodeConverter {
     return LogicalTypeConverter.toVLType(FlinkTypeFactory.toLogicalType(relDataType));
   }
 
+  private static Variant toNullVariant(SqlTypeName sqlTypeName) {
+    // A typed null needs no per-type carrier: the velox-side
+    // ConstantTypedExpr renders a null variant as a null constant of the
+    // EXPRESSION type (the variant kind is irrelevant on the null path).
+    // The velox serde accepts both an explicit "value": null (what velox4j
+    // emits today via @JsonInclude(ALWAYS)) and an absent "value" member as
+    // the typed null. VarCharValue is the natural null-accepting carrier.
+    switch (sqlTypeName) {
+      case BOOLEAN:
+      case TINYINT:
+      case SMALLINT:
+      case INTEGER:
+      case BIGINT:
+      case DOUBLE:
+      case FLOAT:
+      case VARCHAR:
+      case CHAR:
+      case BINARY:
+      case DECIMAL:
+      case DATE:
+      case INTERVAL_SECOND:
+      case SYMBOL:
+      case TIME:
+      case TIMESTAMP:
+        return new VarCharValue(null);
+      default:
+        throw new RuntimeException("Unsupported null rex node type: " + sqlTypeName);
+    }
+  }
+
   public static Variant toVariant(RexLiteral literal) {
+    if (literal.getValue() == null || literal.isNull()) {
+      // A typed null literal. velox4j serializes null carriers with an
+      // explicit "value": null (@JsonInclude(ALWAYS) on the Variant base
+      // class); the velox-side serde accepts both an explicit null and an
+      // absent "value" member as the typed null.
+      return toNullVariant(literal.getType().getSqlTypeName());
+    }
     switch (literal.getType().getSqlTypeName()) {
       case BOOLEAN:
         return new BooleanValue((boolean) literal.getValue());
@@ -120,15 +157,33 @@ public class RexNodeConverter {
         return VarBinaryValue.create(
             literal.getValue().toString().getBytes(StandardCharsets.UTF_8));
       case DECIMAL:
-      case INTERVAL_SECOND:
-        // interval is used as decimal.
-        // TODO: fix precision check
         BigDecimal bigDecimal = literal.getValueAs(BigDecimal.class);
         if (bigDecimal.precision() <= 18) {
           return new BigIntValue(bigDecimal.unscaledValue().longValueExact());
         } else {
           return new HugeIntValue(bigDecimal.unscaledValue());
         }
+        // Interval literals: Calcite stores day-time family values in
+        // milliseconds and year-month family values in months. The day-time
+        // value feeds plus/minus/multiply with BIGINT storage, and the
+        // year-month value feeds IntervalYearMonth (int32 storage).
+      case INTERVAL_DAY:
+      case INTERVAL_DAY_HOUR:
+      case INTERVAL_DAY_MINUTE:
+      case INTERVAL_DAY_SECOND:
+      case INTERVAL_HOUR:
+      case INTERVAL_HOUR_MINUTE:
+      case INTERVAL_HOUR_SECOND:
+      case INTERVAL_MINUTE:
+      case INTERVAL_MINUTE_SECOND:
+      case INTERVAL_SECOND:
+        return new BigIntValue(
+            literal.getValueAs(BigDecimal.class).unscaledValue().longValueExact());
+      case INTERVAL_YEAR:
+      case INTERVAL_MONTH:
+      case INTERVAL_YEAR_MONTH:
+        return new IntegerValue(
+            literal.getValueAs(BigDecimal.class).unscaledValue().intValueExact());
       case SYMBOL:
         return new VarCharValue(literal.getValue().toString());
       case TIMESTAMP:
@@ -138,6 +193,10 @@ public class RexNodeConverter {
         long epochMillis = literal.getValueAs(Long.class);
         return TimestampValue.create(
             Math.floorDiv(epochMillis, 1000L), Math.floorMod(epochMillis, 1000L) * 1_000_000L);
+      case TIME:
+        // Calcite stores TIME literals as the millisecond-of-day Integer —
+        // the same encoding the velox side uses for TIME.
+        return new IntegerValue(literal.getValueAs(Integer.class));
       default:
         throw new RuntimeException(
             "Unsupported rex node type: " + literal.getType().getSqlTypeName());

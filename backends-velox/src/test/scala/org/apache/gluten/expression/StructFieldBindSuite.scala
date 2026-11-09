@@ -16,13 +16,14 @@
  */
 package org.apache.gluten.expression
 
-import org.apache.gluten.execution.{ProjectExecTransformer, VeloxWholeStageTransformerSuite}
+import org.apache.gluten.execution.{FileSourceScanExecTransformer, ProjectExecTransformer, VeloxWholeStageTransformerSuite}
 
 import org.apache.spark.sql.DataFrame
-import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Expression}
+import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Expression, GetArrayStructFields}
 import org.apache.spark.sql.catalyst.expressions.GetStructField
-import org.apache.spark.sql.execution.ProjectExec
-import org.apache.spark.sql.types.{IntegerType, LongType, StringType, StructField, StructType}
+import org.apache.spark.sql.execution.{FileSourceScanExec, ProjectExec, SQLExecution}
+import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.{ArrayType, IntegerType, LongType, MapType, StringType, StructField, StructType}
 
 class StructFieldBindSuite extends VeloxWholeStageTransformerSuite {
   override protected val resourcePath: String = ""
@@ -34,7 +35,10 @@ class StructFieldBindSuite extends VeloxWholeStageTransformerSuite {
       .asInstanceOf[VeloxGetStructFieldTransformer]
 
   private def readsStructField(expressions: Seq[Expression]): Boolean =
-    expressions.exists(_.find(_.isInstanceOf[GetStructField]).isDefined)
+    expressions.exists(_.find {
+      case _: GetStructField | _: GetArrayStructFields => true
+      case _ => false
+    }.isDefined)
 
   // The struct fields must be read by a native projection, or the result comparison would not
   // exercise the binding.
@@ -111,6 +115,59 @@ class StructFieldBindSuite extends VeloxWholeStageTransformerSuite {
       bind(GetStructField(s, ordinal = 1), Seq(pruned))
     }
     assert(e.getMessage.contains("ambiguous field a"), e.getMessage)
+  }
+
+  for (container <- Seq("map", "array", "array_fields")) {
+    test(s"native $container filter binds retained predicates to the pruned schema") {
+      withSQLConf(
+        SQLConf.NESTED_SCHEMA_PRUNING_ENABLED.key -> "true",
+        SQLConf.USE_V1_SOURCE_LIST.key -> "parquet",
+        SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false") {
+        withTempPath {
+          path =>
+            val struct = "named_struct('unused0', id, 'unused1', id, 'unused2', id, 'value', id)"
+            val (column, field) = container match {
+              case "map" => (s"map('key', $struct)", "nested['key'].value")
+              case "array" => (s"array($struct)", "nested[0].value")
+              case "array_fields" => (s"array($struct)", "nested.value[0]")
+            }
+            spark.range(1, 4).selectExpr(s"$column AS nested").write.parquet(path.toString)
+            val data = spark.read.parquet(path.toString)
+            def query: DataFrame = data.where(s"$field = 1").selectExpr(s"$field AS value")
+            var originalFilters = Seq.empty[Expression]
+            withSQLConf(
+              "spark.gluten.enabled" -> "false",
+              SQLConf.NESTED_SCHEMA_PRUNING_ENABLED.key -> "false") {
+              originalFilters = query.queryExecution.executedPlan.collect {
+                case scan: FileSourceScanExec => scan.dataFilters
+              }.flatten
+            }
+            val originalOrdinals = originalFilters.flatMap(_.collect {
+              case field: GetStructField => field.ordinal
+              case fields: GetArrayStructFields => fields.ordinal
+            })
+            assert(originalOrdinals.nonEmpty && originalOrdinals.forall(_ == 3))
+            val df = query
+            assertStructReadOffloaded(df)
+            val plan = df.queryExecution.executedPlan
+            val scans = collect(plan) { case scan: FileSourceScanExecTransformer => scan }
+            assert(scans.size == 1, plan)
+            val prunedStruct = scans.head.requiredSchema("nested").dataType match {
+              case MapType(_, struct: StructType, _) => struct
+              case ArrayType(struct: StructType, _) => struct
+            }
+            assert(prunedStruct.fieldNames.toSeq == Seq("value"))
+            // Model the retained pre-pruning scan predicates, then execute the native query.
+            val retainedPlan = plan.transform {
+              case scan: FileSourceScanExecTransformer => scan.copy(dataFilters = originalFilters)
+            }
+            val rows = SQLExecution.withNewExecutionId(df.queryExecution) {
+              retainedPlan.executeCollect()
+            }
+            assert(rows.map(_.getLong(0)).toSeq == Seq(1L))
+        }
+      }
+    }
   }
 
   test("same-named struct columns with different layouts in a join") {

@@ -16,35 +16,40 @@
  */
 package org.apache.gluten.vectorized;
 
-import org.apache.spark.sql.execution.vectorized.MutableColumnarRow;
+import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators;
+
+import org.apache.spark.sql.catalyst.InternalRow;
+import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
 import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.sql.types.StructType;
+import org.apache.spark.sql.vectorized.ColumnarBatch;
 import org.apache.spark.task.TaskResources$;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.Collections;
+
+import scala.collection.JavaConverters;
+
 public class ArrowColumnVectorTest {
 
   @Test
-  public void testWriteByMutableColumnarRow() {
+  public void testWriteByArrowWriter() {
     TaskResources$.MODULE$.runUnsafe(
         () -> {
-          final ArrowWritableColumnVector[] columns = newArrowColumns("a decimal(20, 1)", 20);
-          MutableColumnarRow row = new MutableColumnarRow(columns);
-          Decimal decimal = new Decimal();
+          final Decimal decimal = new Decimal();
           decimal.set(234, 20, 1);
-          row.setDecimal(0, decimal, 20);
-          Assert.assertEquals(row.getDecimal(0, 20, 1), decimal);
+          try (ColumnarBatch batch =
+              ArrowColumnVectors.fromRows(
+                  StructType.fromDDL("a decimal(20, 1)"),
+                  JavaConverters.asScalaIterator(
+                      Collections.<InternalRow>singletonList(
+                              new GenericInternalRow(new Object[] {decimal}))
+                          .iterator()),
+                  ArrowBufferAllocators.contextInstance())) {
+            Assert.assertEquals(decimal, batch.column(0).getDecimal(0, 20, 1));
+          }
           return null;
         });
-  }
-
-  private static ArrowWritableColumnVector[] newArrowColumns(String schema, int numRows) {
-    ArrowWritableColumnVector[] columns =
-        ArrowWritableColumnVector.allocateColumns(numRows, StructType.fromDDL(schema));
-    for (ArrowWritableColumnVector col : columns) {
-      col.setValueCount(numRows);
-    }
-    return columns;
   }
 }

@@ -57,15 +57,28 @@ See [.github/workflows/util/delta-spark-ut/README.md](https://github.com/apache/
 for the gate, the flaky-test quarantine and baseline bootstrapping.
 Open follow-ups are tracked in [#12743](https://github.com/apache/gluten/issues/12743).
 
+## Enhanced Backend CI
+
+`velox_backend_enhanced.yml` runs only through `workflow_dispatch`. There are no pending
+patches in the enhanced branch, so automatic pull-request runs are paused to save CI
+capacity. The workflow remains available for urgent patches and manual validation; manual
+runs enable all native and Spark test jobs.
+
+Kafka CI keeps its independent pull-request workflow and Kafka-enabled native build.
+
 ## Iceberg Spark UT
 
-`iceberg_spark_ut.yml` runs upstream Iceberg query/write tests on Spark 3.5. PR runs are
-limited to Iceberg sources and the harness, native/Velox code, shared production code in
-the Velox backend, core, Substrait and Arrow modules, Spark 3.5/common shims, and their
-Maven/native-build inputs.
+`iceberg_spark_ut.yml` runs upstream Iceberg query/write tests on Spark 3.5. On pull requests
+and nightly runs, `velox_backend_x86.yml` calls it after `build-native-lib-centos-8` and passes
+the head revision's static native libraries. It runs for Java, Spark 3.5/common shim or native
+changes. Once the shared native artifact is ready, Iceberg runs alongside the Spark and TPC
+jobs; it does not wait for those jobs to finish. Its five class shards also run in parallel,
+with one Spark fork per runner.
 
-`iceberg_upstream_revision.yml` builds each revision's native and JVM artifacts once and
-shares them across five class shards, with one Spark fork per runner.
+`iceberg_upstream_revision.yml` skips the head native build when an artifact is supplied,
+then builds the JVM artifacts once for all shards. Manual `workflow_dispatch` runs build
+native libraries themselves. The base revision also builds its own native libraries when
+no saved baseline is available, because it tests a different commit.
 
 ### Results and gate
 

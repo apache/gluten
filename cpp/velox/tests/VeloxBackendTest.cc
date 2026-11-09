@@ -18,31 +18,60 @@
 #include <folly/executors/CPUThreadPoolExecutor.h>
 #include <folly/futures/Future.h>
 #include <gtest/gtest.h>
+#include <optional>
+#include <string>
 #include <thread>
+#include <unordered_map>
 
 #include "compute/VeloxBackend.h"
 #include "config/VeloxConfig.h"
 
 namespace gluten {
 
-class VeloxBackendTest : public ::testing::Test {
+struct BroadcastBuildThreadsTestParam {
+  int taskSlots;
+  std::optional<int> buildThreads;
+  std::optional<int> expectedThreads;
+};
+
+class VeloxBackendTest : public ::testing::TestWithParam<BroadcastBuildThreadsTestParam> {
  protected:
-  static void SetUpTestSuite() {
-    VeloxBackend::create(AllocationListener::noop(), {{kNumTaskSlotsPerExecutor, "0"}});
+  void SetUp() override {
+    const auto& param = GetParam();
+    std::unordered_map<std::string, std::string> conf{{kNumTaskSlotsPerExecutor, std::to_string(param.taskSlots)}};
+    if (param.buildThreads.has_value()) {
+      conf.emplace(kBroadcastHashTableBuildThreads, std::to_string(param.buildThreads.value()));
+    }
+    VeloxBackend::create(AllocationListener::noop(), conf);
   }
 
-  static void TearDownTestSuite() {
+  void TearDown() override {
     VeloxBackend::get()->tearDown();
   }
 };
 
-TEST_F(VeloxBackendTest, broadcastHashTableBuildExecutorWithZeroTaskSlots) {
+TEST_P(VeloxBackendTest, broadcastHashTableBuildExecutorThreadCount) {
   auto* backend = VeloxBackend::get();
   auto* executor = dynamic_cast<folly::CPUThreadPoolExecutor*>(backend->broadcastHashTableBuildExecutor());
+  if (!GetParam().expectedThreads.has_value()) {
+    EXPECT_EQ(executor, nullptr);
+    return;
+  }
   ASSERT_NE(executor, nullptr);
-  ASSERT_EQ(executor->numThreads(), 1);
+  ASSERT_EQ(executor->numThreads(), GetParam().expectedThreads.value());
   const auto callerThread = std::this_thread::get_id();
   EXPECT_NE(folly::via(executor, [] { return std::this_thread::get_id(); }).get(), callerThread);
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    BuildThreads,
+    VeloxBackendTest,
+    ::testing::Values(
+        BroadcastBuildThreadsTestParam{0, std::nullopt, std::nullopt},
+        BroadcastBuildThreadsTestParam{8, std::nullopt, 8},
+        BroadcastBuildThreadsTestParam{0, 0, std::nullopt},
+        BroadcastBuildThreadsTestParam{0, 1, std::nullopt},
+        BroadcastBuildThreadsTestParam{0, 4, 4},
+        BroadcastBuildThreadsTestParam{8, 4, 4}));
 
 } // namespace gluten
