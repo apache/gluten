@@ -216,9 +216,6 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       // Transformer for array_compact.
       case LambdaFunction(_: IsNotNull, _, _) =>
         GenericExpressionTransformer(ExpressionNames.ARRAY_COMPACT, Seq(argument), expr)
-      case LambdaFunction(_, arguments, _) if arguments.size == 2 =>
-        throw new GlutenNotSupportException(
-          "filter on array with lambda using index argument is not supported yet")
       case _ => GenericExpressionTransformer(substraitExprName, Seq(argument, function), expr)
     }
   }
@@ -229,12 +226,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       argument: ExpressionTransformer,
       function: ExpressionTransformer,
       expr: ArrayForAll): ExpressionTransformer = {
-    expr.function match {
-      case LambdaFunction(_, arguments, _) if arguments.size == 2 =>
-        throw new GlutenNotSupportException(
-          "forall on array with lambda using index argument is not supported yet")
-      case _ => GenericExpressionTransformer(substraitExprName, Seq(argument, function), expr)
-    }
+    GenericExpressionTransformer(substraitExprName, Seq(argument, function), expr)
   }
 
   override def genArraySortTransformer(
@@ -251,12 +243,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       argument: ExpressionTransformer,
       function: ExpressionTransformer,
       expr: ArrayExists): ExpressionTransformer = {
-    expr.function match {
-      case LambdaFunction(_, arguments, _) if arguments.size == 2 =>
-        throw new GlutenNotSupportException(
-          "exists on array with lambda using index argument is not supported yet")
-      case _ => GenericExpressionTransformer(substraitExprName, Seq(argument, function), expr)
-    }
+    GenericExpressionTransformer(substraitExprName, Seq(argument, function), expr)
   }
 
   /** Transform array transform to Substrait. */
@@ -265,12 +252,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       argument: ExpressionTransformer,
       function: ExpressionTransformer,
       expr: ArrayTransform): ExpressionTransformer = {
-    expr.function match {
-      case LambdaFunction(_, arguments, _) if arguments.size == 2 =>
-        throw new GlutenNotSupportException(
-          "transform on array with lambda using index argument is not supported yet")
-      case _ => GenericExpressionTransformer(substraitExprName, Seq(argument, function), expr)
-    }
+    GenericExpressionTransformer(substraitExprName, Seq(argument, function), expr)
   }
 
   /** Transform posexplode to Substrait. */
