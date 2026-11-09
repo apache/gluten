@@ -18,6 +18,7 @@ package org.apache.gluten.extension.columnar
 
 import org.apache.gluten.execution.{ColumnarV2TableWriteExec, GlutenPlan}
 import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
+import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.sql.catalyst.expressions.SortOrder
 import org.apache.spark.sql.catalyst.rules.Rule
@@ -83,7 +84,7 @@ object EnsureLocalSortRequirements extends Rule[SparkPlan] {
   }
 
   override def apply(plan: SparkPlan): SparkPlan = {
-    plan.transformUp {
+    SparkShimLoader.getSparkShims.dropUnsafeKWayMerge(plan).transformUp {
       case p =>
         val newChildren = p.children.zip(requiredChildOrdering(p)).map {
           case (child, requiredOrdering) =>
