@@ -26,7 +26,7 @@ import org.apache.spark.sql.catalyst.expressions.{BinaryArithmetic, Expression, 
 import org.apache.spark.sql.catalyst.plans.JoinType
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
-import org.apache.spark.sql.catalyst.plans.physical.Partitioning
+import org.apache.spark.sql.catalyst.plans.physical.{Partitioning, PartitioningCollection}
 import org.apache.spark.sql.connector.read.{InputPartition, Scan}
 import org.apache.spark.sql.connector.read.streaming.SparkDataStream
 import org.apache.spark.sql.execution._
@@ -101,6 +101,22 @@ trait SparkShims {
    * shimmed per version.
    */
   def isKeyGroupedPartitioning(partitioning: Partitioning): Boolean
+
+  /**
+   * The output partitioning of an inner shuffled join over the partitionings of its children. Spark
+   * 4.3 requires the `KeyedPartitioning`s of one `PartitioningCollection` to agree on their
+   * partition keys and flags, see `ShuffledJoin.outputPartitioning`.
+   */
+  def innerShuffledJoinOutputPartitioning(partitionings: Seq[Partitioning]): Partitioning =
+    PartitioningCollection(partitionings)
+
+  /**
+   * Drops a k-way merge that `EnsureRequirements` planned on a `GroupPartitionsExec` (Spark 4.3+)
+   * when offloading put a node that is not `SafeForKWayMerge` below it. Such a merge would fail at
+   * execution, so the node coalesces by concatenation instead and `EnsureLocalSortRequirements`
+   * adds the sort the parent needs.
+   */
+  def dropUnsafeKWayMerge(plan: SparkPlan): SparkPlan = plan
 
   def getWindowGroupLimitExecShim(plan: SparkPlan): WindowGroupLimitExecShim = null
 

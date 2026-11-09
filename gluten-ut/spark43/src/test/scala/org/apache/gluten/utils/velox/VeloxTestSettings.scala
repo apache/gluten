@@ -113,12 +113,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude(
       "SPARK-60044: the debug() helper runs a planned k-way merge"
     ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .excludeGlutenTest(
-      "SPARK-55715: preserve outputOrdering when coalescing partitions with sorted merge"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .excludeGlutenTest(
-      "SPARK-55715: preserve outputOrdering when coalescing transform-partitioned splits"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
     // NEW SUITE: disable as they check vanilla spark plan
     .exclude("partitioned join: number of buckets mismatch should trigger shuffle")
     .exclude("partitioned join: only one side reports partitioning")
@@ -148,16 +142,7 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-55715: preserve outputOrdering when coalescing transform-partitioned splits")
     .exclude("SPARK-56549: k-way merge enabled only when parent requires ordering")
     .exclude(
-      "SPARK-59045: compatible transforms reduce multiple times"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-59045: reduced expression is retargeted per KeyedPartitioning"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
       "SPARK-59688: an identity side and a compatible transform whose reported keys coincide"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-59121: two sides reduced together are not reduced a second time"
     ) // GLUTEN-13517 Spark 4.3 UT enablement
     .exclude(
       "SPARK-59121: a union does not merge an already reduced partitioning"
@@ -181,21 +166,6 @@ class VeloxTestSettings extends BackendTestSettings {
       "SPARK-59887: a broadcast join's layout over a join key is not paired as it is (-p.b)"
     ) // GLUTEN-13517 Spark 4.3 UT enablement
     .exclude(
-      "SPARK-59887: a reduce keeps what each member's keys are computed from"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-59887: two layouts over the same shape of a join key pair as two columns do"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-59887: the same shape reduced together pairs only through the same pairing"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-59176: a leg reduced onto no key at all still joins"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-55848: dropDuplicates after SPJ with partial clustering"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
       "SPARK-55848: Window dedup after SPJ with partial clustering"
     ) // GLUTEN-13517 Spark 4.3 UT enablement
     .exclude(
@@ -217,16 +187,6 @@ class VeloxTestSettings extends BackendTestSettings {
       "SPARK-58996: partially clustered subset-key join keeps its join key positions when EnsureRequirements re-runs"
     ) // GLUTEN-13517 Spark 4.3 UT enablement
     .exclude(
-      "SPARK-55535: Multi table join granular partition grouping"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-55535: Multi table join partial clustering"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-59905: ORDER BY a join-key expression a join reports as a partition expression"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude("SPARK-56046: Reducers with same result types") // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
       "SPARK-56164: Reducers with different result types to original keys"
     ) // GLUTEN-13517 Spark 4.3 UT enablement
     .exclude(
@@ -240,9 +200,6 @@ class VeloxTestSettings extends BackendTestSettings {
     ) // GLUTEN-13517 Spark 4.3 UT enablement
     .exclude(
       "SPARK-59279: a planned k-way merge survives a later config change"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-58968: a window over reduced partition keys coalesces partitions"
     ) // GLUTEN-13517 Spark 4.3 UT enablement
     .exclude(
       "SPARK-58968: no GroupPartitionsExec when a join collection member needs none"
@@ -275,9 +232,6 @@ class VeloxTestSettings extends BackendTestSettings {
       "SPARK-58974: the collapse skew guard applies regardless of requireAllClusterKeys"
     ) // GLUTEN-13517 Spark 4.3 UT enablement
     .exclude(
-      "SPARK-59120: a second join with a non-reducing side plans on the reduced keys"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
       "SPARK-59057: several splits per partition key are grouped without allowKeysSubsetOfPartitionKeys"
     ) // GLUTEN-13517 Spark 4.3 UT enablement
     .exclude(
@@ -285,15 +239,6 @@ class VeloxTestSettings extends BackendTestSettings {
     ) // GLUTEN-13517 Spark 4.3 UT enablement
     .exclude(
       "SPARK-59057: a shuffle built from a template that collapsed nothing needs no opt-in"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-59050: SPJ: spurious marker of an inner join keeps the reduced SPJ"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-59050: SPJ: inner join clears the spurious marker on both member orders"
-    ) // GLUTEN-13517 Spark 4.3 UT enablement
-    .exclude(
-      "SPARK-59050: SPJ: marker clearing reaches a nested all-marked collection built by SQL"
     ) // GLUTEN-13517 Spark 4.3 UT enablement
     .exclude(
       "SPARK-59050: SPJ: inner join drops out-of-set rows before the cleared marker is trusted"
