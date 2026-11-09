@@ -23,6 +23,7 @@
 #include "compute/delta/DeltaSplitInfo.h"
 #include "compute/iceberg/IcebergPlanConverter.h"
 #include "jni/JniHashTable.h"
+#include "operators/functions/IncrementMetricFunction.h"
 #include "operators/hashjoin/HashTableBuilder.h"
 #include "operators/plannodes/RowVectorStream.h"
 #ifdef ENABLE_KAFKA
@@ -32,6 +33,7 @@
 #endif
 #include "velox/connectors/hive/HiveDataSink.h"
 #include "velox/connectors/hive/iceberg/IcebergColumnHandle.h"
+#include "velox/connectors/hive/iceberg/IcebergTableHandle.h"
 #include "velox/exec/TableWriter.h"
 #include "velox/type/Type.h"
 
@@ -1714,8 +1716,14 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 #endif
   }
   common::SubfieldFilters subfieldFilters;
-  tableHandle = std::make_shared<connector::hive::HiveTableHandle>(
-      connectorId, "hive_table", std::move(subfieldFilters), remainingFilter, dataColumns);
+  if (connectorId == connectorIds_.iceberg) {
+    // The Iceberg connector's data source requires an IcebergTableHandle.
+    tableHandle = std::make_shared<connector::hive::iceberg::IcebergTableHandle>(
+        connectorId, "hive_table", std::move(subfieldFilters), remainingFilter, dataColumns);
+  } else {
+    tableHandle = std::make_shared<connector::hive::HiveTableHandle>(
+        connectorId, "hive_table", std::move(subfieldFilters), remainingFilter, dataColumns);
+  }
 
   // Required subfields of scan columns (map-key pruning), from the RequiredSubfieldsExtension the
   // ScanMapKeyPruning rule packs into the ReadRel advanced extension. Each path is transported as
@@ -1944,13 +1952,16 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   // In fact, only one RelRoot or Rel is expected here.
   VELOX_CHECK_EQ(substraitPlan.relations_size(), 1);
   const auto& rel = substraitPlan.relations(0);
+  core::PlanNodePtr plan;
   if (rel.has_root()) {
-    return toVeloxPlan(rel.root());
+    plan = toVeloxPlan(rel.root());
   } else if (rel.has_rel()) {
-    return toVeloxPlan(rel.rel());
+    plan = toVeloxPlan(rel.rel());
   } else {
     VELOX_FAIL("RelRoot or Rel is expected in Plan.");
   }
+  checkIncrementMetricFunctionsInProjects(functionMap_, *plan);
+  return plan;
 }
 
 std::string SubstraitToVeloxPlanConverter::nextPlanNodeId() {

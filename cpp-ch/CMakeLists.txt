@@ -84,6 +84,54 @@ execute_process(
 
 set(CH_BINARY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/build")
 option(ENABLE_CPP_TEST "Build CPP Unit test" OFF)
+option(GLUTEN_ENABLE_NATIVE_PAIMON
+       "Build libch with native Paimon read support" ON)
+option(
+  GLUTEN_BUNDLE_PAIMON
+  "Download and build paimon-cpp into build/deps/paimon when Paimon_DIR is unset"
+  ON)
+
+set(GLUTEN_USE_BUNDLED_PAIMON OFF)
+set(_GLUTEN_PAIMON_BUILD_DEP "")
+set(_GLUTEN_CH_CMAKE_PAIMON_ARG
+    "-DGLUTEN_ENABLE_NATIVE_PAIMON=${GLUTEN_ENABLE_NATIVE_PAIMON}")
+
+if(GLUTEN_ENABLE_NATIVE_PAIMON)
+  if(Paimon_DIR)
+    set(GLUTEN_PAIMON_CMAKE_DIR "${Paimon_DIR}")
+    message(STATUS "Using external paimon-cpp from Paimon_DIR=${Paimon_DIR}")
+  elseif(GLUTEN_BUNDLE_PAIMON)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/BuildPaimon.cmake)
+    set(GLUTEN_USE_BUNDLED_PAIMON ON)
+    message(
+      STATUS "Bundled paimon-cpp will be installed to ${PAIMON_INSTALL_PREFIX}")
+  else()
+    message(
+      FATAL_ERROR
+        "Native Paimon requires paimon-cpp. Set -DPaimon_DIR=... or -DGLUTEN_BUNDLE_PAIMON=ON."
+    )
+  endif()
+  if(GLUTEN_USE_BUNDLED_PAIMON)
+    # The bridge sources are compiled into libch.  Keep Paimon itself in shared
+    # libraries so its implementation is not copied into libch.
+    set(_GLUTEN_PAIMON_BUILD_DEP paimon_cpp)
+    list(APPEND _GLUTEN_CH_CMAKE_PAIMON_ARG
+         "-DPaimon_DIR=${GLUTEN_PAIMON_CMAKE_DIR}"
+         "-DPAIMON_BUNDLED_DEPS_DIR=${PAIMON_EP_BINARY_DIR}")
+  else()
+    message(
+      FATAL_ERROR
+        "Native Paimon support requires bundled paimon-cpp (-DGLUTEN_BUNDLE_PAIMON=ON)."
+    )
+  endif()
+else()
+  message(
+    STATUS
+      "GLUTEN_ENABLE_NATIVE_PAIMON=OFF: libch builds without paimon-cpp (raw Parquet Paimon scans only)."
+  )
+endif()
+
+set(LIBCH_OUTPUT_DIR "${CH_BINARY_DIR}/utils/extern-local-engine")
 
 if(ENABLE_CPP_TEST)
   add_custom_command(
@@ -93,11 +141,12 @@ if(ENABLE_CPP_TEST)
       -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER} -DNO_ARMV81_OR_HIGHER=1
       -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DENABLE_PROTOBUF=ON
       -DENABLE_TESTS=ON -DENABLE_JEMALLOC=ON -DENABLE_MULTITARGET_CODE=ON
-      -DENABLE_EXTERN_LOCAL_ENGINE=ON -DCOMPILER_FLAGS='-fvisibility=hidden
-      -fvisibility-inlines-hidden' -S ${CH_SOURCE_DIR} -G Ninja -B
-      ${CH_BINARY_DIR} && cmake --build ${CH_BINARY_DIR} --target ch
-      unit_tests_local_engine\"
-    OUTPUT _build_ch)
+      -DENABLE_EXTERN_LOCAL_ENGINE=ON ${_GLUTEN_CH_CMAKE_PAIMON_ARG}
+      -DCOMPILER_FLAGS='-fvisibility=hidden -fvisibility-inlines-hidden' -S
+      ${CH_SOURCE_DIR} -G Ninja -B ${CH_BINARY_DIR} && cmake --build
+      ${CH_BINARY_DIR} --target ch unit_tests_local_engine\"
+    OUTPUT _build_ch
+    DEPENDS ${_GLUTEN_PAIMON_BUILD_DEP})
 else()
   add_custom_command(
     USES_TERMINAL
@@ -114,11 +163,18 @@ else()
       -DENABLE_MYSQL=OFF -DENABLE_BCRYPT=OFF -DENABLE_LDAP=OFF
       -DENABLE_MSGPACK=OFF -DUSE_REPLXX=OFF -DENABLE_CLICKHOUSE_ALL=OFF
       -DENABLE_GWP_ASAN=OFF -DENABLE_NUMACTL=OFF -DENABLE_GOOGLE_CLOUD_CPP=OFF
-      -DENABLE_ARROW_FLIGHT=OFF -DENABLE_XRAY=0
+      -DENABLE_ARROW_FLIGHT=OFF -DENABLE_XRAY=0 ${_GLUTEN_CH_CMAKE_PAIMON_ARG}
       -DCOMPILER_FLAGS='-fvisibility=hidden -fvisibility-inlines-hidden' -S
       ${CH_SOURCE_DIR} -G Ninja -B ${CH_BINARY_DIR} && cmake --build
       ${CH_BINARY_DIR} --target libch\"
-    OUTPUT _build_ch)
+    OUTPUT _build_ch
+    DEPENDS ${_GLUTEN_PAIMON_BUILD_DEP})
 endif()
 
-add_custom_target(build_ch ALL DEPENDS _build_ch)
+if(GLUTEN_USE_BUNDLED_PAIMON)
+  gluten_bundle_paimon_libs("${LIBCH_OUTPUT_DIR}"
+                            "${CMAKE_CURRENT_SOURCE_DIR}/..")
+  add_custom_target(build_ch ALL DEPENDS bundle_paimon_libs)
+else()
+  add_custom_target(build_ch ALL DEPENDS _build_ch)
+endif()
