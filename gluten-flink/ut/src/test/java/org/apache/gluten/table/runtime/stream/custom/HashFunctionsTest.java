@@ -21,7 +21,6 @@ import org.apache.gluten.table.runtime.stream.common.GlutenStreamingTestBase;
 import org.apache.flink.table.api.TableResult;
 import org.apache.flink.types.Row;
 
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -79,12 +78,6 @@ class HashFunctionsTest extends GlutenStreamingTestBase {
   private static final String SHA1_UTF8 = "dabaa5fe7c47fb21be902480a13013f16a1ab6eb";
   private static final String LONG_INPUT = "0123456789abcdefghijklmnopqrstuvwxyz";
 
-  @Override
-  @BeforeEach
-  public void before() throws Exception {
-    super.before();
-  }
-
   @Test
   void testSha2ColumnLength() {
     List<Row> rows =
@@ -103,17 +96,22 @@ class HashFunctionsTest extends GlutenStreamingTestBase {
   }
 
   @Test
-  void testSha2ZeroLengthFails() {
-    // Flink 1.19.2 rejects hash length 0 outright (no Hive-style 0-means-256);
-    // the offloaded path must fail the same way to keep both stacks consistent.
-    List<Row> rows = Arrays.asList(Row.of("test", 0));
-    createSimpleBoundedValuesTable("tblSha2Zero", "s varchar, n int", rows);
-    tEnv().executeSql("CREATE TABLE printT (d VARCHAR) WITH ('connector' = 'print')");
-    TableResult result = tEnv().executeSql("insert into printT select SHA2(s, n) from tblSha2Zero");
-    assertThat(result.getJobClient()).isPresent();
-    assertThatThrownBy(() -> result.getJobClient().get().getJobExecutionResult().get())
-        .hasStackTraceContaining("Unsupported SHA-2 hash length: 0");
-    tEnv().executeSql("drop table if exists printT");
+  void testSha2UnsupportedLengthFails() {
+    // Flink rejects unsupported hash lengths; the velox flinksql function set
+    // fails the job with the same channel. 0 included (Flink 1.19.2 rejects 0
+    // outright, no Hive-style 0-means-256); 385 is a non-algorithm.
+    for (int length : new int[] {0, 385}) {
+      List<Row> rows = Arrays.asList(Row.of("test", length));
+      String tableName = "tblSha2Bad" + length;
+      createSimpleBoundedValuesTable(tableName, "s varchar, n int", rows);
+      tEnv().executeSql("CREATE TABLE printT (d VARCHAR) WITH ('connector' = 'print')");
+      TableResult result =
+          tEnv().executeSql("insert into printT select SHA2(s, n) from " + tableName);
+      assertThat(result.getJobClient()).isPresent();
+      assertThatThrownBy(() -> result.getJobClient().get().getJobExecutionResult().get())
+          .hasStackTraceContaining("Unsupported SHA-2 hash length: " + length);
+      tEnv().executeSql("drop table if exists printT");
+    }
   }
 
   @Test
@@ -238,19 +236,5 @@ class HashFunctionsTest extends GlutenStreamingTestBase {
 
     String query2 = "select SHA256(s) from tblSha2Null";
     runAndCheck(query2, Arrays.asList("+I[" + SHA256_TEST + "]", "+I[null]", "+I[null]"));
-  }
-
-  @Test
-  void testSha2UnsupportedLengthFails() {
-    // Flink rejects unsupported hash lengths; the velox flinksql function set
-    // fails the job with the same channel.
-    List<Row> rows = Arrays.asList(Row.of("test", 385));
-    createSimpleBoundedValuesTable("tblSha2Bad", "s varchar, n int", rows);
-    tEnv().executeSql("CREATE TABLE printT (d VARCHAR) WITH ('connector' = 'print')");
-    TableResult result = tEnv().executeSql("insert into printT select SHA2(s, n) from tblSha2Bad");
-    assertThat(result.getJobClient()).isPresent();
-    assertThatThrownBy(() -> result.getJobClient().get().getJobExecutionResult().get())
-        .hasStackTraceContaining("Unsupported SHA-2 hash length: 385");
-    tEnv().executeSql("drop table if exists printT");
   }
 }
