@@ -177,7 +177,8 @@ jobs:
 
   spark35-stress:
     if: github.event_name == 'workflow_dispatch' && inputs.run_stress
-    needs: [build-native, spark35]
+    # Collect stress results even when the separate correctness job fails.
+    needs: build-native
     runs-on: ubuntu-22.04
     timeout-minutes: 120
     env:

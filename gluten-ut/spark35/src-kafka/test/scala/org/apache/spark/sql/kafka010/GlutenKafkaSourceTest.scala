@@ -18,21 +18,74 @@ package org.apache.spark.sql.kafka010
 
 import org.apache.gluten.execution.MicroBatchScanExecTransformer
 
+import org.apache.spark.scheduler.{SparkListener, SparkListenerEvent}
 import org.apache.spark.sql.{Dataset, GlutenSQLTestsTrait}
+import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.datasources.v2.MicroBatchScanExec
-import org.apache.spark.sql.execution.streaming.StreamExecution
+import org.apache.spark.sql.execution.streaming.{IncrementalExecution, StreamExecution}
+import org.apache.spark.sql.execution.ui.SparkListenerSQLExecutionEnd
 import org.apache.spark.sql.streaming.OutputMode
+
+import java.util.concurrent.ConcurrentLinkedQueue
+
+import scala.collection.JavaConverters._
 
 /** Reuse Spark's source tests while checking the physical scan after successful answer checks. */
 private[kafka010] trait GlutenKafkaSourceTest extends KafkaSourceTest with GlutenSQLTestsTrait {
 
+  private val completedKafkaPlans = new ConcurrentLinkedQueue[SparkPlan]()
+  private var kafkaScanListener: Option[SparkListener] = None
+
+  override protected def beforeEach(): Unit = {
+    super.beforeEach()
+    completedKafkaPlans.clear()
+    val listener = new SparkListener {
+      override def onOtherEvent(event: SparkListenerEvent): Unit = event match {
+        case end: SparkListenerSQLExecutionEnd if end.executionFailure.isEmpty =>
+          end.qe match {
+            case execution: IncrementalExecution =>
+              completedKafkaPlans.add(execution.executedPlan)
+            case _ =>
+          }
+        case _ =>
+      }
+    }
+    spark.sparkContext.addSparkListener(listener)
+    kafkaScanListener = Some(listener)
+  }
+
+  override protected def afterEach(): Unit = {
+    try {
+      // Some inherited tests start queries directly instead of using testStream. Observe every
+      // successful micro-batch, including stopped queries and Kafka sink writes. A query execution
+      // listener would miss streaming executions without an action name.
+      spark.sparkContext.listenerBus.waitUntilEmpty(streamingTimeout.toMillis)
+      // Assert on the test thread: Spark logs listener failures without failing the test.
+      assertKafkaScans(completedKafkaPlans.asScala.toSeq)
+    } finally {
+      try {
+        kafkaScanListener.foreach(spark.sparkContext.removeSparkListener)
+        kafkaScanListener = None
+        completedKafkaPlans.clear()
+      } finally {
+        super.afterEach()
+      }
+    }
+  }
+
   protected def assertKafkaScan(query: StreamExecution, requireScan: Boolean = false): Boolean = {
     val execution = Option(query).flatMap(q => Option(q.lastExecution))
-    val nativeScans = execution.toSeq.flatMap {
-      _.executedPlan.collect { case scan: MicroBatchScanExecTransformer => scan }
+    assertKafkaScans(execution.toSeq.map(_.executedPlan), requireScan)
+  }
+
+  private def assertKafkaScans(
+      plans: Seq[SparkPlan],
+      requireScan: Boolean = false): Boolean = {
+    val nativeScans = plans.flatMap {
+      _.collect { case scan: MicroBatchScanExecTransformer => scan }
     }
-    val sparkScans = execution.toSeq.flatMap {
-      _.executedPlan.collect {
+    val sparkScans = plans.flatMap {
+      _.collect {
         case scan: MicroBatchScanExec
             if MicroBatchScanExecTransformer.supportsBatchScan(scan.scan) =>
           scan
