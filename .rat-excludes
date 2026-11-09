@@ -1,0 +1,58 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Apache RAT exclusions for the source release. Each line is a regular expression
+# matched against a file or directory name (not a path); a matching directory
+# excludes everything below it. Usage:
+#   java -jar apache-rat-<version>.jar -E .rat-excludes -d <source dir>
+# Only markdown docs, test data, golden files, generated output and third-party files
+# belong here. Other Gluten-authored files must carry the ASF license header instead.
+
+\.rat-excludes
+\.gitignore
+\.gitattributes
+\.gitmodules
+\.gitkeep
+\.github
+\.idea
+target
+.*\.md
+LICENSE-binary
+NOTICE-binary
+sql-tests
+tpcds-plan-stability
+gluten-tpch-plan-stability
+tpch-approved-plan
+tpcds-queries.*
+tpch-queries.*
+tpcds-decimal-queries-output
+clickbench-queries
+queries
+result
+csv-data
+text-data
+nexmark
+event-files
+junit[0-9]+
+.*\.csv
+.*\.tsv
+.*Benchmark-results\.txt
+ports
+.*\.patch
+config\.guess
+config\.sub
+check-style
+\.clang-format
+emon\.list

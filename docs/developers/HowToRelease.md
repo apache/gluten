@@ -81,6 +81,22 @@ Reviewers also run [Apache RAT](https://creadur.apache.org/rat/) against the sou
 that RAT flags `.ipynb` notebooks, which cannot carry a comment header; the convention is to place
 the license text in the notebook's first markdown cell.
 
+`check.py` only covers source files changed since `main`. Run RAT over the whole tree as well,
+using the repository's `.rat-excludes`, which lists markdown docs, test data, golden files and
+third-party files that are not expected to carry the ASF header. Each line is a regular expression
+matched against a file or directory *name*, not a path. RAT also skips hidden directories such as
+`.devcontainer/`, so check those by hand. Run it from a clean export (for example `git archive HEAD | tar -x -C <dir>`)
+rather than a working tree, which also holds untracked build output.
+
+```bash
+wget https://archive.apache.org/dist/creadur/apache-rat-0.16.1/apache-rat-0.16.1-bin.tar.gz
+tar -xzf apache-rat-0.16.1-bin.tar.gz
+java -jar apache-rat-0.16.1/apache-rat-0.16.1.jar -E .rat-excludes -d . | grep "Unknown Licenses"
+```
+
+The result must be `0 Unknown Licenses`. Add the ASF header to any new Gluten-authored file that is
+reported; add test data or third-party files to `.rat-excludes` instead.
+
 ## Steps to Create a Release
 
 A standard release distribution can be created following the below steps.
