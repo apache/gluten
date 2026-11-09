@@ -31,6 +31,12 @@ on:
       - 'dev/**'
       - 'build/mvn'
   workflow_dispatch:
+    inputs:
+      run_stress:
+        description: Run the longer Spark Kafka stress suite after correctness checks
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -98,31 +104,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     env:
-      KAFKA_BOOTSTRAP_SERVERS: localhost:9092
       SPARK_LOCAL_IP: 127.0.0.1
-    services:
-      kafka:
-        image: apache/kafka:3.9.1
-        ports:
-          - 9092:9092
-        env:
-          CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
-          KAFKA_NODE_ID: 1
-          KAFKA_PROCESS_ROLES: broker,controller
-          KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
-          KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-          KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
-          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-          KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-          KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-          KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-        options: >-
-          --health-cmd "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"
-          --health-interval 10s
-          --health-timeout 10s
-          --health-retries 12
     steps:
       - uses: actions/checkout@v7
       - name: Setup java
@@ -139,23 +121,56 @@ jobs:
         run: |
           ./build/mvn -B -ntp install -Pbackends-velox -Pspark-3.5 -Pscala-2.12 \
             -Pjava-17 -Pkafka -Pspark-ut -Pfast-build -DskipTests
-      # TODO: Re-enable when VeloxKafkaScanValidationSuite is added.
-      # - name: Check Kafka schema validation without a broker
-      #   run: |
-      #     ./build/mvn -B -ntp test -pl gluten-ut/spark35 -Pbackends-velox -Pspark-3.5 \
-      #       -Pscala-2.12 -Pjava-17 -Pspark-ut -Pfast-build \
-      #       -Dsuites=org.apache.gluten.execution.VeloxKafkaScanValidationSuite
-      # TODO: Re-enable when VeloxGlutenKafkaScanSuite is added in #13237.
-      # - name: Check native micro-batch reads and headers fallback
-      #   run: |
-      #     ./build/mvn -B -ntp test -pl backends-velox -Pbackends-velox -Pspark-3.5 \
-      #       -Pscala-2.12 -Pjava-17 -Pkafka -Pfast-build \
-      #       -Dsuites=org.apache.gluten.execution.kafka.VeloxGlutenKafkaScanSuite
+      # PR #13237 is merged upstream. A checkout missing its Velox integration
+      # must fail the native scan assertions, rather than pass on Spark fallback.
+      # The upstream suites start their own embedded Kafka brokers.
+      - name: Run Spark Kafka correctness and native scan assertions
+        run: |
+          ./build/mvn -B -ntp test -pl gluten-ut/spark35 -Pbackends-velox -Pspark-3.5 \
+            -Pscala-2.12 -Pjava-17 -Pkafka -Pspark-ut -Pfast-build \
+            -Dsuites=org.apache.spark.sql.kafka010.GlutenKafkaMicroBatchV2SourceSuite
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: velox-kafka-spark35-results
+          path: |
+            **/surefire-reports/*
+            **/target/*.log
+
+  spark35-stress:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_stress
+    needs: [build-native, spark35]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      SPARK_LOCAL_IP: 127.0.0.1
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup java
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openjdk-17-jdk
+          echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
+          echo "/usr/lib/jvm/java-17-openjdk-amd64/bin" >> $GITHUB_PATH
+      - uses: actions/download-artifact@v8
+        with:
+          name: velox-kafka-native-${{ github.sha }}
+          path: cpp/build/releases/
+      - name: Install Spark 3.5 modules with Kafka support
+        run: |
+          ./build/mvn -B -ntp install -Pbackends-velox -Pspark-3.5 -Pscala-2.12 \
+            -Pjava-17 -Pkafka -Pspark-ut -Pfast-build -DskipTests
+      - name: Run Spark Kafka stress scenarios
+        run: |
+          ./build/mvn -B -ntp test -pl gluten-ut/spark35 -Pbackends-velox -Pspark-3.5 \
+            -Pscala-2.12 -Pjava-17 -Pkafka -Pspark-ut -Pfast-build \
+            -Dsuites=org.apache.spark.sql.kafka010.GlutenKafkaSourceStressSuite
+      - name: Upload stress test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: velox-kafka-spark35-stress-results
           path: |
             **/surefire-reports/*
             **/target/*.log

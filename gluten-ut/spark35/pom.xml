@@ -112,6 +112,84 @@
 
   <profiles>
     <profile>
+      <id>kafka</id>
+      <properties>
+        <!-- Match the broker used by Spark 3.5.5's Kafka test suites. -->
+        <kafka.test.version>3.4.1</kafka.test.version>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>org.apache.gluten</groupId>
+          <artifactId>gluten-kafka</artifactId>
+          <version>${project.version}</version>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
+          <groupId>org.apache.spark</groupId>
+          <artifactId>spark-sql-kafka-0-10_${scala.binary.version}</artifactId>
+          <version>${spark.version}</version>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
+          <groupId>org.apache.spark</groupId>
+          <artifactId>spark-sql-kafka-0-10_${scala.binary.version}</artifactId>
+          <version>${spark.version}</version>
+          <type>test-jar</type>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
+          <groupId>org.apache.spark</groupId>
+          <artifactId>spark-token-provider-kafka-0-10_${scala.binary.version}</artifactId>
+          <version>${spark.version}</version>
+          <type>test-jar</type>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
+          <groupId>org.apache.kafka</groupId>
+          <artifactId>kafka_${scala.binary.version}</artifactId>
+          <version>${kafka.test.version}</version>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
+          <groupId>org.apache.hadoop</groupId>
+          <artifactId>hadoop-minikdc</artifactId>
+          <version>${hadoop.version}</version>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-dependency-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>unpack-spark-kafka-test-resources</id>
+                <goals>
+                  <goal>unpack</goal>
+                </goals>
+                <phase>process-test-resources</phase>
+                <configuration>
+                  <!-- Spark opens these fixtures as Files, not jar: URLs. -->
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>org.apache.spark</groupId>
+                      <artifactId>spark-sql-kafka-0-10_${scala.binary.version}</artifactId>
+                      <version>${spark.version}</version>
+                      <classifier>tests</classifier>
+                      <type>jar</type>
+                      <includes>kafka-source-initial-offset-*.bin,structured-streaming/**</includes>
+                      <outputDirectory>${project.build.testOutputDirectory}</outputDirectory>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
       <id>backends-clickhouse</id>
       <activation>
         <activeByDefault>false</activeByDefault>

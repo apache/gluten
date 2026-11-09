@@ -373,6 +373,31 @@
 
   <profiles>
     <profile>
+      <id>kafka</id>
+      <dependencies>
+        <!-- Benchmark/test dependencies only; native Kafka production registration is separate. -->
+        <dependency>
+          <groupId>org.apache.gluten</groupId>
+          <artifactId>gluten-kafka</artifactId>
+          <version>${project.version}</version>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
+          <groupId>org.apache.gluten</groupId>
+          <artifactId>gluten-kafka</artifactId>
+          <version>${project.version}</version>
+          <type>test-jar</type>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
+          <groupId>org.apache.spark</groupId>
+          <artifactId>spark-sql-kafka-0-10_${scala.binary.version}</artifactId>
+          <version>${spark.version}</version>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+    </profile>
+    <profile>
       <id>exclude-tests</id>
       <activation>
         <activeByDefault>true</activeByDefault>
