@@ -184,6 +184,30 @@ class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("integral try_add, try_subtract and try_multiply") {
+    // Only an overflow in the operation itself returns NULL. An error in an argument still throws,
+    // as in Spark. Falling back to Spark would also throw, so check that the query runs on Velox.
+    withTempPath {
+      path =>
+        sql("SELECT 2147483647 AS a, CAST(-2147483648 AS INT) AS b, 0 AS z").write
+          .parquet(path.getCanonicalPath)
+        withTempView("try_tab") {
+          spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("try_tab")
+          runQueryAndCompare(
+            "SELECT try_add(a, 1), try_subtract(b, 1), try_multiply(a, 2) FROM try_tab") {
+            checkGlutenPlan[ProjectExecTransformer]
+          }
+          Seq("try_add", "try_subtract", "try_multiply").foreach {
+            function =>
+              val df = sql(s"SELECT $function(CAST(a / z AS INT), 1) FROM try_tab")
+              checkGlutenPlan[ProjectExecTransformer](df)
+              val e = intercept[SparkException](df.collect())
+              assert(e.getMessage.contains("division by zero"), e.getMessage)
+          }
+        }
+    }
+  }
+
   test("decimal overflow with allowPrecisionLoss disabled") {
     // Uses checked_*_deny_precision_loss. A missing function would fail validation and fall back
     // to Spark, which also throws on overflow, so check that the query runs on Velox first.
