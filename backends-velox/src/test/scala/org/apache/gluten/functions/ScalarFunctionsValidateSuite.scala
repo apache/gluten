@@ -1075,6 +1075,22 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("filter with is not null on a struct field or an outer column") {
+    withTable("t") {
+      sql("create table t (arr array<struct<a: int>>, c int) using parquet")
+      sql(
+        "insert into t values " +
+          "(array(named_struct('a', 1), named_struct('a', cast(null as int))), null), " +
+          "(array(named_struct('a', 2), null), 3)")
+      runQueryAndCompare("select filter(arr, x -> x.a is not null) from t") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+      runQueryAndCompare("select filter(arr, x -> c is not null) from t") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+    }
+  }
+
   test("concat") {
     withTempPath {
       path =>
