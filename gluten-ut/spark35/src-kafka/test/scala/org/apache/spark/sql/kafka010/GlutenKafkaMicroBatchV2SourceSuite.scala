@@ -65,9 +65,14 @@ class GlutenKafkaMicroBatchV2SourceSuite
             AssertOnQuery {
               query =>
                 assert(query.availableOffsets.iterator.size == 1)
-                assert(query.offsetLog.getLatest.exists {
-                  case (_, offsets) => offsets.offsets.size == 1 && offsets.offsets.head.isDefined
-                })
+                val expectedOffset = query.availableOffsets.iterator.next()._2.json
+                val loggedOffsets = query.offsetLog.getLatest
+                  .getOrElse(fail("No Kafka offset log entry found"))
+                  ._2.offsets
+                // Spark stores one checkpoint entry per logical source occurrence. Both sides
+                // of this self-join must record the same offset for the single shared source.
+                assert(loggedOffsets.size == 2)
+                assert(loggedOffsets.forall(_.exists(_.json == expectedOffset)))
                 assertKafkaScan(query, requireScan = true)
                 val plan = query.lastExecution.executedPlan
                 assert(plan.exists(_.isInstanceOf[MicroBatchScanExecTransformer]))
