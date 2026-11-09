@@ -47,6 +47,10 @@ import org.apache.spark.sql.sources._
 
 class VeloxTestSettings extends BackendTestSettings {
   import SuiteSettings._
+  // Kafka wrappers are compiled only with -Pkafka. Register by name to keep it optional.
+  enableSuite("org.apache.spark.sql.kafka010.GlutenKafkaMicroBatchV2SourceSuite")
+  // @DoNotDiscover keeps the longer stress run separate; CI selects it explicitly.
+  enableSuite("org.apache.spark.sql.kafka010.GlutenKafkaSourceStressSuite")
   enableSuite[GlutenStringFunctionsSuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuiteCGOff]
