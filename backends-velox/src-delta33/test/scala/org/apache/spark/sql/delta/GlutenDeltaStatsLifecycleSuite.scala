@@ -16,14 +16,14 @@
  */
 package org.apache.spark.sql.delta
 
-import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.config.{GlutenConfig, VeloxDeltaConfig}
 import org.apache.gluten.execution.HashAggregateExecTransformer
-import org.apache.gluten.utils.BackendTestUtils
 
 import org.apache.spark.{SparkConf, TaskContext}
 import org.apache.spark.sql.{GlutenQueryTest, Row}
 import org.apache.spark.sql.delta.actions.Metadata
 import org.apache.spark.sql.delta.schema.InvariantViolationException
+import org.apache.spark.sql.delta.stats.GlutenDeltaJobStatsTracker
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types.{LongType, StructType}
@@ -31,7 +31,6 @@ import org.apache.spark.task.TaskResources
 
 import org.apache.hadoop.fs.Path
 
-import java.lang.reflect.InvocationTargetException
 import java.util.concurrent.ConcurrentLinkedQueue
 
 import scala.collection.JavaConverters._
@@ -51,7 +50,7 @@ class GlutenDeltaStatsLifecycleSuite extends GlutenQueryTest with SharedSparkSes
       .set(GlutenConfig.GLUTEN_UI_ENABLED.key, "false")
       .set("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
       .set("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
-      .set("spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite", "true")
+      .set(VeloxDeltaConfig.ENABLE_NATIVE_WRITE.key, "true")
       .set("spark.databricks.delta.stats.collect", "true")
       .set("spark.databricks.delta.optimizeWrite.enabled", "false")
       .set("spark.databricks.delta.properties.defaults.writePartitionColumnsToParquet", "false")
@@ -82,18 +81,8 @@ class GlutenDeltaStatsLifecycleSuite extends GlutenQueryTest with SharedSparkSes
           })
       }
     }
-    // The shared Delta source directory also compiles for backends without this Velox class.
-    val moduleClass = Class.forName("org.apache.spark.sql.delta.stats.GlutenDeltaJobStatsTracker$")
-    val module = moduleClass.getField("MODULE$").get(null)
-    val observe = moduleClass.getMethod(
-      "withStatsPlanObserver",
-      classOf[Function2[Path, SparkPlan, Unit]],
-      classOf[Function0[Unit]])
-    val operation: () => Unit = () => write
-    try {
-      observe.invoke(module, observer, operation)
-    } catch {
-      case e: InvocationTargetException if e.getCause != null => throw e.getCause
+    GlutenDeltaJobStatsTracker.withStatsPlanObserver(observer) {
+      write
     }
     assert(!plans.isEmpty, "The write did not exercise native Delta statistics")
     plans.asScala.foreach {
@@ -109,7 +98,6 @@ class GlutenDeltaStatsLifecycleSuite extends GlutenQueryTest with SharedSparkSes
   }
 
   test("aborted Delta writes close native statistics before task runtimes") {
-    assume(BackendTestUtils.isVeloxBackendLoaded())
     withTempDir {
       dir =>
         val path = dir.getCanonicalPath
@@ -136,7 +124,6 @@ class GlutenDeltaStatsLifecycleSuite extends GlutenQueryTest with SharedSparkSes
   }
 
   test("multi-file Delta statistics close workers after a successful task") {
-    assume(BackendTestUtils.isVeloxBackendLoaded())
     withTempDir {
       dir =>
         val path = dir.getCanonicalPath
