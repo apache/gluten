@@ -242,6 +242,10 @@ public class RexNodeConverter {
             ? new VarCharValue(null)
             : TimestampValue.create(
                 Math.floorDiv(epochMillis, 1000L), Math.floorMod(epochMillis, 1000L) * 1_000_000L);
+      case TIME:
+        // Calcite stores TIME literals as the millisecond-of-day Integer —
+        // the same encoding the velox side uses for TIME.
+        return new IntegerValue(literal.getValueAs(Integer.class));
       default:
         throw new RuntimeException(
             "Unsupported rex node type: " + literal.getType().getSqlTypeName());
