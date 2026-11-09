@@ -20,7 +20,9 @@ import org.apache.gluten.execution.MicroBatchScanExecTransformer
 
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.execution.datasources.v2.MicroBatchScanExec
+import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
 import org.apache.spark.sql.execution.streaming.{SerializedOffset, StreamingQueryWrapper}
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.streaming.Trigger
 
 import org.apache.kafka.common.TopicPartition
@@ -33,6 +35,50 @@ class GlutenKafkaMicroBatchV2SourceSuite
   with GlutenKafkaSourceTest {
 
   import testImplicits._
+
+  testGluten("Kafka stream-stream self-join preserves output and a single source offset") {
+    // Preserve Spark's self-join coverage without its unsupported StreamingQueryProgress row
+    // counts. Spark 3.5 ProgressReporter does not recognize native micro-batch scan nodes.
+    Seq(false, true).foreach {
+      reuseExchange =>
+        withSQLConf(SQLConf.EXCHANGE_REUSE_ENABLED.key -> reuseExchange.toString) {
+          val topic = newTopic()
+          testUtils.createTopic(topic, partitions = 2)
+          require(testUtils.getLatestOffsets(Set(topic)).size == 2)
+
+          val values = spark.readStream
+            .format("kafka")
+            .option("subscribe", topic)
+            .option("kafka.bootstrap.servers", testUtils.brokerAddress)
+            .option("kafka.metadata.max.age.ms", "1")
+            .load()
+            .selectExpr(
+              "CAST(CAST(value AS STRING) AS INT) AS value",
+              "CAST(CAST(value AS STRING) AS INT) % 5 AS key")
+
+          testStream(values.join(values, "key"))(
+            makeSureGetOffsetCalled,
+            AddKafkaData(Set(topic), 1, 2),
+            CheckAnswer((1, 1, 1), (2, 2, 2)),
+            AddKafkaData(Set(topic), 6, 3),
+            CheckAnswer((1, 1, 1), (2, 2, 2), (3, 3, 3), (1, 6, 1), (1, 1, 6), (1, 6, 6)),
+            AssertOnQuery {
+              query =>
+                assert(query.availableOffsets.iterator.size == 1)
+                assert(query.offsetLog.getLatest.exists {
+                  case (_, offsets) => offsets.offsets.size == 1 && offsets.offsets.head.isDefined
+                })
+                assertKafkaScan(query, requireScan = true)
+                val plan = query.lastExecution.executedPlan
+                assert(plan.exists(_.isInstanceOf[MicroBatchScanExecTransformer]))
+                val reusedExchanges = plan.collect { case exchange: ReusedExchangeExec => exchange }
+                assert(reusedExchanges.size == (if (reuseExchange) 1 else 0))
+                true
+            }
+          )
+        }
+    }
+  }
 
   testGluten("Kafka micro-batches consume records through a native scan") {
     val topic = newTopic()
