@@ -22,6 +22,8 @@ import org.apache.spark.network.buffer.ManagedBuffer
 import org.apache.spark.network.shuffle.MergedBlockMeta
 import org.apache.spark.storage.{BlockId, ShuffleBlockBatchId, ShuffleBlockId, ShuffleMergedBlockId}
 
+import java.lang.reflect.Method
+
 /** The internal shuffle manager instance used by GlutenShuffleManager. */
 private class ShuffleManagerRouter(lookup: ShuffleManagerLookup)
   extends ShuffleManager
@@ -67,7 +69,9 @@ private class ShuffleManagerRouter(lookup: ShuffleManagerLookup)
     cache.remove(shuffleId).exists(_.unregisterShuffle(shuffleId))
   }
 
-  override def shuffleBlockResolver: ShuffleBlockResolver = resolver
+  // Not marked `override`: Spark 4.3 moved `shuffleBlockResolver` from `ShuffleManager` to its
+  // `BlockingShuffleManager` subtype, so this implements the abstract member only before 4.3.
+  def shuffleBlockResolver: ShuffleBlockResolver = resolver
 
   override def stop(): Unit = {
     if (!(cache.size() == 0)) {
@@ -131,6 +135,22 @@ private object ShuffleManagerRouter {
     }
   }
 
+  private val shuffleBlockResolverAccessor = new ClassValue[Method] {
+    override def computeValue(clazz: Class[_]): Method = clazz.getMethod("shuffleBlockResolver")
+  }
+
+  /**
+   * Returns the block resolver of a registered shuffle manager. Spark 4.3 declares
+   * `shuffleBlockResolver` only on `BlockingShuffleManager` (which doesn't exist before 4.3), so it
+   * is looked up reflectively to compile against every supported Spark version.
+   */
+  private def shuffleBlockResolverOf(manager: ShuffleManager): ShuffleBlockResolver = {
+    shuffleBlockResolverAccessor
+      .get(manager.getClass)
+      .invoke(manager)
+      .asInstanceOf[ShuffleBlockResolver]
+  }
+
   private class BlockResolver(cache: Cache) extends ShuffleBlockResolver {
     override def getBlockData(blockId: BlockId, dirs: Option[Array[String]]): ManagedBuffer = {
       val shuffleId = blockId match {
@@ -142,21 +162,21 @@ private object ShuffleManagerRouter {
           throw new IllegalArgumentException(
             "GlutenShuffleManager: Unsupported shuffle block id: " + blockId)
       }
-      cache.get(shuffleId).shuffleBlockResolver.getBlockData(blockId, dirs)
+      shuffleBlockResolverOf(cache.get(shuffleId)).getBlockData(blockId, dirs)
     }
 
     override def getMergedBlockData(
         blockId: ShuffleMergedBlockId,
         dirs: Option[Array[String]]): Seq[ManagedBuffer] = {
       val shuffleId = blockId.shuffleId
-      cache.get(shuffleId).shuffleBlockResolver.getMergedBlockData(blockId, dirs)
+      shuffleBlockResolverOf(cache.get(shuffleId)).getMergedBlockData(blockId, dirs)
     }
 
     override def getMergedBlockMeta(
         blockId: ShuffleMergedBlockId,
         dirs: Option[Array[String]]): MergedBlockMeta = {
       val shuffleId = blockId.shuffleId
-      cache.get(shuffleId).shuffleBlockResolver.getMergedBlockMeta(blockId, dirs)
+      shuffleBlockResolverOf(cache.get(shuffleId)).getMergedBlockMeta(blockId, dirs)
     }
 
     override def stop(): Unit = {
