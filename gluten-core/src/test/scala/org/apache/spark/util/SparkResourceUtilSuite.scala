@@ -34,7 +34,7 @@ class SparkResourceUtilSuite extends AnyFunSuite {
   }
 
   test("getTaskSlots fails fast when task cpus is zero") {
-    // spark.task.cpus is read via raw conf.getInt, which bypasses Spark's checkValue(_ > 0) (a
+    // spark.task.cpus is read raw from the conf, which bypasses Spark's checkValue(_ > 0) (a
     // check that only exists on Spark >= 4.2), so a zero value must not reach the division. Fail
     // fast with a clear message instead of an opaque "/ by zero" ArithmeticException.
     val conf = new SparkConf(false)
@@ -59,6 +59,16 @@ class SparkResourceUtilSuite extends AnyFunSuite {
       .set("spark.master", "local[8]")
       .set("spark.task.cpus", "2")
     assert(SparkResourceUtil.getTaskSlots(conf) == 4)
+  }
+
+  test("getTaskSlots floors executor cores divided by fractional task cpus") {
+    // Spark 4.3 allows fractional spark.task.cpus (SPARK-58192).
+    val conf = new SparkConf(false)
+      .set("spark.master", "local[2]")
+      .set("spark.task.cpus", "0.5")
+    assert(SparkResourceUtil.getTaskSlots(conf) == 4)
+    conf.set("spark.master", "local[1]").set("spark.task.cpus", "0.3")
+    assert(SparkResourceUtil.getTaskSlots(conf) == 3)
   }
 
   test("getTaskSlots returns one slot per core when task cpus defaults to one") {
