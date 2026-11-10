@@ -20,11 +20,12 @@ import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.extension.columnar.validator.FallbackInjects
 
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.catalyst.expressions.aggregate.{Final, Partial, PartialMerge}
+import org.apache.spark.sql.catalyst.expressions.aggregate.{Complete, Final, Partial, PartialMerge}
 import org.apache.spark.sql.execution.aggregate.BaseAggregateExec
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeLike
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
+import org.apache.spark.util.SparkVersionUtil
 
 import java.sql.Timestamp
 
@@ -35,6 +36,17 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
   override protected val fileFormat: String = "parquet"
 
   import testImplicits._
+
+  /**
+   * Spark 4.3 (SPARK-43317, `spark.sql.execution.combineAdjacentAggregation`) combines a Partial
+   * aggregate and the Final aggregate directly on top of it, with no exchange in between, into a
+   * single Complete mode aggregate. This happens, for example, when `spark.sql.shuffle.partitions`
+   * is 1 and the partial aggregate's output already satisfies the final aggregate's distribution.
+   */
+  protected val combinesAdjacentAggregates: Boolean = SparkVersionUtil.gteSpark43
+
+  /** Number of aggregates in the plan of a single, global distinct aggregate function. */
+  private val oneDistinctGlobalAggregateCount = if (combinesAdjacentAggregates) 3 else 4
 
   override def beforeAll(): Unit = {
     super.beforeAll()
@@ -348,6 +360,23 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
     }
   }
 
+  // Spark before 4.3 throws DIVIDE_BY_ZERO for corr on a column with zero variance in ANSI mode,
+  // while Spark 4.3+ (SPARK-58213) and Velox return NULL, see
+  // https://github.com/apache/gluten/issues/13255.
+  test("corr with zero variance column in ANSI mode") {
+    assume(isSparkVersionGE("4.3"))
+    withSQLConf(
+      SQLConf.ANSI_ENABLED.key -> "true",
+      GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false") {
+      runQueryAndCompare("""
+                           |select l_orderkey, corr(l_partkey, l_partkey + 1)
+                           |from lineitem group by l_orderkey
+                           |""".stripMargin) {
+        checkGlutenPlan[HashAggregateExecTransformer]
+      }
+    }
+  }
+
   test("corr covar_pop covar_samp") {
     runQueryAndCompare("""
                          |select corr(l_partkey, l_suppkey) from lineitem;
@@ -626,7 +655,7 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
             getExecutedPlan(df).count(
               plan => {
                 plan.isInstanceOf[HashAggregateExecTransformer]
-              }) == 4)
+              }) == oneDistinctGlobalAggregateCount)
         }
     }
   }
@@ -647,7 +676,7 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
             getExecutedPlan(df).count(
               plan => {
                 plan.isInstanceOf[HashAggregateExecTransformer]
-              }) == 4)
+              }) == oneDistinctGlobalAggregateCount)
         }
     }
   }
@@ -1227,13 +1256,20 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
               executedPlan.count(_.isInstanceOf[SortHashAggregateExecTransformer])
             val flushableCount =
               executedPlan.count(_.isInstanceOf[FlushableHashAggregateExecTransformer])
-            assert(sortHashCount + flushableCount == 2)
-            if (VeloxConfig.get.enableVeloxFlushablePartialAggregation) {
+            if (combinesAdjacentAggregates) {
+              // The partial and final aggregates are combined into one Complete aggregate, which
+              // is never flushable.
               assert(sortHashCount == 1)
-              assert(flushableCount == 1)
-            } else {
-              assert(sortHashCount == 2)
               assert(flushableCount == 0)
+            } else {
+              assert(sortHashCount + flushableCount == 2)
+              if (VeloxConfig.get.enableVeloxFlushablePartialAggregation) {
+                assert(sortHashCount == 1)
+                assert(flushableCount == 1)
+              } else {
+                assert(sortHashCount == 2)
+                assert(flushableCount == 0)
+              }
             }
           }
       }
@@ -1293,11 +1329,36 @@ class VeloxAggregateFunctionsFlushSuite extends VeloxAggregateFunctionsSuite {
           .range(0, 10, 1, 1)
           .selectExpr("id % 2 as k")
           .createOrReplaceTempView("single_partition")
-        runQueryAndCompare("select k, count(*) from single_partition group by k") {
-          df =>
-            val executedPlan = getExecutedPlan(df)
-            assert(!executedPlan.exists(_.isInstanceOf[ShuffleExchangeLike]))
-            assert(executedPlan.exists(_.isInstanceOf[FlushableHashAggregateExecTransformer]))
+        val query = "select k, count(*) from single_partition group by k"
+        def checkFlushablePartialAggregate(): Unit = {
+          runQueryAndCompare(query) {
+            df =>
+              val executedPlan = getExecutedPlan(df)
+              assert(!executedPlan.exists(_.isInstanceOf[ShuffleExchangeLike]))
+              assert(executedPlan.exists(_.isInstanceOf[FlushableHashAggregateExecTransformer]))
+          }
+        }
+        if (combinesAdjacentAggregates) {
+          // Spark combines the partial and final aggregates into one Complete aggregate, so there
+          // is no partial aggregate left to make flushable.
+          runQueryAndCompare(query) {
+            df =>
+              val executedPlan = getExecutedPlan(df)
+              assert(!executedPlan.exists(_.isInstanceOf[ShuffleExchangeLike]))
+              assert(!executedPlan.exists(_.isInstanceOf[FlushableHashAggregateExecTransformer]))
+              assert(executedPlan.exists {
+                case agg: RegularHashAggregateExecTransformer =>
+                  agg.aggregateExpressions.nonEmpty &&
+                  agg.aggregateExpressions.forall(_.mode == Complete)
+                case _ => false
+              })
+          }
+          // The partial aggregate is still made flushable when Spark doesn't combine it.
+          withSQLConf("spark.sql.execution.combineAdjacentAggregation" -> "false") {
+            checkFlushablePartialAggregate()
+          }
+        } else {
+          checkFlushablePartialAggregate()
         }
       }
     }
