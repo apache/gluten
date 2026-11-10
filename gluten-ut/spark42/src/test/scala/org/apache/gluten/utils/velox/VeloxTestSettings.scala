@@ -1025,27 +1025,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("map with arrays")
     // Overridden: asserts vanilla WholeStageCodegenExec, which Gluten replaces.
     .exclude("array_join with nullable nullReplacement under whole-stage codegen")
-    .exclude(
-      "SPARK-54918: array set ops normalize -0.0 and NaN via VALUES inline table"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-54918: array_distinct normalizes -0.0 to +0.0"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-54918: array_distinct normalizes -0.0 to +0.0 - literals"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-54918: array_intersect normalizes -0.0 to +0.0"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-54918: array_intersect normalizes -0.0 to +0.0 - literals"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-54918: array_union normalizes -0.0 to +0.0"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "SPARK-54918: array_union normalizes -0.0 to +0.0 - literals"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenDataFrameHintSuite]
   enableSuite[GlutenDataFrameImplicitsSuite]
   enableSuite[GlutenDataFrameJoinSuite]
