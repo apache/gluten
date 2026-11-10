@@ -44,6 +44,7 @@ public class RexCallConverterFactory {
                   () -> new BasicArithmeticOperatorRexCallConverter("greaterthan"),
                   () -> new StringCompareRexCallConverter("greaterthan"),
                   () -> new StringNumberCompareRexCallConverter("greaterthan"),
+                  () -> new IntervalCompareRexCallConverter("interval_greaterthan"),
                   () -> new DecimalArithmeticOperatorRexCallConverters("greaterthan", true))),
           Map.entry(
               "<",
@@ -51,34 +52,40 @@ public class RexCallConverterFactory {
                   () -> new BasicArithmeticOperatorRexCallConverter("lessthan"),
                   () -> new StringCompareRexCallConverter("lessthan"),
                   () -> new StringNumberCompareRexCallConverter("lessthan"),
+                  () -> new IntervalCompareRexCallConverter("interval_lessthan"),
                   () -> new DecimalArithmeticOperatorRexCallConverters("lessthan", true))),
           Map.entry(
               "=",
               Arrays.asList(
                   () -> new BasicArithmeticOperatorRexCallConverter("equalto"),
                   () -> new StringCompareRexCallConverter("equalto"),
-                  () -> new StringNumberCompareRexCallConverter("equalto"))),
+                  () -> new StringNumberCompareRexCallConverter("equalto"),
+                  () -> new IntervalCompareRexCallConverter("interval_equalto"))),
           Map.entry(
               "<>",
               Arrays.asList(
-                  () -> new DecimalArithmeticOperatorRexCallConverters("decimal_notequalto"))),
+                  () -> new DecimalArithmeticOperatorRexCallConverters("decimal_notequalto"),
+                  () -> new IntervalCompareRexCallConverter("interval_notequalto"))),
           Map.entry(
               "/", Arrays.asList(() -> new DecimalArithmeticOperatorRexCallConverters("divide"))),
           Map.entry(
               "*",
               Arrays.asList(
                   () -> new BasicArithmeticOperatorRexCallConverter("multiply"),
-                  () -> new DecimalArithmeticOperatorRexCallConverters("multiply"))),
+                  () -> new DecimalArithmeticOperatorRexCallConverters("multiply"),
+                  () -> new IntervalMultiplyRexCallConverter())),
           Map.entry(
               "-",
               Arrays.asList(
                   () -> new SubtractRexCallConverter(),
-                  () -> new DecimalArithmeticOperatorRexCallConverters("subtract"))),
+                  () -> new DecimalArithmeticOperatorRexCallConverters("subtract"),
+                  () -> new IntervalArithmeticRexCallConverter("minus", false))),
           Map.entry(
               "+",
               Arrays.asList(
                   () -> new BasicArithmeticOperatorRexCallConverter("add"),
-                  () -> new DecimalArithmeticOperatorRexCallConverters("add"))),
+                  () -> new DecimalArithmeticOperatorRexCallConverters("add"),
+                  () -> new IntervalArithmeticRexCallConverter("plus", true))),
           Map.entry("MOD", Arrays.asList(() -> new ModRexCallConverter())),
           Map.entry("Reinterpret", Arrays.asList(() -> new ReinterpretRexCallConverter())),
           Map.entry("CAST", Arrays.asList(() -> new DefaultRexCallConverter("cast"))),
@@ -87,20 +94,24 @@ public class RexCallConverterFactory {
           Map.entry("SPLIT_INDEX", Arrays.asList(() -> new SplitIndexRexCallConverter())),
           Map.entry("SEARCH", Arrays.asList(() -> new SearchRexCallConverter())),
           Map.entry("DATE_FORMAT", Arrays.asList(() -> new DefaultRexCallConverter("date_format"))),
+          Map.entry("FROM_UNIXTIME", Arrays.asList(() -> new FromUnixtimeRexCallConverter())),
+          Map.entry("UNIX_TIMESTAMP", Arrays.asList(() -> new UnixTimestampRexCallConverter())),
           Map.entry(
               ">=",
               Arrays.asList(
                   () -> new BasicArithmeticOperatorRexCallConverter("greaterthanorequal"),
                   () -> new StringCompareRexCallConverter("greaterthanorequal"),
                   () -> new StringNumberCompareRexCallConverter("greaterthanorequal"),
-                  () -> new TimestampIntervalRexCallConverter("greaterthanorequal"))),
+                  () -> new TimestampIntervalRexCallConverter("greaterthanorequal"),
+                  () -> new IntervalCompareRexCallConverter("interval_greaterthanorequal"))),
           Map.entry(
               "<=",
               Arrays.asList(
                   () -> new BasicArithmeticOperatorRexCallConverter("lessthanorequal"),
                   () -> new StringCompareRexCallConverter("lessthanorequal"),
                   () -> new StringNumberCompareRexCallConverter("lessthanorequal"),
-                  () -> new TimestampIntervalRexCallConverter("lessthanorequal"))),
+                  () -> new TimestampIntervalRexCallConverter("lessthanorequal"),
+                  () -> new IntervalCompareRexCallConverter("interval_lessthanorequal"))),
           Map.entry("PROCTIME", Arrays.asList(() -> new DefaultRexCallConverter("unix_timestamp"))),
           Map.entry("OR", Arrays.asList(() -> new DefaultRexCallConverter("or"))),
           Map.entry("IS NOT NULL", Arrays.asList(() -> new DefaultRexCallConverter("isnotnull"))),
@@ -108,6 +119,16 @@ public class RexCallConverterFactory {
           Map.entry(
               "REGEXP_EXTRACT", Arrays.asList(() -> new DefaultRexCallConverter("regexp_extract"))),
           Map.entry("LOWER", Arrays.asList(() -> new DefaultRexCallConverter("lower"))),
+          // Direct name mapping: the SHA-2 family. The fixed-length spellings
+          // are the sha2 core with the length bound on the velox side; the
+          // hashLength operand is routed by the velox sha2 signature set.
+          // SHA2 itself carries a converter-side validation of a constant
+          // hashLength (see Sha2RexCallConverter).
+          Map.entry("SHA2", Arrays.asList(() -> new Sha2RexCallConverter())),
+          Map.entry("SHA224", Arrays.asList(() -> new DefaultRexCallConverter("sha224"))),
+          Map.entry("SHA256", Arrays.asList(() -> new DefaultRexCallConverter("sha256"))),
+          Map.entry("SHA384", Arrays.asList(() -> new DefaultRexCallConverter("sha384"))),
+          Map.entry("SHA512", Arrays.asList(() -> new DefaultRexCallConverter("sha512"))),
           Map.entry("count_char", Arrays.asList(() -> new DefaultRexCallConverter("count_char"))),
           Map.entry("EXTRACT", Arrays.asList(() -> new DefaultRexCallConverter("extract"))),
           Map.entry("IS TRUE", Arrays.asList(() -> new IsTrueRexCallConverter())),
@@ -119,6 +140,12 @@ public class RexCallConverterFactory {
           // substring returns an empty string. Start semantics (0 counts as 1,
           // negative counts from the end) already match Flink.
           Map.entry("SUBSTRING", Arrays.asList(() -> new SubstringRexCallConverter())),
+          // Offload targets implemented in velox's flinksql namespace;
+          // the names arrive upper-cased from the operator table.
+          Map.entry(
+              "CURRENT_DATE", Arrays.asList(() -> new DefaultRexCallConverter("current_date"))),
+          Map.entry(
+              "CURRENT_TIME", Arrays.asList(() -> new DefaultRexCallConverter("current_time"))),
           Map.entry("IFNULL", Arrays.asList(() -> new ScalarOnlyRexCallConverter("ifnull"))),
           // TRIM is normalized by Calcite to (flag, seek, str); the converter
           // maps the flag to ltrim/rtrim/trim and reorders to (str, seek).
