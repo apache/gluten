@@ -120,6 +120,11 @@ core contract; it does not by itself protect the full Velox driver path.
 Preserving the throwable does not merge Java and C++ frames into a hybrid stack
 trace (see [#9642](https://github.com/apache/gluten/issues/9642)).
 
+With `BUILD_TESTS=ON`, the `java_exception_jni_test` target builds a test-only JNI
+bridge and Java fixture using only the JDK and core code. Run its real-JVM cases
+with `ctest --test-dir cpp/build -R '^java_exception_jni_test\.' --output-on-failure`.
+They also run in the existing native CI's CTest suite, without Spark or a backend.
+
 ### C++ code development
 
 This guide is for remote debugging by connecting to the remote Linux server using `SSH`.

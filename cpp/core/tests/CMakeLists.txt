@@ -22,3 +22,31 @@ add_test_case(payload_test SOURCES PayloadTest.cc)
 add_test_case(java_exception_test SOURCES JavaExceptionTest.cc)
 add_test_case(java_exception_allocation_test SOURCES
               JavaExceptionAllocationTest.cc)
+
+find_package(Java REQUIRED COMPONENTS Runtime Development)
+include(UseJava)
+
+add_jar(
+  java_exception_jni_test_jar
+  SOURCES
+    java/org/apache/gluten/jni/JavaExceptionJniTest.java
+    ${GLUTEN_HOME}/gluten-core/src/main/java/org/apache/gluten/exception/GlutenException.java
+    ${GLUTEN_HOME}/gluten-arrow/src/main/java/org/apache/gluten/exception/JniExceptionDescriber.java
+)
+get_target_property(JAVA_EXCEPTION_TEST_JAR java_exception_jni_test_jar
+                    JAR_FILE)
+
+add_library(java_exception_jni_test SHARED JavaExceptionJniTest.cc)
+target_link_libraries(java_exception_jni_test
+                      PRIVATE gluten_core_impl glog::glog Threads::Threads)
+add_dependencies(java_exception_jni_test java_exception_jni_test_jar)
+
+foreach(CASE direct nested nativeOnly normalReturn)
+  add_test(
+    NAME java_exception_jni_test.${CASE}
+    COMMAND
+      ${Java_JAVA_EXECUTABLE} -Xcheck:jni -Xmx64m -cp
+      ${JAVA_EXCEPTION_TEST_JAR} org.apache.gluten.jni.JavaExceptionJniTest
+      $<TARGET_FILE:java_exception_jni_test> ${CASE})
+  set_tests_properties(java_exception_jni_test.${CASE} PROPERTIES TIMEOUT 30)
+endforeach()
