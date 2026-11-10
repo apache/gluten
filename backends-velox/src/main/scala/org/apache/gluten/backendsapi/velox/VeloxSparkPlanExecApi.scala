@@ -43,7 +43,7 @@ import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, CollectList, CollectSet}
 import org.apache.spark.sql.catalyst.expressions.objects.{AssertNotNull, StaticInvoke}
-import org.apache.spark.sql.catalyst.optimizer.BuildSide
+import org.apache.spark.sql.catalyst.optimizer.{BuildSide, NormalizeNaNAndZero}
 import org.apache.spark.sql.catalyst.plans.{ExistenceJoin, FullOuter, InnerLike, JoinType, LeftAnti, LeftOuter, LeftSemi, RightOuter}
 import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.execution._
@@ -1323,6 +1323,13 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
   }
 
   /** Generate an ExpressionTransformer to transform GetStructFiled expression. */
+  override def genNormalizeNaNAndZeroTransformer(
+      substraitExprName: String,
+      childTransformer: ExpressionTransformer,
+      original: NormalizeNaNAndZero): ExpressionTransformer = {
+    GenericExpressionTransformer(substraitExprName, Seq(childTransformer), original)
+  }
+
   override def genGetStructFieldTransformer(
       substraitExprName: String,
       childTransformer: ExpressionTransformer,
