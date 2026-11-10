@@ -1279,6 +1279,11 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         ExpressionNames.FROM_JSON,
         FromJsonRestrictions.NOT_SUPPORT_COLUMN_CORRUPT_RECORD)
     }
+    if (ExpressionUtils.containsYearMonthInterval(expr.dataType)) {
+      GlutenExceptionUtil.throwsNotFullySupported(
+        ExpressionNames.FROM_JSON,
+        FromJsonRestrictions.NOT_SUPPORT_YEAR_MONTH_INTERVAL)
+    }
     VeloxFromJsonTransformer(substraitExprName, children, expr)
   }
 
@@ -1299,6 +1304,11 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       GlutenExceptionUtil.throwsNotFullySupported(
         ExpressionNames.TO_JSON,
         ToJsonRestrictions.NOT_SUPPORT_UPPERCASE_STRUCT)
+    }
+    if (ExpressionUtils.containsYearMonthInterval(expr.child.dataType)) {
+      GlutenExceptionUtil.throwsNotFullySupported(
+        ExpressionNames.TO_JSON,
+        ToJsonRestrictions.NOT_SUPPORT_YEAR_MONTH_INTERVAL)
     }
     ToJsonTransformer(substraitExprName, child, expr)
   }
