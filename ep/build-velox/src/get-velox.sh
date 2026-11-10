@@ -18,14 +18,14 @@ set -exu
 
 CURRENT_DIR=$(cd "$(dirname "$BASH_SOURCE")"; pwd)
 VELOX_REPO=https://github.com/IBM/velox.git
-VELOX_BRANCH=dft-2026_10_30
-VELOX_ENHANCED_BRANCH=ibm-2026_10_30
+VELOX_BRANCH=dft-2026_11_06
+VELOX_ENHANCED_BRANCH=ibm-2026_11_06
 VELOX_HOME=""
 RUN_SETUP_SCRIPT=ON
 ENABLE_ENHANCED_FEATURES=OFF
 
 # Developer use only for testing Velox PR.
-UPSTREAM_VELOX_PR_ID="19141"
+UPSTREAM_VELOX_PR_ID=""
 
 OS=`uname -s`
 
@@ -140,10 +140,10 @@ function prepare_velox_source_code {
 function apply_provided_velox_patch {
   if [[ -n "$UPSTREAM_VELOX_PR_ID" ]]; then
      echo "Applying patch for PR #$UPSTREAM_VELOX_PR_ID ..."
-     local patch_name="$UPSTREAM_VELOX_PR_ID.diff"
+     local patch_name="$UPSTREAM_VELOX_PR_ID.patch"
      pushd $VELOX_HOME
      rm -f $patch_name
-     wget -nv "https://patch-diff.githubusercontent.com/raw/facebookincubator/velox/pull/$UPSTREAM_VELOX_PR_ID.diff" \
+     wget -nv "https://patch-diff.githubusercontent.com/raw/facebookincubator/velox/pull/$UPSTREAM_VELOX_PR_ID.patch" \
        -O "$patch_name" || {
        echo "Failed to download the Velox patch from GitHub"
        exit 1

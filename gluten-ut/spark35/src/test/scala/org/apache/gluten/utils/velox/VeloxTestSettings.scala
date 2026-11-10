@@ -174,6 +174,11 @@ class VeloxTestSettings extends BackendTestSettings {
     // Exception class different.
     .exclude("from_json - invalid data")
   enableSuite[GlutenJsonFunctionsSuite]
+    // Velox nulls the whole nested struct on a conversion error instead of returning
+    // partial results for it (facebookincubator/velox#19725).
+    .exclude("SPARK-33134: return partial results only for root JSON objects")
+    .exclude("SPARK-40646: return partial results for objects with values as JSON arrays")
+    .exclude("SPARK-48863: parse object as an array with partial results enabled")
     // * in get_json_object expression not supported in velox
     .exclude("SPARK-42782: Hive compatibility check for get_json_object")
     // Velox does not support single quotes in get_json_object function.
@@ -941,12 +946,20 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("NOT NULL checks for nested struct fields (byPosition)")
     .exclude("NOT NULL checks for nested structs, arrays, maps (byName)")
     .exclude("NOT NULL checks for nested structs, arrays, maps (byPosition)")
+    // Overridden.
+    .exclude("NOT NULL checks for nullable array with required element (byName)")
+    // Overridden.
     .exclude("NOT NULL checks for nullable array with required element (byPosition)")
+    // Overridden.
+    .exclude("NOT NULL checks for fields inside nullable array (byName)")
+    // Overridden.
     .exclude("not null checks for fields inside nullable array (byPosition)")
     // Overridden.
     .exclude("NOT NULL checks for nullable map with required values (byName)")
     // Overridden.
     .exclude("NOT NULL checks for nullable map with required values (byPosition)")
+    // Overridden.
+    .exclude("NOT NULL checks for fields inside nullable maps (byName)")
     // Overridden.
     .exclude("NOT NULL checks for fields inside nullable maps (byPosition)")
   enableSuite[GlutenTableOptionsConstantFoldingSuite]

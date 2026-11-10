@@ -122,6 +122,31 @@ abstract class GlutenDecimalRoundSuiteBase extends GlutenSQLTestsTrait {
     }
   }
 
+  testGluten("decimal ROUND NULL scale skips an overflowing child natively") {
+    withInput(DecimalType(38, 0), Seq("9" * 38)) {
+      for (ansi <- Seq("false", "true")) {
+        withSQLConf(
+          SQLConf.ANSI_ENABLED.key -> ansi,
+          GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> "true",
+          SQLConf.OPTIMIZER_EXCLUDED_RULES.key ->
+            s"${ConstantFolding.ruleName},${NullPropagation.ruleName}"
+        ) {
+          val query =
+            "SELECT round(round(value, -1), CAST(NULL AS INT)) FROM decimal_round_input"
+          val (expectedSchema, expected) =
+            withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+              val vanilla = sql(query)
+              (vanilla.schema, vanilla.collect().toSeq)
+            }
+          val df = sql(query)
+          assertExecution(df, native = true)
+          assert(df.schema == expectedSchema)
+          checkAnswer(df, expected)
+        }
+      }
+    }
+  }
+
   testGluten("decimal ROUND debug mode bypasses compatibility fallback") {
     withInput(DecimalType(3, 1), Seq("2.5", "-2.5", "0")) {
       withSQLConf(
