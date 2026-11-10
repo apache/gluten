@@ -1448,6 +1448,10 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenTransformWithMapStateSuite]
   enableSuite[GlutenTransformWithMapStateTTLSuite]
   enableSuite[GlutenTransformWithStateAvroSuite]
+    // Flaky in vanilla Spark 4.2 too (7 of 50 runs without Gluten): the expected
+    // StateStoreInvalidValueSchemaEvolution fails the test instead of reaching ExpectFailure.
+    // TransformWithState is not offloaded in this test. Tracked in SPARK-61501.
+    .excludeByPrefix("test that introducing TTL after restart fails query")
   enableSuite[GlutenTransformWithStateChainingSuite]
   enableSuite[GlutenTransformWithStateClusterSuite]
   enableSuite[GlutenTransformWithStateInitialStateSuite]
