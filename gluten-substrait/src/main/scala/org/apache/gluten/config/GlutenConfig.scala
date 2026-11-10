@@ -498,6 +498,7 @@ object GlutenConfig extends ConfigRegistry {
   val SPARK_SHUFFLE_SPILL_DISK_WRITE_BUFFER_SIZE = "spark.shuffle.spill.diskWriteBufferSize"
   val SPARK_SHUFFLE_SPILL_COMPRESS = "spark.shuffle.spill.compress"
   val SPARK_SHUFFLE_SPILL_COMPRESS_DEFAULT: Boolean = true
+  val SPARK_IO_COMPRESSION_CODEC = "spark.io.compression.codec"
   val SPARK_MAX_BROADCAST_TABLE_SIZE = "spark.sql.maxBroadcastTableSize"
 
   def get: GlutenConfig = {
@@ -522,7 +523,6 @@ object GlutenConfig extends ConfigRegistry {
     SQLConf.RUNTIME_BLOOM_FILTER_NUM_BITS.key,
     SQLConf.RUNTIME_BLOOM_FILTER_MAX_NUM_BITS.key,
     SQLConf.RUNTIME_BLOOM_FILTER_MAX_NUM_ITEMS.key,
-    "spark.io.compression.codec",
     "spark.sql.decimalOperations.allowPrecisionLoss",
     "spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing",
     // s3 config
@@ -591,7 +591,6 @@ object GlutenConfig extends ConfigRegistry {
         GLUTEN_COLUMNAR_TO_ROW_MEM_THRESHOLD.key,
         GLUTEN_COLUMNAR_TO_ROW_MEM_THRESHOLD.defaultValue.get.toString),
       (SPARK_SHUFFLE_SPILL_COMPRESS, SPARK_SHUFFLE_SPILL_COMPRESS_DEFAULT.toString),
-      (SQLConf.MAP_KEY_DEDUP_POLICY.key, SQLConf.MAP_KEY_DEDUP_POLICY.defaultValueString),
       (SQLConf.SESSION_LOCAL_TIMEZONE.key, SQLConf.SESSION_LOCAL_TIMEZONE.defaultValueString),
       (SQLConf.ANSI_ENABLED.key, SQLConf.ANSI_ENABLED.defaultValueString)
     ).foreach { case (k, defaultValue) => nativeConfMap.put(k, conf.getOrElse(k, defaultValue)) }
@@ -612,6 +611,21 @@ object GlutenConfig extends ConfigRegistry {
         v =>
           nativeConfMap
             .put(SQLConf.LEGACY_TIME_PARSER_POLICY.key, v.toUpperCase(Locale.ROOT)))
+
+    // Spark accepts this value in any case, and native code compares it in upper case.
+    nativeConfMap.put(
+      SQLConf.MAP_KEY_DEDUP_POLICY.key,
+      conf
+        .getOrElse(
+          SQLConf.MAP_KEY_DEDUP_POLICY.key,
+          SQLConf.MAP_KEY_DEDUP_POLICY.defaultValueString)
+        .toUpperCase(Locale.ROOT)
+    )
+
+    // Spark accepts the codec name in any case, and Velox matches it in lower case.
+    conf
+      .get(SPARK_IO_COMPRESSION_CODEC)
+      .foreach(v => nativeConfMap.put(SPARK_IO_COMPRESSION_CODEC, v.toLowerCase(Locale.ROOT)))
 
     val confPrefixSession = prefixSessionOf(backendName)
     val confPrefix = prefixOf(backendName)
