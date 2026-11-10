@@ -99,7 +99,7 @@ gdb cpp/build/velox/benchmarks/generic_benchmark
 5. You can start `generic_benchmark` with specific JSON plan and input files
 - You can also edit the file `plan_12_0.json` to custom the Substrait plan or specify the inputs files placed in the other directory.
 
-6. Get more detail information about benchmarks from [MicroBenchmarks](./MicroBenchmarks.md)
+6. Get more detail information about benchmarks from [MicroBenchmarks](../backends/velox/developers/MicroBenchmarks.md)
 
 ## 2 How to debug plan validation process
 
@@ -186,7 +186,7 @@ Here we will explain how to run TPC-H on Velox backend with the Parquet file for
     ```
 
   - Modify `${GLUTEN_HOME}/tools/workload/tpch/run_tpch/tpch-parquet.sh`.
-    - Set `GLUTEN_JAR` correctly. Please refer to the section of [Build Gluten with Velox Backend](../get-started/Velox.md#build-gluten-with-velox-backend)
+    - Set `GLUTEN_JAR` correctly. Please refer to the section of [Build Gluten with Velox Backend](../backends/velox/get-started/Velox.md#build-gluten-with-velox-backend)
     - Set `SPARK_HOME` correctly.
     - Set the memory configurations appropriately.
   - Execute `tpch-parquet.sh` using the below command.

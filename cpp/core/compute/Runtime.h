@@ -156,7 +156,7 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
     throw GlutenException("Not implemented");
   }
 
-  virtual Metrics* getMetrics(ColumnarBatchIterator* rawIter, int64_t exportNanos) {
+  virtual Metrics* getMetrics(ColumnarBatchIterator* rawIter) {
     throw GlutenException("Not implemented");
   }
 

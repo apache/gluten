@@ -73,11 +73,8 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
 
   int64_t spillFixedSize(int64_t size) override;
 
-  Metrics* getMetrics(int64_t exportNanos) {
+  Metrics* getMetrics() {
     collectMetrics();
-    if (metrics_) {
-      metrics_->veloxToArrow = exportNanos;
-    }
     return metrics_.get();
   }
 
@@ -136,6 +133,9 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
   std::unique_ptr<facebook::velox::exec::TaskCursor> cursor_;
   facebook::velox::exec::Task* task_ = nullptr;
   std::shared_ptr<const facebook::velox::core::PlanNode> veloxPlan_;
+  /// Whether the plan calls a Delta counter and so needs the query configs set by
+  /// setIncrementMetricQueryConfigs().
+  const bool usesIncrementMetricFunctions_;
 
   /// Spill.
   std::string spillStrategy_;

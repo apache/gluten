@@ -44,6 +44,7 @@ import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.execution.python.ArrowEvalPythonExec
 import org.apache.spark.sql.execution.window._
 import org.apache.spark.sql.hive.HiveUDFTransformer
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DecimalType, StructType}
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
@@ -175,10 +176,39 @@ trait SparkPlanExecApi {
       right: ExpressionTransformer,
       original: GetMapValue): ExpressionTransformer
 
+  /**
+   * Generate an expression transformer to transform ElementAt to Substrait. The default emits the
+   * mapped function as is; a backend may pick another native function for some inputs.
+   */
+  def genElementAtTransformer(
+      substraitExprName: String,
+      left: ExpressionTransformer,
+      right: ExpressionTransformer,
+      original: ElementAt): ExpressionTransformer =
+    GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
+
   def genStringToMapTransformer(
       substraitExprName: String,
       children: Seq[ExpressionTransformer],
       expr: Expression): ExpressionTransformer = {
+    GenericExpressionTransformer(substraitExprName, children, expr)
+  }
+
+  /** Falls back under LAST_WIN, which a backend's native transform_keys may not honor. */
+  def genTransformKeysTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      expr: TransformKeys): ExpressionTransformer = {
+    // Calling `.toString` on both sides ensures compatibility across all Spark versions.
+    // Starting from Spark 4.1, `SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY)` returns
+    // an enum instead of a String.
+    if (
+      SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY).toString
+        == SQLConf.MapKeyDedupPolicy.LAST_WIN.toString
+    ) {
+      throw new GlutenNotSupportException(
+        "LAST_WIN policy is not supported yet in native to deduplicate map keys")
+    }
     GenericExpressionTransformer(substraitExprName, children, expr)
   }
 
@@ -269,10 +299,14 @@ trait SparkPlanExecApi {
     GenericExpressionTransformer(substraitExprName, Seq(left, right), original)
   }
 
-  // Default: ignore allowPrecisionLoss and return exprName unchanged. Non-Velox backends
-  // (e.g. ClickHouse) do not use the _deny_precision_loss naming convention; they handle
-  // decimal precision through their own mechanisms. VeloxSparkPlanExecApi overrides this.
-  def getDecimalArithmeticExprName(exprName: String, allowPrecisionLoss: Boolean): String = exprName
+  // Default: ignore 'original' and allowPrecisionLoss, and return exprName unchanged. Non-Velox
+  // backends (e.g. ClickHouse) do not use the checked_ and _deny_precision_loss naming
+  // conventions; they handle decimal overflow and precision through their own mechanisms.
+  // VeloxSparkPlanExecApi overrides this.
+  def getDecimalArithmeticExprName(
+      exprName: String,
+      original: BinaryArithmetic,
+      allowPrecisionLoss: Boolean): String = exprName
 
   /** Transform map_entries to Substrait. */
   def genMapEntriesTransformer(
@@ -653,6 +687,8 @@ trait SparkPlanExecApi {
       offset: Int): ColumnarCollectLimitBaseExec
 
   def genColumnarRangeExec(rangeExec: RangeExec): ColumnarRangeBaseExec
+
+  def genOneRowRelationExecTransformer(plan: SparkPlan): SparkPlan = plan
 
   def genColumnarTailExec(limit: Int, plan: SparkPlan): ColumnarCollectTailBaseExec
 

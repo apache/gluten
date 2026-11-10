@@ -16,11 +16,11 @@
  */
 package org.apache.gluten.extension.joinagg
 
-import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.config.{GlutenConfig, JoinAggregateTwoStageMode}
 
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.expressions.{Alias, GetStructField, NamedExpression}
-import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
+import org.apache.spark.sql.catalyst.expressions.{Alias, Expression, GetStructField, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, Complete, Final, Partial, PartialMerge}
 import org.apache.spark.sql.catalyst.planning.PhysicalAggregation
 import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, LogicalPlan}
 import org.apache.spark.sql.execution.{ProjectExec, SparkPlan, SparkStrategy}
@@ -29,6 +29,11 @@ import org.apache.spark.sql.execution.aggregate.HashAggregateExec
 import scala.collection.mutable.ArrayBuffer
 
 case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
+  private object AggregationStage extends Enumeration {
+    // DISTRIBUTED requires grouped input but does not add a mapper aggregate.
+    val LOCAL, DISTRIBUTED, TWO_STAGE = Value
+  }
+
   /*
    * This strategy lowers the logical join-aggregate wrapper shape produced by
    * `PushAggregateThroughJoin` into ordinary Spark physical hash aggregates.
@@ -117,7 +122,8 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
       resultExpressions,
       childPlan,
       unpackInputBuffers = false,
-      packOutputBuffers = true)
+      packOutputBuffers = true,
+      stage = AggregationStage.LOCAL)
   }
 
   private def planPartialMergePhase(
@@ -131,7 +137,31 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
       resultExpressions,
       childPlan,
       unpackInputBuffers = true,
-      packOutputBuffers = true)
+      packOutputBuffers = true,
+      stage = AggregationStage.LOCAL)
+  }
+
+  private def planFinalPhase(
+      grouping: Seq[NamedExpression],
+      aggregateExpressions: Seq[AggregateExpression],
+      resultExpressions: Seq[NamedExpression],
+      childPlan: SparkPlan): Option[SparkPlan] = {
+    val stage =
+      if (
+        GlutenConfig.get.pushAggregateThroughJoinTwoStageMode == JoinAggregateTwoStageMode.FINAL
+      ) {
+        AggregationStage.TWO_STAGE
+      } else {
+        AggregationStage.DISTRIBUTED
+      }
+    planPhase(
+      grouping,
+      aggregateExpressions,
+      resultExpressions,
+      childPlan,
+      unpackInputBuffers = true,
+      packOutputBuffers = false,
+      stage = stage)
   }
 
   private def planPhase(
@@ -140,7 +170,8 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
       resultExpressions: Seq[NamedExpression],
       childPlan: SparkPlan,
       unpackInputBuffers: Boolean,
-      packOutputBuffers: Boolean): Option[SparkPlan] = {
+      packOutputBuffers: Boolean,
+      stage: AggregationStage.Value): Option[SparkPlan] = {
     val rewrittenAggExprs = rewriteWrapperAggregates(aggregateExpressions)
     if (rewrittenAggExprs.isEmpty) {
       return None
@@ -150,16 +181,75 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
     } else {
       childPlan
     }
+    val stageChild = if (stage == AggregationStage.TWO_STAGE) {
+      buildMapperAggregate(grouping, preparedChild, rewrittenAggExprs)
+    } else {
+      preparedChild
+    }
+    val stageExpressions = if (stage == AggregationStage.TWO_STAGE) {
+      rewrittenAggExprs.map {
+        ae =>
+          val mode = ae.mode match {
+            case Partial => PartialMerge
+            case Complete => Final
+            case other => other
+          }
+          // Like Spark's AggUtils.mayRemoveAggFilters, remove filters from buffer-merge stages.
+          ae.copy(mode = mode, filter = None)
+      }
+    } else {
+      rewrittenAggExprs
+    }
+    val distribution = stage match {
+      case AggregationStage.LOCAL => None
+      case AggregationStage.DISTRIBUTED | AggregationStage.TWO_STAGE =>
+        Some(grouping.map(_.toAttribute))
+    }
     if (packOutputBuffers) {
-      planBufferPhase(
+      buildBufferAggregate(
         grouping,
         aggregateExpressions,
         resultExpressions,
-        preparedChild,
-        rewrittenAggExprs)
+        stageChild,
+        stageExpressions,
+        distribution)
     } else {
-      planFinalOutput(grouping, resultExpressions, preparedChild, rewrittenAggExprs)
+      buildFinalAggregate(grouping, resultExpressions, stageChild, stageExpressions, distribution)
     }
+  }
+
+  private def buildMapperAggregate(
+      grouping: Seq[NamedExpression],
+      childPlan: SparkPlan,
+      aggregateExpressions: Seq[AggregateExpression]): SparkPlan = {
+    val mergeExpressions = aggregateExpressions.map {
+      ae =>
+        val mode = ae.mode match {
+          case Partial | Complete => Partial
+          case _ => PartialMerge
+        }
+        ae.copy(mode = mode)
+    }
+    // Preserve the reducer stage's input-buffer IDs when emitting mapper buffers.
+    val bufferOutputs = mergeExpressions.flatMap {
+      ae =>
+        val function = ae.aggregateFunction
+        function.aggBufferAttributes.zip(function.inputAggBufferAttributes).map {
+          case (output, input) =>
+            Alias(output, input.name)(exprId = input.exprId, qualifier = input.qualifier)
+        }
+    }
+    HashAggregateExec(
+      requiredChildDistributionExpressions = None,
+      isStreaming = false,
+      numShufflePartitions = None,
+      groupingExpressions = grouping,
+      aggregateExpressions = mergeExpressions,
+      aggregateAttributes = mergeExpressions.flatMap(_.aggregateFunction.aggBufferAttributes),
+      initialInputBufferOffset = 0,
+      resultExpressions = grouping.map(_.toAttribute) ++ bufferOutputs,
+      child = childPlan
+    )
   }
 
   private def unpackInputBufferFields(
@@ -199,14 +289,15 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
     }
   }
 
-  private def planBufferPhase(
+  private def buildBufferAggregate(
       grouping: Seq[NamedExpression],
       aggregateExpressions: Seq[AggregateExpression],
       resultExpressions: Seq[NamedExpression],
       childPlan: SparkPlan,
-      rewrittenAggExprs: Seq[AggregateExpression]): Option[SparkPlan] = {
+      rewrittenAggExprs: Seq[AggregateExpression],
+      requiredChildDistributionExpressions: Option[Seq[Expression]]): Option[SparkPlan] = {
     val hashAgg = HashAggregateExec(
-      requiredChildDistributionExpressions = None,
+      requiredChildDistributionExpressions = requiredChildDistributionExpressions,
       isStreaming = false,
       numShufflePartitions = None,
       groupingExpressions = grouping,
@@ -276,32 +367,19 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
     Some(ProjectExec(rewrittenResultExpressions, hashAgg))
   }
 
-  private def planFinalPhase(
-      grouping: Seq[NamedExpression],
-      aggregateExpressions: Seq[AggregateExpression],
-      resultExpressions: Seq[NamedExpression],
-      childPlan: SparkPlan): Option[SparkPlan] = {
-    planPhase(
-      grouping,
-      aggregateExpressions,
-      resultExpressions,
-      childPlan,
-      unpackInputBuffers = true,
-      packOutputBuffers = false)
-  }
-
-  private def planFinalOutput(
+  private def buildFinalAggregate(
       grouping: Seq[NamedExpression],
       resultExpressions: Seq[NamedExpression],
       childPlan: SparkPlan,
-      rewrittenAggExprs: Seq[AggregateExpression]): Option[SparkPlan] = {
+      rewrittenAggExprs: Seq[AggregateExpression],
+      requiredChildDistributionExpressions: Option[Seq[Expression]]): Option[SparkPlan] = {
     val aggregateAttrs = rewrittenAggExprs.map(_.resultAttribute)
     val rewrittenResultExpressions =
       rewriteResultAsAggregateAttributes(resultExpressions, rewrittenAggExprs)
 
     Some(
       HashAggregateExec(
-        requiredChildDistributionExpressions = Some(grouping.map(_.toAttribute)),
+        requiredChildDistributionExpressions = requiredChildDistributionExpressions,
         isStreaming = false,
         numShufflePartitions = None,
         groupingExpressions = grouping,

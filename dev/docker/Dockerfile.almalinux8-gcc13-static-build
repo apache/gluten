@@ -20,8 +20,8 @@
 # (EOL Dec 2021). glibc 2.28 allows Velox's modern Folly/FBThrift/MVFST stack
 # to build without the socket.h workaround required on CentOS 7 (glibc 2.17).
 #
-# Modelled on dev/docker/Dockerfile.centos7-gcc13-static-build, which is the
-# reference requested in https://github.com/apache/gluten/issues/12412.
+# Replaces the former CentOS 7 static build image, as requested in
+# https://github.com/apache/gluten/issues/12412.
 
 FROM almalinux:8
 
@@ -36,7 +36,8 @@ ENV VCPKG_PATH=/var/cache/vcpkg
 # Set vcpkg cache path.
 ENV VCPKG_BINARY_SOURCES=clear;files,${VCPKG_PATH},readwrite
 
-RUN set -ex; \
+RUN --mount=type=bind,source=dev/docker/install-ci-tools.sh,target=/tmp/install-ci-tools.sh \
+    set -ex; \
     # AlmaLinux 8 repos are live — no mirror fixup needed. \
     dnf update -y; \
     dnf install -y epel-release sudo; \
@@ -69,5 +70,12 @@ RUN set -ex; \
     export SSL_VERIFY=false; \
     bash ./dev/vcpkg/populate-static-image-cache.sh; \
     ./build/mvn dependency:go-offline -Pbackends-velox -Piceberg -Pdelta -Pspark-3.5 -DskipTests; \
+    # Tools the native build jobs used to install at runtime: gh and jq for the Apache Stash
+    # cache actions, tzdata, and Python 3.9 as python3.
+    dnf install -y tzdata; \
+    dnf module -y install python39; \
+    alternatives --set python3 /usr/bin/python3.9; \
+    bash /tmp/install-ci-tools.sh; \
+    dnf clean all; \
     rm -rf /opt/gluten; \
     rm -rf /root/.cache/ccache;

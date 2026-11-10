@@ -17,9 +17,8 @@
 package org.apache.spark.sql.utils
 
 import org.apache.gluten.columnarbatch.ColumnarBatches
-import org.apache.gluten.vectorized.ArrowWritableColumnVector
 
-import org.apache.spark.sql.vectorized.ColumnarBatch
+import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch}
 
 import org.apache.arrow.memory.ArrowBuf
 import org.apache.arrow.vector._
@@ -36,7 +35,7 @@ object SparkVectorUtil {
       i =>
         batch
           .column(i)
-          .asInstanceOf[ArrowWritableColumnVector]
+          .asInstanceOf[ArrowColumnVector]
           .getValueVector)
     toArrowRecordBatch(numRowsInBatch, cols)
   }

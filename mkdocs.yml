@@ -23,32 +23,10 @@ nav:
 - Home: index.md
 - Getting Started:
   - get-started/getting-started.md
-  - Velox Backend: get-started/Velox.md
-  - ClickHouse Backend: get-started/ClickHouse.md
   - Build Guide: get-started/build-guide.md
   - Gluten UI: get-started/GlutenUI.md
-  - Velox with S3: get-started/VeloxS3.md
-  - Velox with ABFS: get-started/VeloxABFS.md
-  - Velox with GCS: get-started/VeloxGCS.md
-  - Velox with Delta Lake: get-started/VeloxDelta.md
-  - Velox with Iceberg: get-started/VeloxIceberg.md
-  - Velox with GPU: get-started/VeloxGPU.md
-  - Velox with QAT: get-started/VeloxQAT.md
-  - Velox Local Caching: get-started/VeloxLocalCache.md
-  - Stage Resource Adjustment: get-started/VeloxStageResourceAdj.md
 - Configuration:
   - Gluten Configuration: Configuration.md
-  - Velox Configuration: velox-configuration.md
-  - Spark Configuration: velox-spark-configuration.md
-  - Parquet Write Configuration: velox-parquet-write-configuration.md
-- Velox Backend Reference:
-  - Support Progress: velox-backend-support-progress.md
-  - Limitations: velox-backend-limitations.md
-  - Scalar Functions: velox-backend-scalar-function-support.md
-  - Aggregate Functions: velox-backend-aggregate-function-support.md
-  - Window Functions: velox-backend-window-function-support.md
-  - Generator Functions: velox-backend-generator-function-support.md
-  - Troubleshooting: velox-backend-troubleshooting.md
 - Developers:
   - Overview: developers/README.md
   - New to Gluten: developers/NewToGluten.md
@@ -56,22 +34,74 @@ nav:
   - How to Release: developers/HowToRelease.md
   - C++ Coding Style: developers/CppCodingStyle.md
   - Substrait Modifications: developers/SubstraitModifications.md
-  - Micro Benchmarks: developers/MicroBenchmarks.md
-  - Velox UDF and UDAF: developers/VeloxUDF.md
-  - Updating the Function Support Docs: developers/UpdateFunctionSupportDocs.md
-  - Velox Function Development: developers/velox-function-development-guide.md
-  - Velox Backend CI: developers/velox-backend-CI.md
-  - Build in Docker: developers/velox-backend-build-in-docker.md
-  - Query Trace: developers/QueryTrace.md
   - Metrics Framework: developers/MetricsFramework.md
-  - Memory Profiling: developers/ProfileMemoryOfGlutenWithVelox.md
-  - Dynamic Off-Heap Sizing: developers/VeloxDynamicSizingOffheap.md
-  - Partial Project: developers/PartialProject.md
   - Bloop Integration: developers/bloop-integration.md
-  - Debug CH Backend: developers/clickhouse-backend-debug.md
-  - Jemalloc with CH: developers/UsingJemallocWithCH.md
-  - Gperftools with CH: developers/UsingGperftoolsInCH.md
+  - Dev Container: developers/dev-container.md
   - Improvement Proposals: developers/improvement-proposals.md
+- Velox Backend:
+  - Getting Started:
+    - Velox Backend: backends/velox/get-started/Velox.md
+    - Velox with S3: backends/velox/get-started/VeloxS3.md
+    - Velox with ABFS: backends/velox/get-started/VeloxABFS.md
+    - Velox with GCS: backends/velox/get-started/VeloxGCS.md
+    - Velox with Delta Lake: backends/velox/get-started/VeloxDelta.md
+    - Velox with Iceberg: backends/velox/get-started/VeloxIceberg.md
+    - Velox with Lance: backends/velox/get-started/VeloxLance.md
+    - Velox with GPU: backends/velox/get-started/VeloxGPU.md
+    - Velox Local Caching: backends/velox/get-started/VeloxLocalCache.md
+    - Stage Resource Adjustment: backends/velox/get-started/VeloxStageResourceAdj.md
+    - Dynamic OpenSSL: backends/velox/get-started/VeloxDynamicOpenSSL.md
+  - Configuration:
+    - Velox Configuration: backends/velox/velox-configuration.md
+    - Spark Configuration: backends/velox/velox-spark-configuration.md
+    - Parquet Write Configuration: backends/velox/velox-parquet-write-configuration.md
+  - Reference:
+    - Support Progress: backends/velox/velox-backend-support-progress.md
+    - Limitations: backends/velox/velox-backend-limitations.md
+    - Scalar Functions: backends/velox/velox-backend-scalar-function-support.md
+    - Aggregate Functions: backends/velox/velox-backend-aggregate-function-support.md
+    - Window Functions: backends/velox/velox-backend-window-function-support.md
+    - Generator Functions: backends/velox/velox-backend-generator-function-support.md
+    - Troubleshooting: backends/velox/velox-backend-troubleshooting.md
+  - Developers:
+    - Velox UDF and UDAF: backends/velox/developers/VeloxUDF.md
+    - Updating the Function Support Docs: backends/velox/developers/UpdateFunctionSupportDocs.md
+    - Velox Function Development: backends/velox/developers/velox-function-development-guide.md
+    - Velox Backend CI: backends/velox/developers/velox-backend-CI.md
+    - Build in Docker: backends/velox/developers/velox-backend-build-in-docker.md
+    - Memory Profiling: backends/velox/developers/ProfileMemoryOfGlutenWithVelox.md
+    - Dynamic Off-Heap Sizing: backends/velox/developers/VeloxDynamicSizingOffheap.md
+    - Micro Benchmarks: backends/velox/developers/MicroBenchmarks.md
+    - Query Trace: backends/velox/developers/QueryTrace.md
+    - Partial Project: backends/velox/developers/PartialProject.md
+    - Arrow Columnar Conversion: backends/velox/developers/ArrowColumnarConversion.md
+- Bolt Backend:
+  - Getting Started:
+    - Bolt Backend: backends/bolt/get-started/Bolt.md
+    - Bolt Quick Start: backends/bolt/bolt-quick-start.md
+    - Bolt File System Support: backends/bolt/get-started/BoltFileSystem.md
+    - Bolt Local Caching: backends/bolt/get-started/BoltLocalCache.md
+    - Stage Resource Adjustment: backends/bolt/get-started/BoltStageResourceAdj.md
+    - Velox to Bolt Migration: backends/bolt/velox-to-bolt-migration-guide.md
+  - Configuration:
+    - Bolt Configuration: backends/bolt/bolt-configuration.md
+    - Spark Configuration: backends/bolt/bolt-spark-configuration.md
+    - Parquet Write Configuration: backends/bolt/bolt-parquet-write-configuration.md
+  - Reference:
+    - Features: backends/bolt/bolt-backend-features.md
+    - Scalar Functions: backends/bolt/bolt-backend-scalar-function-support.md
+    - Aggregate Functions: backends/bolt/bolt-backend-aggregate-function-support.md
+    - Window Functions: backends/bolt/bolt-backend-window-function-support.md
+    - Generator Functions: backends/bolt/bolt-backend-generator-function-support.md
+  - Developers:
+    - Bolt Function Development: backends/bolt/developers/bolt-function-development-guide.md
+- ClickHouse Backend:
+  - Getting Started:
+    - ClickHouse Backend: backends/clickhouse/get-started/ClickHouse.md
+  - Developers:
+    - Debug CH Backend: backends/clickhouse/developers/clickhouse-backend-debug.md
+    - Jemalloc with CH: backends/clickhouse/developers/UsingJemallocWithCH.md
+    - Gperftools with CH: backends/clickhouse/developers/UsingGperftoolsInCH.md
 
 
 

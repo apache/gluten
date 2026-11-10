@@ -70,8 +70,11 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def broadcastBuildMergeBatches: Boolean =
     getConf(VELOX_BROADCAST_BUILD_MERGE_BATCHES)
 
+  // A hash table built once per executor reaches the native join through a process local cache
+  // rather than through the build side input iterator, so a dumped stage could not be replayed by
+  // the micro benchmark. Dumping therefore always builds the hash table per task.
   def enableBroadcastBuildOncePerExecutor: Boolean =
-    getConf(VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR)
+    getConf(VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR) && !benchmarkDumpRequested
 
   def broadcastNestedLoopJoinFullOuterRewriteThreshold: Long =
     getConf(VELOX_BROADCAST_NESTED_LOOP_JOIN_FULL_OUTER_REWRITE_THRESHOLD)
@@ -81,6 +84,9 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
 
   def veloxOrcScanEnabled: Boolean =
     getConf(VELOX_ORC_SCAN_ENABLED)
+
+  def scanMapKeyPruningEnabled: Boolean =
+    getConf(SCAN_MAP_KEY_PRUNING_ENABLED)
 
   def floatingPointMode: String = getConf(FLOATING_POINT_MODE)
 
@@ -246,6 +252,19 @@ object VeloxConfig extends ConfigRegistry {
       .intConf
       .createOptional
 
+  val COLUMNAR_VELOX_BROADCAST_HASH_TABLE_BUILD_THREADS =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.broadcastHashTableBuildThreads")
+      .doc(
+        "Size of the dedicated CPU thread pool for the parallel broadcast hash-table build. " +
+          "If unset, the size is resolved separately for each process at backend initialization: " +
+          "spark.gluten.numTaskSlotsPerExecutor on executors, and spark.driver.cores on the " +
+          "driver. In local mode, the shared pool uses the number of cores specified by " +
+          "spark.master (for example, local[N] uses N). An explicit value applies to both " +
+          "driver and executors. A value less than or equal to one uses the serial build path " +
+          "without creating a dedicated thread pool.")
+      .intConf
+      .createOptional
+
   val COLUMNAR_VELOX_BROADCAST_HASH_TABLE_BUILD_TARGET_BYTES =
     buildStaticConf("spark.gluten.velox.broadcast.build.targetBytesPerThread")
       .doc(
@@ -278,6 +297,17 @@ object VeloxConfig extends ConfigRegistry {
       .doc("The split preload per task")
       .intConf
       .createWithDefault(2)
+
+  val SCAN_MAP_KEY_PRUNING_ENABLED =
+    buildConf("spark.gluten.sql.columnar.backend.velox.scanMapKeyPruningEnabled")
+      .doc(
+        "When true, a map column read by a native Parquet scan is declared to Velox with only " +
+          "the constant keys the query looks up (m['k'], element_at(m, 'k'), null checks), so " +
+          "the reader skips the other entries. Applies when every use of the map sits in the " +
+          "filters and projections directly above the scan and the map is dropped before any " +
+          "other operator sees it; otherwise the map is read whole. See ScanMapKeyPruning.")
+      .booleanConf
+      .createWithDefault(false)
 
   val COLUMNAR_VELOX_GLOG_VERBOSE_LEVEL =
     buildConf("spark.gluten.sql.columnar.backend.velox.glogVerboseLevel")

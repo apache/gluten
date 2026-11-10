@@ -49,6 +49,11 @@ object ConverterUtils extends Logging {
   }
 
   def normalizeColName(name: String): String = {
+    // An attribute may carry a null name (e.g. built from a StructField with a null name,
+    // SPARK-57725). Map it to an empty name; generated column names stay unique via the exprId.
+    if (name == null) {
+      return ""
+    }
     val caseSensitive = SQLConf.get.caseSensitiveAnalysis
     if (caseSensitive) name else name.toLowerCase(Locale.ROOT)
   }
@@ -184,10 +189,10 @@ object ConverterUtils extends Logging {
         (DecimalType(precision, scale), isNullable(decimal.getNullability))
       case Type.KindCase.STRUCT =>
         val struct_ = substraitType.getStruct
-        val fields = struct_.getTypesList.asScala.map {
-          typ =>
+        val fields = struct_.getTypesList.asScala.zip(structFieldNames(struct_)).map {
+          case (typ, name) =>
             val (field, nullable) = parseFromSubstraitType(typ)
-            StructField("", field, nullable)
+            StructField(name, field, nullable)
         }
         (StructType(fields.toSeq), isNullable(substraitType.getStruct.getNullability))
       case Type.KindCase.LIST =>
@@ -208,7 +213,31 @@ object ConverterUtils extends Logging {
     }
   }
 
-  def getTypeNode(datatype: DataType, nullable: Boolean): TypeNode = {
+  // Not every producer sets `names`; without one name per field, the fields stay unnamed.
+  private def structFieldNames(substraitStruct: Type.Struct): Seq[String] = {
+    if (substraitStruct.getNamesCount == substraitStruct.getTypesCount) {
+      substraitStruct.getNamesList.asScala.toSeq
+    } else {
+      Seq.fill(substraitStruct.getTypesCount)("")
+    }
+  }
+
+  def getTypeNode(datatype: DataType, nullable: Boolean): TypeNode =
+    getTypeNode(datatype, nullable, preserveStructFieldNames = false)
+
+  /**
+   * Converts a Spark data type to a Substrait type node.
+   *
+   * @param preserveStructFieldNames
+   *   If true, struct field names (including nested ones) are emitted as is, regardless of
+   *   `spark.sql.caseSensitive`. Needed by expressions whose semantics depend on the exact field
+   *   names of their result type, e.g. `from_json`, which matches JSON keys against the schema
+   *   field names case-sensitively.
+   */
+  def getTypeNode(
+      datatype: DataType,
+      nullable: Boolean,
+      preserveStructFieldNames: Boolean): TypeNode = {
     datatype match {
       case BooleanType =>
         TypeBuilder.makeBoolean(nullable)
@@ -244,17 +273,24 @@ object ConverterUtils extends Logging {
       case m: MapType =>
         TypeBuilder.makeMap(
           nullable,
-          getTypeNode(m.keyType, nullable = false),
-          getTypeNode(m.valueType, m.valueContainsNull))
+          getTypeNode(m.keyType, nullable = false, preserveStructFieldNames),
+          getTypeNode(m.valueType, m.valueContainsNull, preserveStructFieldNames))
       case a: ArrayType =>
-        TypeBuilder.makeList(nullable, getTypeNode(a.elementType, a.containsNull))
+        TypeBuilder.makeList(
+          nullable,
+          getTypeNode(a.elementType, a.containsNull, preserveStructFieldNames))
       case s: StructType =>
         val normalizeStructFieldName: String => String =
-          if (BackendsApiManager.getSettings.structFieldToLowerCase()) {
+          if (
+            !preserveStructFieldNames && BackendsApiManager.getSettings.structFieldToLowerCase()
+          ) {
             (name: String) => normalizeColName(name)
           } else { (name: String) => name }
         val (fieldNodes, fieldNames) = s.map {
-          f => (getTypeNode(f.dataType, f.nullable), normalizeStructFieldName(f.name))
+          f =>
+            (
+              getTypeNode(f.dataType, f.nullable, preserveStructFieldNames),
+              normalizeStructFieldName(f.name))
         }.unzip
         TypeBuilder.makeStruct(nullable, fieldNodes.asJava, fieldNames.asJava)
       case _: NullType =>
@@ -292,6 +328,8 @@ object ConverterUtils extends Logging {
         DecimalType(d.precision, d.scale)
       case _: TimestampTypeNode =>
         TimestampType
+      case _: TimestampNTZTypeNode =>
+        TimestampNTZType
       case m: MapNode =>
         val keyType = parseFromTypeNode(m.getKeyType)
         val valueType = parseFromTypeNode(m.getValueType)

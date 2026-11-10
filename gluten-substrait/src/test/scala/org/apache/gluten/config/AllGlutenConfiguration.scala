@@ -68,7 +68,9 @@ class AllGlutenConfiguration extends AnyFunSuite {
       s"""
          |## Spark base configurations for Gluten plugin
          |
-         | Key | Modifiability | Recommend Setting | Description
+         |${AllGlutenConfiguration.configTypeLegend}
+         |
+         | Key | Type | Recommend Setting | Description
          | --- | --- | --- | ---
          |"""
 
@@ -115,7 +117,9 @@ class AllGlutenConfiguration extends AnyFunSuite {
       s"""
          |## Gluten configurations
          |
-         | Key | Modifiability | Default | Description
+         |${AllGlutenConfiguration.configTypeLegend}
+         |
+         | Key | Type | Default | Description
          | --- | --- | --- | ---
          |"""
 
@@ -140,7 +144,9 @@ class AllGlutenConfiguration extends AnyFunSuite {
       s"""
          |## Gluten *experimental* configurations
          |
-         | Key | Modifiability | Default | Description
+         |${AllGlutenConfiguration.configTypeLegend}
+         |
+         | Key | Type | Default | Description
          | --- | --- | --- | ---
          |"""
 
@@ -170,8 +176,13 @@ object AllGlutenConfiguration {
   private val Anchor = Character.toString(0x2693)
   private val CounterclockwiseArrows = new String(Character.toChars(0x1f504))
 
-  val staticConfigLabel: String = s"$Anchor Static"
-  val dynamicConfigLabel: String = s"$CounterclockwiseArrows Dynamic"
+  val staticConfigLabel: String = Anchor
+  val dynamicConfigLabel: String = CounterclockwiseArrows
+
+  /** Legend placed before each config table to explain the Type column. */
+  val configTypeLegend: String =
+    s"Type: $staticConfigLabel Static - can only be set before the Spark application starts; " +
+      s"$dynamicConfigLabel Dynamic - can be changed at runtime, e.g. with `SET`."
 
   def configModifiability(key: String): String = {
     if (SQLConf.get.isModifiable(key)) {

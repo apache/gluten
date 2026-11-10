@@ -23,8 +23,7 @@ import org.apache.gluten.extension.joinagg.PushAggregateThroughJoin
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.plans.PlanTest
-import org.apache.spark.sql.catalyst.plans.logical.Aggregate
-import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.{SparkPlan, SparkStrategy}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
@@ -38,6 +37,8 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
   private val debugMode: Boolean = true
 
   private case class PushdownCase(inputSql: String)
+
+  private case class ExpectedAggCounts(partialMergeDisabled: Int, partialMergeEnabled: Int)
 
   override protected def sparkConf: SparkConf = {
     // Avoid Janino projection codegen here because Spark 4's QueryExecutionErrors
@@ -93,89 +94,100 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       testCase: PushdownCase,
       maxDepth: Int,
       expectedPushCount: Int,
-      expectedAggCount: Int,
-      partialMergeEnabled: Boolean): Unit = {
-    withSQLConf(
-      GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_ENABLED.key -> "true",
-      GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key -> maxDepth.toString,
-      GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key ->
-        partialMergeEnabled.toString
-    ) {
-      val (withoutRuleRows, withoutRuleLogicalPlan, withoutRulePhysicalPlan) =
-        withExtraPlanning(Nil, Nil) {
-          val df = spark.sql(testCase.inputSql)
-          (
-            df.collect().toSeq.sortBy(_.toString()),
-            df.queryExecution.optimizedPlan,
-            finalExecutedPlan(df.queryExecution.executedPlan)
-          )
+      expectedAggCounts: ExpectedAggCounts): Unit = {
+    Seq(false, true).foreach {
+      partialMergeEnabled =>
+        val expectedAggCount = if (partialMergeEnabled) {
+          expectedAggCounts.partialMergeEnabled
+        } else {
+          expectedAggCounts.partialMergeDisabled
         }
+        withClue(s"partialMergeEnabled=$partialMergeEnabled, maxDepth=$maxDepth: ") {
+          withSQLConf(
+            GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_ENABLED.key -> "true",
+            GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key -> maxDepth.toString,
+            GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key ->
+              partialMergeEnabled.toString
+          ) {
+            val (withoutRuleRows, withoutRuleLogicalPlan, withoutRulePhysicalPlan) =
+              withExtraPlanning(Nil, Nil) {
+                val df = spark.sql(testCase.inputSql)
+                (
+                  df.collect().toSeq.sortBy(_.toString()),
+                  df.queryExecution.optimizedPlan,
+                  finalExecutedPlan(df.queryExecution.executedPlan)
+                )
+              }
 
-      val (withRuleRows, withRuleLogicalPlan, withRulePhysicalPlan) =
-        withExtraPlanning(Seq(joinAggregateRule), Nil) {
-          joinAggregateRule.resetSuccessfulPushCount()
-          val df = spark.sql(testCase.inputSql)
-          val withRuleRows = df.collect().toSeq.sortBy(_.toString())
-          val withRulePlan = df.queryExecution.optimizedPlan
-          val withRulePhysicalPlan = finalExecutedPlan(df.queryExecution.executedPlan)
-          val aggregateNodeCount = withRulePlan.collect { case _: Aggregate => 1 }.size
-          val nodesWithMissingInput = withRulePlan.collect {
-            case p if p.missingInput.nonEmpty => p
+            val (withRuleRows, withRuleLogicalPlan, withRulePhysicalPlan) =
+              withExtraPlanning(Seq(joinAggregateRule), Nil) {
+                joinAggregateRule.resetSuccessfulPushCount()
+                val df = spark.sql(testCase.inputSql)
+                val withRuleRows = df.collect().toSeq.sortBy(_.toString())
+                val withRulePlan = df.queryExecution.optimizedPlan
+                val withRulePhysicalPlan = finalExecutedPlan(df.queryExecution.executedPlan)
+                val aggregateNodeCount = withRulePlan.collect { case _: Aggregate => 1 }.size
+                val nodesWithMissingInput = withRulePlan.collect {
+                  case p if p.missingInput.nonEmpty => p
+                }
+
+                assert(
+                  withRulePlan.resolved,
+                  s"Optimized plan unresolved:\n${withRulePlan.treeString}\n" +
+                    s"MissingInput=${withRulePlan.missingInput}")
+                assert(
+                  nodesWithMissingInput.isEmpty,
+                  s"Plan has missing input:\n${nodesWithMissingInput
+                      .map(_.treeString)
+                      .mkString("\n---\n")}")
+                assert(joinAggregateRule.getSuccessfulPushCount == expectedPushCount)
+                assert(aggregateNodeCount == expectedAggCount)
+                (withRuleRows, withRulePlan, withRulePhysicalPlan)
+              }
+
+            val (
+              withRuleAndStrategyRows,
+              withRuleAndStrategyLogicalPlan,
+              withRuleAndStrategyPhysicalPlan) =
+              withExtraPlanning(Seq(joinAggregateRule), Seq(ImplementJoinAggregate(spark))) {
+                joinAggregateRule.resetSuccessfulPushCount()
+                val df = spark.sql(testCase.inputSql)
+                (
+                  df.collect().toSeq.sortBy(_.toString()),
+                  df.queryExecution.optimizedPlan,
+                  finalExecutedPlan(df.queryExecution.executedPlan)
+                )
+              }
+
+            if (debugMode) {
+              // scalastyle:off println
+              println("=== Optimized Plan Before (without PushAggregateThroughJoin) ===")
+              println(withoutRuleLogicalPlan.treeString)
+              println("=== Optimized Plan After (with PushAggregateThroughJoin) ===")
+              println(withRuleLogicalPlan.treeString)
+              println(
+                "=== Optimized Plan After (with PushAggregateThroughJoin and strategy) ===")
+              println(withRuleAndStrategyLogicalPlan.treeString)
+              println("=== Physical Plan Before (without PushAggregateThroughJoin) ===")
+              println(withoutRulePhysicalPlan.treeString)
+              println("=== Physical Plan After (with PushAggregateThroughJoin only) ===")
+              println(withRulePhysicalPlan.treeString)
+              println(
+                "=== Physical Plan After (with PushAggregateThroughJoin and strategy) ===")
+              println(withRuleAndStrategyPhysicalPlan.treeString)
+              println("=== Result Before (without PushAggregateThroughJoin) ===")
+              println(withoutRuleRows.mkString("\n"))
+              println("=== Result After (with PushAggregateThroughJoin only) ===")
+              println(withRuleRows.mkString("\n"))
+              println("=== Result After (with PushAggregateThroughJoin and strategy) ===")
+              println(withRuleAndStrategyRows.mkString("\n"))
+              // scalastyle:on println
+            }
+
+            assertRowsEqual(withRuleRows, withoutRuleRows)
+            assertRowsEqual(withRuleAndStrategyRows, withoutRuleRows)
           }
-
-          assert(
-            withRulePlan.resolved,
-            s"Optimized plan unresolved:\n${withRulePlan.treeString}\n" +
-              s"MissingInput=${withRulePlan.missingInput}")
-          assert(
-            nodesWithMissingInput.isEmpty,
-            s"Plan has missing input:\n${nodesWithMissingInput
-                .map(_.treeString)
-                .mkString("\n---\n")}")
-          assert(joinAggregateRule.getSuccessfulPushCount == expectedPushCount)
-          assert(aggregateNodeCount == expectedAggCount)
-          (withRuleRows, withRulePlan, withRulePhysicalPlan)
         }
-
-      val (
-        withRuleAndStrategyRows,
-        withRuleAndStrategyLogicalPlan,
-        withRuleAndStrategyPhysicalPlan) =
-        withExtraPlanning(Seq(joinAggregateRule), Seq(ImplementJoinAggregate(spark))) {
-          joinAggregateRule.resetSuccessfulPushCount()
-          val df = spark.sql(testCase.inputSql)
-          (
-            df.collect().toSeq.sortBy(_.toString()),
-            df.queryExecution.optimizedPlan,
-            finalExecutedPlan(df.queryExecution.executedPlan)
-          )
-        }
-
-      if (debugMode) {
-        // scalastyle:off println
-        println("=== Optimized Plan Before (without PushJoinAggregatePreAggregation) ===")
-        println(withoutRuleLogicalPlan.treeString)
-        println("=== Optimized Plan After (with PushJoinAggregatePreAggregation) ===")
-        println(withRuleLogicalPlan.treeString)
-        println("=== Optimized Plan After (with PushJoinAggregatePreAggregation and strategy) ===")
-        println(withRuleAndStrategyLogicalPlan.treeString)
-        println("=== Physical Plan Before (without PushJoinAggregatePreAggregation) ===")
-        println(withoutRulePhysicalPlan.treeString)
-        println("=== Physical Plan After (with PushJoinAggregatePreAggregation only) ===")
-        println(withRulePhysicalPlan.treeString)
-        println("=== Physical Plan After (with PushJoinAggregatePreAggregation and strategy) ===")
-        println(withRuleAndStrategyPhysicalPlan.treeString)
-        println("=== Result Before (without PushJoinAggregatePreAggregation) ===")
-        println(withoutRuleRows.mkString("\n"))
-        println("=== Result After (with PushJoinAggregatePreAggregation only) ===")
-        println(withRuleRows.mkString("\n"))
-        println("=== Result After (with PushJoinAggregatePreAggregation and strategy) ===")
-        println(withRuleAndStrategyRows.mkString("\n"))
-        // scalastyle:on println
-      }
-
-      assertRowsEqual(withRuleRows, withoutRuleRows)
-      assertRowsEqual(withRuleAndStrategyRows, withoutRuleRows)
     }
   }
 
@@ -224,14 +236,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 2,
-      expectedAggCount = 2,
-      partialMergeEnabled = false)
-    runCaseWithMaxDepth(
-      pushdownCase,
-      maxDepth = Int.MaxValue,
-      expectedPushCount = 2,
-      expectedAggCount = 4,
-      partialMergeEnabled = true)
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 3))
   }
 
   test("pre-aggregate store_sales for sum") {
@@ -249,14 +254,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 1,
-      expectedAggCount = 2,
-      partialMergeEnabled = false)
-    runCaseWithMaxDepth(
-      pushdownCase,
-      maxDepth = Int.MaxValue,
-      expectedPushCount = 1,
-      expectedAggCount = 3,
-      partialMergeEnabled = true)
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 2))
   }
 
   test("pre-aggregate store_sales for avg") {
@@ -274,14 +272,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 1,
-      expectedAggCount = 2,
-      partialMergeEnabled = false)
-    runCaseWithMaxDepth(
-      pushdownCase,
-      maxDepth = Int.MaxValue,
-      expectedPushCount = 1,
-      expectedAggCount = 3,
-      partialMergeEnabled = true)
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 2))
   }
 
   test("pre-aggregate store_sales for sum on fact table") {
@@ -299,14 +290,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 1,
-      expectedAggCount = 2,
-      partialMergeEnabled = false)
-    runCaseWithMaxDepth(
-      pushdownCase,
-      maxDepth = Int.MaxValue,
-      expectedPushCount = 1,
-      expectedAggCount = 3,
-      partialMergeEnabled = true)
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 2))
   }
 
   test("pre-aggregate store_sales for avg on fact table") {
@@ -324,14 +308,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 1,
-      expectedAggCount = 2,
-      partialMergeEnabled = false)
-    runCaseWithMaxDepth(
-      pushdownCase,
-      maxDepth = Int.MaxValue,
-      expectedPushCount = 1,
-      expectedAggCount = 3,
-      partialMergeEnabled = true)
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 2))
   }
 
   test("pre-aggregate store_sales for sum on three-way join") {
@@ -351,14 +328,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 2,
-      expectedAggCount = 2,
-      partialMergeEnabled = false)
-    runCaseWithMaxDepth(
-      pushdownCase,
-      maxDepth = Int.MaxValue,
-      expectedPushCount = 2,
-      expectedAggCount = 4,
-      partialMergeEnabled = true)
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 3))
   }
 
   test("pre-aggregate store_sales for sum and avg on different fact columns on three-way join") {
@@ -379,14 +349,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 2,
-      expectedAggCount = 2,
-      partialMergeEnabled = false)
-    runCaseWithMaxDepth(
-      pushdownCase,
-      maxDepth = Int.MaxValue,
-      expectedPushCount = 2,
-      expectedAggCount = 4,
-      partialMergeEnabled = true)
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 3))
   }
 
   test("pre-aggregate store_sales for sum and avg on same fact column on three-way join") {
@@ -407,14 +370,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 2,
-      expectedAggCount = 2,
-      partialMergeEnabled = false)
-    runCaseWithMaxDepth(
-      pushdownCase,
-      maxDepth = Int.MaxValue,
-      expectedPushCount = 2,
-      expectedAggCount = 4,
-      partialMergeEnabled = true)
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 3))
   }
 
   test("pre-aggregate store_sales by i_item_desc") {
@@ -432,14 +388,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 1,
-      expectedAggCount = 2,
-      partialMergeEnabled = false)
-    runCaseWithMaxDepth(
-      pushdownCase,
-      maxDepth = Int.MaxValue,
-      expectedPushCount = 1,
-      expectedAggCount = 3,
-      partialMergeEnabled = true)
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 2))
   }
 
   test("pre-aggregate store_sales by substr(i_item_desc, 3), 3 ways") {
@@ -459,14 +408,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 2,
-      expectedAggCount = 2,
-      partialMergeEnabled = false)
-    runCaseWithMaxDepth(
-      pushdownCase,
-      maxDepth = Int.MaxValue,
-      expectedPushCount = 2,
-      expectedAggCount = 4,
-      partialMergeEnabled = true)
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 3))
   }
 
   test("pre-aggregate store_sales for sum with item filter") {
@@ -483,14 +425,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 1,
-      expectedAggCount = 2,
-      partialMergeEnabled = false)
-    runCaseWithMaxDepth(
-      pushdownCase,
-      maxDepth = Int.MaxValue,
-      expectedPushCount = 1,
-      expectedAggCount = 3,
-      partialMergeEnabled = true)
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 2))
   }
 
   test("pre-aggregate three-way joins independently under union all") {
@@ -533,38 +468,17 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = 1,
       expectedPushCount = 3,
-      expectedAggCount = 6,
-      partialMergeEnabled = false)
-    runCaseWithMaxDepth(
-      pushdownCase,
-      maxDepth = 1,
-      expectedPushCount = 3,
-      expectedAggCount = 9,
-      partialMergeEnabled = true)
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 6, partialMergeEnabled = 6))
     runCaseWithMaxDepth(
       pushdownCase,
       maxDepth = 2,
       expectedPushCount = 6,
-      expectedAggCount = 6,
-      partialMergeEnabled = false)
-    runCaseWithMaxDepth(
-      pushdownCase,
-      maxDepth = 2,
-      expectedPushCount = 6,
-      expectedAggCount = 12,
-      partialMergeEnabled = true)
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 6, partialMergeEnabled = 9))
     runCaseWithMaxDepth(
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 6,
-      expectedAggCount = 6,
-      partialMergeEnabled = false)
-    runCaseWithMaxDepth(
-      pushdownCase,
-      maxDepth = Int.MaxValue,
-      expectedPushCount = 6,
-      expectedAggCount = 12,
-      partialMergeEnabled = true)
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 6, partialMergeEnabled = 9))
   }
 
   test("pre-aggregate store_sales for sum on three-way join with maxDepth=1 / maxDepth=2") {
@@ -584,38 +498,32 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = 1,
       expectedPushCount = 1,
-      expectedAggCount = 2,
-      partialMergeEnabled = false)
-    runCaseWithMaxDepth(
-      pushdownCase,
-      maxDepth = 1,
-      expectedPushCount = 1,
-      expectedAggCount = 3,
-      partialMergeEnabled = true)
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 2))
     runCaseWithMaxDepth(
       pushdownCase,
       maxDepth = 2,
       expectedPushCount = 2,
-      expectedAggCount = 2,
-      partialMergeEnabled = false)
-    runCaseWithMaxDepth(
-      pushdownCase,
-      maxDepth = 2,
-      expectedPushCount = 2,
-      expectedAggCount = 4,
-      partialMergeEnabled = true)
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 3))
     runCaseWithMaxDepth(
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 2,
-      expectedAggCount = 2,
-      partialMergeEnabled = false)
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 3))
+  }
+
+  test("partial merge is not retained when no side can be pushed") {
+    val pushdownCase = PushdownCase(
+      inputSql = """
+                   |SELECT sum(ss_sales_price), sum(i_category_id)
+                   |FROM store_sales
+                   |JOIN item ON ss_item_sk = i_item_sk
+                   |""".stripMargin
+    )
     runCaseWithMaxDepth(
       pushdownCase,
       maxDepth = Int.MaxValue,
-      expectedPushCount = 2,
-      expectedAggCount = 4,
-      partialMergeEnabled = true)
+      expectedPushCount = 0,
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 2))
   }
 
   test("pre-aggregate with filter inside inner equi-join") {
@@ -633,13 +541,6 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 1,
-      expectedAggCount = 2,
-      partialMergeEnabled = false)
-    runCaseWithMaxDepth(
-      pushdownCase,
-      maxDepth = Int.MaxValue,
-      expectedPushCount = 1,
-      expectedAggCount = 3,
-      partialMergeEnabled = true)
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 2))
   }
 }

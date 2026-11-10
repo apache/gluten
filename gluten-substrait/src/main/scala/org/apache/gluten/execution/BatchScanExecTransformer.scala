@@ -32,10 +32,14 @@ import org.apache.spark.sql.catalyst.util.truncatedString
 import org.apache.spark.sql.connector.catalog.Table
 import org.apache.spark.sql.connector.read.Scan
 import org.apache.spark.sql.execution.datasources.v2.{BatchScanExecShim, FileScan}
+import org.apache.spark.sql.execution.datasources.v2.orc.OrcScan
+import org.apache.spark.sql.execution.datasources.v2.parquet.ParquetScan
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.types.StructType
 
 import com.google.common.base.Objects
+
+import scala.collection.JavaConverters._
 
 /** Columnar Based BatchScanExec. */
 case class BatchScanExecTransformer(
@@ -48,7 +52,8 @@ case class BatchScanExecTransformer(
     override val commonPartitionValues: Option[Seq[(InternalRow, Int)]] = None,
     override val applyPartialClustering: Boolean = false,
     override val replicatePartitions: Boolean = false,
-    override val pushDownFilters: Option[Seq[Expression]] = None)
+    override val pushDownFilters: Option[Seq[Expression]] = None,
+    override val requiredMapSubfields: Map[String, Seq[SubfieldPath]] = Map.empty)
   extends BatchScanExecTransformerBase(
     output,
     scan,
@@ -78,6 +83,13 @@ case class BatchScanExecTransformer(
 
   override def withNewPushdownFilters(filters: Seq[Expression]): BatchScanExecTransformerBase = {
     this.copy(pushDownFilters = Some(filters))
+  }
+
+  override def supportsMapKeyPruning: Boolean = true
+
+  override def withRequiredMapSubfields(
+      subfields: Map[String, Seq[SubfieldPath]]): BatchScanExecTransformerBase = {
+    this.copy(requiredMapSubfields = subfields)
   }
 
   override def withOutput(newOutput: Seq[AttributeReference]): BatchScanExecTransformerBase = {
@@ -135,6 +147,14 @@ abstract class BatchScanExecTransformerBase(
   override def getDataSchema: StructType = scan match {
     case fileScan: FileScan => fileScan.readDataSchema
     case _ => new StructType()
+  }
+
+  override def getReadOptions: Map[String, String] = {
+    scan match {
+      case parquetScan: ParquetScan => parquetScan.options.asCaseSensitiveMap.asScala.toMap
+      case orcScan: OrcScan => orcScan.options.asCaseSensitiveMap.asScala.toMap
+      case _ => Map.empty
+    }
   }
 
   override def getRootPathsInternal: Seq[String] = {
@@ -216,13 +236,19 @@ abstract class BatchScanExecTransformerBase(
     case other: BatchScanExecTransformerBase =>
       this.keyGroupedPartitioning == other.keyGroupedPartitioning &&
       this.pushDownFilters == other.pushDownFilters &&
+      this.requiredMapSubfields == other.requiredMapSubfields &&
       super.equals(other)
     case _ =>
       false
   }
 
   override def hashCode(): Int =
-    Objects.hashCode(batch, runtimeFilters, keyGroupedPartitioning, pushDownFilters)
+    Objects.hashCode(
+      batch,
+      runtimeFilters,
+      keyGroupedPartitioning,
+      pushDownFilters,
+      requiredMapSubfields)
 
   /** Return a copy of this scan with a new output schema. */
   def withOutput(newOutput: Seq[AttributeReference]): BatchScanExecTransformerBase

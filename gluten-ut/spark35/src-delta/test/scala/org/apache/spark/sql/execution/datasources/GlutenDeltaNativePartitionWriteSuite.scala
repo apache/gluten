@@ -29,6 +29,8 @@ import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types.{IntegerType, LongType, StructType}
 import org.apache.spark.sql.util.QueryExecutionListener
 
+import org.apache.parquet.hadoop.ParquetFileReader
+import org.apache.parquet.hadoop.util.HadoopInputFile
 import org.json4s.{JInt, JNothing}
 import org.json4s.jackson.JsonMethods.parse
 
@@ -56,6 +58,9 @@ class GlutenDeltaNativePartitionWriteSuite extends GlutenQueryTest with SharedSp
       .set(GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key, "false")
       .set("spark.sql.adaptive.enabled", "false")
       .set("spark.sql.maxConcurrentOutputFileWriters", "0")
+      // Delta 4.4+ writes partition columns into the data files by default, which makes the write
+      // fall back to vanilla Delta. Older Delta ignores this unknown table property default.
+      .set("spark.databricks.delta.properties.defaults.writePartitionColumnsToParquet", "false")
   }
 
   // Small batches cross partition boundaries; a large batch requires splitting a single stripe.
@@ -107,6 +112,18 @@ class GlutenDeltaNativePartitionWriteSuite extends GlutenQueryTest with SharedSp
               val fileSizes = files.toSeq.map {
                 file =>
                   val filePath = DeltaFileOperations.absolutePath(path, file.path).toString
+                  val reader = ParquetFileReader.open(
+                    HadoopInputFile.fromPath(
+                      DeltaFileOperations.absolutePath(path, file.path),
+                      spark.sessionState.newHadoopConf()))
+                  try {
+                    // Vanilla Spark writes with parquet-mr; the Velox writer does not.
+                    assert(
+                      !reader.getFooter.getFileMetaData.getCreatedBy.startsWith("parquet-mr"),
+                      s"${file.path} was not written by the native writer")
+                  } finally {
+                    reader.close()
+                  }
                   val rows = spark.read.parquet(filePath).select("id").collect().toSeq
                   if (collectStats) {
                     val stats = parse(file.stats)

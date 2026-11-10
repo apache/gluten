@@ -24,6 +24,21 @@ import subprocess
 import sys
 
 REV = sys.argv[1] if len(sys.argv) > 1 else "HEAD"
+CURRENT = "docs/backends/velox/velox-backend-{cat}-function-support.md"
+# Location before the docs were reorganized under docs/backends.
+LEGACY = "docs/velox-backend-{cat}-function-support.md"
+
+
+def show(rev, cat):
+    for p in (CURRENT, LEGACY):
+        r = subprocess.run(
+            ["git", "show", f"{rev}:{p.format(cat=cat)}"],
+            capture_output=True,
+            text=True,
+        )
+        if r.returncode == 0:
+            return r.stdout
+    sys.exit(f"error: {cat} function support doc not found at {rev}")
 
 
 def rows(text):
@@ -46,11 +61,8 @@ def header(text):
 
 
 for cat in ["scalar", "aggregate", "window", "generator"]:
-    path = f"docs/velox-backend-{cat}-function-support.md"
-    old_text = subprocess.run(
-        ["git", "show", f"{REV}:{path}"], capture_output=True, text=True
-    ).stdout
-    new_text = open(path).read()
+    old_text = show(REV, cat)
+    new_text = open(CURRENT.format(cat=cat)).read()
     old, new = rows(old_text), rows(new_text)
     print(f"\n== {cat}: {len(old)} -> {len(new)}")
     print(f"  OLD: {header(old_text)}\n  NEW: {header(new_text)}")

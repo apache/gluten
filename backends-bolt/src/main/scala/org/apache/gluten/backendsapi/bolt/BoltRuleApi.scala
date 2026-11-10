@@ -80,8 +80,6 @@ object BoltRuleApi {
           c.session,
           c.caller.isBloomFilterStatFunction()))
     injector.injectPreTransform(_ => EliminateRedundantGetTimestamp)
-    injector.injectPreTransform(c => PushdownProjectExecBeforeGeneratorRule.apply(c.session))
-    injector.injectPreTransform(_ => RemoveProjectExecBeforeGeneratorRule)
     injector.injectPreTransform(_ => CollapseProjectExecTransformer)
 
     // Legacy: The legacy transform rule.
@@ -110,15 +108,17 @@ object BoltRuleApi {
     injector.injectPostTransform(_ => RemoveNativeWriteFilesSortAndProject())
     injector.injectPostTransform(_ => PushDownFilterToScan)
     injector.injectPostTransform(_ => PushDownInputFileExpression.PostOffload)
+    injector.injectPostTransform(_ => V2WritePostRule())
     injector.injectPostTransform(_ => EnsureLocalSortRequirements)
     injector.injectPostTransform(_ => EliminateLocalSort)
     injector.injectPostTransform(_ => PullOutDuplicateProject)
+    injector.injectPostTransform(c => PushdownProjectExecBeforeGeneratorRule.apply(c.session))
+    injector.injectPostTransform(_ => RemoveProjectExecBeforeGeneratorRule)
     injector.injectPostTransform(_ => CollapseProjectExecTransformer)
     injector.injectPostTransform(c => FlushableHashAggregateRule.apply(c.session))
     injector.injectPostTransform(c => HashAggregateIgnoreNullKeysRule.apply(c.session))
     injector.injectPostTransform(_ => CollectLimitTransformerRule())
     injector.injectPostTransform(_ => CollectTailTransformerRule())
-    injector.injectPostTransform(_ => V2WritePostRule())
     injector.injectPostTransform(c => InsertTransitions.create(c.outputsColumnar, BoltBatchType))
 
     // Gluten columnar: Fallback policies.

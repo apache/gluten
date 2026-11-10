@@ -45,6 +45,7 @@ class SubstraitToVeloxPlanValidator {
             .hive = kHiveConnectorId,
             .iceberg = kIcebergConnectorId,
             .iterator = kIteratorConnectorId,
+            .kafka = kKafkaConnectorId,
             .cudfHive = kCudfHiveConnectorId},
         std::nullopt,
         std::nullopt,
@@ -158,6 +159,11 @@ class SubstraitToVeloxPlanValidator {
   /// Ensures the second pattern argument is a literal string.
   /// Check if the pattern can pass with RE2 compilation.
   bool validateRegexExpr(const std::string& name, const ::substrait::Expression::ScalarFunction& scalarFunction);
+
+  /// Validate sequence function. Only integer arguments, with no step or a non-zero literal step, are supported.
+  bool validateSequence(
+      const ::substrait::Expression::ScalarFunction& scalarFunction,
+      const std::vector<core::TypedExprPtr>& params);
 
   /// Validate Substrait scarlar function.
   bool validateScalarFunction(

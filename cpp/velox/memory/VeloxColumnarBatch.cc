@@ -16,7 +16,6 @@
  */
 #include "VeloxColumnarBatch.h"
 #include "compute/VeloxRuntime.h"
-#include "utils/Timer.h"
 #include "utils/VeloxArrowUtils.h"
 #include "velox/row/UnsafeRowFast.h"
 #include "velox/type/Type.h"
@@ -49,7 +48,6 @@ void VeloxColumnarBatch::ensureFlattened() {
   if (flattened_) {
     return;
   }
-  ScopedTimer timer(&exportNanos_);
   for (auto& child : rowVector_->children()) {
     facebook::velox::BaseVector::flattenVector(child);
     if (child->isLazy()) {

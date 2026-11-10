@@ -320,6 +320,33 @@ abstract class VeloxUdfSuite extends GlutenQueryTest with SQLHelper {
       assert(e.getMessage.contains("myudf_plus_one"))
     }
   }
+
+  test("native udf with a named row argument is callable") {
+    // given
+    val query = "SELECT myudf_sum_row(named_struct('a', col1, 'b', col2)) " +
+      "FROM VALUES (1L, 2L), (3L, 4L) AS t(col1, col2)"
+    val expected = Seq(Row(3L), Row(7L))
+
+    // when
+    val df = spark.sql(query)
+
+    // then
+    checkGlutenPlan[ProjectExecTransformer](df)
+    checkAnswer(df, expected)
+  }
+
+  test("native udf returning a named row exposes its field names") {
+    // given
+    val query = "SELECT myudf_make_row(col1).b FROM VALUES (1L), (2L) AS t(col1)"
+    val expected = Seq(Row(2L), Row(3L))
+
+    // when
+    val df = spark.sql(query)
+
+    // then
+    checkGlutenPlan[ProjectExecTransformer](df)
+    checkAnswer(df, expected)
+  }
 }
 
 @UDFTest

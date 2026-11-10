@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: Apache-2.0
+syntax = "proto3";
+
+package gluten;
+
+option java_package = "org.apache.gluten.proto";
+option java_multiple_files = true;
+
+// Subfields of scan output columns that the query accesses, carried in
+// ReadRel.advanced_extension.enhancement. The native reader treats a listed
+// column's set as complete: map entries under keys not listed are not
+// materialized and struct fields not listed are null. Columns without an entry
+// are read whole.
+message RequiredSubfieldsExtension {
+  // One step below a column: a struct field, or a map lookup by key.
+  message PathElement {
+    oneof element {
+      string field = 1;
+      string string_key = 2;
+      int64 long_key = 3;
+    }
+  }
+
+  // A path under a column, e.g. elements [string_key "a", field "t"] for m["a"].t.
+  message Subfield {
+    repeated PathElement elements = 1;
+  }
+
+  message ColumnSubfields {
+    // Column and field names as the scan names them in its schema (case-folded by the driver when
+    // case-insensitive).
+    string column = 1;
+    repeated Subfield subfields = 2;
+  }
+
+  repeated ColumnSubfields columns = 1;
+}

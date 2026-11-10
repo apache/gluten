@@ -22,7 +22,8 @@ import org.apache.gluten.execution._
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.execution.SparkPlan
+import org.apache.spark.sql.execution.{SortExec, SparkPlan}
+import org.apache.spark.sql.execution.aggregate.BaseAggregateExec
 import org.apache.spark.sql.types.{DataType, DoubleType, FloatType}
 
 /**
@@ -122,7 +123,9 @@ case class FlushableHashAggregateRule(session: SparkSession) extends Rule[SparkP
   private def collectProtectedOneDistinctPartialMergeAggIds(plan: SparkPlan): Set[Int] = {
     val protectedAggIds = Set.newBuilder[Int]
     plan.foreach {
-      case agg: HashAggregateExecTransformer =>
+      // The distinct-partial aggregate may run in vanilla Spark, e.g. when one of its functions is
+      // not offloaded, while the PartialMerge aggregate below it is still offloaded.
+      case agg: BaseAggregateExec =>
         findProtectedPartialMergeAgg(agg).foreach {
           protectedAgg => protectedAggIds += protectedAgg.id
         }
@@ -131,9 +134,11 @@ case class FlushableHashAggregateRule(session: SparkSession) extends Rule[SparkP
     protectedAggIds.result()
   }
 
-  /** If this aggregate is the distinct-partial stage, return its child PartialMerge aggregate. */
+  /**
+   * If this aggregate is the distinct-partial stage, return the PartialMerge aggregate below it.
+   */
   private def findProtectedPartialMergeAgg(
-      distinctPartialAgg: HashAggregateExecTransformer): Option[HashAggregateExecTransformer] = {
+      distinctPartialAgg: BaseAggregateExec): Option[HashAggregateExecTransformer] = {
     if (
       !distinctPartialAgg.aggregateExpressions.exists(
         expr => expr.isDistinct && expr.mode == Partial)
@@ -149,6 +154,9 @@ case class FlushableHashAggregateRule(session: SparkSession) extends Rule[SparkP
 
   private def asAggregate(plan: SparkPlan): Option[HashAggregateExecTransformer] = plan match {
     case agg: HashAggregateExecTransformer => Some(agg)
+    // A sort-based distinct-partial aggregate reads its child through a local sort.
+    case sort: SortExecTransformer if !sort.global => asAggregate(sort.child)
+    case sort: SortExec if !sort.global => asAggregate(sort.child)
     case _ => None
   }
 }

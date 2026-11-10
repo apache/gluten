@@ -22,6 +22,7 @@ ENABLE_S3=OFF
 ENABLE_GCS=OFF
 ENABLE_HDFS=OFF
 ENABLE_ABFS=OFF
+ENABLE_KAFKA=OFF
 
 for arg in "$@"; do
   case $arg in
@@ -43,6 +44,10 @@ for arg in "$@"; do
     ;;
   --enable_abfs=*)
     ENABLE_ABFS=("${arg#*=}")
+    shift # Remove argument name from processing
+    ;;
+  --enable_kafka=*)
+    ENABLE_KAFKA=("${arg#*=}")
     shift # Remove argument name from processing
     ;;
   *)
@@ -86,6 +91,9 @@ if [ "$ENABLE_GCS" = "ON" ]; then
 fi
 if [ "$ENABLE_ABFS" = "ON" ]; then
   EXTRA_FEATURES+="--x-feature=velox-abfs "
+fi
+if [ "$ENABLE_KAFKA" = "ON" ]; then
+  EXTRA_FEATURES+="--x-feature=velox-kafka "
 fi
 if [ "${VCPKG_DYNAMIC_OPENSSL:-OFF}" = "ON" ]; then
   EXTRA_FEATURES+="--x-feature=dynamic-openssl "

@@ -517,6 +517,38 @@ class GlutenClickHouseExcelFormatSuite extends GlutenClickHouseWholeStageTransfo
     assert(df.collect().length == 12)
   }
 
+  test("read csv with the sep option") {
+    val schema = StructType(
+      Seq(StructField("c1", StringType, nullable = true), StructField("c2", IntegerType)))
+    // A plain separator and a tab written the escaped way Spark decodes, on both text readers.
+    Seq(("|", "|"), ("\t", "\\t")).foreach {
+      case (separator, sep) =>
+        withTempDir {
+          dir =>
+            java.nio.file.Files.write(
+              new java.io.File(dir, "part-0.csv").toPath,
+              Seq("a", "b", "c").zipWithIndex
+                .map { case (c, i) => s"$c$separator$i\n" }
+                .mkString
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8)
+            )
+            Seq("true", "false").foreach {
+              excel =>
+                withSQLConf(CHConfig.runtimeSettings("use_excel_serialization") -> excel) {
+                  compareDfResultsAgainstVanillaSpark(
+                    () => spark.read.option("sep", sep).schema(schema).csv(dir.getCanonicalPath),
+                    compareResult = true,
+                    df =>
+                      assert(collect(df.queryExecution.executedPlan) {
+                        case f: FileSourceScanExecTransformer => f
+                      }.size == 1)
+                  )
+                }
+            }
+        }
+    }
+  }
+
   test("expected_end_of_line") {
     val schema = StructType.apply(
       Seq(
