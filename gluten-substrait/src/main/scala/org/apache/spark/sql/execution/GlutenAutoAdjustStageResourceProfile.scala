@@ -241,11 +241,12 @@ object GlutenAutoAdjustStageResourceProfile extends Logging {
       SparkResourceUtil.getTaskSlots(sparkConf)
     } else {
       val coresPerExecutor = rp.getExecutorCores.getOrElse(sparkConf.get(EXECUTOR_CORES))
-      val coresPerTask = rp.getTaskCpus.getOrElse(sparkConf.get(CPUS_PER_TASK))
-      require(coresPerTask > 0, s"${CPUS_PER_TASK.key} should be positive, but was $coresPerTask")
-      // Floor at one slot so the division below cannot throw on a combination Spark itself rejects
-      // later with a dedicated message.
-      Math.max(coresPerExecutor / coresPerTask, 1)
+      // Spark 4.3 allows fractional task cpus, so the profile and the config report them as
+      // BigDecimal there and as Int before. Go through the string form so both compile and the
+      // value stays exact.
+      val coresPerTask = BigDecimal(
+        rp.getTaskCpus.getOrElse(sparkConf.get(CPUS_PER_TASK)).toString)
+      SparkResourceUtil.getTaskSlots(coresPerExecutor, coresPerTask)
     }
     val conf = SQLConf.get
     conf.setConfString(GlutenCoreConfig.NUM_TASK_SLOTS_PER_EXECUTOR.key, taskSlots.toString)
