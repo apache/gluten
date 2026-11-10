@@ -1,0 +1,49 @@
+VeloxColumnarToRow
+  TakeOrderedAndProjectExecTransformer [o_totalprice,o_orderdate,c_name,c_custkey,o_orderkey,sum(l_quantity)]
+    WholeStageCodegenTransformer (8)
+      RegularHashAggregateExecTransformer [c_name,c_custkey,o_orderkey,o_orderdate,o_totalprice,sum,isEmpty] [sum(l_quantity),sum(l_quantity),sum,isEmpty]
+        InputIteratorTransformer
+          InputAdapter
+            ColumnarExchange [c_name,c_custkey,o_orderkey,o_orderdate,o_totalprice,sum,isEmpty] #1
+              VeloxResizeBatches
+                WholeStageCodegenTransformer (7)
+                  ProjectExecTransformer [c_name,c_custkey,o_orderkey,o_orderdate,o_totalprice,sum,isEmpty]
+                    FlushableHashAggregateExecTransformer [c_name,c_custkey,o_orderkey,o_orderdate,o_totalprice,l_quantity] [sum,isEmpty,sum,isEmpty]
+                      ProjectExecTransformer [c_custkey,c_name,o_orderkey,o_totalprice,o_orderdate,l_quantity]
+                        BroadcastHashJoinExecTransformer [o_orderkey,l_orderkey]
+                          ProjectExecTransformer [c_custkey,c_name,o_orderkey,o_totalprice,o_orderdate]
+                            BroadcastHashJoinExecTransformer [c_custkey,o_custkey]
+                              FilterExecTransformer [c_custkey]
+                                FileSourceScanExecTransformer parquet spark_catalog.default.customer [c_custkey,c_name]
+                              InputIteratorTransformer
+                                InputAdapter
+                                  ColumnarBroadcastExchange #2
+                                    WholeStageCodegenTransformer (3)
+                                      BroadcastHashJoinExecTransformer [o_orderkey,l_orderkey]
+                                        FilterExecTransformer [o_custkey,o_orderkey]
+                                          FileSourceScanExecTransformer parquet spark_catalog.default.orders [o_orderkey,o_custkey,o_totalprice,o_orderdate]
+                                        InputIteratorTransformer
+                                          InputAdapter
+                                            ColumnarBroadcastExchange #3
+                                              WholeStageCodegenTransformer (2)
+                                                ProjectExecTransformer [l_orderkey]
+                                                  FilterExecTransformer [sum(l_quantity)]
+                                                    RegularHashAggregateExecTransformer [l_orderkey,sum,isEmpty] [sum(l_quantity),sum(l_quantity),sum,isEmpty]
+                                                      InputIteratorTransformer
+                                                        InputAdapter
+                                                          ColumnarExchange [l_orderkey,sum,isEmpty] #4
+                                                            VeloxResizeBatches
+                                                              WholeStageCodegenTransformer (1)
+                                                                ProjectExecTransformer [l_orderkey,sum,isEmpty]
+                                                                  FlushableHashAggregateExecTransformer [l_orderkey,l_quantity] [sum,isEmpty,sum,isEmpty]
+                                                                    FileSourceScanExecTransformer parquet spark_catalog.default.lineitem [l_orderkey,l_quantity]
+                          InputIteratorTransformer
+                            InputAdapter
+                              ColumnarBroadcastExchange #5
+                                WholeStageCodegenTransformer (6)
+                                  BroadcastHashJoinExecTransformer [l_orderkey,l_orderkey]
+                                    FilterExecTransformer [l_orderkey]
+                                      FileSourceScanExecTransformer parquet spark_catalog.default.lineitem [l_orderkey,l_quantity]
+                                    InputIteratorTransformer
+                                      InputAdapter
+                                        ReusedExchange [l_orderkey] #3

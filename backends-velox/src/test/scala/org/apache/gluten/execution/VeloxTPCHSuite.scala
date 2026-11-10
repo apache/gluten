@@ -23,8 +23,11 @@ import org.apache.gluten.config.VeloxConfig
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{DataFrame, GlutenTestUtils, Row}
 import org.apache.spark.sql.execution.{ColumnarShuffleExchangeExec, FormattedMode}
+import org.apache.spark.util.SparkVersionUtil
 
 import org.apache.commons.io.FileUtils
+import org.scalactic.source.Position
+import org.scalatest.Tag
 
 import java.io.File
 import java.nio.charset.StandardCharsets
@@ -305,6 +308,19 @@ class VeloxTPCHV1Suite extends VeloxTPCHSuite {
 
 class VeloxTPCHV1GlutenShuffleManagerSuite extends VeloxTPCHSuite {
   override def subType(): String = "v1-gluten-shuffle-manager"
+
+  // TODO: Run on Spark 4.3. Spark 4.3 requires `spark.shuffle.manager` to be a
+  // `BlockingShuffleManager` and fails to create the SparkContext otherwise, but
+  // `GlutenShuffleManager` can't extend that `private[spark]` trait, which doesn't exist before
+  // Spark 4.3. Ignoring every test also skips `beforeAll`, which would create the SparkContext.
+  override protected def test(testName: String, testTags: Tag*)(testFun: => Any)(implicit
+      pos: Position): Unit = {
+    if (SparkVersionUtil.gteSpark43) {
+      super.ignore(testName, testTags: _*)(testFun)
+    } else {
+      super.test(testName, testTags: _*)(testFun)
+    }
+  }
 
   override protected def sparkConf: SparkConf = {
     super.sparkConf
