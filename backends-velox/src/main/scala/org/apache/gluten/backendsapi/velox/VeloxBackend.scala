@@ -153,6 +153,13 @@ object VeloxBackendSettings extends BackendSettingsApi {
         }
       }
 
+      def containsType(dataType: DataType, target: DataType): Boolean = dataType match {
+        case s: StructType => s.exists(f => containsType(f.dataType, target))
+        case a: ArrayType => containsType(a.elementType, target)
+        case m: MapType => containsType(m.keyType, target) || containsType(m.valueType, target)
+        case other => other == target
+      }
+
       def isCharType(stringType: StringType, metadata: Metadata): Boolean = {
         val charTypePattern = "char\\((\\d+)\\)".r
         GlutenConfig.get.forceOrcCharTypeScanFallbackEnabled && charTypePattern
@@ -169,6 +176,13 @@ object VeloxBackendSettings extends BackendSettingsApi {
           if (parquetOptions.mergeSchema) {
             // https://github.com/apache/gluten/issues/7174
             Some(s"not support when merge schema is true")
+          } else if (
+            SQLConf.get.legacyParquetNanosAsLong &&
+            fields.exists(f => containsType(f.dataType, LongType))
+          ) {
+            // Velox rejects a BIGINT read of a TIMESTAMP(NANOS) column. The scan cannot tell
+            // which LongType columns are nanos without reading the file footers.
+            Some(s"reading LongType with ${SQLConf.LEGACY_PARQUET_NANOS_AS_LONG.key} enabled")
           } else {
             None
           }
@@ -191,6 +205,10 @@ object VeloxBackendSettings extends BackendSettingsApi {
                   if mapType.valueType.isInstanceOf[ArrayType] =>
                 "ArrayType as Value in MapType"
               case StructField(_, TimestampType, _, _) => "TimestampType"
+              // Spark stores TIMESTAMP_NTZ as ORC LONG, which Velox cannot read as TIMESTAMP.
+              // An ORC TIMESTAMP column read as NTZ skips Spark's type check and shifts values.
+              case StructField(_, dataType, _, _) if containsType(dataType, TimestampNTZType) =>
+                "TimestampNTZType"
             }
 
             val schemaTypeValidator: PartialFunction[StructField, String] = {
