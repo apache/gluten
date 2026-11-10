@@ -117,8 +117,8 @@ object RateMicroBatchBenchmark extends SqlBasedBenchmark {
                       val label = if (enabled) "Gluten (Spark rate source)" else "Spark"
                       outputLine(
                         f"$label%s\t$iteration%d\t${result.rows}%d\t${result.rowsPerSecond}%.2f\t" +
-                          f"${result.batches}%d\t${result.elapsedMs}%.2f\t${result.meanBatchMs}%.2f\t" +
-                          f"${result.p95BatchMs}%d")
+                          f"${result.batches}%d\t${result.elapsedMs}%.2f\t" +
+                          f"${result.meanBatchMs}%.2f\t${result.p95BatchMs}%d")
                     } finally {
                       try {
                         if (query != null && query.isActive) query.stop()
