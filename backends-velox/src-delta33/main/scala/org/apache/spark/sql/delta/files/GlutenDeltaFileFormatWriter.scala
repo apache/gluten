@@ -36,7 +36,6 @@ import org.apache.spark.sql.catalyst.expressions.BindReferences.bindReferences
 import org.apache.spark.sql.catalyst.util.{CaseInsensitiveMap, DateTimeUtils}
 import org.apache.spark.sql.connector.write.WriterCommitMessage
 import org.apache.spark.sql.delta.DeltaOptions
-import org.apache.spark.sql.delta.constraints.GlutenDeltaInvariantChecker
 import org.apache.spark.sql.delta.logging.DeltaLogKeys
 import org.apache.spark.sql.delta.stats.GlutenDeltaJobStatsTracker
 import org.apache.spark.sql.errors.QueryExecutionErrors
@@ -105,8 +104,7 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
       bucketSpec: Option[BucketSpec],
       statsTrackers: Seq[WriteJobStatsTracker],
       options: Map[String, String],
-      numStaticPartitionCols: Int = 0,
-      nativeInvariantChecker: Option[GlutenDeltaInvariantChecker] = None): Set[String] = {
+      numStaticPartitionCols: Int = 0): Set[String] = {
     require(partitionColumns.size >= numStaticPartitionCols)
 
     val job = Job.getInstance(hadoopConf)
@@ -212,12 +210,6 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
     if (Utils.isTesting) outputOrderingMatched = orderingMatched
 
     if (writeFilesOpt.isDefined) {
-      // The native invariant checker runs only in the executeTask path below. A WriteFilesExec
-      // plan writes in its own tasks, so it must keep Delta's DeltaInvariantCheckerExec instead.
-      // Fail rather than write without enforcing the constraints.
-      require(
-        nativeInvariantChecker.isEmpty,
-        "The native Delta invariant checker does not run on the WriteFilesExec write path")
       // build `WriteFilesSpec` for `WriteFiles`
       val concurrentOutputWriterSpecFunc = (plan: SparkPlan) => {
         val sortPlan = createSortPlan(plan, requiredOrdering, outputSpec)
@@ -241,8 +233,7 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
         partitionColumns,
         sortColumns,
         orderingMatched,
-        isNativeWritable,
-        nativeInvariantChecker
+        isNativeWritable
       )
     }
   }
@@ -259,8 +250,7 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
       partitionColumns: Seq[Attribute],
       sortColumns: Seq[Attribute],
       orderingMatched: Boolean,
-      writeOffloadable: Boolean,
-      nativeInvariantChecker: Option[GlutenDeltaInvariantChecker]): Set[String] = {
+      writeOffloadable: Boolean): Set[String] = {
     val projectList = V1WritesUtils.convertEmptyToNull(plan.output, partitionColumns)
     val empty2NullPlan =
       if (projectList.nonEmpty) ProjectExecTransformer(projectList, plan) else plan
@@ -336,8 +326,7 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
             committer,
             iterator = iter,
             concurrentOutputWriterSpec = concurrentOutputWriterSpec,
-            partitionColumnToDataType,
-            nativeInvariantChecker
+            partitionColumnToDataType
           )
         },
         rddWithNonEmptyPartitions.partitions.indices,
@@ -452,8 +441,7 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
       committer: FileCommitProtocol,
       iterator: Iterator[InternalRow],
       concurrentOutputWriterSpec: Option[ConcurrentOutputWriterSpec],
-      partitionColumnToDataType: Map[String, DataType],
-      nativeInvariantChecker: Option[GlutenDeltaInvariantChecker]): WriteTaskResult = {
+      partitionColumnToDataType: Map[String, DataType]): WriteTaskResult = {
 
     val jobId = SparkHadoopWriterUtils.createJobID(jobTrackerID, sparkStageId)
     val taskId = new TaskID(jobId, TaskType.MAP, sparkPartitionId)
@@ -507,8 +495,7 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
     try {
       Utils.tryWithSafeFinallyAndFailureCallbacks(block = {
         // Execute the task to write rows out and commit the task.
-        val rowsToWrite = nativeInvariantChecker.map(_.wrap(iterator)).getOrElse(iterator)
-        dataWriter.writeWithIterator(rowsToWrite)
+        dataWriter.writeWithIterator(iterator)
         dataWriter.commit()
       })(
         catchBlock = {

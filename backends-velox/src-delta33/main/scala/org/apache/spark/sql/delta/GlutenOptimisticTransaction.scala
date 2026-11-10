@@ -21,7 +21,7 @@ import org.apache.gluten.extension.columnar.transition.Transitions
 
 import org.apache.spark.sql.{AnalysisException, Dataset}
 import org.apache.spark.sql.delta.actions.{AddFile, FileAction}
-import org.apache.spark.sql.delta.constraints.{Constraint, Constraints, DeltaInvariantCheckerExec, GlutenDeltaInvariantChecker}
+import org.apache.spark.sql.delta.constraints.{Constraint, Constraints, DeltaInvariantCheckerExec, GlutenDeltaInvariantChecker, GlutenDeltaInvariantCheckerExec}
 import org.apache.spark.sql.delta.files.{GlutenDeltaFileFormatWriter, TransactionalWrite}
 import org.apache.spark.sql.delta.hooks.AutoCompact
 import org.apache.spark.sql.delta.perf.{DeltaOptimizedWriterExec, GlutenDeltaOptimizedWriterExec}
@@ -35,6 +35,7 @@ import org.apache.spark.sql.util.ScalaExtensions.OptionExt
 import org.apache.spark.util.SerializableConfiguration
 
 import scala.collection.mutable.ListBuffer
+import scala.util.control.NonFatal
 
 class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
   extends OptimisticTransaction(
@@ -91,7 +92,7 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
 
       val empty2NullPlan =
         convertEmptyToNullIfNeeded(queryExecution.executedPlan, partitioningColumns, constraints)
-      val rowInvariantPlan = if (constraints.isEmpty) {
+      val maybeCheckInvariants = if (constraints.isEmpty) {
         // Compared to vanilla Delta, we simply avoid adding the invariant checker
         // when the constraint list is empty, to prevent the unnecessary transitions
         // from being added around the invariant checker.
@@ -99,22 +100,22 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
       } else {
         DeltaInvariantCheckerExec(empty2NullPlan, constraints)
       }
-      val nativeInvariantChecker = GlutenDeltaInvariantChecker.forWrite(
-        empty2NullPlan,
-        partitioningColumns,
-        constraints,
-        spark.sessionState.conf)
-      val nativeInvariantPlan = nativeInvariantChecker.map(_ => empty2NullPlan).getOrElse(
-        rowInvariantPlan)
       def toVeloxPlan(plan: SparkPlan): SparkPlan = plan match {
         case aqe: AdaptiveSparkPlanExec =>
           assert(!aqe.isFinalPlan)
           aqe.copy(supportsColumnar = true)
         case _ => Transitions.toBatchPlan(plan, VeloxBatchType)
       }
+      // When every constraint is a top-level NOT NULL, check them on the Velox batches.
+      val nativeInvariantChecker =
+        GlutenDeltaInvariantChecker.create(empty2NullPlan.output, constraints)
+      val veloxPlan = nativeInvariantChecker match {
+        case Some(checker) => GlutenDeltaInvariantCheckerExec(toVeloxPlan(empty2NullPlan), checker)
+        case None => toVeloxPlan(maybeCheckInvariants)
+      }
       // No need to plan optimized write if the write command is OPTIMIZE, which aims to produce
       // evenly-balanced data files already.
-      val (physicalPlan, nativeInvariantCheckerForWrite) =
+      val physicalPlan =
         if (
           !isOptimize &&
           shouldOptimizeWrite(writeOptions, spark.sessionState.conf)
@@ -122,33 +123,27 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
           // We uniformly convert the query plan to a columnar plan. If
           // the further write operation turns out to be non-offload-able, the
           // columnar plan will be converted back to a row-based plan.
-          val veloxPlan = toVeloxPlan(nativeInvariantPlan)
           try {
             val glutenWriterExec =
               GlutenDeltaOptimizedWriterExec(veloxPlan, metadata.partitionColumns, deltaLog)
             val validationResult = glutenWriterExec.doValidate()
             if (validationResult.ok()) {
-              (glutenWriterExec, nativeInvariantChecker)
+              glutenWriterExec
             } else {
               logInfo(
                 s"GlutenDeltaOptimizedWriterExec: Internal shuffle validated negative," +
                   s" reason: ${validationResult.reason()}. Falling back to row-based shuffle.")
-              (
-                DeltaOptimizedWriterExec(rowInvariantPlan, metadata.partitionColumns, deltaLog),
-                None)
+              DeltaOptimizedWriterExec(maybeCheckInvariants, metadata.partitionColumns, deltaLog)
             }
           } catch {
             case e: AnalysisException =>
               logWarning(
                 s"GlutenDeltaOptimizedWriterExec: Failed to create internal shuffle," +
                   s" reason: ${e.getMessage()}. Falling back to row-based shuffle.")
-              (
-                DeltaOptimizedWriterExec(rowInvariantPlan, metadata.partitionColumns, deltaLog),
-                None)
+              DeltaOptimizedWriterExec(maybeCheckInvariants, metadata.partitionColumns, deltaLog)
           }
         } else {
-          val veloxPlan = toVeloxPlan(nativeInvariantPlan)
-          (veloxPlan, nativeInvariantChecker)
+          veloxPlan
         }
 
       val statsTrackers: ListBuffer[WriteJobStatsTracker] = ListBuffer()
@@ -196,13 +191,14 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
             optionalStatsTracker.toSeq
               ++ statsTrackers
               ++ identityTrackerOpt.toSeq,
-          options = options,
-          nativeInvariantChecker = nativeInvariantCheckerForWrite
+          options = options
         )
       } catch {
         case InnerInvariantViolationException(violationException) =>
           // Pull an InvariantViolationException up to the top level if it was the root cause.
           throw violationException
+        case NonFatal(e) if nativeInvariantChecker.isDefined =>
+          throw nativeInvariantChecker.get.findViolation(e).getOrElse(e)
       }
       statsTrackers.foreach {
         case tracker: BasicWriteJobStatsTracker =>

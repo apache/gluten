@@ -16,18 +16,17 @@
  */
 package org.apache.spark.sql.delta.constraints
 
-import org.apache.spark.SparkFunSuite
-import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Literal}
+import org.apache.gluten.exception.GlutenException
+
+import org.apache.spark.{SparkException, SparkFunSuite}
+import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Literal}
 import org.apache.spark.sql.delta.constraints.Constraints.{Check, NotNull}
 import org.apache.spark.sql.delta.schema.DeltaInvariantViolationException
-import org.apache.spark.sql.delta.sources.DeltaSQLConf
-import org.apache.spark.sql.execution.LeafExecNode
-import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{LongType, StringType}
+import org.apache.spark.sql.types.LongType
 
-/** Checks of GlutenDeltaInvariantChecker that need no native library: the plan and row paths. */
+import org.apache.commons.lang3.exception.ExceptionUtils
+
+/** Checks of GlutenDeltaInvariantChecker that need no native library. */
 class GlutenDeltaInvariantCheckerSuite extends SparkFunSuite {
 
   private val output = Seq("a", "b", "c").map(AttributeReference(_, LongType)())
@@ -45,33 +44,31 @@ class GlutenDeltaInvariantCheckerSuite extends SparkFunSuite {
     assert(GlutenDeltaInvariantChecker.create(output, Seq(NotNull(Seq("missing")))).isEmpty)
   }
 
-  test("Delta's row checker is kept when it would see empty partition strings") {
-    val part = AttributeReference("part", StringType)()
-    val plan = LeafPlan(output :+ part)
-    val constraints = Seq(NotNull(Seq("part")))
-    val conf = new SQLConf
-    assert(GlutenDeltaInvariantChecker.forWrite(plan, Seq(part), constraints, conf).isDefined)
-
-    // Delta then checks the empty strings, which the writer turns into nulls only after the check.
-    conf.setConf(DeltaSQLConf.CONVERT_EMPTY_TO_NULL_FOR_STRING_PARTITION_COL, false)
-    assert(GlutenDeltaInvariantChecker.forWrite(plan, Seq(part), constraints, conf).isEmpty)
-    assert(
-      GlutenDeltaInvariantChecker.forWrite(plan, Seq(output.head), constraints, conf).isDefined)
-  }
-
-  test("row path checks every constraint") {
+  test("finds a violation that native code turned into text") {
+    val columns = Seq("a", "ab").map(AttributeReference(_, LongType)())
     val checker =
-      GlutenDeltaInvariantChecker.create(output, Seq(NotNull(Seq("a")), NotNull(Seq("c")))).get
-    val valid = Seq(InternalRow(1L, null, 3L), InternalRow(4L, 5L, 6L))
-    assert(checker.wrap(valid.iterator).toSeq == valid)
+      GlutenDeltaInvariantChecker.create(columns, Seq(NotNull(Seq("a")), NotNull(Seq("ab")))).get
+    val violation = DeltaInvariantViolationException(NotNull(Seq("ab")))
+    // Native code keeps the text cpp/core/jni/JniCommon.h builds from the Java exception.
+    val taskFailure = new SparkException(
+      "[TASK_WRITE_FAILED] Task failed while writing rows",
+      new GlutenException(
+        "Operator::getOutput failed: Error during calling Java code from native code: " +
+          ExceptionUtils.getStackTrace(violation))
+    )
+    // The driver gets the task's exception as the cause of the job's failure, and its stack
+    // trace in the message, which is all it has when it cannot deserialize the exception.
+    val withCause = new SparkException("Job aborted due to stage failure", taskFailure)
+    val textOnly = new SparkException(
+      "Job aborted due to stage failure: " + ExceptionUtils.getStackTrace(taskFailure))
 
-    val e = intercept[DeltaInvariantViolationException] {
-      checker.wrap(Iterator(InternalRow(1L, 2L, 3L), InternalRow(4L, 5L, null))).toList
+    for (failure <- Seq(withCause, textOnly)) {
+      val found = checker.findViolation(failure).get
+      // Not column a, whose text differs from column ab's only at the end.
+      assert(found.getMessage == violation.getMessage)
+      assert(found.getSuppressed.toSeq == Seq(failure))
     }
-    assert(e.getMessage.contains("NOT NULL constraint violated for column: c"))
+    val otherFailure = new SparkException("Job aborted", new GlutenException("Out of memory"))
+    assert(checker.findViolation(otherFailure).isEmpty)
   }
-}
-
-private case class LeafPlan(output: Seq[Attribute]) extends LeafExecNode {
-  override protected def doExecute(): RDD[InternalRow] = throw new UnsupportedOperationException
 }

@@ -17,27 +17,24 @@
 package org.apache.spark.sql.delta.constraints
 
 import org.apache.gluten.columnarbatch.VeloxColumnarBatches
-import org.apache.gluten.execution.{PlaceholderRow, TerminalRow}
 
-import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.delta.constraints.Constraints.NotNull
 import org.apache.spark.sql.delta.schema.{DeltaInvariantViolationException, SchemaUtils}
-import org.apache.spark.sql.delta.sources.DeltaSQLConf
-import org.apache.spark.sql.execution.SparkPlan
-import org.apache.spark.sql.execution.datasources.V1WritesUtils
-import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.StringType
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
+import org.apache.commons.lang3.exception.ExceptionUtils
+
+import scala.collection.JavaConverters._
+
 /**
- * Checks top-level NOT NULL constraints on the batches the Velox writer writes, in place of Delta's
- * row-based DeltaInvariantCheckerExec. Nulls are found natively, but a violation is thrown here, on
- * the JVM, as Delta's own [[DeltaInvariantViolationException]]: an exception raised inside Velox
- * would reach Spark only as a GlutenException.
+ * Checks top-level NOT NULL constraints on Velox batches, for [[GlutenDeltaInvariantCheckerExec]].
+ * Nulls are found natively, but a violation is thrown on the JVM as Delta's own
+ * [[DeltaInvariantViolationException]]: an exception raised inside Velox would reach Spark only as
+ * a GlutenException.
  *
  * @param columnOrdinals
- *   the ordinal in the write plan's output of the column each constraint checks
+ *   the ordinal in the checked plan's output of the column each constraint checks
  * @param constraints
  *   the constraints, parallel to `columnOrdinals`
  */
@@ -46,66 +43,41 @@ private[delta] class GlutenDeltaInvariantChecker private (
     constraints: Array[NotNull])
   extends Serializable {
 
-  def wrap(rows: Iterator[InternalRow]): Iterator[InternalRow] = {
-    rows.map {
-      row =>
-        check(row)
-        row
-    }
-  }
-
-  private def check(row: InternalRow): Unit = row match {
-    case _: PlaceholderRow =>
-    case terminal: TerminalRow => check(terminal.batch())
-    case other => checkRow(other)
-  }
-
-  private def check(batch: ColumnarBatch): Unit = {
+  def check(batch: ColumnarBatch): Unit = {
     val failedConstraintIndex = VeloxColumnarBatches.firstNullColumnIndex(batch, columnOrdinals)
     if (failedConstraintIndex >= 0) {
       throw DeltaInvariantViolationException(constraints(failedConstraintIndex))
     }
   }
 
-  private def checkRow(row: InternalRow): Unit = {
-    var i = 0
-    while (i < columnOrdinals.length) {
-      if (row.isNullAt(columnOrdinals(i))) {
-        throw DeltaInvariantViolationException(constraints(i))
+  /**
+   * Returns the violation this checker threw, if it caused `failure`, the failure of the write.
+   *
+   * Native code that pulls the checked batches, such as the Velox writer's sort on a partitioned
+   * write, keeps only the text of a Java exception. The write then fails with a GlutenException
+   * whose message holds the violation's text, which is what this looks for. The returned violation
+   * carries `failure` as a suppressed exception.
+   *
+   * TODO: Remove once native code keeps Java exceptions
+   * (https://github.com/apache/gluten/pull/13561).
+   */
+  def findViolation(failure: Throwable): Option[DeltaInvariantViolationException] = {
+    val messages =
+      ExceptionUtils.getThrowableList(failure).asScala.flatMap(t => Option(t.getMessage))
+    constraints.iterator
+      .map(DeltaInvariantViolationException(_))
+      .find(violation => messages.exists(_.contains(violation.toString)))
+      .map {
+        violation =>
+          violation.addSuppressed(failure)
+          violation
       }
-      i += 1
-    }
   }
+
+  override def toString: String = constraints.map(_.column.head).mkString("NOT NULL [", ", ", "]")
 }
 
 private[delta] object GlutenDeltaInvariantChecker {
-
-  /**
-   * Returns the checker GlutenDeltaFileFormatWriter applies to the write of `plan`, or None if the
-   * write must keep Delta's row-based DeltaInvariantCheckerExec.
-   *
-   * @param plan
-   *   the plan to write, after Delta's own conversion of empty partition strings to nulls
-   */
-  def forWrite(
-      plan: SparkPlan,
-      partitionColumns: Seq[Attribute],
-      constraints: Seq[Constraint],
-      conf: SQLConf): Option[GlutenDeltaInvariantChecker] = {
-    // The checker runs in the writer's own tasks, which a WriteFilesExec plan does not use.
-    if (V1WritesUtils.getWriteFilesOpt(plan).isDefined) {
-      return None
-    }
-    // The checker sees the rows after the writer has turned empty partition strings into nulls.
-    // Delta checks them before that, and converts them itself first only when this conf is on.
-    if (
-      !conf.getConf(DeltaSQLConf.CONVERT_EMPTY_TO_NULL_FOR_STRING_PARTITION_COL) &&
-      partitionColumns.exists(_.dataType == StringType)
-    ) {
-      return None
-    }
-    create(plan.output, constraints)
-  }
 
   /**
    * Returns a checker for `constraints` if all of them are top-level NOT NULL constraints on
