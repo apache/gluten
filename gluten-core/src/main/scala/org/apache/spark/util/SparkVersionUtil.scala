@@ -21,6 +21,7 @@ object SparkVersionUtil {
   val gteSpark40: Boolean = compareMajorMinorVersion((4, 0)) >= 0
   val gteSpark41: Boolean = compareMajorMinorVersion((4, 1)) >= 0
   val gteSpark42: Boolean = compareMajorMinorVersion((4, 2)) >= 0
+  val gteSpark43: Boolean = compareMajorMinorVersion((4, 3)) >= 0
 
   // Returns X. X < 0 if one < other, x == 0 if one == other, x > 0 if one > other.
   def compareMajorMinorVersion(other: (Int, Int)): Int = {

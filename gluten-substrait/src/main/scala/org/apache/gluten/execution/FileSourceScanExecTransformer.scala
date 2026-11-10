@@ -33,7 +33,7 @@ import org.apache.spark.sql.execution.FileSourceScanExecShim
 import org.apache.spark.sql.execution.adaptive.InputStats
 import org.apache.spark.sql.execution.datasources.HadoopFsRelation
 import org.apache.spark.sql.execution.metric.SQLMetric
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{ByteType, IntegerType, LongType, ShortType, StringType, StructType}
 import org.apache.spark.util.SparkVersionUtil
 import org.apache.spark.util.collection.BitSet
 
@@ -95,7 +95,7 @@ case class FileSourceScanExecTransformer(
   }
 
   override def withNewPushdownFilters(filters: Seq[Expression]): FileSourceScanExecTransformer =
-    copy(pushDownFilters = Some(filters))
+    copy(pushDownFilters = Some(filters.filterNot(hasUnsupportedMetadataFilter)))
 
   override def supportsMapKeyPruning: Boolean = true
 
@@ -141,7 +141,20 @@ abstract class FileSourceScanExecTransformerBase(
   @transient override lazy val metrics: Map[String, SQLMetric] =
     nativeScanMetrics ++ driverMetricsAlias
 
-  override def scanFilters: Seq[Expression] = dataFilters
+  override def scanFilters: Seq[Expression] = dataFilters.filterNot(hasUnsupportedMetadataFilter)
+
+  // The native scan only filters on integral or string metadata columns, so a filter on e.g.
+  // `_metadata.file_modification_time` is left to the Filter above the scan.
+  protected def hasUnsupportedMetadataFilter(filter: Expression): Boolean = {
+    val metadataExprIds = metadataColumns.map(_.exprId).toSet
+    filter.references.exists {
+      attr =>
+        metadataExprIds.contains(attr.exprId) && (attr.dataType match {
+          case ByteType | ShortType | IntegerType | LongType | _: StringType => false
+          case _ => true
+        })
+    }
+  }
 
   override def getMetadataColumns(): Seq[AttributeReference] = metadataColumns
 
@@ -205,6 +218,9 @@ abstract class FileSourceScanExecTransformerBase(
       return ValidationResult.failed(
         s"Unsupported matching schema column names " +
           s"by field ids in native scan.")
+    }
+    if (SparkShimLoader.getSparkShims.readsArchiveFiles(this)) {
+      return ValidationResult.failed("Unsupported archive file scan in native.")
     }
     if (fileFormat == ReadFileFormat.TextReadFormat) {
       csvFieldDelimiter match {

@@ -1,0 +1,44 @@
+VeloxColumnarToRow
+  WholeStageCodegenTransformer (6)
+    SortExecTransformer [s_suppkey]
+      InputIteratorTransformer
+        InputAdapter
+          ColumnarExchange [s_suppkey] #1
+            VeloxResizeBatches
+              WholeStageCodegenTransformer (5)
+                ProjectExecTransformer [s_suppkey,s_name,s_address,s_phone,total_revenue]
+                  BroadcastHashJoinExecTransformer [s_suppkey,supplier_no]
+                    FilterExecTransformer [s_suppkey]
+                      FileSourceScanExecTransformer parquet spark_catalog.default.supplier [s_suppkey,s_name,s_address,s_phone]
+                    InputIteratorTransformer
+                      InputAdapter
+                        ColumnarBroadcastExchange #2
+                          WholeStageCodegenTransformer (4)
+                            FilterExecTransformer [total_revenue]
+                              Subquery #1
+                                VeloxColumnarToRow
+                                  WholeStageCodegenTransformer (2)
+                                    RegularHashAggregateExecTransformer [total_revenue] [max(total_revenue),max(total_revenue),max]
+                                      ProjectExecTransformer [sum((l_extendedprice * (1 - l_discount)))]
+                                        RegularHashAggregateExecTransformer [l_suppkey,sum,isEmpty] [sum((l_extendedprice * (1 - l_discount))),sum,isEmpty]
+                                          InputIteratorTransformer
+                                            InputAdapter
+                                              ColumnarExchange [l_suppkey,sum,isEmpty] #4
+                                                VeloxResizeBatches
+                                                  WholeStageCodegenTransformer (1)
+                                                    ProjectExecTransformer [l_suppkey,sum,isEmpty]
+                                                      FlushableHashAggregateExecTransformer [l_suppkey,_pre_x] [sum,isEmpty,sum,isEmpty,sum,isEmpty]
+                                                        ProjectExecTransformer [l_suppkey,l_extendedprice,l_discount]
+                                                          FilterExecTransformer [l_shipdate]
+                                                            FileSourceScanExecTransformer parquet spark_catalog.default.lineitem [l_suppkey,l_extendedprice,l_discount,l_shipdate]
+                              RegularHashAggregateExecTransformer [l_suppkey,sum,isEmpty] [sum((l_extendedprice * (1 - l_discount))),supplier_no,total_revenue,sum,isEmpty]
+                                InputIteratorTransformer
+                                  InputAdapter
+                                    ColumnarExchange [l_suppkey,sum,isEmpty] #3
+                                      VeloxResizeBatches
+                                        WholeStageCodegenTransformer (3)
+                                          ProjectExecTransformer [l_suppkey,sum,isEmpty]
+                                            FlushableHashAggregateExecTransformer [l_suppkey,_pre_x] [sum,isEmpty,sum,isEmpty,sum,isEmpty]
+                                              ProjectExecTransformer [l_suppkey,l_extendedprice,l_discount]
+                                                FilterExecTransformer [l_shipdate,l_suppkey]
+                                                  FileSourceScanExecTransformer parquet spark_catalog.default.lineitem [l_suppkey,l_extendedprice,l_discount,l_shipdate]
