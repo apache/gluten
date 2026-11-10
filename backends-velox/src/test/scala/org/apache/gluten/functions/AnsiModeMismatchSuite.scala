@@ -20,7 +20,7 @@ import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.{HashAggregateExecTransformer, ProjectExecTransformer, WholeStageTransformerSuite}
 
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.internal.SQLConf
 
 import scala.reflect.ClassTag
@@ -142,6 +142,20 @@ class AnsiModeMismatchSuite extends WholeStageTransformerSuite {
               }
             }
           }
+      }
+    }
+  }
+
+  test("DataFrame analyzed with ANSI off keeps its mode when run with ANSI on") {
+    withIntTable {
+      // A DataFrame is analyzed when it is created, so its expressions keep that ANSI mode.
+      var df: DataFrame = null
+      withSQLConf(SQLConf.ANSI_ENABLED.key -> "false") {
+        df = sql("SELECT abs(c) AS a, c % d AS m FROM int_tab")
+      }
+      withSQLConf(SQLConf.ANSI_ENABLED.key -> "true") {
+        checkAnswer(df, Seq(Row(10, 1), Row(7, -1)))
+        checkFallback[ProjectExecTransformer](df)
       }
     }
   }
