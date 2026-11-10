@@ -1424,44 +1424,6 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     }
   }
 
-  override def extraExpressionConverter(
-      substraitExprName: String,
-      expr: Expression,
-      attributeSeq: Seq[Attribute]): Option[ExpressionTransformer] = expr match {
-    case SparkRightShape(str, len, original) =>
-      // `substraitExprName` is the outer `if`. If any function in Spark's replacement or in the
-      // converted expression is blacklisted, keep Spark's replacement, which Gluten converts or
-      // falls back as usual.
-      val blacklist = GlutenConfig.get.expressionBlacklist
-      val usedFunctions =
-        Seq(
-          substraitExprName,
-          ExpressionNames.RIGHT,
-          ExpressionNames.IS_NULL,
-          ExpressionNames.SUBSTRING)
-      if (usedFunctions.exists(blacklist.contains)) {
-        None
-      } else {
-        val strTransformer = ExpressionConverter.replaceWithExpressionTransformer(str, attributeSeq)
-        val lenTransformer = ExpressionConverter.replaceWithExpressionTransformer(len, attributeSeq)
-        Some(
-          IfTransformer(
-            substraitExprName,
-            GenericExpressionTransformer(
-              ExpressionNames.IS_NULL,
-              Seq(strTransformer),
-              IsNull(str)),
-            LiteralTransformer(Literal.create(null, original.dataType)),
-            GenericExpressionTransformer(
-              ExpressionNames.RIGHT,
-              Seq(strTransformer, lenTransformer),
-              Right(str, len)),
-            original
-          ))
-      }
-    case _ => None
-  }
-
   /** Define backend specfic expression mappings. */
   override def extraExpressionMappings: Seq[Sig] = {
     Seq(
@@ -1488,6 +1450,39 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       expr: Expression,
       attributeSeq: Seq[Attribute]): Option[ExpressionTransformer] = {
     expr match {
+      case SparkRightShape(str, len, original) =>
+        // `substraitExprName` is the outer `if`. If any function in Spark's replacement or in the
+        // converted expression is blacklisted, keep Spark's replacement, which Gluten converts or
+        // falls back as usual.
+        val blacklist = GlutenConfig.get.expressionBlacklist
+        val usedFunctions =
+          Seq(
+            substraitExprName,
+            ExpressionNames.RIGHT,
+            ExpressionNames.IS_NULL,
+            ExpressionNames.SUBSTRING)
+        if (usedFunctions.exists(blacklist.contains)) {
+          None
+        } else {
+          val strTransformer =
+            ExpressionConverter.replaceWithExpressionTransformer(str, attributeSeq)
+          val lenTransformer =
+            ExpressionConverter.replaceWithExpressionTransformer(len, attributeSeq)
+          Some(
+            IfTransformer(
+              substraitExprName,
+              GenericExpressionTransformer(
+                ExpressionNames.IS_NULL,
+                Seq(strTransformer),
+                IsNull(str)),
+              LiteralTransformer(Literal.create(null, original.dataType)),
+              GenericExpressionTransformer(
+                ExpressionNames.RIGHT,
+                Seq(strTransformer, lenTransformer),
+                Right(str, len)),
+              original
+            ))
+        }
       case rc: RoundCeil if rc.child.dataType.isInstanceOf[DecimalType] =>
         Some(
           DecimalCeilFloorTransformer(

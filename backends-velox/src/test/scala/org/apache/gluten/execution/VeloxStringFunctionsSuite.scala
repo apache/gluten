@@ -659,6 +659,7 @@ class VeloxStringFunctionsSuite extends VeloxWholeStageTransformerSuite {
   private def withRightTable(body: => Unit): Unit = {
     withTempPath {
       path =>
+        // scalastyle:off nonascii
         spark
           .sql("""
                  |SELECT * FROM VALUES
@@ -677,6 +678,7 @@ class VeloxStringFunctionsSuite extends VeloxWholeStageTransformerSuite {
                  |  (13, 'e\u0301x', 2)
                  |AS t(id, s, n)
                  |""".stripMargin)
+          // scalastyle:on nonascii
           .write
           .parquet(path.getCanonicalPath)
         withTempView("right_tbl") {
