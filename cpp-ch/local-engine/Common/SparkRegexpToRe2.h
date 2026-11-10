@@ -71,24 +71,24 @@ struct PatternNode
 {
     PatternNodeKind kind;
     std::string text;
-    ClassPtr character_class;
+    ClassPtr characterClass;
     // Reserved for recursive group/flag-scope parsing. Top-level groups are
     // currently represented by GroupOpen/GroupClose, not nested here.
     std::vector<PatternNode> children;
     // For DotAllFlag and flagged GroupOpen only; the RE2 flag is not emitted.
-    std::optional<bool> dot_all;
+    std::optional<bool> dotAll;
 };
 
 class Translator
 {
 public:
-    explicit Translator(const std::string & src_) : src(src_) { }
+    explicit Translator(const std::string & source) : source_(source) { }
 
     std::string run() { return lower(parsePattern()); }
 
 private:
-    const std::string & src;
-    size_t i = 0;
+    const std::string & source_;
+    size_t position_ = 0;
 
     // Phase 1: identify Java regexp constructs without lowering them.
     // The group boundaries and dot-all directives carry just enough structure
@@ -96,40 +96,40 @@ private:
     std::vector<PatternNode> parsePattern()
     {
         std::vector<PatternNode> nodes;
-        while (i < src.size())
+        while (position_ < source_.size())
         {
-            const char c = src[i];
+            const char c = source_[position_];
             if (c == '\\')
             {
-                nodes.push_back({PatternNodeKind::Escape, copy_escape(), nullptr, {}, std::nullopt});
+                nodes.push_back({PatternNodeKind::Escape, copyEscape(), nullptr, {}, std::nullopt});
                 continue;
             }
             if (c == '[')
             {
-                nodes.push_back({PatternNodeKind::CharacterClass, {}, parse_class(), {}, std::nullopt});
+                nodes.push_back({PatternNodeKind::CharacterClass, {}, parseClass(), {}, std::nullopt});
                 continue;
             }
             if (c == '(')
             {
                 // Java allows both scoped (?s:...) and unscoped (?s) DOTALL.
                 // The unscoped form lasts until the end of the enclosing group.
-                if (src.compare(i, 4, "(?s)") == 0 || src.compare(i, 5, "(?-s)") == 0)
+                if (source_.compare(position_, 4, "(?s)") == 0 || source_.compare(position_, 5, "(?-s)") == 0)
                 {
-                    const bool enable = src[i + 2] == 's';
+                    const bool enable = source_[position_ + 2] == 's';
                     nodes.push_back({PatternNodeKind::DotAllFlag, {}, nullptr, {}, enable});
-                    i += enable ? 4 : 5;
+                    position_ += enable ? 4 : 5;
                     continue;
                 }
-                if (src.compare(i, 4, "(?s:") == 0 || src.compare(i, 5, "(?-s:") == 0)
+                if (source_.compare(position_, 4, "(?s:") == 0 || source_.compare(position_, 5, "(?-s:") == 0)
                 {
-                    const bool enable = src[i + 2] == 's';
+                    const bool enable = source_[position_ + 2] == 's';
                     nodes.push_back({PatternNodeKind::GroupOpen, "(?:", nullptr, {}, enable});
-                    i += enable ? 4 : 5;
+                    position_ += enable ? 4 : 5;
                     continue;
                 }
                 validateGroupPrefix();
             }
-            if ((c == '*' || c == '+' || c == '?') && i + 1 < src.size() && src[i + 1] == '+')
+            if ((c == '*' || c == '+' || c == '?') && position_ + 1 < source_.size() && source_[position_ + 1] == '+')
                 fail("possessive quantifiers are unsupported");
 
             PatternNodeKind kind = PatternNodeKind::Literal;
@@ -142,23 +142,23 @@ private:
             else if (c == ')')
                 kind = PatternNodeKind::GroupClose;
             nodes.push_back({kind, std::string(1, c), nullptr, {}, std::nullopt});
-            ++i;
+            ++position_;
         }
         return nodes;
     }
 
     void validateGroupPrefix() const
     {
-        if (i + 2 >= src.size() || src[i + 1] != '?')
+        if (position_ + 2 >= source_.size() || source_[position_ + 1] != '?')
             return;
-        if (src[i + 2] == '=' || src[i + 2] == '!' || src[i + 2] == '<' || src[i + 2] == '>')
+        if (source_[position_ + 2] == '=' || source_[position_ + 2] == '!' || source_[position_ + 2] == '<' || source_[position_ + 2] == '>')
             fail("lookaround, named captures and atomic groups are unsupported");
-        if (src[i + 2] == ':')
+        if (source_[position_ + 2] == ':')
             return;
-        const size_t end = src.find_first_of(":)", i + 2);
+        const size_t end = source_.find_first_of(":)", position_ + 2);
         if (end == std::string::npos)
             fail("unterminated inline flag group");
-        const auto flags = src.substr(i + 2, end - i - 2);
+        const auto flags = source_.substr(position_ + 2, end - position_ - 2);
         if (flags != "i" && flags != "-i")
             fail("inline flags other than case-insensitive matching require explicit translation");
     }
@@ -168,21 +168,21 @@ private:
     std::string lower(const std::vector<PatternNode> & nodes)
     {
         std::string out;
-        bool dot_all = false;
-        std::vector<bool> group_dot_all;
+        bool dotAll = false;
+        std::vector<bool> groupDotAll;
         for (const auto & node : nodes)
         {
             switch (node.kind)
             {
                 case PatternNodeKind::CharacterClass:
-                    out += render(node.character_class);
+                    out += render(node.characterClass);
                     break;
                 case PatternNodeKind::Dot:
                     // Java's default dot excludes Unicode line terminators; DOTALL includes them.
-                    out += dot_all ? "(?s:.)" : "[^\\r\\n\\x{85}\\x{2028}\\x{2029}]";
+                    out += dotAll ? "(?s:.)" : "[^\\r\\n\\x{85}\\x{2028}\\x{2029}]";
                     break;
                 case PatternNodeKind::DotAllFlag:
-                    dot_all = *node.dot_all;
+                    dotAll = *node.dotAll;
                     break;
                 case PatternNodeKind::EndAnchor:
                     // RE2 cannot express the exact CRLF boundary without lookbehind:
@@ -190,16 +190,16 @@ private:
                     out += "(?:$|\\r?\\n\\z|\\r\\z|\\x{85}\\z|\\x{2028}\\z|\\x{2029}\\z)";
                     break;
                 case PatternNodeKind::GroupOpen:
-                    group_dot_all.push_back(dot_all);
-                    if (node.dot_all)
-                        dot_all = *node.dot_all;
+                    groupDotAll.push_back(dotAll);
+                    if (node.dotAll)
+                        dotAll = *node.dotAll;
                     out += node.text;
                     break;
                 case PatternNodeKind::GroupClose:
-                    if (!group_dot_all.empty())
+                    if (!groupDotAll.empty())
                     {
-                        dot_all = group_dot_all.back();
-                        group_dot_all.pop_back();
+                        dotAll = groupDotAll.back();
+                        groupDotAll.pop_back();
                     }
                     out += node.text;
                     break;
@@ -217,47 +217,47 @@ private:
         throw DB::Exception(DB::ErrorCodes::ILLEGAL_TYPE_OF_ARGUMENT, "Cannot translate Spark regexp to RE2: {}", msg);
     }
 
-    std::string copy_escape()
+    std::string copyEscape()
     {
-        // src[i] == '\\'
-        if (i + 1 < src.size() && src[i + 1] == 'Q')
+        // source_[position_] == '\\'
+        if (position_ + 1 < source_.size() && source_[position_ + 1] == 'Q')
         {
-            size_t end = src.find("\\E", i + 2);
+            size_t end = source_.find("\\E", position_ + 2);
             if (end == std::string::npos)
             {
-                std::string r = src.substr(i);
-                i = src.size();
+                std::string r = source_.substr(position_);
+                position_ = source_.size();
                 return r;
             }
-            std::string r = src.substr(i, end + 2 - i);
-            i = end + 2;
+            std::string r = source_.substr(position_, end + 2 - position_);
+            position_ = end + 2;
             return r;
         }
-        if (i + 1 >= src.size())
+        if (position_ + 1 >= source_.size())
             fail("dangling backslash");
-        const char escaped = src[i + 1];
+        const char escaped = source_[position_ + 1];
         if (escaped >= '1' && escaped <= '9')
             fail("backreferences are unsupported by RE2");
         if (escaped == 'R' || escaped == 'X' || escaped == 'C')
             fail("Java regex escape is unsupported by RE2");
         if (escaped == 'Z')
         {
-            i += 2;
+            position_ += 2;
             return "(?:\\z|\\r?\\n\\z|\\r\\z|\\x{85}\\z|\\x{2028}\\z|\\x{2029}\\z)";
         }
-        std::string r = src.substr(i, 2);
-        i += 2;
+        std::string r = source_.substr(position_, 2);
+        position_ += 2;
         return r;
     }
 
-    ClassPtr parse_class()
+    ClassPtr parseClass()
     {
         auto c = std::make_shared<Class>();
-        ++i; // '['
-        if (i < src.size() && src[i] == '^')
+        ++position_; // '['
+        if (position_ < source_.size() && source_[position_] == '^')
         {
             c->negated = true;
-            ++i;
+            ++position_;
         }
 
         bool first = true;
@@ -272,64 +272,64 @@ private:
 
         while (true)
         {
-            if (i >= src.size())
+            if (position_ >= source_.size())
                 fail("unterminated character class");
-            char ch = src[i];
+            char ch = source_[position_];
             if (ch == '\\')
             {
-                if (i + 1 < src.size() && src[i + 1] == 'Q')
+                if (position_ + 1 < source_.size() && source_[position_ + 1] == 'Q')
                 {
-                    size_t end = src.find("\\E", i + 2);
+                    size_t end = source_.find("\\E", position_ + 2);
                     if (end == std::string::npos)
                         fail("unterminated quoted literal in character class");
-                    for (size_t q = i + 2; q < end; ++q)
+                    for (size_t q = position_ + 2; q < end; ++q)
                     {
-                        const char literal = src[q];
+                        const char literal = source_[q];
                         if (literal == ']' || literal == '[' || literal == '-' || literal == '\\' || literal == '^')
                             text += '\\';
                         text += literal;
                     }
-                    i = end + 2;
+                    position_ = end + 2;
                     first = false;
                     continue;
                 }
-                if (i + 1 >= src.size())
+                if (position_ + 1 >= source_.size())
                     fail("dangling backslash in class");
-                text += src[i];
-                text += src[i + 1];
-                i += 2;
+                text += source_[position_];
+                text += source_[position_ + 1];
+                position_ += 2;
                 first = false;
                 continue;
             }
             if (ch == '[')
             {
                 flush();
-                c->parts.push_back(Part{Part::NESTED, "", parse_class()});
+                c->parts.push_back(Part{Part::NESTED, "", parseClass()});
                 first = false;
                 continue;
             }
-            if (ch == '&' && i + 1 < src.size() && src[i + 1] == '&')
+            if (ch == '&' && position_ + 1 < source_.size() && source_[position_ + 1] == '&')
                 fail("character-class intersection (&&) is not supported");
             if (ch == ']')
             {
                 if (first)
                 {
                     text += ']';
-                    ++i;
+                    ++position_;
                     first = false;
                     continue;
                 }
-                ++i;
+                ++position_;
                 flush();
                 return c;
             }
             text += ch;
-            ++i;
+            ++position_;
             first = false;
         }
     }
 
-    static bool escaped_at(const std::string & s, size_t idx)
+    static bool isEscapedAt(const std::string & s, size_t idx)
     {
         size_t n = 0;
         while (idx > n && s[idx - 1 - n] == '\\')
@@ -338,13 +338,13 @@ private:
     }
 
     // Escape a '-' / ']' that is literal because of its position in the original class.
-    static std::string escape_boundaries(std::string t, bool front_dash, bool front_rb, bool back_dash)
+    static std::string escapeBoundaries(std::string t, bool frontDash, bool frontRightBracket, bool backDash)
     {
         if (t.empty())
             return t;
-        const bool fd = front_dash && t.front() == '-';
-        const bool fr = front_rb && t.front() == ']';
-        const bool bd = back_dash && t.back() == '-' && !escaped_at(t, t.size() - 1);
+        const bool fd = frontDash && t.front() == '-';
+        const bool fr = frontRightBracket && t.front() == ']';
+        const bool bd = backDash && t.back() == '-' && !isEscapedAt(t, t.size() - 1);
         if (t.size() == 1)
             return (fd || fr || bd) ? "\\" + t : t;
         std::string r;
@@ -357,19 +357,19 @@ private:
     }
 
     // Concatenate the parts of a non-negated class into a single class body.
-    std::string body_of(const ClassPtr & c)
+    std::string bodyOf(const ClassPtr & c)
     {
         std::string body;
         for (size_t k = 0; k < c->parts.size(); ++k)
         {
             const auto & p = c->parts[k];
             if (p.kind == Part::TEXT)
-                body += escape_boundaries(p.text, k > 0, false, k + 1 < c->parts.size());
+                body += escapeBoundaries(p.text, k > 0, false, k + 1 < c->parts.size());
             else
             {
                 if (p.nested->negated)
                     fail("nested negated class inside a spliced class is not supported");
-                body += escape_boundaries(body_of(p.nested), !body.empty(), !body.empty(), true);
+                body += escapeBoundaries(bodyOf(p.nested), !body.empty(), !body.empty(), true);
             }
         }
         return body;
@@ -378,17 +378,17 @@ private:
     std::string render(const ClassPtr & c)
     {
         if (c->negated)
-            return "[^" + body_of(c) + "]";
+            return "[^" + bodyOf(c) + "]";
         if (c->parts.size() == 1 && c->parts[0].kind == Part::TEXT)
             return "[" + c->parts[0].text + "]";
 
         std::string out = "(?:";
-        bool firstp = true;
+        bool firstPart = true;
         for (auto & p : c->parts)
         {
-            if (!firstp)
+            if (!firstPart)
                 out += "|";
-            firstp = false;
+            firstPart = false;
             if (p.kind == Part::TEXT)
                 out += "[" + p.text + "]";
             else
