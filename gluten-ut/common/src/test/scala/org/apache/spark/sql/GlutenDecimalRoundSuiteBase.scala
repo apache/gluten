@@ -133,11 +133,13 @@ abstract class GlutenDecimalRoundSuiteBase extends GlutenSQLTestsTrait {
         ) {
           val query =
             "SELECT round(round(value, -1), CAST(NULL AS INT)) FROM decimal_round_input"
-          val (expectedSchema, expected) =
-            withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
-              val vanilla = sql(query)
-              (vanilla.schema, vanilla.collect().toSeq)
-            }
+          var expectedSchema: StructType = null
+          var expected: Seq[Row] = Nil
+          withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+            val vanilla = sql(query)
+            expectedSchema = vanilla.schema
+            expected = vanilla.collect().toSeq
+          }
           val df = sql(query)
           assertExecution(df, native = true)
           assert(df.schema == expectedSchema)
