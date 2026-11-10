@@ -197,9 +197,8 @@ class AnsiModeMismatchSuite extends WholeStageTransformerSuite {
     }
   }
 
-  // Spark throws on ceil / floor overflow of a double only since 4.3 (SPARK-58052). The suite
-  // compiles only against earlier versions, which saturate in both modes, so Velox matches Spark
-  // only with ANSI mode off.
+  // Spark throws on ceil / floor overflow of a double only since 4.3 (SPARK-58052). Earlier
+  // versions saturate in both modes, which Velox matches only with ANSI mode off.
   private def withDoubleTable(f: => Unit): Unit = {
     withTempPath {
       path =>
@@ -213,7 +212,10 @@ class AnsiModeMismatchSuite extends WholeStageTransformerSuite {
     }
   }
 
-  test("ceil and floor of a double fall back with ANSI on before Spark 4.3") {
+  // Spark 4.3 throws on ceil(1e20D) with ANSI on.
+  testWithMaxSparkVersion(
+    "ceil and floor of a double fall back with ANSI on before Spark 4.3",
+    "4.2") {
     withDoubleTable {
       withSQLConf(SQLConf.ANSI_ENABLED.key -> "true") {
         runQueryAndCompare("SELECT ceil(c), floor(c) FROM double_tab", noFallBack = false) {

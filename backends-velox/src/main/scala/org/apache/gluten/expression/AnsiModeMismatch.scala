@@ -54,8 +54,10 @@ object AnsiModeMismatch {
     // Only integral round can overflow, on a negative scale.
     case e: Round if isIntegral(e.child.dataType) => Some(e.ansiEnabled)
     case e: BRound if isIntegral(e.child.dataType) => Some(e.ansiEnabled)
-    // Spark throws on ceil / floor overflow of a double since 4.3 (SPARK-58052). Earlier versions
-    // saturate in both modes, which Velox only does with ANSI mode disabled.
+    // Since Spark 4.3 (SPARK-58052), ceil / floor of a double throw on overflow with ANSI on and
+    // store the mode in `failOnError`. Before 4.3 nothing is captured: Spark saturates in both
+    // modes, which Velox does only with ANSI mode off. Returning `false` there is not a view
+    // mismatch, it only makes the expression fall back in an ANSI-on session.
     case e: Ceil if e.child.dataType == DoubleType => Some(failOnErrorOrFalse(e))
     case e: Floor if e.child.dataType == DoubleType => Some(failOnErrorOrFalse(e))
     case e: Conv => Some(e.ansiEnabled)
