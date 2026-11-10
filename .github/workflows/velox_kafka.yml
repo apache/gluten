@@ -57,10 +57,13 @@ env:
   PROMPT_ALWAYS_RESPOND: 'y'
 
 jobs:
-  # Every job chains off this one, so this `if` decides whether the workflow runs:
-  # push only in forks; pull_request only in apache/gluten and only from its own
-  # branches (Dependabot), since a fork's pull request is tested by the push run
-  # in the fork.
+  # Every other job chains off this one, so its `if` decides whether the workflow runs:
+  # push and workflow_dispatch in forks, where the run tests a fork pull request;
+  # pull_request only in apache/gluten and only from its own branches (Dependabot);
+  # workflow_dispatch in apache/gluten.
+  # In a fork it squash-merges the commit under test onto apache/gluten main and
+  # publishes the result, which the jobs below check out by `revision`. It is the
+  # only job that can write, and none of its steps run in apache/gluten.
   merge-upstream:
     if: >-
       (github.event_name == 'push' && github.repository_owner != 'apache') ||
@@ -68,19 +71,22 @@ jobs:
        github.event.pull_request.head.repo.full_name == github.repository) ||
       github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     outputs:
-      # false only on a fork push that changes nothing in the `paths:` list above.
+      # false only on a fork run that changes nothing in the `paths:` list above.
       relevant: ${{ steps.merge.outputs.relevant }}
+      # The commit the other jobs check out: the merged commit on a fork run, otherwise
+      # empty, which keeps actions/checkout's default.
+      revision: ${{ steps.merge.outputs.revision }}
     steps:
       - uses: actions/checkout@v7
-        if: github.event_name == 'push'
+        if: github.repository_owner != 'apache'
         with:
           fetch-depth: 0
-      # Fork push: test the tree a pull request merge ref would hold. The jobs below
-      # swap it in with .github/actions/checkout-merged.
-      - name: Squash-merge the pushed branch onto apache/gluten main
+      - name: Squash-merge onto apache/gluten main
         id: merge
-        if: github.event_name == 'push'
+        if: github.repository_owner != 'apache'
         uses: ./.github/actions/squash-merge-upstream
         with:
           # The `paths:` list above. Keep the two in sync.
@@ -95,7 +101,8 @@ jobs:
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v7
-      - uses: ./.github/actions/checkout-merged
+        with:
+          ref: ${{ needs.merge-upstream.outputs.revision }}
       - name: Install build tools
         run: |
           dnf install -y jq bison tzdata
@@ -109,9 +116,9 @@ jobs:
         with:
           path: ${{ env.CCACHE_DIR }}
           key: ccache-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
-      - name: Get Ccache from apache/gluten main (fork push on Stash miss)
+      - name: Get Ccache from apache/gluten main (fork run on Stash miss)
         id: ccache-upstream
-        if: github.event_name == 'push' && steps.ccache-stash.outputs.stash-hit != 'true'
+        if: github.repository_owner != 'apache' && steps.ccache-stash.outputs.stash-hit != 'true'
         uses: ./.github/actions/restore-upstream-ccache
         with:
           path: ${{ env.CCACHE_DIR }}
@@ -179,7 +186,8 @@ jobs:
           --health-retries 12
     steps:
       - uses: actions/checkout@v7
-      - uses: ./.github/actions/checkout-merged
+        with:
+          ref: ${{ needs.merge-upstream.outputs.revision }}
       - name: Setup java
         run: |
           sudo apt-get update

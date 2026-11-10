@@ -30,6 +30,10 @@ on:
       test_image:
         required: true
         type: string
+      # The commit holding the comparison harness. Empty: the event's commit.
+      harness_revision:
+        type: string
+        default: ''
       native_artifact:
         # Native libraries already built for this revision in the calling run. When empty,
         # they are built here.
@@ -68,7 +72,7 @@ jobs:
         if: inputs.label == 'base'
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.harness_revision || github.sha }}
           path: iceberg-harness
       - name: Apply the current harness to the base production revision
         if: inputs.label == 'base'
@@ -121,7 +125,7 @@ jobs:
         if: inputs.label == 'base'
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.harness_revision || github.sha }}
           path: iceberg-harness
       - name: Apply the current harness to the base production revision
         if: inputs.label == 'base'

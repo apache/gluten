@@ -15,11 +15,11 @@
 
 name: Squash-merge onto apache/gluten main
 description: >-
-  On a fork push, squash-merge the pushed commit onto the current apache/gluten
-  main, which is what a pull request merge ref would hold, and leave HEAD at the
-  result. If anything in `paths` changed, upload the merged tree for the
-  workflow's other jobs to swap in with .github/actions/checkout-merged. Use it
-  after actions/checkout with fetch-depth 0.
+  In a fork, squash-merge the commit under test onto the current apache/gluten
+  main, which is what a pull request merge ref would hold. If anything in
+  `paths` changed, push the result to a refs/gluten-ci/ ref in the fork, so the
+  workflow's other jobs can check it out by commit. Use it after
+  actions/checkout with fetch-depth 0, in a job with `contents: write`.
 inputs:
   paths:
     description: >-
@@ -34,13 +34,16 @@ outputs:
   base_sha:
     description: The apache/gluten main commit the branch was merged onto.
     value: ${{ steps.merge.outputs.base_sha }}
+  revision:
+    description: The merged commit.
+    value: ${{ steps.merge.outputs.revision }}
   relevant:
     description: "'false' if nothing in `paths` changed."
     value: ${{ steps.merge.outputs.relevant }}
 runs:
   using: composite
   steps:
-    - name: Squash-merge the pushed commit
+    - name: Squash-merge the commit under test
       id: merge
       shell: bash
       env:
@@ -58,6 +61,7 @@ runs:
         fi
         git commit --quiet --allow-empty -m "Squash-merge $GITHUB_SHA onto $base_sha"
         echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+        echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
         # Not `grep -q`: it can exit before the upstream grep is done writing, and under
         # pipefail the SIGPIPE would read as no match.
         if git diff --name-only "$base_sha" HEAD | grep -vE "$PATHS_IGNORE" | grep -E "$PATHS" > /dev/null; then
@@ -66,14 +70,12 @@ runs:
           echo "Nothing this workflow covers changed -- skipping."
           echo "relevant=false" >> "$GITHUB_OUTPUT"
         fi
-    - name: Pack the merged tree
+    # One ref per workflow and branch, overwritten by the next run. Slashes in the
+    # branch name are replaced so that branches `a` and `a/b` don't collide.
+    - name: Publish the merged commit in the fork
       if: steps.merge.outputs.relevant == 'true'
       shell: bash
-      run: git archive --format=tar.gz -o "$RUNNER_TEMP/merged-tree.tar.gz" HEAD
-    - uses: actions/upload-artifact@v7
-      if: steps.merge.outputs.relevant == 'true'
-      with:
-        name: merged-tree
-        path: ${{ runner.temp }}/merged-tree.tar.gz
-        compression-level: 0
-        if-no-files-found: error
+      run: |
+        workflow=${GITHUB_WORKFLOW_REF%%@*}
+        workflow=${workflow##*/}
+        git push --force origin "HEAD:refs/gluten-ci/${workflow%.*}/${GITHUB_REF_NAME//\//-}"
