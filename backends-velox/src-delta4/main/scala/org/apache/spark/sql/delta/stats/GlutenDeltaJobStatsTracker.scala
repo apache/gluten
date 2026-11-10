@@ -228,30 +228,31 @@ object GlutenDeltaJobStatsTracker extends Logging {
     private var currentPath: String = _
     private var currentJsonFuture: Future[String] = _
 
-    // Stop the consumer before priority-100 input recyclers and priority-30 runtimes.
-    // An aborted write never reaches getFinalStats.
-    TaskResources.addRecycler("GlutenDeltaTaskStatsTracker", 101) {
-      Option(currentJsonFuture).foreach(_.cancel(true))
-      resultThreadRunner.shutdownNow()
-      var interrupted = false
-      try {
-        while (!resultThreadRunner.isTerminated) {
+    // Registered after TaskResources, so Spark's reverse listener order stops the worker first.
+    // A recycler holds the registry lock, which the worker may need to wrap its output batch.
+    taskContext.addTaskCompletionListener[Unit] {
+      _ =>
+        Option(currentJsonFuture).foreach(_.cancel(true))
+        resultThreadRunner.shutdownNow()
+        var interrupted = false
+        try {
+          while (!resultThreadRunner.isTerminated) {
+            try {
+              resultThreadRunner.awaitTermination(Long.MaxValue, TimeUnit.NANOSECONDS)
+            } catch {
+              case _: InterruptedException => interrupted = true
+            }
+          }
           try {
-            resultThreadRunner.awaitTermination(Long.MaxValue, TimeUnit.NANOSECONDS)
-          } catch {
-            case _: InterruptedException => interrupted = true
+            veloxAggTask.close()
+          } finally {
+            c2r.close()
+          }
+        } finally {
+          if (interrupted) {
+            Thread.currentThread().interrupt()
           }
         }
-        try {
-          veloxAggTask.close()
-        } finally {
-          c2r.close()
-        }
-      } finally {
-        if (interrupted) {
-          Thread.currentThread().interrupt()
-        }
-      }
     }
 
     override def newPartition(partitionValues: InternalRow): Unit = {}

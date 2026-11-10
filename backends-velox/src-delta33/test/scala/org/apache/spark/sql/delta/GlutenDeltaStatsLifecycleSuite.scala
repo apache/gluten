@@ -20,21 +20,27 @@ import org.apache.gluten.config.{GlutenConfig, VeloxDeltaConfig}
 import org.apache.gluten.execution.HashAggregateExecTransformer
 
 import org.apache.spark.{SparkConf, TaskContext}
-import org.apache.spark.sql.{GlutenQueryTest, Row}
+import org.apache.spark.sql.{GlutenQueryTest, Row, SparkSession}
+import org.apache.spark.sql.catalyst.expressions.ScalaUDF
+import org.apache.spark.sql.catalyst.plans.logical.Aggregate
 import org.apache.spark.sql.delta.actions.Metadata
 import org.apache.spark.sql.delta.schema.InvariantViolationException
-import org.apache.spark.sql.delta.stats.GlutenDeltaJobStatsTracker
+import org.apache.spark.sql.delta.stats.{DeltaJobStatisticsTracker, GlutenDeltaJobStatsTracker}
 import org.apache.spark.sql.execution.SparkPlan
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSparkSession
-import org.apache.spark.sql.types.{LongType, StructType}
-import org.apache.spark.task.TaskResources
+import org.apache.spark.sql.types.{LongType, StringType, StructType}
+import org.apache.spark.task.{TaskResourceRegistry, TaskResources}
 
 import org.apache.hadoop.fs.Path
 
-import java.util.concurrent.ConcurrentLinkedQueue
+import java.lang.management.ManagementFactory
+import java.util.concurrent.{ConcurrentLinkedQueue, CountDownLatch, TimeUnit}
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 
 import scala.collection.JavaConverters._
 import scala.concurrent.duration._
+import scala.util.control.NonFatal
 
 class GlutenDeltaStatsLifecycleSuite extends GlutenQueryTest with SharedSparkSession {
   import testImplicits._
@@ -138,5 +144,104 @@ class GlutenDeltaStatsLifecycleSuite extends GlutenQueryTest with SharedSparkSes
           .select("numRecords").as[Long].collect()
         assert(records.length == 4 && records.forall(_ == 1))
     }
+  }
+
+  test("canceled statistics workers can access task resources before cleanup") {
+    val workerReady = new CountDownLatch(1)
+    val registryAccessed = new AtomicBoolean(false)
+    val resourceReleased = new AtomicBoolean(false)
+    val cancellationPreserved = new AtomicBoolean(false)
+    val taskThread = new AtomicReference[Thread]()
+    val failures = new ConcurrentLinkedQueue[Throwable]()
+    val completionChecks = new ConcurrentLinkedQueue[() => Unit]()
+    val aggregate = spark.range(1).selectExpr(
+      "to_json(named_struct('numRecords', count(*))) AS stats")
+      .queryExecution.analyzed.collectFirst { case a: Aggregate => a }.get
+    val checkRegistryOnCancel: String => String = json => {
+      try {
+        assert(Thread.currentThread().getName.startsWith("Gluten Delta Statistics Writer - "))
+        workerReady.countDown()
+        intercept[InterruptedException] {
+          new CountDownLatch(1).await(30, TimeUnit.SECONDS)
+        }
+        // Detect the lock cycle before acquiring the monitor, so a regression fails, not hangs.
+        val owner = ManagementFactory.getThreadMXBean
+          .getThreadInfo(Array(taskThread.get().getId), true, false).head
+        assert(
+          !owner.getLockedMonitors.exists(
+            _.getClassName == classOf[TaskResourceRegistry].getName),
+          "Statistics cleanup is waiting for its worker while holding the task resource registry"
+        )
+        TaskResources.addRecycler("statistics cancellation probe", 100) {
+          resourceReleased.set(true)
+        }
+        registryAccessed.set(true)
+        json
+      } catch {
+        case NonFatal(e) =>
+          failures.add(e)
+          throw e
+      } finally {
+        Thread.currentThread().interrupt()
+      }
+    }
+    val statsExpr = ScalaUDF(
+      checkRegistryOnCancel,
+      StringType,
+      Seq(aggregate.aggregateExpressions.head))
+    val tracker = GlutenDeltaJobStatsTracker(new DeltaJobStatisticsTracker(
+      spark.sessionState.newHadoopConf(),
+      new Path("file:/tmp/gluten-stats-cancellation"),
+      aggregate.child.output,
+      statsExpr))
+    val conf = spark.sessionState.conf.clone()
+    // The synthetic task uses stage -1, which otherwise matches the default dump stage.
+    conf.setConfString(GlutenConfig.BENCHMARK_TASK_STAGEID.key, "0")
+    val thread = new Thread(
+      () => {
+        SparkSession.clearActiveSession()
+        try {
+          intercept[InterruptedException] {
+            SQLConf.withExistingConf(conf) {
+              TaskResources.runUnsafe {
+                val context = TaskContext.get()
+                val usage = TaskResources.getSharedUsage()
+                completionChecks.add(
+                  () => {
+                    assert(context.isCompleted())
+                    assert(usage.current() == 0)
+                  })
+                val taskTracker = tracker.newTaskInstance()
+                context.addTaskCompletionListener[Unit](_ => Thread.currentThread().interrupt())
+                val file = "file:/tmp/gluten-stats-cancellation/part.parquet"
+                taskTracker.newFile(file)
+                taskTracker.closeFile(file)
+              }
+            }
+          }
+          cancellationPreserved.set(Thread.currentThread().isInterrupted)
+        } catch {
+          case NonFatal(e) =>
+            failures.add(e)
+            workerReady.countDown()
+        }
+      },
+      "delta statistics cancellation task"
+    )
+    taskThread.set(thread)
+    thread.setDaemon(true)
+    thread.start()
+    try {
+      assert(workerReady.await(30, TimeUnit.SECONDS), "Statistics worker did not reach evaluation")
+    } finally {
+      thread.interrupt()
+      thread.join(30000)
+    }
+    assert(!thread.isAlive, "Statistics cleanup did not terminate")
+    failures.asScala.foreach(e => throw e)
+    assert(registryAccessed.get(), "Statistics worker could not access its task resource registry")
+    assert(resourceReleased.get(), "Worker-registered resource was not released")
+    assert(cancellationPreserved.get(), "Cleanup cleared the task cancellation interrupt")
+    completionChecks.asScala.foreach(_())
   }
 }
