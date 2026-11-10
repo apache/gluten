@@ -50,30 +50,6 @@ private[delta] class GlutenDeltaInvariantChecker private (
     }
   }
 
-  /**
-   * Returns the violation this checker threw, if it caused `failure`, the failure of the write.
-   *
-   * Native code that pulls the checked batches, such as the Velox writer's sort on a partitioned
-   * write, keeps only the text of a Java exception. The write then fails with a GlutenException
-   * whose message holds the violation's text, which is what this looks for. The returned violation
-   * carries `failure` as a suppressed exception.
-   *
-   * TODO: Remove once native code keeps Java exceptions
-   * (https://github.com/apache/gluten/pull/13561).
-   */
-  def findViolation(failure: Throwable): Option[DeltaInvariantViolationException] = {
-    val messages =
-      ExceptionUtils.getThrowableList(failure).asScala.flatMap(t => Option(t.getMessage))
-    constraints.iterator
-      .map(DeltaInvariantViolationException(_))
-      .find(violation => messages.exists(_.contains(violation.toString)))
-      .map {
-        violation =>
-          violation.addSuppressed(failure)
-          violation
-      }
-  }
-
   override def toString: String = constraints.map(_.column.head).mkString("NOT NULL [", ", ", "]")
 }
 
@@ -109,5 +85,56 @@ private[delta] object GlutenDeltaInvariantChecker {
     Some(new GlutenDeltaInvariantChecker(
       columnOrdinals.toArray,
       topLevelNotNullConstraints.toArray))
+  }
+
+  /**
+   * Returns the NOT NULL violation whose text is in the messages of `failure`, the failure of a
+   * write, if there is one.
+   *
+   * Native code that pulls the checked batches, such as the Velox writer's sort on a partitioned
+   * write, keeps only the text of a Java exception. The write then fails with a GlutenException
+   * whose message holds the violation's text. The returned violation is rebuilt from the column
+   * name in that text and carries `failure` as a suppressed exception.
+   *
+   * TODO: Remove once native code keeps Java exceptions
+   * (https://github.com/apache/gluten/pull/13561).
+   */
+  def findViolation(failure: Throwable): Option[DeltaInvariantViolationException] = {
+    ExceptionUtils
+      .getThrowableList(failure)
+      .asScala
+      .iterator
+      .flatMap(throwable => Option(throwable.getMessage))
+      .map(violatedColumn)
+      .collectFirst { case Some(column) => column }
+      .map {
+        column =>
+          val violation = notNullViolation(column)
+          violation.addSuppressed(failure)
+          violation
+      }
+  }
+
+  private def notNullViolation(column: String): DeltaInvariantViolationException =
+    new DeltaInvariantViolationException("DELTA_NOT_NULL_CONSTRAINT_VIOLATED", Array(column))
+
+  // The text of a NOT NULL violation before and after its column name.
+  private lazy val notNullText: Option[(String, String)] = {
+    val column = "glutenColumnName"
+    val text = notNullViolation(column).toString
+    val columnStart = text.indexOf(column)
+    if (columnStart < 0) {
+      None
+    } else {
+      Some((text.substring(0, columnStart), text.substring(columnStart + column.length)))
+    }
+  }
+
+  /** The column name in the text of a NOT NULL violation in `message`, if there is one. */
+  private def violatedColumn(message: String): Option[String] = notNullText.flatMap {
+    case (before, after) =>
+      val start = message.indexOf(before)
+      val columnEnd = if (start < 0) -1 else message.indexOf(after, start + before.length)
+      if (columnEnd < 0) None else Some(message.substring(start + before.length, columnEnd))
   }
 }

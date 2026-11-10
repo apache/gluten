@@ -197,8 +197,9 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
         case InnerInvariantViolationException(violationException) =>
           // Pull an InvariantViolationException up to the top level if it was the root cause.
           throw violationException
-        case NonFatal(e) if nativeInvariantChecker.isDefined =>
-          throw nativeInvariantChecker.get.findViolation(e).getOrElse(e)
+        // Native code that pulls the checked batches keeps only a violation's text.
+        case NonFatal(e) =>
+          throw GlutenDeltaInvariantChecker.findViolation(e).getOrElse(e)
       }
       statsTrackers.foreach {
         case tracker: BasicWriteJobStatsTracker =>

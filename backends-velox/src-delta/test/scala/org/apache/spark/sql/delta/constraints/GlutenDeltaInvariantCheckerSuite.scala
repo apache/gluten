@@ -44,11 +44,9 @@ class GlutenDeltaInvariantCheckerSuite extends SparkFunSuite {
     assert(GlutenDeltaInvariantChecker.create(output, Seq(NotNull(Seq("missing")))).isEmpty)
   }
 
-  test("finds a violation that native code turned into text") {
-    val columns = Seq("a", "ab").map(AttributeReference(_, LongType)())
-    val checker =
-      GlutenDeltaInvariantChecker.create(columns, Seq(NotNull(Seq("a")), NotNull(Seq("ab")))).get
-    val violation = DeltaInvariantViolationException(NotNull(Seq("ab")))
+  test("finds a NOT NULL violation that native code turned into text") {
+    // The message quotes this column name as `a.b`.
+    val violation = DeltaInvariantViolationException(NotNull(Seq("a.b")))
     // Native code keeps the text cpp/core/jni/JniCommon.h builds from the Java exception.
     val taskFailure = new SparkException(
       "[TASK_WRITE_FAILED] Task failed while writing rows",
@@ -63,12 +61,11 @@ class GlutenDeltaInvariantCheckerSuite extends SparkFunSuite {
       "Job aborted due to stage failure: " + ExceptionUtils.getStackTrace(taskFailure))
 
     for (failure <- Seq(withCause, textOnly)) {
-      val found = checker.findViolation(failure).get
-      // Not column a, whose text differs from column ab's only at the end.
+      val found = GlutenDeltaInvariantChecker.findViolation(failure).get
       assert(found.getMessage == violation.getMessage)
       assert(found.getSuppressed.toSeq == Seq(failure))
     }
     val otherFailure = new SparkException("Job aborted", new GlutenException("Out of memory"))
-    assert(checker.findViolation(otherFailure).isEmpty)
+    assert(GlutenDeltaInvariantChecker.findViolation(otherFailure).isEmpty)
   }
 }

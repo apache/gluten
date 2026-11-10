@@ -174,12 +174,11 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
           partitioningColumns,
           metadata)
         if (nativeUnsupportedReason.isEmpty) {
-          val glutenPlan =
-            glutenPhysicalPlan(spark, empty2NullPlan, constraints, isOptimize, writeOptions)
           try {
             GlutenDeltaFileFormatWriter.write(
               sparkSession = spark,
-              plan = glutenPlan,
+              plan =
+                glutenPhysicalPlan(spark, empty2NullPlan, constraints, isOptimize, writeOptions),
               fileFormat = new GlutenDeltaParquetFileFormat(protocol, metadata),
               committer = committer,
               outputSpec = outputSpec,
@@ -191,13 +190,10 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
                 ++ identityTrackerOpt.toSeq,
               options = options)
           } catch {
-            // Native code that pulls the checked batches keeps only a violation's text, so find
-            // the violation the plan's checker threw. Delta's own catch below handles the rest.
+            // Native code that pulls the checked batches keeps only a violation's text. Delta's
+            // own catch below handles the rest.
             case NonFatal(e) if InnerInvariantViolationException.unapply(e).isEmpty =>
-              val checker = glutenPlan.collectFirst {
-                case exec: GlutenDeltaInvariantCheckerExec => exec.checker
-              }
-              throw checker.flatMap(_.findViolation(e)).getOrElse(e)
+              throw GlutenDeltaInvariantChecker.findViolation(e).getOrElse(e)
           }
         } else {
           logInfo(s"${nativeUnsupportedReason.get}; writing with the vanilla Delta writer.")
