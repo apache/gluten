@@ -186,6 +186,11 @@ if(NOT CMAKE_SYSTEM_NAME MATCHES "Darwin")
   target_link_options(
     gluten PRIVATE -Wl,--exclude-libs,libstdc++.a -Wl,--exclude-libs,libgcc.a
     -Wl,--exclude-libs,libgcc_eh.a)
+  # Bind intra-library function references locally so hot internal calls of the
+  # statically linked deps (snappy::MemCopy64 / DeferMemCopy, ...) and of gluten
+  # itself do not go through PLT stubs. Functions only; data symbols keep their
+  # usual (unique/interposable) binding.
+  target_link_options(gluten PRIVATE -Wl,-Bsymbolic-functions)
 endif()
 
 if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9.0)
