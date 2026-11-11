@@ -20,7 +20,6 @@ import org.apache.gluten.execution.{MicroBatchScanExecTransformer, VeloxWholeSta
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
-import org.apache.spark.sql.execution.streaming.StreamingQueryWrapper
 import org.apache.spark.sql.streaming.Trigger
 
 import org.apache.kafka.clients.admin.{AdminClient, AdminClientConfig, NewTopic}
@@ -88,7 +87,8 @@ class VeloxGlutenKafkaScanSuite extends VeloxWholeStageTransformerSuite {
               .option("startingOffsets", "earliest")
               .option("includeHeaders", includeHeaders.toString)
               .load()
-            // Keep headers in the fallback query so column pruning cannot hide the unsupported type.
+            // Keep headers in the fallback query so column pruning cannot hide the unsupported
+            // type.
             val result = if (includeHeaders) {
               stream.selectExpr("cast(cast(value as string) as int) as id", "headers")
             } else {
@@ -102,11 +102,8 @@ class VeloxGlutenKafkaScanSuite extends VeloxWholeStageTransformerSuite {
 
             try {
               assert(streamQuery.awaitTermination(60000), "Kafka micro-batch did not finish")
-              val scans = streamQuery
-                .asInstanceOf[StreamingQueryWrapper]
-                .streamingQuery
-                .lastExecution
-                .executedPlan
+              val scans = KafkaTestUtils
+                .executedPlan(streamQuery)
                 .collect { case p: MicroBatchScanExecTransformer => p }
               assert(scans.size == (if (includeHeaders) 0 else 1))
               checkAnswer(
