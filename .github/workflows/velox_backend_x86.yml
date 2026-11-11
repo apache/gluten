@@ -107,6 +107,7 @@ jobs:
       full_run: ${{ steps.filter.outputs.full_run }}
       cpp:      ${{ steps.filter.outputs.cpp }}
       java:     ${{ steps.filter.outputs.java }}
+      udf:      ${{ steps.filter.outputs.udf }}
       shims34:  ${{ steps.filter.outputs.shims34 }}
       shims35:  ${{ steps.filter.outputs.shims35 }}
       shims40:  ${{ steps.filter.outputs.shims40 }}
@@ -133,7 +134,7 @@ jobs:
               recent=$(git log --oneline --after="24 hours ago" HEAD | wc -l)
               if [ "$recent" -eq 0 ]; then
                 echo "No commits in the last 24 hours -- skipping nightly run."
-                for flag in cpp java shims34 shims35 shims40 shims41 shims42 tools_it; do
+                for flag in cpp java udf shims34 shims35 shims40 shims41 shims42 tools_it; do
                   echo "$flag=false" >> $GITHUB_OUTPUT
                 done
                 echo "full_run=false" >> $GITHUB_OUTPUT
@@ -141,7 +142,7 @@ jobs:
               fi
             fi
             # Run everything, including the extended matrices PR runs skip.
-            for flag in cpp java shims34 shims35 shims40 shims41 shims42 tools_it; do
+            for flag in cpp java udf shims34 shims35 shims40 shims41 shims42 tools_it; do
               echo "$flag=true" >> $GITHUB_OUTPUT
             done
             echo "full_run=true" >> $GITHUB_OUTPUT
@@ -157,6 +158,7 @@ jobs:
 
           echo "cpp=$(match      '^(cpp/|ep/build-velox/|dev/)')"                                            >> $GITHUB_OUTPUT
           echo "java=$(match     '^(\.github/workflows/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi|paimon)/|gluten-ut/(common/|test/|src-iceberg-upstream/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
+          echo "udf=$(match      '^(backends-velox/src/test/scala/org/apache/gluten/expression/VeloxUdfSuite\.scala|\.github/workflows/velox_backend_x86\.yml)$')" >> $GITHUB_OUTPUT
           echo "shims34=$(match  '^(shims/(spark34|common)/|gluten-ut/spark34/)')"                           >> $GITHUB_OUTPUT
           echo "shims35=$(match  '^(shims/(spark35|common)/|gluten-ut/spark35/)')"                           >> $GITHUB_OUTPUT
           echo "shims40=$(match  '^(shims/(spark40|common)/|gluten-ut/spark40/)')"                           >> $GITHUB_OUTPUT
@@ -1061,7 +1063,7 @@ jobs:
 
   cpp-test-udf-test:
     needs: detect-changes
-    if: needs.detect-changes.outputs.cpp == 'true'
+    if: needs.detect-changes.outputs.cpp == 'true' || needs.detect-changes.outputs.udf == 'true'
     runs-on: ubuntu-24.04
     container: apache/gluten:centos-9-jdk8
     steps:
@@ -1145,14 +1147,22 @@ jobs:
           --data $(realpath backends-velox/generated-native-benchmark/data_12_0_*_0.parquet),$(realpath backends-velox/generated-native-benchmark/data_12_0_*_1.parquet)
       - name: Run UDF test
         run: |
+          export SPARK_SCALA_VERSION=2.12
           yum install -y java-17-openjdk-devel
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
           # Depends on --build_example=ON.
-          $MVN_CMD test -Pspark-3.5 -Pbackends-velox -Pjava-17 -Piceberg -Pdelta -Ppaimon -DtagsToExclude=org.apache.gluten.tags.EnhancedFeaturesTest \
-          -DtagsToInclude=org.apache.gluten.tags.UDFTest \
-          -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/"
+          $MVN_CMD install -Pspark-3.5 -Pbackends-velox -Pjava-17 -pl backends-velox -am -DskipTests
+          for bypass_registration in false true; do
+            for suite in VeloxUdfSuiteLocal VeloxUdfSuiteCluster; do
+              echo "Running $suite with bypass registration=$bypass_registration"
+              $MVN_CMD test -pl backends-velox -Pspark-3.5 -Pbackends-velox -Pjava-17 -DtagsToExclude=org.apache.gluten.tags.EnhancedFeaturesTest \
+                -DtagsToInclude=org.apache.gluten.tags.UDFTest \
+                -Dsuites=org.apache.gluten.expression.$suite \
+                -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/ -Dspark.gluten.sql.columnar.backend.velox.nativeUDF.bypassRegistration=$bypass_registration"
+            done
+          done
       - name: Run CPP benchmark test for Spark 4.0
         run: |
           export SPARK_SCALA_VERSION=2.13
