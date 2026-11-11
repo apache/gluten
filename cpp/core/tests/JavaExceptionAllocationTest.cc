@@ -26,7 +26,16 @@
 
 namespace {
 thread_local bool failNextAllocation = false;
-}
+
+struct RestoreJniFunctions {
+  JNIEnv* env;
+  const JNINativeInterface_* original;
+
+  ~RestoreJniFunctions() {
+    env->functions = original;
+  }
+};
+} // namespace
 
 // This executable isolates the replacement allocator from other core tests.
 void* operator new(std::size_t size) {
@@ -78,6 +87,7 @@ TEST(JavaExceptionAllocationTest, diagnosticAllocationFailureRetainsOriginal) {
     failNextAllocation = true;
     return "original Java exception";
   };
+  const RestoreJniFunctions restore{jni.env(), jni.env()->functions};
   jni.env()->functions = &functions;
   jni.pending = &jni.original;
   try {

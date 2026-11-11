@@ -34,7 +34,7 @@
     e.throwToJava(env);                                                                \
     return fallback_expr;                                                              \
   }                                                                                    \
-  catch (std::exception & e) {                                                         \
+  catch (const std::exception& e) {                                                    \
     if (!env->ExceptionCheck() && !gluten::JavaException::throwNestedToJava(env, e)) { \
       env->ThrowNew(gluten::getJniErrorState()->glutenExceptionClass(), e.what());     \
     }                                                                                  \
