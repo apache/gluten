@@ -98,10 +98,6 @@ class GlutenLogicalPlanTagInSparkPlanSuite
       // Gluten infrastructure nodes (no corresponding logical plan)
       case _: WholeStageTransformer | _: InputIteratorTransformer | _: ColumnarInputAdapter =>
       // These are Gluten-specific wrapper nodes without logical plan links.
-      case p: ColumnarToColumnarExec
-          if p.getClass.getName == "org.apache.gluten.execution.VeloxResizeBatchesExec" ||
-            p.getClass.getName == "org.apache.gluten.execution.BoltResizeBatchesExec" =>
-      // Batch resizing also has no corresponding logical plan.
 
       // Scan trees
       case _ if isGlutenScanPlanTree(plan) =>
