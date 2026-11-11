@@ -25,9 +25,12 @@
 namespace gluten {
 namespace {
 
+// The describer class and result need two locals; reserve one spare slot.
+constexpr jint kDescriptionLocalCapacity = 3;
+
 class LocalFrame {
  public:
-  explicit LocalFrame(JNIEnv* env) : env_(env), pushed_(env->PushLocalFrame(3) == JNI_OK) {}
+  explicit LocalFrame(JNIEnv* env) : env_(env), pushed_(env->PushLocalFrame(kDescriptionLocalCapacity) == JNI_OK) {}
 
   ~LocalFrame() {
     if (pushed_) {

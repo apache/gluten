@@ -21,6 +21,35 @@
 #include "jni/JniCommon.h"
 #include "jni/JniError.h"
 
+namespace {
+class ScopedThrowFailure : public JNINativeInterface_ {
+ public:
+  ScopedThrowFailure(JNIEnv* env, jthrowable failure) noexcept
+      : JNINativeInterface_(*env->functions), env_(env), original_(env->functions), failure_(failure) {
+    Throw = [](JNIEnv* env, jthrowable) {
+      const auto* functions = static_cast<const ScopedThrowFailure*>(env->functions);
+      if (functions->failure_ != nullptr && functions->original_->Throw(env, functions->failure_) != JNI_OK) {
+        LOG(ERROR) << "Unable to install injected Java restoration failure";
+      }
+      return JNI_ERR;
+    };
+    env_->functions = this;
+  }
+
+  ~ScopedThrowFailure() {
+    env_->functions = original_;
+  }
+
+  ScopedThrowFailure(const ScopedThrowFailure&) = delete;
+  ScopedThrowFailure& operator=(const ScopedThrowFailure&) = delete;
+
+ private:
+  JNIEnv* env_;
+  const JNINativeInterface_* original_;
+  jthrowable failure_;
+};
+} // namespace
+
 extern "C" JNIEXPORT jint JNICALL
 Java_org_apache_gluten_jni_JavaExceptionJniTest_roundTrip(JNIEnv* env, jclass, jobject callback, jboolean nested) {
   JNI_METHOD_START
@@ -42,6 +71,17 @@ Java_org_apache_gluten_jni_JavaExceptionJniTest_roundTrip(JNIEnv* env, jclass, j
   }
   return 42;
   JNI_METHOD_END(-1)
+}
+
+extern "C" JNIEXPORT jint JNICALL Java_org_apache_gluten_jni_JavaExceptionJniTest_roundTripWithFailedRestore(
+    JNIEnv* env,
+    jclass clazz,
+    jobject callback,
+    jboolean nested,
+    jthrowable failure) {
+  // Keep fault injection active through the production boundary's catch handlers.
+  const ScopedThrowFailure functions(env, failure);
+  return Java_org_apache_gluten_jni_JavaExceptionJniTest_roundTrip(env, clazz, callback, nested);
 }
 
 extern "C" JNIEXPORT void JNICALL

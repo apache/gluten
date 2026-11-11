@@ -28,17 +28,25 @@
 #endif
 
 #ifndef JNI_METHOD_END
-#define JNI_METHOD_END(fallback_expr)                                                  \
-  }                                                                                    \
-  catch (const gluten::JavaException& e) {                                             \
-    e.throwToJava(env);                                                                \
-    return fallback_expr;                                                              \
-  }                                                                                    \
-  catch (const std::exception& e) {                                                    \
-    if (!env->ExceptionCheck() && !gluten::JavaException::throwNestedToJava(env, e)) { \
-      env->ThrowNew(gluten::getJniErrorState()->glutenExceptionClass(), e.what());     \
-    }                                                                                  \
-    return fallback_expr;                                                              \
+#define JNI_METHOD_END(fallback_expr)                                                            \
+  }                                                                                              \
+  catch (const gluten::JavaException& e) {                                                       \
+    e.throwToJava(env);                                                                          \
+    if (!env->ExceptionCheck() &&                                                                \
+        env->ThrowNew(gluten::getJniErrorState()->glutenExceptionClass(), e.what()) != JNI_OK) { \
+      LOG(ERROR) << "Unable to throw GlutenException at JNI boundary";                           \
+    }                                                                                            \
+    return fallback_expr;                                                                        \
+  }                                                                                              \
+  catch (const std::exception& e) {                                                              \
+    if (!env->ExceptionCheck()) {                                                                \
+      gluten::JavaException::throwNestedToJava(env, e);                                          \
+    }                                                                                            \
+    if (!env->ExceptionCheck() &&                                                                \
+        env->ThrowNew(gluten::getJniErrorState()->glutenExceptionClass(), e.what()) != JNI_OK) { \
+      LOG(ERROR) << "Unable to throw GlutenException at JNI boundary";                           \
+    }                                                                                            \
+    return fallback_expr;                                                                        \
   }
 // macro ended
 #endif

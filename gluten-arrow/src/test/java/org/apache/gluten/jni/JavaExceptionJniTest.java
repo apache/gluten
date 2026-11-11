@@ -47,6 +47,9 @@ public final class JavaExceptionJniTest {
 
   private static native int roundTrip(Callback callback, boolean nested);
 
+  private static native int roundTripWithFailedRestore(
+      Callback callback, boolean nested, Throwable failure);
+
   private static native void throwNativeException();
 
   private static native void close();
@@ -76,6 +79,64 @@ public final class JavaExceptionJniTest {
   @Test
   public void nested() {
     preservesThrowable(true);
+  }
+
+  @Test
+  public void failedDirectRestorationFallsBack() {
+    failedRestorationFallsBack(false);
+  }
+
+  @Test
+  public void failedNestedRestorationFallsBack() {
+    failedRestorationFallsBack(true);
+  }
+
+  private static void failedRestorationFallsBack(boolean nested) {
+    ArithmeticException original = new ArithmeticException("original callback failure");
+    try {
+      roundTripWithFailedRestore(
+          () -> {
+            throw original;
+          },
+          nested,
+          null);
+      Assert.fail("Failed restoration must not return without a Java exception");
+    } catch (GlutenException actual) {
+      Assert.assertSame(GlutenException.class, actual.getClass());
+      Assert.assertNull(actual.getCause());
+      if (nested) {
+        Assert.assertEquals("native wrapper", actual.getMessage());
+      } else {
+        Assert.assertTrue(actual.getMessage().contains("original callback failure"));
+      }
+    }
+    preservesThrowable(nested);
+  }
+
+  @Test
+  public void failedDirectRestorationRetainsPendingError() {
+    failedRestorationRetainsPendingError(false);
+  }
+
+  @Test
+  public void failedNestedRestorationRetainsPendingError() {
+    failedRestorationRetainsPendingError(true);
+  }
+
+  private static void failedRestorationRetainsPendingError(boolean nested) {
+    OutOfMemoryError newer = new OutOfMemoryError("injected restoration failure");
+    try {
+      roundTripWithFailedRestore(
+          () -> {
+            throw new ArithmeticException("original callback failure");
+          },
+          nested,
+          newer);
+      Assert.fail("Expected the newer pending Java exception");
+    } catch (OutOfMemoryError actual) {
+      Assert.assertSame(newer, actual);
+    }
+    preservesThrowable(nested);
   }
 
   private static void preservesThrowable(boolean nested) {
