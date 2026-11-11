@@ -39,6 +39,7 @@ import org.lance.spark.utils.BlobUtils
 
 import java.io.File
 import java.util.Collections
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
 import scala.collection.JavaConverters._
@@ -420,6 +421,25 @@ class VeloxLanceWriteSuite extends VeloxWholeStageTransformerSuite {
         assert(node.metrics("numWrittenBytes").value > 0)
         assert(stageRecords.get == 100)
         assert(stageBytes.get == node.metrics("numWrittenBytes").value)
+    }
+  }
+
+  test("time of write leaves out the time the query takes to produce batches") {
+    withSQLConf(GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> "1") {
+      withLanceTable(rows(0, 10)) {
+        uri =>
+          // Each row sleeps for 500 ms in a JVM expression, and each batch holds one row, so the
+          // stream waits about 2 seconds for the batches after the first.
+          val slow = rows(10, 5).where(
+            "reflect('java.lang.Thread', 'sleep', cast(id * 0 + 500 as bigint)) = 'null'")
+          val plans = executedPlans {
+            slow.write.format("lance").mode("append").option("path", uri).save()
+          }
+          val node = plans.flatMap(_.collect { case w: VeloxLanceAppendDataExec => w }).head
+          val writeNs = node.metrics("writeWallNs").value
+          assert(writeNs > 0 && writeNs < TimeUnit.SECONDS.toNanos(1), writeNs)
+          checkAnswer(read(uri), rows(0, 15))
+      }
     }
   }
 

@@ -38,6 +38,7 @@ import org.lance.spark.write.metric.LanceWriteMetrics
 import java.io.IOException
 import java.util.{Collections, List => JList}
 import java.util.concurrent.{ArrayBlockingQueue, TimeUnit}
+import java.util.concurrent.atomic.AtomicLong
 
 import scala.collection.JavaConverters._
 
@@ -75,6 +76,8 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
   @volatile private var fragments: JList[FragmentMetadata] = _
   @volatile private var failure: Throwable = _
   @volatile private var writeWallNs = 0L
+  // Time the stream waits for the task to queue its next batch, which is not time spent writing.
+  private val queueWaitNs = new AtomicLong()
   // Set by the stream when Lance reads its end.
   @volatile private var streamEnded = false
   // Set by the task to make the stream fail, so Lance stops writing.
@@ -166,7 +169,11 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
     thread.start()
   }
 
-  /** Runs on the writer thread until Lance has read the stream to its end, or failed. */
+  /**
+   * Runs on the writer thread until Lance has read the stream to its end, or failed. The write time
+   * leaves out the time the stream waits for batches, which the operators producing them spend, as
+   * the time of write of Velox's own writers does.
+   */
   private def runWriter(): Unit = {
     val startNs = System.nanoTime()
     try {
@@ -174,7 +181,7 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
     } catch {
       case t: Throwable => failure = t
     } finally {
-      writeWallNs = System.nanoTime() - startNs
+      writeWallNs = System.nanoTime() - startNs - queueWaitNs.get()
     }
   }
 
@@ -298,6 +305,7 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
         return false
       }
       prepareLoadNextBatch()
+      val waitStartNs = System.nanoTime()
       var item: Item = null
       while (item == null) {
         // Checked between polls, so a stop reaches Lance even when the queue is empty.
@@ -306,6 +314,7 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
         }
         item = queue.poll(PollIntervalMs, TimeUnit.MILLISECONDS)
       }
+      queueWaitNs.addAndGet(System.nanoTime() - waitStartNs)
       item match {
         case End =>
           streamEnded = true

@@ -10,8 +10,7 @@ parent: Getting-Started
 Gluten can offload reads of [Lance](https://lancedb.github.io/lance/) datasets (via
 [lance-spark](https://github.com/lance-format/lance-spark)) to the Velox backend. The scan is
 handed to Velox through the Arrow C Data Interface: lance-spark exports each fragment as an Arrow C
-stream and Gluten imports it, so only the Arrow C-struct address crosses the boundary and Gluten's
-Arrow version stays decoupled from lance-spark's.
+stream and Gluten imports it, so only the Arrow C-struct address crosses the boundary.
 
 Writes to Lance tables can also be offloaded, as an experimental feature that is off by default.
 See [Writing](#writing).
@@ -23,6 +22,11 @@ See [Writing](#writing).
   pinned version is the `lance.version` property in the root `pom.xml`. Writes need lance-spark
   0.9.0-beta.2 or later (the first release with `LanceBatchWrite.getFragmentWriteSpec()`); with an
   older release, writes stay on lance-spark's own writer.
+- **Arrow:** Gluten and lance-spark share the Arrow Java classes on the classpath, and writes pass
+  Arrow Java objects between them: the table's Arrow schema and the stream Lance reads. Use the
+  lance-spark artifact for your Spark version. lance-spark 0.9.0-beta.2 builds it with the Arrow
+  version Gluten uses for that Spark version (Arrow 15 for Spark 3.5, 18.1 for 4.0, 18.3 for 4.1 and
+  19 for 4.2), except on Spark 3.4, where lance-spark uses Arrow 14 and Gluten Arrow 15.
 - **Platform:** lance-core ships its native library for `linux-x86-64`, `linux-aarch64` and
   `darwin-aarch64`.
 - **Spark:** tested with Spark 3.5 and 4.0. lance-spark also publishes Spark 3.4, 4.1 and 4.2
