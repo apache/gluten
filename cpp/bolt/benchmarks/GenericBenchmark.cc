@@ -53,11 +53,11 @@ DEFINE_string(save_output, "", "Path to parquet file for saving the task output 
 DEFINE_bool(with_shuffle, false, "Add shuffle split at end.");
 DEFINE_bool(run_shuffle, false, "Only run shuffle write.");
 DEFINE_bool(run_shuffle_read, false, "Whether to run shuffle read when run_shuffle is true.");
-DEFINE_string(shuffle_writer, "hash", "Shuffle writer type. Can be hash or sort");
+DEFINE_string(shuffle_writer, "hash", "Shuffle writer type: hash, sort, or rss_sort (requires --rss)");
 DEFINE_string(
     partitioning,
     "rr",
-    "Short partitioning name. Valid options are rr, hash, range, single, random (only for test purpose)");
+    "Partitioning: rr, single, hash, or range. hash/range require an input partition-id column");
 DEFINE_bool(rss, false, "Mocking rss.");
 DEFINE_string(compression, "lz4", "Specify the compression codec. Valid options are none, lz4, zstd");
 DEFINE_int32(shuffle_partitions, 200, "Number of shuffle split (reducer) partitions");
@@ -160,6 +160,32 @@ void cleanupLocalDirs(const std::vector<std::string>& localDirs) {
       LOG(INFO) << "Removed local dir: " << localDir;
     }
   }
+}
+
+std::string validateShuffleFlags() {
+  if (!FLAGS_run_shuffle && !FLAGS_with_shuffle) {
+    return "";
+  }
+  if (FLAGS_partitioning != "rr" && FLAGS_partitioning != "single" && FLAGS_partitioning != "hash" &&
+      FLAGS_partitioning != "range") {
+    return "Bolt shuffle partitioning must be rr, single, hash, or range";
+  }
+  if (FLAGS_shuffle_writer != "hash" && FLAGS_shuffle_writer != "sort" && FLAGS_shuffle_writer != "rss_sort") {
+    return "Bolt shuffle writer must be hash, sort, or rss_sort";
+  }
+  if (FLAGS_shuffle_writer == "rss_sort" && !FLAGS_rss) {
+    return "--shuffle_writer=rss_sort requires --rss";
+  }
+  if (FLAGS_run_shuffle && FLAGS_partitioning != "rr" && FLAGS_partitioning != "single") {
+    return "--run_shuffle supports only rr or single partitioning; it does not generate partition IDs";
+  }
+  if (FLAGS_shuffle_writer != "hash" && FLAGS_partitioning != "hash" && FLAGS_partitioning != "range") {
+    return "Bolt sort shuffle requires hash or range partitioning with an input partition-id column";
+  }
+  if (FLAGS_shuffle_dictionary) {
+    return "Bolt shuffle does not support dictionary encoding";
+  }
+  return "";
 }
 
 int32_t forcedShuffleWriterType() {
@@ -596,6 +622,12 @@ int main(int argc, char** argv) {
 
   ::benchmark::Initialize(&argc, argv);
 
+  if (const auto error = validateShuffleFlags(); !error.empty()) {
+    LOG(ERROR) << "Incorrect usage: " << error;
+    ::benchmark::Shutdown();
+    return EXIT_FAILURE;
+  }
+
   // Init Bolt backend.
   std::unordered_map<std::string, std::string> backendConf{};
   std::unordered_map<std::string, std::string> sessionConf{};
@@ -665,9 +697,7 @@ int main(int argc, char** argv) {
   if (FLAGS_run_shuffle) {
     std::string errorMsg{};
     if (FLAGS_data.empty()) {
-      errorMsg = "Missing '--split' or '--data' option.";
-    } else if (FLAGS_partitioning != "rr" && FLAGS_partitioning != "random") {
-      errorMsg = "--run-shuffle only support round-robin partitioning and random partitioning.";
+      errorMsg = "Missing '--data' option.";
     }
     if (errorMsg.empty()) {
       try {
@@ -710,8 +740,8 @@ int main(int argc, char** argv) {
 
     if (!errorMsg.empty()) {
       LOG(ERROR) << "Incorrect usage: " << errorMsg << std::endl
-                 << "*** The Bolt benchmark takes the same options as the Velox one. Please check"
-                 << " docs/backends/velox/developers/MicroBenchmarks.md for the full usage. ***";
+                 << "See --help for Bolt-supported options and"
+                 << " docs/backends/velox/developers/MicroBenchmarks.md for general usage.";
       ::benchmark::Shutdown();
       std::exit(EXIT_FAILURE);
     }
