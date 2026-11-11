@@ -206,12 +206,6 @@ jobs:
     runs-on: ubuntu-22.04
     container: apache/gluten:vcpkg-almalinux-8-gcc13
     steps:
-      - name: Install CI tools (temporary - until image is rebuilt with gh/jq/bison/python3.9)
-        run: |
-          dnf install -y jq bison tzdata
-          dnf module -y install python39 && alternatives --set python3 /usr/bin/python3.9
-          dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
-          dnf install -y gh --setopt=gpgcheck=0
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.DELTA_CHECKOUT_REF }}
@@ -276,20 +270,6 @@ jobs:
         with:
           name: delta-spark-ut-native-lib-centos-8-${{ github.sha }}
           path: ./cpp/build/
-      - name: Install Stash restore dependencies
-        run: |
-          set -euo pipefail
-          yum install -y python3
-          case "$(uname -m)" in
-            x86_64) ARCH=amd64 ;;
-            aarch64) ARCH=arm64 ;;
-            *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
-          esac
-          curl -fsSL "https://github.com/cli/cli/releases/download/v2.63.2/gh_2.63.2_linux_${ARCH}.tar.gz" \
-            | tar -xz -C /usr/local --strip-components=1 "gh_2.63.2_linux_${ARCH}/bin/gh"
-          curl -fsSL -o /usr/local/bin/jq "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-${ARCH}"
-          chmod +x /usr/local/bin/jq
-          python3 --version && gh --version && jq --version
       - name: Get Maven repository from Apache Stash
         uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
         with:
@@ -298,7 +278,6 @@ jobs:
       - name: Build Gluten Velox + Delta bundle
         run: |
           set -euo pipefail
-          yum install -y java-17-openjdk-devel
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
@@ -413,24 +392,10 @@ jobs:
           name: delta-spark-ut-gluten-bundle-${{github.sha}}
           path: gluten-bundle
 
-      - name: Install minimal tools and Stash restore dependencies
+      - name: Show tool versions
+        # java-17, which, findutils, gzip, python3, gh and jq come with apache/gluten:centos-9-jdk17.
         run: |
           set -euo pipefail
-          # apache/gluten:centos-9-jdk17 already has java-17, git, tar, a POSIX
-          # shell, and curl-minimal (which provides the `curl` command sbt's
-          # launcher needs). Install the rest of what Delta's build/sbt and the
-          # tests may need. We deliberately do NOT install the full `curl`
-          # package -- it conflicts with the pre-installed curl-minimal.
-          yum install -y java-17-openjdk-devel which findutils gzip python3
-          case "$(uname -m)" in
-            x86_64) ARCH=amd64 ;;
-            aarch64) ARCH=arm64 ;;
-            *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
-          esac
-          curl -fsSL "https://github.com/cli/cli/releases/download/v2.63.2/gh_2.63.2_linux_${ARCH}.tar.gz" \
-            | tar -xz -C /usr/local --strip-components=1 "gh_2.63.2_linux_${ARCH}/bin/gh"
-          curl -fsSL -o /usr/local/bin/jq "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-${ARCH}"
-          chmod +x /usr/local/bin/jq
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
