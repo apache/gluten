@@ -254,6 +254,16 @@
         <artifactId>maven-compiler-plugin</artifactId>
       </plugin>
       <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <excludes>
+            <!-- The jni-test profile requires the separately built native test bridge. -->
+            <exclude>**/JavaExceptionJniTest.java</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
+      <plugin>
         <groupId>org.scalastyle</groupId>
         <artifactId>scalastyle-maven-plugin</artifactId>
       </plugin>
@@ -278,4 +288,28 @@
     <testOutputDirectory>target/scala-${scala.binary.version}/test-classes</testOutputDirectory>
   </build>
 
+  <profiles>
+    <profile>
+      <id>jni-test</id>
+      <properties>
+        <gluten.jni.test.lib.dir>${project.basedir}/../cpp/build/test-libs</gluten.jni.test.lib.dir>
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <configuration>
+              <excludes combine.self="override"/>
+              <failIfNoTests>true</failIfNoTests>
+              <forkedProcessTimeoutInSeconds>60</forkedProcessTimeoutInSeconds>
+              <systemPropertyVariables>
+                <gluten.jni.test.lib.dir>${gluten.jni.test.lib.dir}</gluten.jni.test.lib.dir>
+              </systemPropertyVariables>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

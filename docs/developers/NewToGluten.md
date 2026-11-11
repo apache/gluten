@@ -120,10 +120,15 @@ core contract; it does not by itself protect the full Velox driver path.
 Preserving the throwable does not merge Java and C++ frames into a hybrid stack
 trace (see [#9642](https://github.com/apache/gluten/issues/9642)).
 
-With `BUILD_TESTS=ON`, the `java_exception_jni_test` target builds a test-only JNI
-bridge and Java fixture using only the JDK and core code. Run its real-JVM cases
-with `ctest --test-dir cpp/build -R '^java_exception_jni_test\.' --output-on-failure`.
-They also run in the existing native CI's CTest suite, without Spark or a backend.
+`gluten-arrow/src/test/java/org/apache/gluten/jni/JavaExceptionJniTest.java` runs
+these cases through JUnit and Maven Surefire without starting Spark or a backend.
+After configuring the native core, build its test-only bridge with
+`cmake --build cpp/build --target java_exception_jni_test`, then run
+`./build/mvn test -pl gluten-arrow -Pbackends-velox -Pspark-3.5 -Pjava-17 -Pjni-test`.
+The explicit `jni-test` profile requires the bridge in `cpp/build/test-libs`;
+a missing library fails the tests rather than skipping them. The Spark 3.5
+group-1 Java CI job enables this profile and downloads the bridge separately from
+production libraries. The bridge is neither installed nor bundled in production jars.
 
 ### C++ code development
 
