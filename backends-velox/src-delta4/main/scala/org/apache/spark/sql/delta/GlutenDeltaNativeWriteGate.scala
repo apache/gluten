@@ -17,6 +17,7 @@
 package org.apache.spark.sql.delta
 
 import org.apache.gluten.backendsapi.velox.VeloxValidatorApi
+import org.apache.gluten.utils.VeloxFileSystemValidationJniWrapper
 
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.catalyst.util.CaseInsensitiveMap
@@ -34,6 +35,7 @@ import org.apache.parquet.hadoop.ParquetOutputFormat
 import java.util.Locale
 
 import scala.util.Try
+import scala.util.control.NonFatal
 
 /**
  * Decides whether the Velox writer writes what vanilla Delta would: the same rows, schema, physical
@@ -67,12 +69,19 @@ object GlutenDeltaNativeWriteGate {
   /**
    * Checked with the table's data path. The Velox writer opens files only for the schemes that
    * VeloxRuntime::createDataSource maps to a sink, and throws for any other filesystem, such as
-   * viewfs, wasbs or a custom Hadoop FileSystem.
+   * viewfs, wasbs or a custom Hadoop FileSystem. It also throws for HDFS, S3, GCS and ABFS paths
+   * when Gluten was built without that filesystem, which `registered` checks as the scan does.
    */
-  def unsupportedPath(path: Path): Option[String] = {
+  def unsupportedPath(
+      path: Path,
+      registered: String => Boolean = registeredInVelox): Option[String] = {
     val scheme = Option(path.toUri.getScheme).map(lower)
-    Option.when(!scheme.exists(writableSchemes.contains)) {
-      s"Paths with scheme ${scheme.getOrElse("<none>")} are not written by the Velox writer"
+    if (!scheme.exists(writableSchemes.contains)) {
+      Some(s"Paths with scheme ${scheme.getOrElse("<none>")} are not written by the Velox writer")
+    } else {
+      Option.when(!registered(path.toString)) {
+        s"The Velox filesystem for scheme ${scheme.get} is not available in this build"
+      }
     }
   }
 
@@ -235,6 +244,14 @@ object GlutenDeltaNativeWriteGate {
     find(options, key).exists(_.equalsIgnoreCase("true"))
 
   private def lower(key: String): String = key.toLowerCase(Locale.ROOT)
+
+  // Fails closed: if the native probe cannot run in this JVM, the write falls back.
+  private def registeredInVelox(path: String): Boolean =
+    try {
+      VeloxFileSystemValidationJniWrapper.allSupportedByRegisteredFileSystems(Array(path))
+    } catch {
+      case _: LinkageError | NonFatal(_) => false
+    }
 
   private def isNested(dataType: DataType): Boolean = dataType match {
     case _: ArrayType | _: MapType => true
