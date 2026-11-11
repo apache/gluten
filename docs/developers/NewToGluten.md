@@ -119,8 +119,8 @@ These wrappers catch `Exception`, not every `Throwable`.
 Copies and `std::exception_ptr` instances keep the throwable alive until the last
 owner releases it. Cleanup uses the current thread's JNI environment and detaches
 only threads it attached itself. Failures while describing the captured throwable
-do not replace it; if creating its global reference fails, the pending Java
-allocation error is preserved.
+do not replace it; if creating its global reference fails within a guarded JNI
+entry, the pending Java allocation error is preserved.
 
 `JNI_METHOD_END` also restores carriers inside standard `std::nested_exception`
 wrappers. Other native errors keep their existing `GlutenException` fallback.
