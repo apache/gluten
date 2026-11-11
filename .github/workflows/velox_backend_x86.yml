@@ -85,6 +85,7 @@ jobs:
   # Output flags:
   #   cpp      – C++ sources, Velox build scripts, or dev tooling changed
   #   java     – any cross-version Java/Scala/Maven source changed
+  #   jni_test – core JNI Java tests, their classes, or build wiring changed
   #   shims34/35/40/41 – version-specific shim layer changed
   #   tools_it – tools/gluten-it changed
   #
@@ -108,6 +109,7 @@ jobs:
       cpp:      ${{ steps.filter.outputs.cpp }}
       java:     ${{ steps.filter.outputs.java }}
       udf:      ${{ steps.filter.outputs.udf }}
+      jni_test: ${{ steps.filter.outputs.jni_test }}
       shims34:  ${{ steps.filter.outputs.shims34 }}
       shims35:  ${{ steps.filter.outputs.shims35 }}
       shims40:  ${{ steps.filter.outputs.shims40 }}
@@ -134,7 +136,7 @@ jobs:
               recent=$(git log --oneline --after="24 hours ago" HEAD | wc -l)
               if [ "$recent" -eq 0 ]; then
                 echo "No commits in the last 24 hours -- skipping nightly run."
-                for flag in cpp java udf shims34 shims35 shims40 shims41 shims42 tools_it; do
+                for flag in cpp java udf jni_test shims34 shims35 shims40 shims41 shims42 tools_it; do
                   echo "$flag=false" >> $GITHUB_OUTPUT
                 done
                 echo "full_run=false" >> $GITHUB_OUTPUT
@@ -142,7 +144,7 @@ jobs:
               fi
             fi
             # Run everything, including the extended matrices PR runs skip.
-            for flag in cpp java udf shims34 shims35 shims40 shims41 shims42 tools_it; do
+            for flag in cpp java udf jni_test shims34 shims35 shims40 shims41 shims42 tools_it; do
               echo "$flag=true" >> $GITHUB_OUTPUT
             done
             echo "full_run=true" >> $GITHUB_OUTPUT
@@ -159,6 +161,7 @@ jobs:
           echo "cpp=$(match      '^(cpp/|ep/build-velox/|dev/)')"                                            >> $GITHUB_OUTPUT
           echo "java=$(match     '^(\.github/workflows/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi|paimon)/|gluten-ut/(common/|test/|src-iceberg-upstream/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
           echo "udf=$(match      '^(backends-velox/src/test/scala/org/apache/gluten/expression/VeloxUdfSuite\.scala|\.github/workflows/velox_backend_x86\.yml)$')" >> $GITHUB_OUTPUT
+          echo "jni_test=$(match '^(\.github/workflows/velox_backend_x86\.yml|pom\.xml|gluten-(arrow|core)/pom\.xml|build/mvn|gluten-arrow/src/test/java/org/apache/gluten/jni/.*|gluten-arrow/src/main/java/org/apache/gluten/exception/JniExceptionDescriber\.java|gluten-core/src/main/java/org/apache/gluten/exception/GlutenException\.java)$')" >> $GITHUB_OUTPUT
           echo "shims34=$(match  '^(shims/(spark34|common)/|gluten-ut/spark34/)')"                           >> $GITHUB_OUTPUT
           echo "shims35=$(match  '^(shims/(spark35|common)/|gluten-ut/spark35/)')"                           >> $GITHUB_OUTPUT
           echo "shims40=$(match  '^(shims/(spark40|common)/|gluten-ut/spark40/)')"                           >> $GITHUB_OUTPUT
@@ -199,15 +202,6 @@ jobs:
           ccache -sz
           bash dev/ci-velox-buildstatic-centos-8.sh
           ccache -s
-
-      - name: Build core JNI test bridge
-        run: cmake --build cpp/build --target java_exception_jni_test --parallel 2
-      - uses: actions/upload-artifact@v7
-        with:
-          name: core-jni-test-lib-centos-8-${{github.sha}}
-          path: ./cpp/build/test-libs/
-          if-no-files-found: error
-          retention-days: 1
 
       - name: "Save ccache"
         if: always()
@@ -902,12 +896,6 @@ jobs:
         with:
           name: velox-native-lib-centos-8-${{github.sha}}
           path: ./cpp/build/releases/
-      - name: Download core JNI test bridge
-        if: matrix.group == 1
-        uses: actions/download-artifact@v8
-        with:
-          name: core-jni-test-lib-centos-8-${{github.sha}}
-          path: ./cpp/build/test-libs/
       - name: Prepare
         run: |
           dnf module -y install python39 && \
@@ -925,7 +913,7 @@ jobs:
           java -version
           TAGS_EXCLUDE="org.apache.spark.tags.ExtendedSQLTest,org.apache.spark.tags.SlowHiveTest,org.apache.gluten.tags.UDFTest,org.apache.gluten.tags.EnhancedFeaturesTest,org.apache.gluten.tags.CudfTest,org.apache.gluten.tags.SkipTest"
           if [ "${{ matrix.group }}" = "1" ]; then
-            $PARALLEL_UT $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Plance -Plance-test -Pspark-ut -Pjni-test \
+            $PARALLEL_UT $MVN_CMD clean test -Pspark-3.5 -Pjava-17 -Pbackends-velox -Piceberg -Pdelta -Phudi -Ppaimon -Plance -Plance-test -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
             -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
           elif [ "${{ matrix.group }}" = "2" ]; then
@@ -1078,7 +1066,10 @@ jobs:
 
   cpp-test-udf-test:
     needs: detect-changes
-    if: needs.detect-changes.outputs.cpp == 'true' || needs.detect-changes.outputs.udf == 'true'
+    if: >-
+      needs.detect-changes.outputs.cpp == 'true' ||
+      needs.detect-changes.outputs.udf == 'true' ||
+      needs.detect-changes.outputs.jni_test == 'true'
     runs-on: ubuntu-24.04
     container: apache/gluten:centos-9-jdk8
     steps:
@@ -1117,6 +1108,7 @@ jobs:
         run: |
           df -a
           bash dev/ci-velox-buildshared-centos-9.sh
+          cmake --build cpp/build --target java_exception_jni_test --parallel 2
           ccache -s
       # Runs in this job because clang-tidy needs the compilation database and header tree
       # the build just produced; only 'cpp/build/' is uploaded, so shipping
@@ -1160,7 +1152,7 @@ jobs:
           --conf $(realpath backends-velox/generated-native-benchmark/conf_12_0_*.ini) \
           --plan $(realpath backends-velox/generated-native-benchmark/plan_12_0_*.json) \
           --data $(realpath backends-velox/generated-native-benchmark/data_12_0_*_0.parquet),$(realpath backends-velox/generated-native-benchmark/data_12_0_*_1.parquet)
-      - name: Run UDF test
+      - name: Run JNI and UDF tests
         run: |
           export SPARK_SCALA_VERSION=2.12
           yum install -y java-17-openjdk-devel
@@ -1169,6 +1161,7 @@ jobs:
           java -version
           # Depends on --build_example=ON.
           $MVN_CMD install -Pspark-3.5 -Pbackends-velox -Pjava-17 -pl backends-velox -am -DskipTests
+          $MVN_CMD test -pl gluten-arrow -Pspark-3.5 -Pbackends-velox -Pjava-17 -Pjni-test
           for bypass_registration in false true; do
             for suite in VeloxUdfSuiteLocal VeloxUdfSuiteCluster; do
               echo "Running $suite with bypass registration=$bypass_registration"

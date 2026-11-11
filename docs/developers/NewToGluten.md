@@ -126,9 +126,10 @@ After configuring the native core, build its test-only bridge with
 `cmake --build cpp/build --target java_exception_jni_test`, then run
 `./build/mvn test -pl gluten-arrow -Pbackends-velox -Pspark-3.5 -Pjava-17 -Pjni-test`.
 The explicit `jni-test` profile requires the bridge in `cpp/build/test-libs`;
-a missing library fails the tests rather than skipping them. The Spark 3.5
-group-1 Java CI job enables this profile and downloads the bridge separately from
-production libraries. The bridge is neither installed nor bundled in production jars.
+a missing library fails the tests rather than skipping them. The existing
+`cpp-test-udf-test` CI job builds the bridge locally and enables this profile in
+its Java 17 Maven step. No separate test artifact is needed, and the bridge is
+neither installed nor bundled in production jars.
 
 ### C++ code development
 
