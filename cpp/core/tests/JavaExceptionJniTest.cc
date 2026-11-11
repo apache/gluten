@@ -48,10 +48,8 @@ class ScopedThrowFailure : public JNINativeInterface_ {
   const JNINativeInterface_* original_;
   jthrowable failure_;
 };
-} // namespace
 
-extern "C" JNIEXPORT jint JNICALL
-Java_org_apache_gluten_jni_JavaExceptionJniTest_roundTrip(JNIEnv* env, jclass, jobject callback, jboolean nested) {
+jint roundTrip(JNIEnv* env, jobject callback, jboolean nested, jthrowable pending) {
   JNI_METHOD_START
   gluten::getJniErrorState()->ensureInitialized(env);
   checkException(env);
@@ -64,6 +62,9 @@ Java_org_apache_gluten_jni_JavaExceptionJniTest_roundTrip(JNIEnv* env, jclass, j
     env->CallVoidMethod(callback, run);
     checkException(env);
   } catch (...) {
+    if (pending != nullptr && env->Throw(pending) != JNI_OK) {
+      throw std::runtime_error("Unable to install newer pending Java exception");
+    }
     if (nested) {
       std::throw_with_nested(std::runtime_error("native wrapper"));
     }
@@ -71,6 +72,21 @@ Java_org_apache_gluten_jni_JavaExceptionJniTest_roundTrip(JNIEnv* env, jclass, j
   }
   return 42;
   JNI_METHOD_END(-1)
+}
+} // namespace
+
+extern "C" JNIEXPORT jint JNICALL
+Java_org_apache_gluten_jni_JavaExceptionJniTest_roundTrip(JNIEnv* env, jclass, jobject callback, jboolean nested) {
+  return roundTrip(env, callback, nested, nullptr);
+}
+
+extern "C" JNIEXPORT jint JNICALL Java_org_apache_gluten_jni_JavaExceptionJniTest_roundTripWithPendingException(
+    JNIEnv* env,
+    jclass,
+    jobject callback,
+    jboolean nested,
+    jthrowable pending) {
+  return roundTrip(env, callback, nested, pending);
 }
 
 extern "C" JNIEXPORT jint JNICALL Java_org_apache_gluten_jni_JavaExceptionJniTest_roundTripWithFailedRestore(

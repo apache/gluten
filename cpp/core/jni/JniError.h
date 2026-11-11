@@ -31,7 +31,9 @@
 #define JNI_METHOD_END(fallback_expr)                                                            \
   }                                                                                              \
   catch (const gluten::JavaException& e) {                                                       \
-    e.throwToJava(env);                                                                          \
+    if (!env->ExceptionCheck()) {                                                                \
+      e.throwToJava(env);                                                                        \
+    }                                                                                            \
     if (!env->ExceptionCheck() &&                                                                \
         env->ThrowNew(gluten::getJniErrorState()->glutenExceptionClass(), e.what()) != JNI_OK) { \
       LOG(ERROR) << "Unable to throw GlutenException at JNI boundary";                           \

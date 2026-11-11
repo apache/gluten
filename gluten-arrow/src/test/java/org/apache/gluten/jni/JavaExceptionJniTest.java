@@ -47,6 +47,9 @@ public final class JavaExceptionJniTest {
 
   private static native int roundTrip(Callback callback, boolean nested);
 
+  private static native int roundTripWithPendingException(
+      Callback callback, boolean nested, Throwable pending);
+
   private static native int roundTripWithFailedRestore(
       Callback callback, boolean nested, Throwable failure);
 
@@ -79,6 +82,33 @@ public final class JavaExceptionJniTest {
   @Test
   public void nested() {
     preservesThrowable(true);
+  }
+
+  @Test
+  public void directRetainsAlreadyPendingException() {
+    retainsAlreadyPendingException(false);
+  }
+
+  @Test
+  public void nestedRetainsAlreadyPendingException() {
+    retainsAlreadyPendingException(true);
+  }
+
+  private static void retainsAlreadyPendingException(boolean nested) {
+    ArithmeticException original = new ArithmeticException("original callback failure");
+    IllegalStateException newer = new IllegalStateException("newer pending exception");
+    try {
+      roundTripWithPendingException(
+          () -> {
+            throw original;
+          },
+          nested,
+          newer);
+      Assert.fail("Expected the newer pending Java exception");
+    } catch (RuntimeException actual) {
+      Assert.assertSame(newer, actual);
+    }
+    preservesThrowable(nested);
   }
 
   @Test
