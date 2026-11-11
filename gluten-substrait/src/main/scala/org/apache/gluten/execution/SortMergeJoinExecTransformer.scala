@@ -51,8 +51,11 @@ abstract class SortMergeJoinExecTransformerBase(
   override def metricsUpdater(): MetricsUpdater =
     BackendsApiManager.getMetricsApiInstance.genSortMergeJoinTransformerMetricsUpdater(metrics)
 
-  val (bufferedKeys, streamedKeys, bufferedPlan, streamedPlan) =
-    (rightKeys, leftKeys, right, left)
+  protected def needSwitchChildren: Boolean = false
+
+  lazy val (bufferedKeys, streamedKeys, bufferedPlan, streamedPlan) =
+    if (needSwitchChildren) (leftKeys, rightKeys, left, right)
+    else (rightKeys, leftKeys, right, left)
 
   override def verboseStringWithOperatorId(): String = {
     val joinCondStr = if (condition.isDefined) {
@@ -139,15 +142,17 @@ abstract class SortMergeJoinExecTransformerBase(
   }
 
   // Direct output order of substrait join operation
-  protected val substraitJoinType = joinType match {
+  protected lazy val substraitJoinType = joinType match {
     case _: InnerLike =>
       JoinRel.JoinType.JOIN_TYPE_INNER
     case FullOuter =>
       JoinRel.JoinType.JOIN_TYPE_OUTER
     case LeftOuter =>
-      JoinRel.JoinType.JOIN_TYPE_LEFT
+      if (needSwitchChildren) JoinRel.JoinType.JOIN_TYPE_RIGHT
+      else JoinRel.JoinType.JOIN_TYPE_LEFT
     case RightOuter =>
-      JoinRel.JoinType.JOIN_TYPE_RIGHT
+      if (needSwitchChildren) JoinRel.JoinType.JOIN_TYPE_LEFT
+      else JoinRel.JoinType.JOIN_TYPE_RIGHT
     case LeftSemi =>
       JoinRel.JoinType.JOIN_TYPE_LEFT_SEMI
     case LeftAnti =>
@@ -170,7 +175,7 @@ abstract class SortMergeJoinExecTransformerBase(
       bufferedKeys,
       condition,
       substraitJoinType,
-      false,
+      needSwitchChildren,
       joinType,
       genJoinParameters(),
       null,
@@ -198,10 +203,10 @@ abstract class SortMergeJoinExecTransformerBase(
     val operatorId = context.nextOperatorId(this.nodeName)
 
     val joinParams = new JoinParams
-    if (JoinUtils.preProjectionNeeded(leftKeys)) {
+    if (JoinUtils.preProjectionNeeded(streamedKeys)) {
       joinParams.streamPreProjectionNeeded = true
     }
-    if (JoinUtils.preProjectionNeeded(rightKeys)) {
+    if (JoinUtils.preProjectionNeeded(bufferedKeys)) {
       joinParams.buildPreProjectionNeeded = true
     }
 
@@ -210,7 +215,7 @@ abstract class SortMergeJoinExecTransformerBase(
       bufferedKeys,
       condition,
       substraitJoinType,
-      false,
+      needSwitchChildren,
       joinType,
       genJoinParameters(),
       inputStreamedRelNode,
@@ -235,7 +240,8 @@ case class SortMergeJoinExecTransformer(
     left: SparkPlan,
     right: SparkPlan,
     isSkewJoin: Boolean = false,
-    projectList: Seq[NamedExpression] = null)
+    projectList: Seq[NamedExpression] = null,
+    switchChildren: Boolean = false)
   extends SortMergeJoinExecTransformerBase(
     leftKeys,
     rightKeys,
@@ -245,6 +251,10 @@ case class SortMergeJoinExecTransformer(
     right,
     isSkewJoin,
     projectList) {
+
+  override protected def needSwitchChildren: Boolean = switchChildren
+
+  override def stringArgs: Iterator[scala.Any] = super.stringArgs.toSeq.dropRight(1).iterator
 
   override protected def doValidateInternal(): ValidationResult = {
     super.doValidateInternal()

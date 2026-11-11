@@ -227,6 +227,50 @@ class VeloxMetricsSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     }
   }
 
+  test("Literal-on-left comparison prunes Parquet row groups") {
+    withTempPath {
+      dir =>
+        withTempView("sorted_ids") {
+          spark
+            .range(0, 10000, 1, 1)
+            .write
+            .format("parquet")
+            .option("parquet.block.rows", "1000")
+            .save(dir.getCanonicalPath)
+          spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("sorted_ids")
+          // The file has 10 row groups. Returns (skipped, processed) row groups of the scan.
+          def strides(query: String): (Long, Long) = {
+            var result = (0L, 0L)
+            runQueryAndCompare(query) {
+              df =>
+                val scan = find(df.queryExecution.executedPlan) {
+                  case _: FileSourceScanExecTransformer => true
+                  case _ => false
+                }
+                assert(scan.isDefined)
+                val metrics = scan.get.metrics
+                result = (metrics("skippedStrides").value, metrics("processedStrides").value)
+            }
+            result
+          }
+          // Each literal-on-left predicate must skip the same row groups as its mirrored form.
+          Seq(
+            "100 > id" -> "id < 100",
+            "100 >= id" -> "id <= 100",
+            "9900 < id" -> "id > 9900",
+            "9900 <= id" -> "id >= 9900",
+            "5000 = id" -> "id = 5000"
+          ).foreach {
+            case (left, right) =>
+              val expected = strides(s"SELECT id FROM sorted_ids WHERE $right")
+              val actual = strides(s"SELECT id FROM sorted_ids WHERE $left")
+              assert(expected._1 > 0, s"$right should prune row groups: $expected")
+              assert(actual == expected, s"$left vs $right")
+          }
+        }
+    }
+  }
+
   test("Metrics of noop filter's children") {
     runQueryAndCompare("SELECT c1, c2 FROM metrics_t1 where c1 < 50") {
       df =>
