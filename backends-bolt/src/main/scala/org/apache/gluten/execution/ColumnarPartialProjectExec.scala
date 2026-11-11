@@ -19,12 +19,13 @@ package org.apache.gluten.execution
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.columnarbatch.{BoltColumnarBatches, ColumnarBatches}
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.expression.{ArrowProjection, ExpressionMappings, ExpressionUtils}
+import org.apache.gluten.expression.{ExpressionMappings, ExpressionUtils}
 import org.apache.gluten.extension.columnar.transition.Convention
 import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
-import org.apache.gluten.vectorized.{ArrowColumnarRow, ArrowWritableColumnVector}
+import org.apache.gluten.vectorized.ArrowColumnVectors
 
+import org.apache.spark.TaskContext
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
@@ -32,7 +33,7 @@ import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.execution.{ExplainUtils, OrderPreservingUnaryExecNode, PartitioningPreservingUnaryExecNode, ProjectExec, SparkPlan, UnaryExecNode}
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.hive.{BoltHiveUDFTransformer, HiveUDFTransformer}
-import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
+import org.apache.spark.sql.vectorized.ColumnarBatch
 
 import scala.collection.mutable.ListBuffer
 
@@ -161,8 +162,9 @@ case class ColumnarPartialProjectExec(projectList: Seq[Expression], child: Spark
       batches =>
         val res: Iterator[Iterator[ColumnarBatch]] = new Iterator[Iterator[ColumnarBatch]] {
           // select part of child output and child data
-          val projection: ArrowProjection =
-            ArrowProjection.create(replacedAlias, projectAttributes.toSeq)
+          val projection: MutableProjection =
+            MutableProjection.create(replacedAlias, projectAttributes.toSeq)
+          projection.initialize(TaskContext.getPartitionId())
 
           override def hasNext: Boolean = batches.hasNext
 
@@ -208,7 +210,7 @@ case class ColumnarPartialProjectExec(projectList: Seq[Expression], child: Spark
 
   private def getProjectedBatchArrow(
       childData: ColumnarBatch,
-      proj: ArrowProjection,
+      proj: MutableProjection,
       c2a: SQLMetric,
       a2c: SQLMetric): Iterator[ColumnarBatch] = {
     val numRows = childData.numRows()
@@ -218,28 +220,13 @@ case class ColumnarPartialProjectExec(projectList: Seq[Expression], child: Spark
     } else {
       ColumnarBatches.load(ArrowBufferAllocators.contextInstance(), childData)
     }
-    // In spark with version belows 4.0, the `ColumnarRow`'s get method doesn't check whether the
-    // column to get is null, so we change it to `ArrowColumnarBatch` manually. `ArrowColumnarBatch`
-    // returns `ArrowColumnarRow`, which fixes the bug.
-    val arrowBatch = ColumnarBatches.convertToArrowColumnarBatch(sparkColumnarBatch)
     c2a += System.currentTimeMillis() - start
 
     val schema =
       ExpressionUtils.structFromAttributes(replacedAlias.map(_.toAttribute))
-    val vectors: Array[ArrowWritableColumnVector] = ArrowWritableColumnVector
-      .allocateColumns(numRows, schema)
-      .map {
-        vector =>
-          vector.setValueCount(numRows)
-          vector
-      }
-    val targetRow = new ArrowColumnarRow(vectors)
-    for (i <- 0 until numRows) {
-      targetRow.rowId = i
-      proj.target(targetRow).apply(arrowBatch.getRow(i))
-    }
-    targetRow.finishWriteRow()
-    val targetBatch = new ColumnarBatch(vectors.map(_.asInstanceOf[ColumnVector]), numRows)
+    val targetBatch = ArrowColumnVectors.fromRows(
+      schema,
+      (0 until numRows).iterator.map(i => proj(sparkColumnarBatch.getRow(i))))
     val start2 = System.currentTimeMillis()
     val boltBatch = BoltColumnarBatches.toBoltBatch(
       ColumnarBatches.offload(ArrowBufferAllocators.contextInstance(), targetBatch))
@@ -247,7 +234,7 @@ case class ColumnarPartialProjectExec(projectList: Seq[Expression], child: Spark
     Iterators
       .wrap(Iterator.single(boltBatch))
       .recycleIterator {
-        arrowBatch.close()
+        sparkColumnarBatch.close()
         targetBatch.close()
       }
       .create()

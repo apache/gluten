@@ -23,7 +23,7 @@ WHERE sale_date = DATE '2026-10-01'
   AND amount > 100;
 ```
 
-![How Gluten plans and runs a Delta query: Delta snapshot and file pruning, then Gluten offload checks, then Velox and Spark operators on the executors](../image/delta-query-flow.svg)
+![How Gluten plans and runs a Delta query: Delta snapshot and file pruning, then Gluten offload checks, then Velox and Spark operators on the executors](../../../image/delta-query-flow.svg)
 
 Delta Lake loads the snapshot and prunes partitions and files while Spark plans the query. Gluten then
 offloads the operators Velox supports, and the rest run on Spark, so one query can mix Velox and Spark

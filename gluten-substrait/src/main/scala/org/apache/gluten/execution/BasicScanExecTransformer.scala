@@ -19,6 +19,7 @@ package org.apache.gluten.execution
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.expression.{ConverterUtils, ExpressionConverter}
+import org.apache.gluten.extension.columnar.PushDownInputFileExpression
 import org.apache.gluten.substrait.`type`.ColumnTypeNode
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.extensions.ExtensionBuilder
@@ -26,8 +27,10 @@ import org.apache.gluten.substrait.rel.{ReadRelNode, RelBuilder, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.Partition
+import org.apache.spark.sql.catalyst.FileSourceOptions
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.execution.adaptive.InputStats
+import org.apache.spark.sql.internal.SQLConf
 
 import com.google.protobuf.StringValue
 import io.substrait.proto.NamedStruct
@@ -113,7 +116,19 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
   /** Returns the file format properties. */
   def getProperties: Map[String, String] = Map.empty
 
+  /** Returns the options given to this read, e.g. `spark.read.option(...)`. */
+  def getReadOptions: Map[String, String] = Map.empty
+
   def getInputStats: Option[InputStats] = Option.empty
+
+  protected def neededInputFileRelatedMetadataKeys: Seq[String] = {
+    val inputFileRelatedMetadataKeys = Seq(
+      InputFileName().prettyName,
+      InputFileBlockStart().prettyName,
+      InputFileBlockLength().prettyName)
+
+    inputFileRelatedMetadataKeys.filter(k => output.exists(_.name == k))
+  }
 
   override def getSplitInfos: Seq[SplitInfo] = {
     getSplitInfosFromPartitions(getPartitionWithReadFileFormats)
@@ -135,14 +150,6 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
 
     val metadataFromSpark = getMetadataColumns().map(_.name)
 
-    val inputFileRelatedMetadataKeys = Seq(
-      InputFileName().prettyName,
-      InputFileBlockStart().prettyName,
-      InputFileBlockLength().prettyName)
-
-    val neededInputFileRelatedMetadataKeys =
-      inputFileRelatedMetadataKeys.filter(k => output.exists(_.name == k))
-
     val metadataColumnNames = (metadataFromSpark ++ neededInputFileRelatedMetadataKeys).distinct
 
     BackendsApiManager.getIteratorApiInstance
@@ -157,6 +164,27 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
   }
 
   override protected def doValidateInternal(): ValidationResult = {
+    // A collision tag is placed by PushDownInputFileExpression.PreOffload when an injected
+    // input-file attribute would share a normalized name with a user column in this scan.
+    // Velox cannot simultaneously produce two columns with the same normalized name, so we
+    // fail validation here to keep the scan on vanilla Spark where the file-path thread-local
+    // is set by the JVM scan iterator.
+    if (getTagValue(PushDownInputFileExpression.INPUT_FILE_NAME_COLLISION_TAG).getOrElse(false)) {
+      return ValidationResult.failed(
+        "input_file_name() column name collision with a user data column under case-insensitive " +
+          "resolution: native scan cannot produce both simultaneously")
+    }
+
+    // The native scan only gets spark.sql.files.ignoreMissingFiles from the session conf.
+    // Spark also accepts ignoreMissingFiles as a read option, and the option wins over the conf.
+    // When the two differ, the native scan would use the wrong value, so fall back.
+    val ignoreMissingFiles = new FileSourceOptions(getReadOptions).ignoreMissingFiles
+    if (ignoreMissingFiles != SQLConf.get.ignoreMissingFiles) {
+      return ValidationResult.failed(
+        s"The ignoreMissingFiles read option ($ignoreMissingFiles) is different from " +
+          s"${SQLConf.IGNORE_MISSING_FILES.key} (${SQLConf.get.ignoreMissingFiles}).")
+    }
+
     val validationResult = BackendsApiManager.getSettings
       .validateScanExec(
         fileFormat,
@@ -194,9 +222,8 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
     val nameList = ConverterUtils.collectAttributeNamesWithoutExprId(output)
     val columnTypeNodes = output.map(makeColumnTypeNode).asJava
     // Will put all filter expressions into an AND expression
-    val exprNode = filterExprs()
-      .map(ExpressionConverter.replaceAttributeReference)
-      .reduceLeftOption(And)
+    val exprNode = FilterHandler
+      .combineConjuncts(filterExprs().map(ExpressionConverter.replaceAttributeReference))
       .map(ExpressionConverter.replaceWithExpressionTransformer(_, output))
       .map(_.doTransform(context))
       .orNull

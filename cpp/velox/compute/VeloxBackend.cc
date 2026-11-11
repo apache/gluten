@@ -35,6 +35,7 @@
 #include "utils/qat/QatCodec.h"
 #endif
 #ifdef GLUTEN_ENABLE_GPU
+#include "cudf/CudfFunctions.h"
 #include "cudf/GpuLock.h"
 #include "operators/plannodes/CudfVectorStream.h"
 #include "velox/experimental/cudf/CudfConfig.h"
@@ -59,7 +60,7 @@
 #include "utils/VeloxWriterUtils.h"
 #include "velox/common/caching/SsdCache.h"
 #include "velox/common/file/FileSystems.h"
-#include "velox/connectors/hive/BufferedInputBuilder.h"
+#include "velox/connectors/common/BufferedInputBuilder.h"
 #include "velox/connectors/hive/HiveConnector.h"
 #include "velox/connectors/hive/HiveDataSource.h"
 #include "velox/connectors/hive/iceberg/IcebergConnector.h"
@@ -227,6 +228,7 @@ void VeloxBackend::init(
       velox::exec::Operator::registerOperator(std::make_unique<CudfVectorStreamOperatorTranslator>());
       velox::cudf_velox::registerSparkFunctions("");
       velox::cudf_velox::registerSparkAggregateFunctions("");
+      registerCudfFunctions();
     } else {
       LOG(WARNING) << "No Cuda device found. Skip Cudf initialization.";
     }
@@ -259,9 +261,17 @@ void VeloxBackend::init(
         std::make_unique<folly::CPUThreadPoolExecutor>(ioThreads, folly::CPUThreadPoolExecutor::makeLifoSemQueue());
   }
 
-  const auto broadcastHashTableBuildThreads =
-      std::max<int32_t>(1, backendConf_->get<int32_t>(kBroadcastHashTableBuildThreads, numTaskSlotsPerExecutor));
-  broadcastHashTableBuildExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(broadcastHashTableBuildThreads);
+  const int32_t broadcastHashTableBuildThreads = std::max<int32_t>(1, [&]() {
+    if (!backendConf_->valueExists(kBroadcastHashTableBuildThreads)) {
+      LOG(WARNING) << kBroadcastHashTableBuildThreads << " is not set. Falling back to " << kNumTaskSlotsPerExecutor
+                   << " (" << numTaskSlotsPerExecutor << ").";
+      return numTaskSlotsPerExecutor;
+    }
+    return backendConf_->get<int32_t>(kBroadcastHashTableBuildThreads).value();
+  }());
+  if (broadcastHashTableBuildThreads > 1) {
+    broadcastHashTableBuildExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(broadcastHashTableBuildThreads);
+  }
 
   initJolFilesystem();
 
@@ -271,7 +281,7 @@ void VeloxBackend::init(
   velox::orc::registerOrcReaderFactory();
   velox::exec::ExprToSubfieldFilterParser::registerParser(std::make_unique<SparkExprToSubfieldFilterParser>(
       backendConf_->get<bool>(kScanBloomFilterPushdownEnabled, kScanBloomFilterPushdownEnabledDefault)));
-  velox::connector::hive::BufferedInputBuilder::registerBuilder(std::make_shared<GlutenBufferedInputBuilder>());
+  velox::connector::BufferedInputBuilder::registerBuilder(std::make_shared<GlutenBufferedInputBuilder>());
 
   // Register Velox functions
   registerAllFunctions();

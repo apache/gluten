@@ -20,6 +20,10 @@ on:
     paths:
       - '.github/workflows/velox_backend_x86.yml'
       - '.github/workflows/util/parallel-ut/**'
+      - '.github/workflows/iceberg_spark_ut.yml'
+      - '.github/workflows/iceberg_upstream_revision.yml'
+      - '.github/workflows/velox_native_build.yml'
+      - '.github/workflows/util/iceberg-upstream/**'
       - 'pom.xml'
       - 'backends-velox/**'
       - 'gluten-uniffle/**'
@@ -37,6 +41,8 @@ on:
       - 'tools/gluten-it/**'
       - 'ep/build-velox/**'
       - 'cpp/**'
+      - '!cpp/bolt/**'
+      - '!cpp/bolt.CMakeLists.cmake'
       - 'dev/**'
       - 'build/mvn'
   # Nightly full run. PR runs trim the TPC matrices to representative JDKs and
@@ -107,6 +113,10 @@ jobs:
       shims41:  ${{ steps.filter.outputs.shims41 }}
       shims42:  ${{ steps.filter.outputs.shims42 }}
       tools_it: ${{ steps.filter.outputs.tools_it }}
+      spark35_needed: >-
+        ${{ steps.filter.outputs.java == 'true' ||
+            steps.filter.outputs.shims35 == 'true' ||
+            steps.filter.outputs.cpp == 'true' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -146,7 +156,7 @@ jobs:
           match() { echo "$changed" | grep -qE "$1" && echo true || echo false; }
 
           echo "cpp=$(match      '^(cpp/|ep/build-velox/|dev/)')"                                            >> $GITHUB_OUTPUT
-          echo "java=$(match     '^(\.github/workflows/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi|paimon)/|gluten-ut/(common/|test/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
+          echo "java=$(match     '^(\.github/workflows/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi|paimon)/|gluten-ut/(common/|test/|src-iceberg-upstream/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
           echo "shims34=$(match  '^(shims/(spark34|common)/|gluten-ut/spark34/)')"                           >> $GITHUB_OUTPUT
           echo "shims35=$(match  '^(shims/(spark35|common)/|gluten-ut/spark35/)')"                           >> $GITHUB_OUTPUT
           echo "shims40=$(match  '^(shims/(spark40|common)/|gluten-ut/spark40/)')"                           >> $GITHUB_OUTPUT
@@ -865,10 +875,7 @@ jobs:
 
   spark-test-spark35:
     needs: [detect-changes, build-native-lib-centos-8]
-    if: >-
-      needs.detect-changes.outputs.java == 'true' ||
-      needs.detect-changes.outputs.shims35 == 'true' ||
-      needs.detect-changes.outputs.cpp == 'true'
+    if: needs.detect-changes.outputs.spark35_needed == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -1004,10 +1011,7 @@ jobs:
 
   spark-test-spark35-slow:
     needs: [detect-changes, build-native-lib-centos-8]
-    if: >-
-      needs.detect-changes.outputs.java == 'true' ||
-      needs.detect-changes.outputs.shims35 == 'true' ||
-      needs.detect-changes.outputs.cpp == 'true'
+    if: needs.detect-changes.outputs.spark35_needed == 'true'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -1180,6 +1184,19 @@ jobs:
         with:
           name: ${{ github.job }}-test-log
           path: "**/target/*.log"
+
+  # Reuse the head revision's static native libraries. Iceberg runs alongside the
+  # Spark/TPC jobs once the shared build completes, without waiting for their results.
+  iceberg-spark-ut:
+    needs: [detect-changes, build-native-lib-centos-8]
+    if: needs.detect-changes.outputs.spark35_needed == 'true'
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    uses: ./.github/workflows/iceberg_spark_ut.yml
+    with:
+      native_artifact: velox-native-lib-centos-8-${{github.sha}}
 
   build-cudf-centos-9:
     needs: detect-changes

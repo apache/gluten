@@ -106,6 +106,7 @@ if(ENABLE_GPU)
   add_velox_gpu_test(velox_gpu_shuffle_writer_test SOURCES
                      VeloxGpuShuffleWriterTest.cc)
   add_velox_gpu_test(velox_gpu_lock_test SOURCES GpuLockTest.cc)
+  add_velox_gpu_test(velox_gpu_cudf_functions_test SOURCES CudfFunctionsTest.cc)
   add_velox_gpu_test(velox_cudf_value_stream_test SOURCES
                      CudfValueStreamTest.cc)
 endif()
@@ -153,7 +154,7 @@ add_velox_test(
   VeloxSubstraitSignatureTest.cc
   VeloxToSubstraitTypeTest.cc)
 add_velox_test(spark_functions_test SOURCES SparkFunctionTest.cc
-               FunctionTest.cc)
+               FunctionTest.cc IncrementMetricFunctionTest.cc)
 add_velox_test(runtime_test SOURCES RuntimeTest.cc)
 add_velox_test(velox_backend_test SOURCES VeloxBackendTest.cc)
 add_velox_test(velox_memory_test SOURCES MemoryManagerTest.cc)
