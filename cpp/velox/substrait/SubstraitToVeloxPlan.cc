@@ -1320,6 +1320,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
       sortingOrders,
       rowNumberColumnName,
       static_cast<int32_t>(windowGroupLimitRel.limit()),
+      /*partial=*/true,
       childNode);
 }
 
