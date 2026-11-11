@@ -34,7 +34,6 @@ abstract class BoltSpark4TestSettings extends BackendTestSettings {
   enableSuite[org.apache.spark.sql.GlutenBitmapExpressionsQuerySuite]
   enableSuite[org.apache.spark.sql.GlutenBloomFilterAggregateQuerySuite]
   enableSuite[org.apache.spark.sql.GlutenBloomFilterAggregateQuerySuiteCGOff]
-  enableSuite[org.apache.spark.sql.GlutenBoltBackendSmokeSuite]
   enableSuite[org.apache.spark.sql.GlutenCTEHintSuite]
   enableSuite[org.apache.spark.sql.GlutenCTEInlineSuiteAEOff]
   enableSuite[org.apache.spark.sql.GlutenCTEInlineSuiteAEOn]

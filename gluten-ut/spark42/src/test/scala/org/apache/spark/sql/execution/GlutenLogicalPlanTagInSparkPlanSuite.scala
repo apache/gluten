@@ -99,7 +99,7 @@ class GlutenLogicalPlanTagInSparkPlanSuite
       // Gluten infrastructure nodes (no corresponding logical plan)
       case _: WholeStageTransformer | _: InputIteratorTransformer | _: ColumnarInputAdapter =>
       // These are Gluten-specific wrapper nodes without logical plan links.
-      case p if BackendTestUtils.resizeBatchesClass.isInstance(p) =>
+      case p if BackendTestUtils.resizeBatchesClass.exists(_.isInstance(p)) =>
       // Batch resizing also has no corresponding logical plan.
 
       // Scan trees

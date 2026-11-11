@@ -201,7 +201,7 @@
 
   <profiles>
     <profile>
-      <id>delta</id>
+      <id>bolt-ut-delta</id>
       <dependencies>
         <dependency>
           <groupId>org.apache.gluten</groupId>
@@ -212,7 +212,7 @@
       </dependencies>
     </profile>
     <profile>
-      <id>hudi</id>
+      <id>bolt-ut-hudi</id>
       <dependencies>
         <dependency>
           <groupId>org.apache.gluten</groupId>
@@ -229,7 +229,7 @@
       </dependencies>
     </profile>
     <profile>
-      <id>iceberg</id>
+      <id>bolt-ut-iceberg</id>
       <dependencies>
         <dependency>
           <groupId>org.apache.gluten</groupId>
@@ -246,7 +246,7 @@
       </dependencies>
     </profile>
     <profile>
-      <id>paimon</id>
+      <id>bolt-ut-paimon</id>
       <dependencies>
         <dependency>
           <groupId>org.apache.gluten</groupId>

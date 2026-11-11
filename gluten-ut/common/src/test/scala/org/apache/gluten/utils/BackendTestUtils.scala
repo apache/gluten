@@ -26,12 +26,18 @@ object BackendTestUtils {
   // Each backend profile supplies only its own implementation of these plan nodes.
   // scalastyle:off classforname
   private def planClass(name: String): Class[_] = {
-    val backend = if (isBoltBackendLoaded()) "Bolt" else "Velox"
+    val backend = BackendsApiManager.getBackendName match {
+      case "bolt" => "Bolt"
+      case "velox" => "Velox"
+      case "ch" => "CH"
+      case name => throw new IllegalArgumentException(s"Unsupported backend: $name")
+    }
     Class.forName(s"org.apache.gluten.execution.$backend$name", false, getClass.getClassLoader)
   }
   // scalastyle:on classforname
 
-  lazy val resizeBatchesClass: Class[_] = planClass("ResizeBatchesExec")
+  lazy val resizeBatchesClass: Option[Class[_]] =
+    if (isCHBackendLoaded()) None else Some(planClass("ResizeBatchesExec"))
   lazy val broadcastNestedLoopJoinClass: Class[_] =
     planClass("BroadcastNestedLoopJoinExecTransformer")
 
