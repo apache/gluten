@@ -21,7 +21,6 @@ import org.apache.gluten.config.GlutenCoreConfig
 
 import org.apache.spark.{SparkConf, SparkContext, SparkEnv}
 import org.apache.spark.memory.SparkMemoryUtil
-import org.apache.spark.sql.internal.SQLConf
 
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -98,13 +97,9 @@ class GlutenDynamicOffHeapSizingSuite extends AnyFunSuite with WithDummyBackend 
       // Dynamic mode: reservations land in the ON-heap pools
       // (GlobalOffHeapMemoryTarget), so the metric must equal the on-heap free
       // sum - reading the off-heap pools (the old behavior) diverges as soon
-      // as any reservation is charged. Both read the flag through GlutenCoreConfig,
-      // i.e. the active SQLConf; with no session here, supply it in scope.
-      val sqlConf = new SQLConf
-      sqlConf.setConfString(GlutenCoreConfig.DYNAMIC_OFFHEAP_SIZING_ENABLED.key, "true")
-      SQLConf.withExistingConf(sqlConf) {
-        assert(SparkMemoryUtil.getCurrentAvailableOffHeapMemory == poolFamilyFreeSum(true))
-      }
+      // as any reservation is charged. The flag is read from SparkEnv's conf,
+      // so no active SQLConf/session is needed here.
+      assert(SparkMemoryUtil.getCurrentAvailableOffHeapMemory == poolFamilyFreeSum(true))
     } finally {
       dynamicSc.stop()
     }

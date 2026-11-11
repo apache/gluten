@@ -36,7 +36,7 @@ class GlobalOffHeapMemoryTarget private[memory]
   private val targetName = MemoryTargetUtil.toUniqueName("GlobalOffHeap")
   private val recorder: MemoryUsageRecorder = new SimpleMemoryUsageRecorder()
   private def mode: MemoryMode = {
-    if (GlutenCoreConfig.get.dynamicOffHeapSizingEnabled) MemoryMode.ON_HEAP
+    if (GlutenCoreConfig.isDynamicOffHeapSizingEnabled) MemoryMode.ON_HEAP
     else MemoryMode.OFF_HEAP
   }
 
