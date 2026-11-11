@@ -404,8 +404,8 @@ void VeloxBackend::initCache() {
     if (velox::memory::MmapAllocator::isPageSizeSupported()) {
       cacheAllocator_ = std::make_shared<velox::memory::MmapAllocator>(options);
     } else {
-      LOG(INFO) << "System page size " << velox::memory::MmapAllocator::systemPageSize()
-                << " is not supported by MmapAllocator; using MallocAllocator for AsyncDataCache";
+      LOG(WARNING) << "System page size " << velox::memory::MmapAllocator::systemPageSize()
+                   << " is not supported by MmapAllocator; using MallocAllocator for AsyncDataCache";
       cacheAllocator_ = std::make_shared<velox::memory::MallocAllocator>(options);
     }
     if (ssdCacheSize == 0) {
