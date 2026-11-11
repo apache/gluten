@@ -52,7 +52,11 @@ object LanceFixedSizeLists {
   def moveInto(from: VectorSchemaRoot, to: VectorSchemaRoot): Unit = {
     val rows = from.getRowCount
     from.getFieldVectors.asScala.zip(to.getFieldVectors.asScala).foreach {
-      case (list: ListVector, fixed: FixedSizeListVector) => copyLists(list, fixed, rows)
+      case (list: ListVector, fixed: FixedSizeListVector) =>
+        copyLists(list, fixed, rows)
+        // Free the exported lists now rather than at the next import, so a batch does not hold
+        // both copies of its vectors while Lance encodes it.
+        list.clear()
       case (source, target) => source.makeTransferPair(target).transfer()
     }
     to.setRowCount(rows)

@@ -79,6 +79,9 @@ class LanceFixedSizeListsSuite extends AnyFunSuite {
 
         LanceFixedSizeLists.moveInto(from, to)
 
+        // The exported lists are freed once copied.
+        assert(list.getOffsetBuffer.capacity() == 0)
+        assert(list.getDataVector.getDataBuffer.capacity() == 0)
         assert(to.getRowCount == rows)
         assert((0 until rows).map(to.getVector(0).getObject) == (0 until rows))
         val fixed = to.getVector(1).asInstanceOf[FixedSizeListVector]
