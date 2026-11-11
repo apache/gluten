@@ -119,6 +119,7 @@ TEST(JavaExceptionTest, localFrameFailureDoesNotReplaceOriginal) {
 
 TEST(JavaExceptionTest, globalRefFailureRetainsPendingAllocationError) {
   TestJniEnvironment jni;
+  const JniEntryGuard entry;
   jni.failGlobalRef = true;
   jni.pending = &jni.original;
   EXPECT_THROW(JavaException::check(jni.env()), std::runtime_error);
@@ -126,6 +127,27 @@ TEST(JavaExceptionTest, globalRefFailureRetainsPendingAllocationError) {
   EXPECT_EQ(jni.deletedLocalRefs, 1);
   EXPECT_EQ(jni.createdGlobalRefs, 0);
   EXPECT_EQ(jni.deletedGlobalRefs, 0);
+}
+
+TEST(JavaExceptionTest, workerGlobalRefFailureLeavesNoPendingException) {
+  TestJniEnvironment jni;
+  const JniEntryGuard callerEntry;
+  jni.workerAttached = true;
+  std::thread worker([&] {
+    EXPECT_FALSE(JniEntryGuard::isActive());
+    jni.failGlobalRef = true;
+    jni.pending = &jni.original;
+    EXPECT_THROW(JavaException::check(jni.workerEnv()), std::runtime_error);
+    EXPECT_EQ(jni.pending, nullptr);
+    jni.failGlobalRef = false;
+    EXPECT_NO_THROW(JavaException::check(jni.workerEnv()));
+  });
+  worker.join();
+  EXPECT_EQ(jni.deletedLocalRefs, 1);
+  EXPECT_EQ(jni.createdGlobalRefs, 0);
+  EXPECT_EQ(jni.deletedGlobalRefs, 0);
+  EXPECT_EQ(jni.attaches, 0);
+  EXPECT_EQ(jni.detaches, 0);
 }
 
 TEST(JavaExceptionTest, standardNestedWrappersRestoreOriginal) {

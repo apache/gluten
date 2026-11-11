@@ -23,6 +23,19 @@
 #include <string>
 
 namespace gluten {
+
+JniEntryGuard::JniEntryGuard() noexcept {
+  ++depth_;
+}
+
+JniEntryGuard::~JniEntryGuard() noexcept {
+  --depth_;
+}
+
+bool JniEntryGuard::isActive() noexcept {
+  return depth_ != 0;
+}
+
 namespace {
 
 // The describer class and result need two locals; reserve one spare slot.
@@ -47,6 +60,7 @@ class LocalFrame {
   bool pushed_;
 };
 
+// Lossy native wrappers and destructor logging may have only what(), not the carrier.
 std::string describe(JNIEnv* env, jthrowable throwable) {
   const std::string prefix = "Error during calling Java code from native code: ";
   const auto unavailable = [&](const char* reason) {
@@ -169,7 +183,10 @@ void JavaException::check(JNIEnv* env) {
     try {
       return JavaException(env, throwable);
     } catch (...) {
-      if (!env->ExceptionCheck() && env->Throw(throwable) != JNI_OK) {
+      if (!JniEntryGuard::isActive()) {
+        // An attached pool worker has no Java return boundary to consume pending state.
+        env->ExceptionClear();
+      } else if (!env->ExceptionCheck() && env->Throw(throwable) != JNI_OK) {
         LOG(ERROR) << "Unable to restore original Java exception";
       }
       throw;

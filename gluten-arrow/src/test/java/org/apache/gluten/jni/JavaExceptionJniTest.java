@@ -26,6 +26,8 @@ import org.junit.Test;
 import java.io.File;
 import java.util.Collections;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 /** Tests the core JNI exception contract without starting Spark or a backend. */
 public final class JavaExceptionJniTest {
@@ -47,6 +49,11 @@ public final class JavaExceptionJniTest {
 
   private static native int roundTrip(Callback callback, boolean nested);
 
+  private static native void roundTripWithFailedCapture(Callback callback, Throwable failure);
+
+  private static native void roundTripOnWorker(
+      Callback callback, Callback nextCallback, Throwable captureFailure);
+
   private static native int roundTripWithPendingException(
       Callback callback, boolean nested, Throwable pending);
 
@@ -56,6 +63,8 @@ public final class JavaExceptionJniTest {
   private static native void throwNativeException();
 
   private static native void close();
+
+  private static native boolean entryActive();
 
   @BeforeClass
   public static void loadLibrary() {
@@ -170,6 +179,10 @@ public final class JavaExceptionJniTest {
   }
 
   private static void preservesThrowable(boolean nested) {
+    preservesThrowable(callback -> roundTrip(callback, nested));
+  }
+
+  private static void preservesThrowable(Consumer<Callback> invoke) {
     StructuredException original =
         new StructuredException("TEST_ERROR", Collections.singletonMap("value", "original"));
     Throwable cause = new IllegalStateException("original cause");
@@ -178,11 +191,10 @@ public final class JavaExceptionJniTest {
     original.addSuppressed(suppressed);
     StackTraceElement[] stack = original.getStackTrace();
     try {
-      roundTrip(
+      invoke.accept(
           () -> {
             throw original;
-          },
-          nested);
+          });
       Assert.fail("Expected the original exception");
     } catch (StructuredException actual) {
       Assert.assertSame(original, actual);
@@ -194,6 +206,84 @@ public final class JavaExceptionJniTest {
       Assert.assertEquals("TEST_ERROR", actual.errorClass);
       Assert.assertEquals(Collections.singletonMap("value", "original"), actual.parameters);
     }
+  }
+
+  @Test
+  public void failedCaptureRetainsPendingErrorAtJavaEntry() {
+    OutOfMemoryError newer = new OutOfMemoryError("injected global reference failure");
+    try {
+      roundTripWithFailedCapture(
+          () -> {
+            throw new ArithmeticException("original callback failure");
+          },
+          newer);
+      Assert.fail("Expected the newer pending error at the Java return boundary");
+    } catch (OutOfMemoryError actual) {
+      Assert.assertSame(newer, actual);
+    }
+  }
+
+  @Test
+  public void failedCaptureDoesNotPoisonReusedWorker() {
+    AtomicReference<Thread> worker = new AtomicReference<>();
+    int[] calls = {0};
+    try {
+      roundTripOnWorker(
+          () -> {
+            worker.set(Thread.currentThread());
+            throw new ArithmeticException("original worker failure");
+          },
+          () -> {
+            Assert.assertSame(worker.get(), Thread.currentThread());
+            calls[0]++;
+          },
+          new OutOfMemoryError("injected global reference failure"));
+      Assert.fail("Expected the native capture failure");
+    } catch (GlutenException actual) {
+      Assert.assertEquals(
+          "Unable to create global reference for Java exception", actual.getMessage());
+    }
+    Assert.assertEquals(1, calls[0]);
+    Assert.assertNotSame(Thread.currentThread(), worker.get());
+  }
+
+  @Test
+  public void capturedWorkerThrowableSurvivesReuse() {
+    AtomicReference<Thread> worker = new AtomicReference<>();
+    int[] calls = {0};
+    preservesThrowable(
+        callback ->
+            roundTripOnWorker(
+                () -> {
+                  worker.set(Thread.currentThread());
+                  callback.run();
+                },
+                () -> {
+                  Assert.assertSame(worker.get(), Thread.currentThread());
+                  calls[0]++;
+                },
+                null));
+    Assert.assertEquals(1, calls[0]);
+    Assert.assertNotSame(Thread.currentThread(), worker.get());
+  }
+
+  @Test
+  public void nestedJavaReentryRestoresScope() {
+    Assert.assertFalse(entryActive());
+    roundTrip(
+        () -> {
+          Assert.assertTrue(entryActive());
+          normalReturn();
+          Assert.assertTrue(entryActive());
+          nativeOnly();
+          Assert.assertTrue(entryActive());
+          failedCaptureRetainsPendingErrorAtJavaEntry();
+          Assert.assertTrue(entryActive());
+        },
+        false);
+    Assert.assertFalse(entryActive());
+    preservesThrowable(false);
+    Assert.assertFalse(entryActive());
   }
 
   @Test

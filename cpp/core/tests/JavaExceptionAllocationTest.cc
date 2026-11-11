@@ -58,6 +58,7 @@ void operator delete(void* memory, std::size_t) noexcept {
 
 TEST(JavaExceptionAllocationTest, stateAllocationFailureRetainsOriginal) {
   gluten::TestJniEnvironment jni;
+  const gluten::JniEntryGuard entry;
   jni.pending = &jni.original;
   failNextAllocation = true;
   try {
@@ -77,6 +78,53 @@ TEST(JavaExceptionAllocationTest, stateAllocationFailureRetainsOriginal) {
   EXPECT_EQ(jni.pushedFrames, 0);
   EXPECT_EQ(jni.poppedFrames, 0);
   EXPECT_EQ(jni.releasedStrings, 0);
+}
+
+TEST(JavaExceptionAllocationTest, workerStateAllocationFailureLeavesNoPendingException) {
+  gluten::TestJniEnvironment jni;
+  const gluten::JniEntryGuard callerEntry;
+  jni.workerAttached = true;
+  std::thread worker([&] {
+    EXPECT_FALSE(gluten::JniEntryGuard::isActive());
+    jni.pending = &jni.original;
+    failNextAllocation = true;
+    try {
+      gluten::JavaException::check(jni.workerEnv());
+      failNextAllocation = false;
+      FAIL() << "Expected std::bad_alloc";
+    } catch (const std::bad_alloc&) {
+      EXPECT_FALSE(std::exchange(failNextAllocation, false));
+    }
+    EXPECT_EQ(jni.pending, nullptr);
+    EXPECT_NO_THROW(gluten::JavaException::check(jni.workerEnv()));
+  });
+  worker.join();
+  EXPECT_EQ(jni.deletedLocalRefs, 1);
+  EXPECT_EQ(jni.createdGlobalRefs, 0);
+  EXPECT_EQ(jni.deletedGlobalRefs, 0);
+  EXPECT_EQ(jni.attaches, 0);
+  EXPECT_EQ(jni.detaches, 0);
+}
+
+TEST(JavaExceptionAllocationTest, entryTrackingDoesNotAllocate) {
+  bool nestedActive = false;
+  bool outerActive = false;
+  failNextAllocation = true;
+  {
+    const gluten::JniEntryGuard outer;
+    try {
+      const gluten::JniEntryGuard inner;
+      nestedActive = gluten::JniEntryGuard::isActive();
+      throw 7;
+    } catch (int) {
+      outerActive = gluten::JniEntryGuard::isActive();
+    }
+  }
+  const bool noAllocation = std::exchange(failNextAllocation, false);
+  EXPECT_TRUE(noAllocation);
+  EXPECT_TRUE(nestedActive);
+  EXPECT_TRUE(outerActive);
+  EXPECT_FALSE(gluten::JniEntryGuard::isActive());
 }
 
 TEST(JavaExceptionAllocationTest, diagnosticAllocationFailureRetainsOriginal) {

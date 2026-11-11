@@ -101,11 +101,20 @@ JNI callbacks must call `checkException(env)` after invoking Java. It throws
 throwable. `JNI_METHOD_END` restores that same object with JNI `Throw`, retaining
 its class, cause, suppressed exceptions, stack trace, and structured Spark error
 metadata. Native diagnostic formatting is best-effort after capturing the throwable.
-If native carrier construction fails, `checkException` restores the original
-throwable before local-reference cleanup unless a newer Java exception is pending.
+If native carrier construction fails within a guarded JNI entry on the current
+thread, `checkException` restores the original throwable before local-reference
+cleanup unless a newer Java exception is pending. Without such an entry, it clears
+pending JNI state before propagating the native failure so an attached worker can
+be reused. Successfully captured carriers remain transferable across threads.
 Successful carrier propagation keeps JNI clear until the return boundary restores
 the throwable.
 Do not replace this carrier with an exception constructed from `what()`.
+
+Same-object preservation applies at the JNI return boundary. Public iterator
+`hasNext()`/`next()` may apply existing Java wrappers, usually `GlutenException`;
+existing schema-error translation also retains the original as a cause. Inspect
+the cause chain rather than assuming a top-level exception class or `SparkThrowable`.
+These wrappers catch `Exception`, not every `Throwable`.
 
 Copies and `std::exception_ptr` instances keep the throwable alive until the last
 owner releases it. Cleanup uses the current thread's JNI environment and detaches

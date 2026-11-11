@@ -23,7 +23,9 @@
 #include "utils/Exception.h"
 
 #ifndef JNI_METHOD_START
-#define JNI_METHOD_START try {
+#define JNI_METHOD_START                     \
+  const gluten::JniEntryGuard jniEntryGuard; \
+  try {
 // macro ended
 #endif
 

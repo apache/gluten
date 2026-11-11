@@ -24,6 +24,22 @@
 
 namespace gluten {
 
+// Tracks guarded Java-to-native entries on the current thread, not throwable ownership.
+class JniEntryGuard final {
+ public:
+  JniEntryGuard() noexcept;
+  ~JniEntryGuard() noexcept;
+
+  JniEntryGuard(const JniEntryGuard&) = delete;
+  JniEntryGuard& operator=(const JniEntryGuard&) = delete;
+
+  static bool isActive() noexcept;
+
+ private:
+  // Core objects can appear in multiple DSOs; inline storage is coalesced across them.
+  inline static thread_local unsigned depth_ = 0;
+};
+
 // Owns a global reference, so copies and exception_ptrs may outlive the JNI call or thread.
 class JavaException final : public std::exception {
  public:
