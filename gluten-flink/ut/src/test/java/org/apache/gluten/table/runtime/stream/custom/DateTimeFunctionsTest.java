@@ -176,6 +176,26 @@ class DateTimeFunctionsTest extends GlutenStreamingTestBase {
   }
 
   @Test
+  void testDefaultedYear() {
+    // Flink defaults a missing year to 1970: to_date rolls Feb 29 to Mar 1
+    // (SimpleDateFormat lenient), to_timestamp yields NULL for Feb 29
+    // (java.time strict recomposition).
+    List<Row> rows = Arrays.asList(Row.of("09-11"), Row.of("02-29"));
+    createSimpleBoundedValuesTable("tblDefaultedYear", "s string", rows);
+    runAndCheck(
+        "select to_date(s, 'MM-dd') as d from tblDefaultedYear",
+        Arrays.asList("+I[253]", "+I[59]"));
+    runAndCheck(
+        "select to_timestamp(s, 'MM-dd') as ts from tblDefaultedYear",
+        Arrays.asList("+I[1970-09-11T00:00:00.000]", "+I[null]"));
+    List<Row> timeRows = Arrays.asList(Row.of("10:00:00"));
+    createSimpleBoundedValuesTable("tblDefaultedTime", "s string", timeRows);
+    runAndCheck(
+        "select to_timestamp(s, 'HH:mm:ss') as ts from tblDefaultedTime",
+        Arrays.asList("+I[1970-01-01T10:00:00.000]"));
+  }
+
+  @Test
   void testTemporalFunctionsInCaseAndFilter() {
     List<Row> rows =
         Arrays.asList(
