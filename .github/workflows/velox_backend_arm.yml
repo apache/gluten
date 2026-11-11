@@ -47,7 +47,6 @@ on:
   push:
     branches-ignore:
       - main
-  # fork-ci (fork_ci_status.yml) also accepts a manual run on the PR branch.
   workflow_dispatch:
 
 env:
