@@ -17,7 +17,6 @@
 package org.apache.spark.sql.execution
 
 import org.apache.gluten.execution._
-import org.apache.gluten.utils.BackendTestUtils
 
 import org.apache.spark.sql.GlutenSQLTestsTrait
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, Complete, Final}
@@ -99,7 +98,9 @@ class GlutenLogicalPlanTagInSparkPlanSuite
       // Gluten infrastructure nodes (no corresponding logical plan)
       case _: WholeStageTransformer | _: InputIteratorTransformer | _: ColumnarInputAdapter =>
       // These are Gluten-specific wrapper nodes without logical plan links.
-      case p if BackendTestUtils.resizeBatchesClass.exists(_.isInstance(p)) =>
+      case p: ColumnarToColumnarExec
+          if p.getClass.getName == "org.apache.gluten.execution.VeloxResizeBatchesExec" ||
+            p.getClass.getName == "org.apache.gluten.execution.BoltResizeBatchesExec" =>
       // Batch resizing also has no corresponding logical plan.
 
       // Scan trees

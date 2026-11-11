@@ -18,7 +18,6 @@ package org.apache.spark.sql.execution
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution._
-import org.apache.gluten.utils.BackendTestUtils
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{Dataset, GlutenSQLTestsTrait, Row, SaveMode}
@@ -41,9 +40,6 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
     super.sparkConf
       .set(GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key, "false")
   }
-
-  implicit private lazy val bnlClassTag: ClassTag[BroadcastNestedLoopJoinExecTransformer] =
-    ClassTag(BackendTestUtils.broadcastNestedLoopJoinClass)
 
   private def assertWholeStageCount[T <: SparkPlan: ClassTag](
       df: Dataset[_],
