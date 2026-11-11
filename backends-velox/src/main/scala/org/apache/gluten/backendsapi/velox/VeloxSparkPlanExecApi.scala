@@ -158,14 +158,21 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       }
       // Offload to velox for only IntegralTypes. The try_ functions return NULL only when the
       // operation overflows, so an error in an argument still throws, as in Spark.
-      val tryExprName = original match {
-        case _: Add => ExpressionNames.TRY_ADD
-        case _: Subtract => ExpressionNames.TRY_SUBTRACT
-        case _: Multiply => ExpressionNames.TRY_MULTIPLY
+      original match {
+        case _: Add =>
+          GenericExpressionTransformer(ExpressionNames.TRY_ADD, Seq(left, right), original)
+        case _: Subtract =>
+          GenericExpressionTransformer(ExpressionNames.TRY_SUBTRACT, Seq(left, right), original)
+        case _: Multiply =>
+          GenericExpressionTransformer(ExpressionNames.TRY_MULTIPLY, Seq(left, right), original)
         case _ =>
-          throw new GlutenNotSupportException(s"$substraitExprName with try mode is not supported")
+          // TODO: Remove try(checkArithmeticExprName) and genTryArithmeticTransformer once Velox
+          // supports all relevant try_* functions.
+          GenericExpressionTransformer(
+            ExpressionMappings.expressionsMap(classOf[TryEval]),
+            Seq(GenericExpressionTransformer(checkArithmeticExprName, Seq(left, right), original)),
+            original)
       }
-      GenericExpressionTransformer(tryExprName, Seq(left, right), original)
     } else if (ExpressionUtils.withAnsiEvalMode(original)) {
       GenericExpressionTransformer(checkArithmeticExprName, Seq(left, right), original)
     } else {
