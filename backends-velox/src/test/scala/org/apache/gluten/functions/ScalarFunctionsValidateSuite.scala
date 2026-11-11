@@ -1072,6 +1072,11 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
         runQueryAndCompare("select filter(value, x -> x is not null) as res from array_tbl;") {
           checkGlutenPlan[ProjectExecTransformer]
         }
+
+        runQueryAndCompare(
+          "select filter(value, (x, i) -> i < size(value) - 1) as res from array_tbl;") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
     }
   }
 
@@ -1111,8 +1116,11 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
   test("transform") {
     withTable("t") {
       sql("create table t (arr ARRAY<INT>) using parquet")
-      sql("insert into t values(array(1, 2, 3, null))")
+      sql("insert into t values (array(1, 2, 3, null)), (array()), (null)")
       runQueryAndCompare("select transform(arr, x -> x + 1) from t") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+      runQueryAndCompare("select transform(arr, (x, i) -> x + i) from t") {
         checkGlutenPlan[ProjectExecTransformer]
       }
     }
