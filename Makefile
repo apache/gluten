@@ -80,7 +80,7 @@ endif
 	install_debug install_release release-with-tests debug-with-tests \
 	release-with-benchmarks debug-with-benchmarks \
 	release-with-tests-and-benchmarks debug-with-tests-and-benchmarks \
-	java jar jar-skip-check jar_spark33 jar_spark34 jar_spark35 \
+	java jar jar-skip-check jar_spark33 jar_spark35 \
 	fast-jar zip fast-zip test test_spark35 cpp-test-release cpp-test-debug
 
 bolt-recipe:
@@ -194,12 +194,6 @@ jar_spark33:
 	mkdir -p output && \
 	rm -rf output/gluten-spark*.jar
 	mv package/target/gluten-package-$(GLUTEN_PACKAGE_VERSION).jar output/gluten-spark3.3_2.12-1.0.0-SNAPSHOT-jar-with-dependencies.jar
-
-jar_spark34:
-	java -version && build/mvn -ntp clean package -Pbackends-bolt -Pspark-3.4 -Pceleborn -Piceberg -DskipTests -Denforcer.skip=true -Ppaimon && \
-	mkdir -p output && \
-	rm -rf output/gluten-spark*.jar
-	mv package/target/gluten-package-$(GLUTEN_PACKAGE_VERSION).jar output/gluten-spark3.4_2.12-1.0.0-SNAPSHOT-jar-with-dependencies.jar
 
 jar_spark35:
 	java -version && build/mvn -ntp -T32 package -Pfast-build -Pbackends-bolt -Pspark-3.5 -Phadoop-3.2 -Pceleborn -Piceberg -DskipTests -Denforcer.skip=true && \

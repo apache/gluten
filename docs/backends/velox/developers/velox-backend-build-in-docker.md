@@ -31,7 +31,7 @@ RUN source /opt/rh/gcc-toolset-13/enable && \
     git clone https://github.com/apache/gluten.git && \
     cd gluten && \
     ./dev/builddeps-veloxbe.sh --run_setup_script=OFF --enable_s3=ON --enable_gcs=ON --enable_abfs=ON --enable_vcpkg=ON --build_arrow=OFF && \
-    ./build/mvn clean package -Pbackends-velox -Pceleborn -Piceberg -Pdelta -Pspark-3.4 -DskipTests
+    ./build/mvn clean package -Pbackends-velox -Pceleborn -Piceberg -Pdelta -Pspark-3.5 -DskipTests
 ```
 `enable_vcpkg=ON` enables the static link. Vcpkg packages are already pre-installed in the vcpkg-almalinux-8-gcc13 image and can be reused automatically. The image is maintained by Gluten community.
 
@@ -55,7 +55,7 @@ RUN source /opt/rh/gcc-toolset-11/enable && \
     git clone https://github.com/apache/gluten.git && \
     cd gluten && \
     ./dev/builddeps-veloxbe.sh --run_setup_script=ON --enable_hdfs=ON --enable_vcpkg=OFF --build_arrow=OFF && \
-    mvn clean package -Pbackends-velox -Pceleborn -Piceberg -Pdelta -Pspark-3.4 -DskipTests && \
+    mvn clean package -Pbackends-velox -Pceleborn -Piceberg -Pdelta -Pspark-3.5 -DskipTests && \
     ./dev/build-thirdparty.sh
 ```
 `enable_vcpkg=OFF` enables the dynamic link. Part of shared libraries are pre-installed in the image. You need to specify `--run_setup_script=ON` to install the rest of them. It then packages all dependency libraries into a jar by `build-thirdparty.sh`. 

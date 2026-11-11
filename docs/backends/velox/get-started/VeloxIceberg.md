@@ -9,7 +9,7 @@ parent: Getting-Started
 
 ## Supported Spark version
 
-Every Spark version Gluten supports is supported here, but only Spark 3.4 is well tested.
+Every Spark version Gluten supports is supported here, but only Spark 3.5 is well tested.
 Now only read is supported in Gluten.
 
 ## Support Status

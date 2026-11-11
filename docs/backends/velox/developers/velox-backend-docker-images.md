@@ -22,7 +22,7 @@ except where marked. On disk, a pulled image is roughly twice as large.
 |---|---|---|---|---|
 | [`vcpkg-almalinux-8-gcc13`](https://hub.docker.com/r/apache/gluten/tags?name=vcpkg-almalinux-8-gcc13) | [`Dockerfile.almalinux8-gcc13-static-build`](https://github.com/apache/gluten/blob/main/dev/docker/Dockerfile.almalinux8-gcc13-static-build) | amd64, arm64 | 1.7 GB | Static native builds in `velox_backend_x86`, `delta_spark_ut`, `velox_kafka`, `velox_native_build` (Iceberg), `velox_backend_ansi`, `velox_backend_enhanced`, `velox_nightly`, `velox_backend_cache`, `build_bundle_package` and `build_release`; [release builds](../../../developers/HowToRelease.md); [static build in Docker](velox-backend-build-in-docker.md) |
 | [`vcpkg-centos-9`](https://hub.docker.com/r/apache/gluten/tags?name=vcpkg-centos-9) | [`Dockerfile.centos9-static-build`](https://github.com/apache/gluten/blob/main/dev/docker/Dockerfile.centos9-static-build) | amd64, arm64 | 2.1 GB | Static native build in `velox_backend_arm`; `velox_backend_cache`; the static [dev container](../../../developers/dev-container.md) |
-| [`centos-8-jdk8`](https://hub.docker.com/r/apache/gluten/tags?name=centos-8-jdk8) | [`Dockerfile.centos8-dynamic-build`](https://github.com/apache/gluten/blob/main/dev/docker/Dockerfile.centos8-dynamic-build) | amd64 | 5.5 GB | Spark 3.4 / 3.5 unit tests and the Uniffle TPC job in `velox_backend_x86`; `velox_backend_enhanced`; `velox_nightly`; [dynamic build in Docker](velox-backend-build-in-docker.md) |
+| [`centos-8-jdk8`](https://hub.docker.com/r/apache/gluten/tags?name=centos-8-jdk8) | [`Dockerfile.centos8-dynamic-build`](https://github.com/apache/gluten/blob/main/dev/docker/Dockerfile.centos8-dynamic-build) | amd64 | 5.5 GB | Spark 3.5 unit tests and the Uniffle TPC job in `velox_backend_x86`; `velox_backend_enhanced`; `velox_nightly`; [dynamic build in Docker](velox-backend-build-in-docker.md) |
 | [`centos-8-jdk17`](https://hub.docker.com/r/apache/gluten/tags?name=centos-8-jdk17) | same, `JAVA_VERSION=17` | amd64 | 5.5 GB | Spark 4.0 unit tests and build checks in `velox_backend_x86`; `flink` |
 | [`centos-9-jdk8`](https://hub.docker.com/r/apache/gluten/tags?name=centos-9-jdk8) | [`Dockerfile.centos9-dynamic-build`](https://github.com/apache/gluten/blob/main/dev/docker/Dockerfile.centos9-dynamic-build) | amd64, arm64 | 5.1 GB | `cpp-test-udf-test` (shared build, C++ tests, clang-tidy) in `velox_backend_x86` and `velox_backend_arm`; `velox_backend_cache`; the default [dev container](../../../developers/dev-container.md) |
 | [`centos-9-jdk17`](https://hub.docker.com/r/apache/gluten/tags?name=centos-9-jdk17) | same, `JAVA_VERSION=17` | amd64 | 5.1 GB | Spark 4.1 / 4.2 unit tests in `velox_backend_x86`; `delta_spark_ut`; `velox_backend_ansi`; the Iceberg test shards (`iceberg_upstream_revision`) |
@@ -83,16 +83,16 @@ These images build against shared system libraries. The Spark unit tests run in 
 
 They contain:
 - Arrow, installed into the system paths by `builddeps-veloxbe.sh build_arrow`.
-- Spark test resources for Spark 3.4, 3.5, 3.5 with Scala 2.13, 4.0, 4.1 and 4.2, in
+- Spark test resources for Spark 3.5, 3.5 with Scala 2.13, 4.0, 4.1 and 4.2, in
   `/opt/shims/spark<version>/spark_home` (from `.github/workflows/util/install-spark-resources.sh`).
   The unit tests set `spark.test.home` to these directories.
 - Release tarballs in `/opt`: Celeborn 0.5.4 and 0.6.3. The CentOS 8 images also have Uniffle
   0.10.0 and Hadoop 2.10.2.
 - A Maven repository in `/root/.m2` for Spark 3.5, as in the static images.
 - JDK 17 at `/usr/lib/jvm/java-17-openjdk`, alongside the tag's default JDK, for the Spark unit tests.
-- PySpark virtualenvs at `/opt/pyspark/3.4.4` and `/opt/pyspark/3.5.5`, one for each PySpark version
-  the Spark unit tests use. Each has pandas 2.2.3, pyarrow 20.0.0, cython, regex and requests, on
-  Python 3.9 (CentOS 8) or 3.11 (CentOS 9). To use one, put its `bin/` first in `PATH`, for example
+- A PySpark virtualenv at `/opt/pyspark/3.5.5`, for the PySpark version the Spark unit tests use.
+  It has pandas 2.2.3, pyarrow 20.0.0, cython, regex and requests, on
+  Python 3.9 (CentOS 8) or 3.11 (CentOS 9). To use it, put its `bin/` first in `PATH`, for example
   `echo /opt/pyspark/3.5.5/bin >> $GITHUB_PATH`. The system `python3` is not changed.
 - `gh`, `jq`, procps-ng, which, findutils, gzip and tzdata. CentOS 8 also has patchelf. CentOS 9 also
   has `clang-tools-extra` (clang-tidy) and `regex` for `dev/check.py`.

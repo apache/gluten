@@ -201,12 +201,6 @@
 
   <profiles>
     <profile>
-      <id>spark-3.4</id>
-      <modules>
-        <module>spark34</module>
-      </modules>
-    </profile>
-    <profile>
       <id>spark-3.5</id>
       <modules>
         <module>spark35</module>

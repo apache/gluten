@@ -13,8 +13,8 @@ Gluten supports Ubuntu 20.04/22.04, CentOS 8, and MacOS.
 
 ### JDK
 
-Gluten supports JDK 8 for Spark 3.4 and 3.5, and also supports JDK 11 and 17 for those
-versions.
+Gluten supports JDK 8 for Spark 3.5, and also supports JDK 11 and 17 for that
+version.
 
 Note: Starting with Spark 4.0, the minimum required JDK version is 17. JDK 21 and 25 are also
 supported for Spark 4.0 and later versions.
@@ -269,7 +269,7 @@ Use the following commands to build Gluten. Note that on macOS you must disable 
 # Build velox and gluten-cpp
 ./dev/builddeps-veloxbe.sh --run_setup_script=ON --build_arrow=ON --build_tests=OFF
 # Build java code
-mvn clean install -Pbackends-velox -Pspark-3.4 -DskipTests
+mvn clean install -Pbackends-velox -Pspark-3.5 -DskipTests
 ```
 
 Note: follow the steps in [build-gluten-with-velox-backend](../backends/velox/get-started/Velox.md#build-gluten-with-velox-backend).

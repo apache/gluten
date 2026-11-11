@@ -41,7 +41,7 @@ parent: Getting-Started
 docker pull apache/gluten:centos-9-jdk17-cuda13.1-cudf  # Pre-built GPU image
 docker run --name gpu_gluten_container --gpus all -it apache/gluten:centos-9-jdk17-cuda13.1-cudf
 ```
-- **Image Includes**: Native build cache, Gluten dependencies, Spark 3.4 environment.
+- **Image Includes**: Native build cache, Gluten dependencies, Spark 3.5 environment.
 
 ---
 
