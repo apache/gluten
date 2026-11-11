@@ -48,20 +48,21 @@ class NumericOnlyRexCallConverter extends BaseRexCallConverter {
               .allMatch(
                   arg -> TypeUtils.isNumericOrDecimalType(RexNodeConverter.toType(arg.getType())));
       if (!allNumeric) {
-        return ValidationResult.failure(
-            String.format(
-                "Numeric-only operation requires all operands to be numeric or decimal types, but found: %s",
-                getFunctionProtoTypeName(callNode)));
+        return notNumericFailure(callNode);
       }
     } catch (RuntimeException e) {
       // Operand types without a velox mapping are rejected at planning
       // time rather than blowing up in toType.
-      return ValidationResult.failure(
-          String.format(
-              "Numeric-only operation requires all operands to be numeric or decimal types, but found: %s",
-              getFunctionProtoTypeName(callNode)));
+      return notNumericFailure(callNode);
     }
     return ValidationResult.success();
+  }
+
+  private ValidationResult notNumericFailure(RexCall callNode) {
+    return ValidationResult.failure(
+        String.format(
+            "Numeric-only operation requires all operands to be numeric or decimal types, but found: %s",
+            getFunctionProtoTypeName(callNode)));
   }
 
   @Override
