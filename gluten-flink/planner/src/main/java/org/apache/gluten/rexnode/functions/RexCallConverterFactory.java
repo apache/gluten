@@ -126,7 +126,6 @@ public class RexCallConverterFactory {
           Map.entry("ABS", Arrays.asList(() -> new DefaultRexCallConverter("abs"))),
           Map.entry("FLOOR", Arrays.asList(() -> new NumericOnlyRexCallConverter("floor"))),
           Map.entry("CEIL", Arrays.asList(() -> new NumericOnlyRexCallConverter("ceil"))),
-          Map.entry("CEILING", Arrays.asList(() -> new DefaultRexCallConverter("ceil"))),
           Map.entry("ROUND", Arrays.asList(() -> new DecimalPostCastRexCallConverter("round"))),
           // Offload targets implemented in velox's flinksql namespace;
           // the names arrive upper-cased from the operator table.
