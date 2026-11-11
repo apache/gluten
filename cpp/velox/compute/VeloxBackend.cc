@@ -397,9 +397,17 @@ void VeloxBackend::initCache() {
     uint64_t memCacheSize = backendConf_->get<uint64_t>(kVeloxMemCacheSize, kVeloxMemCacheSizeDefault);
     uint64_t ssdCacheSize = backendConf_->get<uint64_t>(kVeloxSsdCacheSize, kVeloxSsdCacheSizeDefault);
 
-    velox::memory::MmapAllocator::Options options;
+    velox::memory::MemoryAllocator::Options options;
     options.capacity = memCacheSize;
-    cacheAllocator_ = std::make_shared<velox::memory::MmapAllocator>(options);
+    // MmapAllocator tracks memory in 4 KB pages and refuses to start when the system page size differs (e.g. 64 KB
+    // pages on aarch64 kernels); fall back to MallocAllocator there.
+    if (velox::memory::MmapAllocator::isPageSizeSupported()) {
+      cacheAllocator_ = std::make_shared<velox::memory::MmapAllocator>(options);
+    } else {
+      LOG(WARNING) << "System page size " << velox::memory::MmapAllocator::systemPageSize()
+                   << " is not supported by MmapAllocator; using MallocAllocator for AsyncDataCache";
+      cacheAllocator_ = std::make_shared<velox::memory::MallocAllocator>(options);
+    }
     if (ssdCacheSize == 0) {
       LOG(INFO) << "AsyncDataCache will do memory caching only as ssd cache size is 0";
       // TODO: this is not tracked by Spark.
