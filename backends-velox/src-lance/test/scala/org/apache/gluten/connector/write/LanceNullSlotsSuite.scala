@@ -146,4 +146,40 @@ class LanceNullSlotsSuite extends AnyFunSuite {
         })
     }
   }
+
+  test("zeroes the values of a struct's children in the rows where the struct is null") {
+    // s (null at 1 and 70) holds i (null at 3) and n (null at 5), and n holds l (no nulls).
+    val rows = 72
+    withRoot(
+      field(
+        "s",
+        ArrowType.Struct.INSTANCE,
+        field("i", new ArrowType.Int(32, true)),
+        field("n", ArrowType.Struct.INSTANCE, field("l", new ArrowType.Int(64, true))))) {
+      (root, allocator) =>
+        val s = root.getVector(0).asInstanceOf[StructVector]
+        val n = s.getChild("n", classOf[StructVector])
+        fill(s.getChild("i", classOf[IntVector]), rows, Set(3))
+        fill(n.getChild("l", classOf[BigIntVector]), rows, Set.empty)
+        (0 until rows).foreach {
+          row =>
+            if (row != 5) n.setIndexDefined(row)
+            if (row != 1 && row != 70) s.setIndexDefined(row)
+        }
+        n.setValueCount(rows)
+        s.setValueCount(rows)
+        root.setRowCount(rows)
+        val before = (0 until rows).map(s.getObject)
+
+        LanceNullSlots.zero(root, allocator)
+
+        val i = s.getChild("i", classOf[IntVector])
+        val l = n.getChild("l", classOf[BigIntVector])
+        assert((0 until rows).filter(slotIsZero(i, _)) == Seq(1, 3, 70))
+        assert((0 until rows).filter(slotIsZero(l, _)) == Seq(1, 5, 70))
+        // Only the values change: a child keeps its own validity under a null struct.
+        assert(!i.isNull(1) && l.getNullCount == 0)
+        assert((0 until rows).map(s.getObject) == before)
+    }
+  }
 }

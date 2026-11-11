@@ -79,7 +79,7 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
   @volatile private var streamEnded = false
   // Set by the task to make the stream fail, so Lance stops writing.
   @volatile private var stopRequested = false
-  private var stopTimedOut = false
+  private var stopWaited = false
 
   private var recordsWritten = 0L
   private var bytesWritten = 0L
@@ -102,6 +102,9 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
     }
     if (thread == null) {
       start()
+    } else {
+      // Once Lance has failed, it reads no more batches, so do not export them.
+      checkWriter()
     }
     enqueue(exportBatch(batch))
     recordsWritten += numRows
@@ -209,10 +212,7 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
   private def enqueue(item: Item): Unit = {
     try {
       while (!queue.offer(item, PollIntervalMs, TimeUnit.MILLISECONDS)) {
-        if (!thread.isAlive) {
-          throwIfFailed()
-          throw new IllegalStateException("Lance write thread exited before the stream ended")
-        }
+        checkWriter()
       }
     } catch {
       case t: Throwable =>
@@ -223,16 +223,22 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
 
   /**
    * Makes the stream fail so Lance stops writing, then waits for the writer thread, once: abort()
-   * and close() both stop it, and a task should not wait twice for a writer stuck in I/O.
+   * and close() both stop it, and a task should not wait twice for a writer stuck in I/O, even when
+   * the first wait is interrupted.
    */
   private def stopWriter(): Unit = {
     stopRequested = true
     drain()
-    if (thread != null && thread.isAlive && !stopTimedOut) {
-      thread.join(StopTimeoutMs)
+    if (thread != null && thread.isAlive && !stopWaited) {
+      stopWaited = true
+      try {
+        thread.join(StopTimeoutMs)
+      } catch {
+        // Spark interrupts a task it kills. Keep the interrupt for Spark to see.
+        case _: InterruptedException => Thread.currentThread().interrupt()
+      }
       if (thread.isAlive) {
-        stopTimedOut = true
-        logWarning(s"Lance write thread did not stop within $StopTimeoutMs ms")
+        logWarning("Lance write thread is still running after the task stopped it")
       }
     }
   }
@@ -248,6 +254,14 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
   private def throwIfFailed(): Unit = {
     if (failure != null) {
       throw new IOException("Lance native write failed", failure)
+    }
+  }
+
+  /** Fails the task if Lance has failed, or stopped reading before the end of the stream. */
+  private def checkWriter(): Unit = {
+    throwIfFailed()
+    if (!thread.isAlive) {
+      throw new IllegalStateException("Lance write thread exited before the stream ended")
     }
   }
 

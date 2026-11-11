@@ -26,12 +26,13 @@ import org.apache.spark.sql.execution.datasources.v2.{AppendDataExec, OverwriteB
 import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.gluten.LanceTestUtils
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{Metadata, MetadataBuilder}
+import org.apache.spark.sql.types.{IntegerType, MapType, Metadata, MetadataBuilder, StructType, TimestampType}
 import org.apache.spark.sql.util.QueryExecutionListener
 import org.apache.spark.task.TaskResources
 
 import org.apache.arrow.memory.RootAllocator
-import org.apache.arrow.vector.{BaseFixedWidthVector, BitVector}
+import org.apache.arrow.vector.{BaseFixedWidthVector, BitVector, FieldVector}
+import org.apache.arrow.vector.complex.StructVector
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType, Schema}
 import org.lance.WriteParams
 import org.lance.spark.utils.BlobUtils
@@ -502,21 +503,35 @@ class VeloxLanceWriteSuite extends VeloxWholeStageTransformerSuite {
           val reader = scanner.scanBatches()
           try {
             val counts = scala.collection.mutable.Map[String, Int]()
-            while (reader.loadNextBatch()) {
-              reader.getVectorSchemaRoot.getFieldVectors.asScala.foreach {
-                case v: BaseFixedWidthVector if !v.isInstanceOf[BitVector] =>
-                  val width = v.getTypeWidth
-                  val data = v.getDataBuffer
-                  (0 until v.getValueCount).foreach {
+            // A value in a row where an enclosing struct is null counts as a null slot too.
+            def count(v: FieldVector, name: String, parentNull: Int => Boolean): Unit = {
+              val isNull = (row: Int) => v.isNull(row) || parentNull(row)
+              v match {
+                case fixed: BaseFixedWidthVector if !fixed.isInstanceOf[BitVector] =>
+                  val width = fixed.getTypeWidth
+                  val data = fixed.getDataBuffer
+                  (0 until fixed.getValueCount).foreach {
                     row =>
                       if (
-                        v.isNull(row) &&
+                        isNull(row) &&
                         (0 until width).exists(i => data.getByte(row.toLong * width + i) != 0)
                       ) {
-                        counts(v.getName) = counts.getOrElse(v.getName, 0) + 1
+                        counts(name) = counts.getOrElse(name, 0) + 1
                       }
                   }
                 case _ =>
+              }
+              val childParentNull: Int => Boolean = v match {
+                case _: StructVector => isNull
+                case _ => _ => false
+              }
+              v.getChildrenFromFields.asScala.foreach {
+                child => count(child, s"$name.${child.getName}", childParentNull)
+              }
+            }
+            while (reader.loadNextBatch()) {
+              reader.getVectorSchemaRoot.getFieldVectors.asScala.foreach {
+                v => count(v, v.getName, _ => false)
               }
             }
             counts.toMap
@@ -659,13 +674,24 @@ class VeloxLanceWriteSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
+  test("the check for timestamps in nullable structs also looks inside map keys") {
+    val maybeNull = new StructType().add("t", TimestampType)
+    def keyed(nullable: Boolean): StructType =
+      new StructType()
+        .add("m", MapType(new StructType().add("s", maybeNull, nullable), IntegerType))
+    assert(LanceWriteExec.timestampInNullableStruct(keyed(nullable = true)).contains("m.key.s.t"))
+    assert(LanceWriteExec.timestampInNullableStruct(keyed(nullable = false)).isEmpty)
+  }
+
   test("a failure inside Lance fails the task and leaves the table unchanged") {
     withSQLConf(GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> "8") {
       withLanceTable(rows(0, 10)) {
         uri =>
-          // Lance cannot create data files in a read-only directory.
+          // Lance cannot create data files when a regular file stands where the data directory
+          // was. A read-only directory would not do: CI runs as root, which can write into it.
           val data = new File(uri, "data")
-          assert(data.isDirectory && data.setWritable(false))
+          val moved = new File(uri, "data.moved")
+          assert(data.isDirectory && data.renameTo(moved) && data.createNewFile())
           try {
             assertNoArrowLeak {
               val e = intercept[Exception] {
@@ -674,7 +700,7 @@ class VeloxLanceWriteSuite extends VeloxWholeStageTransformerSuite {
               assert(causedBy(e, "Lance native write failed"), e)
             }
           } finally {
-            data.setWritable(true)
+            assert(data.delete() && moved.renameTo(data))
           }
           checkAnswer(read(uri), rows(0, 10))
       }

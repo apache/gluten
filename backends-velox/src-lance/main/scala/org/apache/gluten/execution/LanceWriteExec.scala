@@ -122,7 +122,14 @@ object LanceWriteExec {
     case a: ArrayType =>
       timestampInNullableStruct(a.elementType, s"$name.element", a.containsNull, inNullableStruct)
     case m: MapType =>
-      timestampInNullableStruct(m.valueType, s"$name.value", m.valueContainsNull, inNullableStruct)
+      // Keys are never null, but a struct inside a key may be.
+      timestampInNullableStruct(m.keyType, s"$name.key", mayBeNull = false, inNullableStruct)
+        .orElse(
+          timestampInNullableStruct(
+            m.valueType,
+            s"$name.value",
+            m.valueContainsNull,
+            inNullableStruct))
     case _ => None
   }
 

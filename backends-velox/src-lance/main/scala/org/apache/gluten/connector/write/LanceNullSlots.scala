@@ -18,25 +18,28 @@ package org.apache.gluten.connector.write
 
 import org.apache.arrow.memory.{ArrowBuf, BufferAllocator}
 import org.apache.arrow.vector.{BaseFixedWidthVector, BitVector, FieldVector, VectorSchemaRoot}
+import org.apache.arrow.vector.complex.StructVector
 import org.apache.arrow.vector.ipc.message.ArrowFieldNode
 
 import scala.collection.JavaConverters._
 
 /**
- * Zeroes the values under nulls in fixed-width columns.
+ * Zeroes the values under nulls in fixed-width columns, including the values of a struct's children
+ * in the rows where the struct is null.
  *
  * Arrow leaves the value of a null slot undefined, and Velox exports whatever its buffers hold
  * there. Lance counts those slots when it picks an encoding, so leftover values widen bit-packed
- * integers and defeat dictionaries, and the files grow. Spark's ArrowWriter, which lance-spark's
- * row writer uses, leaves zeros. The exported buffers belong to Velox and may be shared with other
- * vectors, so they are never written: a column with a non-zero null slot is copied, and the copy is
- * zeroed.
+ * integers and defeat dictionaries, and the files grow. Lance also pushes a struct's nulls down to
+ * its children before encoding them. Spark's ArrowWriter, which lance-spark's row writer uses,
+ * leaves zeros, and nulls a null struct's children. The exported buffers belong to Velox and may be
+ * shared with other vectors, so they are never written: a column with a non-zero null slot is
+ * copied, and the copy is zeroed.
  */
 object LanceNullSlots {
 
   /** Zeroes the null slots of the fixed-width vectors in `root`, nested ones included. */
   def zero(root: VectorSchemaRoot, allocator: BufferAllocator): Unit =
-    root.getFieldVectors.asScala.foreach(zero(_, allocator))
+    root.getFieldVectors.asScala.foreach(zero(_, Nil, allocator))
 
   /**
    * The bytes of a validity bitmap of `bits` bits. Arrow 19 renamed BitVectorHelper's
@@ -44,22 +47,39 @@ object LanceNullSlots {
    */
   private[write] def validityBytes(bits: Int): Int = ((bits + 7L) / 8).toInt
 
-  private def zero(vector: FieldVector, allocator: BufferAllocator): Unit = {
+  /**
+   * `parentNulls` holds the validity bitmaps of the structs above `vector` that have nulls. They
+   * line up with its rows, and a value in a row where one of them is null is a null slot too.
+   */
+  private def zero(
+      vector: FieldVector,
+      parentNulls: List[ArrowBuf],
+      allocator: BufferAllocator): Unit = {
+    val nulls =
+      if (vector.getNullCount > 0) vector.getValidityBuffer :: parentNulls else parentNulls
     vector match {
       // Booleans are single bits, so leftover values cost Lance next to nothing.
       case _: BitVector =>
-      case fixed: BaseFixedWidthVector if fixed.getNullCount > 0 && hasNonZeroNullSlot(fixed) =>
-        replaceWithZeroedCopy(fixed, allocator)
+      case fixed: BaseFixedWidthVector if nulls.nonEmpty && hasNonZeroNullSlot(fixed, nulls) =>
+        replaceWithZeroedCopy(fixed, nulls, allocator)
       case _ =>
     }
-    vector.getChildrenFromFields.asScala.foreach(zero(_, allocator))
+    vector.getChildrenFromFields.asScala.foreach {
+      child =>
+        // A struct's children line up with its rows; the elements of lists and maps do not.
+        val childParentNulls = vector match {
+          case struct: StructVector if child.getValueCount == struct.getValueCount => nulls
+          case _ => Nil
+        }
+        zero(child, childParentNulls, allocator)
+    }
   }
 
-  private def hasNonZeroNullSlot(vector: BaseFixedWidthVector): Boolean = {
+  private def hasNonZeroNullSlot(vector: BaseFixedWidthVector, nulls: List[ArrowBuf]): Boolean = {
     val data = vector.getDataBuffer
     val width = vector.getTypeWidth
     var found = false
-    foreachNull(vector.getValidityBuffer, vector.getValueCount) {
+    foreachNull(nulls, vector.getValueCount) {
       row =>
         found = !isZero(data, row.toLong * width, width)
         !found
@@ -84,9 +104,10 @@ object LanceNullSlots {
     true
   }
 
-  /** Swaps the buffers of `vector` for a copy whose null slots are zero. */
+  /** Swaps the buffers of `vector` for a copy whose slots that `nulls` marks null are zero. */
   private def replaceWithZeroedCopy(
       vector: BaseFixedWidthVector,
+      nulls: List[ArrowBuf],
       allocator: BufferAllocator): Unit = {
     val rows = vector.getValueCount
     val width = vector.getTypeWidth.toLong
@@ -96,12 +117,17 @@ object LanceNullSlots {
     val validity = allocator.buffer(bitmapBytes)
     val data = allocator.buffer(rows * width)
     try {
-      validity.setBytes(0, vector.getValidityBuffer, 0, bitmapBytes)
+      // Only the values change: a value under a null struct keeps its own validity.
+      if (vector.getNullCount > 0) {
+        validity.setBytes(0, vector.getValidityBuffer, 0, bitmapBytes)
+      } else {
+        validity.setOne(0, bitmapBytes)
+      }
       data.setBytes(0, vector.getDataBuffer, 0, rows * width)
       // Zeroes each run of consecutive nulls at once.
       var runStart = -1
       var runEnd = -1
-      foreachNull(validity, rows) {
+      foreachNull(nulls, rows) {
         row =>
           if (row != runEnd) {
             if (runStart >= 0) {
@@ -129,15 +155,18 @@ object LanceNullSlots {
   }
 
   /**
-   * Calls `f` with each null slot of a bitmap of `rows` bits, in order, until it returns false. The
-   * bitmap is read a word at a time, so words without nulls cost one read.
+   * Calls `f` with each of the first `rows` slots that is null in any of the `validities` bitmaps,
+   * in order, until it returns false. The bitmaps are read a word at a time, so words without nulls
+   * cost one read each.
    */
-  private def foreachNull(validity: ArrowBuf, rows: Int)(f: Int => Boolean): Unit = {
+  private def foreachNull(validities: List[ArrowBuf], rows: Int)(f: Int => Boolean): Unit = {
     val bytes = validityBytes(rows)
     var word = 0
     while (word * 64 < rows) {
       val first = word * 64
-      var nulls = ~readWord(validity, word * 8L, bytes)
+      var valid = -1L
+      validities.foreach(validity => valid &= readWord(validity, word * 8L, bytes))
+      var nulls = ~valid
       if (rows - first < 64) {
         nulls &= (1L << (rows - first)) - 1
       }
