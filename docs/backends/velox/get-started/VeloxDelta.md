@@ -447,7 +447,7 @@ These need native write on, unless a row says otherwise. On Spark 4.x, many of t
 | Problem | Status | Versions | Issue |
 |---|---|---|---|
 | A write partitioned by a FLOAT or DOUBLE column fails with `Unsupported partition type`. | Exception | 3.5, from code. Spark 4.x only with `delta.writePartitionColumnsToParquet=false` (from code) | [#13138](https://github.com/apache/gluten/issues/13138) |
-| A write to a path scheme the native library cannot write fails at task time. This covers custom Hadoop file systems, and S3, GCS, HDFS or ABFS in a build without that connector. | Exception | 3.5 and 4.x, seen on 4.1 (custom file system), from code (missing connector) | [#4963](https://github.com/apache/gluten/issues/4963) |
+| A write to a path scheme the native library cannot write fails at task time. This covers custom Hadoop file systems, and S3, GCS, HDFS or ABFS in a build without that connector. | Exception | 3.5, from code. Spark 4.x falls back: seen on 4.1 for custom file systems, from code for a missing connector | [#4963](https://github.com/apache/gluten/issues/4963) |
 | Files written for a column mapping table, in name or id mode, have no Parquet field IDs, which the Delta Lake protocol requires. Delta Lake and Gluten read name-mode files by physical name. Readers that match by field ID cannot. | ResultMismatch | 3.5, from code. Spark 4.x falls back | |
 | Spark's own reader fails on natively written id-mode files with `Spark read schema expects field Ids, but Parquet file schema doesn't contain any field Ids`. Spark uses this reader when a scan falls back or Gluten is off. With `spark.sql.parquet.fieldId.read.ignoreMissing=true`, Spark skips this check and returns NULL for the data columns of these files (from code). That setting is not tested with these files. | Exception | 3.5, from code. Spark 4.x falls back | |
 | Files written for a UniForm table have no Parquet field IDs, so the Iceberg metadata points at files without IDs. No error is raised. | ResultMismatch | 3.5, from code. Spark 4.x falls back | [#12957](https://github.com/apache/gluten/pull/12957) |
@@ -591,7 +591,7 @@ A blank cell means unknown.
 | userMetadata | (unset) | Stored in `commitInfo.userMetadata`. Commit only. | 🚫 |
 | dataChange | true | Sets `dataChange` on the file actions. Commit only. | 🚫 |
 | parquet.* Hadoop settings | | Native writes ignore `parquet.*` keys in the Hadoop configuration, such as `spark.hadoop.parquet.block.size`, which Delta's writer applies. Delta Lake drops `parquet.*` writer options before the write, so as writer options they have no effect with or without Gluten. Both are from code. Use `spark.gluten.sql.columnar.parquet.write.blockSize` for row groups. On Spark 4.x, `parquet.writer.version=v2` and `parquet.crypto.factory.class` make the write fall back (from code). | ❌ |
-| File system schemes the native library cannot write | | Native writes fail at task time instead of falling back. A custom Hadoop file system scheme fails (seen on 4.1). See [Write problems](#write-problems). | ❌ |
+| File system schemes the native library cannot write | | On Spark 3.5, native writes fail at task time instead of falling back (from code). On Spark 4.x, the write falls back to Delta's writer: seen on 4.1 for a custom Hadoop file system scheme, from code for a missing connector. See [Write problems](#write-problems). | ⚠️ |
 | fs.* per-write options for supported stores | | Per-write options such as `fs.s3a.access.key` do not reach the native writer (from code). | ❌ |
 
 ### Delta Table Properties
