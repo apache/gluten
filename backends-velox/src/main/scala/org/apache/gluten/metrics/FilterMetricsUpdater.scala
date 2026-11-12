@@ -37,6 +37,8 @@ class FilterMetricsUpdater(
       extraMetrics.foreach {
         case (name, metric) =>
           name match {
+            // Delta's filter counters never run natively (no IncrementMetricCall): only a stack
+            // over a literal true is offloaded, and it keeps every row, so its count is the output.
             case "increment_metric" => metric += operatorMetrics.outputRows
             case _ => // do nothing
           }
