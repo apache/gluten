@@ -348,6 +348,68 @@ class JsonFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  // apache/gluten#13251: from_json matches JSON keys against schema field names
+  // case-sensitively, regardless of spark.sql.caseSensitive. Bolt's from_json is also
+  // case-sensitive, so the schema field names must reach Bolt unchanged.
+  private def withJsonTable(rows: Seq[String])(f: => Unit): Unit = {
+    withTempPath {
+      path =>
+        rows.toDF("txt").write.parquet(path.getCanonicalPath)
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("tbl")
+        f
+    }
+  }
+
+  test("from_json preserves schema field name case, caseSensitive=false") {
+    withSQLConf("spark.sql.caseSensitive" -> "false") {
+      withJsonTable(Seq("""{"Id":"10", "Value":"11"}""")) {
+        val df =
+          runQueryAndCompare("select from_json(txt, 'Id STRING, Value STRING') as r from tbl") {
+            checkGlutenPlan[ProjectExecTransformer]
+          }
+        // Explicit expectation, independent of the vanilla comparison.
+        assert(df.collect().map(_.getStruct(0).toSeq).toSeq === Seq(Seq("10", "11")))
+      }
+    }
+  }
+
+  test("from_json mixed-case schema names match JSON keys exactly") {
+    withSQLConf("spark.sql.caseSensitive" -> "false") {
+      withJsonTable(Seq("""{"userId":1, "UserName":"a", "ZIP":"9"}""")) {
+        val df = runQueryAndCompare(
+          "select from_json(txt, 'userId INT, UserName STRING, ZIP STRING') as r from tbl") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        assert(df.collect().map(_.getStruct(0).toSeq).toSeq === Seq(Seq(1, "a", "9")))
+      }
+    }
+  }
+
+  test("from_json mismatched case yields null, as vanilla Spark") {
+    withSQLConf("spark.sql.caseSensitive" -> "false") {
+      withJsonTable(Seq("""{"id":"10", "value":"11"}""")) {
+        val df = runQueryAndCompare(
+          "select from_json(txt, 'Id STRING, Value STRING') as r from tbl") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        assert(df.collect().map(_.getStruct(0).toSeq).toSeq === Seq(Seq(null, null)))
+      }
+    }
+  }
+
+  test("from_json preserves nested struct field name case") {
+    withSQLConf("spark.sql.caseSensitive" -> "false") {
+      withJsonTable(Seq("""{"Outer":{"Inner":"x", "Arr":[{"DeepKey":1}]}}""")) {
+        val df = runQueryAndCompare(
+          "select from_json(txt, " +
+            "'Outer STRUCT<Inner: STRING, Arr: ARRAY<STRUCT<DeepKey: INT>>>') as r from tbl") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+        assert(df.collect().head.getStruct(0).getStruct(0).getString(0) === "x")
+      }
+    }
+  }
+
   ignore("json_object_keys") {
     withTempPath {
       path =>

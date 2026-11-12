@@ -16,8 +16,6 @@
  */
 package org.apache.gluten.expression
 
-import org.apache.spark.sql.internal.SQLConf
-
 trait ExpressionRestrictions {
   val functionName: String
   val restrictionMessages: Array[String]
@@ -29,9 +27,6 @@ object FromJsonRestrictions extends ExpressionRestrictions {
       s"is not supported in Velox"
   val NOT_SUPPORT_WITH_OPTIONS: String =
     s"${ExpressionNames.FROM_JSON} with options is not supported in Velox"
-  val NOT_SUPPORT_CASE_SENSITIVE: String =
-    s"${ExpressionNames.FROM_JSON} with " +
-      s"'${SQLConf.CASE_SENSITIVE.key} = true' is not supported in Velox"
   val NOT_SUPPORT_DUPLICATE_KEYS: String =
     s"${ExpressionNames.FROM_JSON} with duplicate keys is not supported in Velox"
   val NOT_SUPPORT_COLUMN_CORRUPT_RECORD: String =
@@ -42,7 +37,6 @@ object FromJsonRestrictions extends ExpressionRestrictions {
   override val restrictionMessages: Array[String] = Array(
     MUST_ENABLE_PARTIAL_RESULTS,
     NOT_SUPPORT_WITH_OPTIONS,
-    NOT_SUPPORT_CASE_SENSITIVE,
     NOT_SUPPORT_DUPLICATE_KEYS,
     NOT_SUPPORT_COLUMN_CORRUPT_RECORD
   )
