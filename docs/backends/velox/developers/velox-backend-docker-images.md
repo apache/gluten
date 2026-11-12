@@ -167,12 +167,77 @@ Notes:
   `vcpkg-centos-7*`, `vcpkg-centos-8`, `vcpkg-centos-8-gcc13`, `centos-8`, `centos-8-dev`,
   `centos-8-jdk11`, `centos-9-jdk8-cudf`, `centos-9-jdk11`, `centos-9-jdk17-cuda12.9-cudf`,
   `ubuntu22-m2-cache` and `gluten-vcpkg-builder_*`, but none of them is updated any more.
+  Apart from the prebuilt Velox image below, which precedes its CI consumer migration,
   `docker_image.yml` only publishes images that a workflow on `main` uses. Tags that only release
   branches use stay on Docker Hub as they were last built:
   - `vcpkg-centos-7`: `branch-1.2` to `branch-1.6`
   - `vcpkg-centos-7-gcc13` and `vcpkg-centos-8-gcc13`: `branch-1.7`
   - `vcpkg-centos-8`: `branch-1.5` and `branch-1.6`
   - `centos-8-jdk11` and `centos-9-jdk8-cudf`: `branch-1.5` to `branch-1.7`
+
+## Prebuilt static Velox image
+
+`velox_image.yml` builds an amd64 image with Velox already compiled in `/opt/velox`, on top
+of the digest-pinned `vcpkg-almalinux-8-gcc13` image. This is the publishing stage of the
+[Velox image-cache proposal](https://github.com/apache/gluten/issues/12288#issuecomment-6375617432).
+Native CI jobs continue using their existing images until the consumer follow-up lands.
+
+`dev/ci-velox-key.py` reads the build flags from `ci-velox-buildstatic-centos-8.sh` and hashes:
+
+- the resolved Velox commit and repository;
+- tracked files in `ep/build-velox/src/` and `dev/vcpkg/`;
+- the build wrapper, helper, CI script, key script and both Dockerfile recipes;
+- the base image digest and the amd64/static/GCC 13 build variant.
+
+Generated build outputs are excluded. A missing or ambiguous Velox ref fails instead of
+publishing an image under an incomplete key. The build fetches the resolved commit explicitly
+and checks the key before compiling, so a moving Velox branch cannot change the image contents
+between preparation and checkout.
+
+The image retains the full Velox source and `_build/release` tree, plus vcpkg dependencies at
+`/opt/gluten/dev/vcpkg`. Keep those absolute paths when consuming it: CMake exports refer to
+them. `/opt/velox/.velox-key` records its key; `.velox-build.json` records the inputs and flags.
+
+The publisher first loads the image locally, records its uncompressed size and runner disk use,
+and times a `build_gluten_cpp` smoke build against `/opt/velox` with `NUM_THREADS=2`. It publishes
+only after that succeeds. The step summary contains the measurements needed to assess the
+image's size and actual saving before switching CI consumers.
+
+Published tags are:
+
+- `velox-static-slot-0` to `velox-static-slot-7`: the eight most recently published keys;
+- `velox-static-latest` and `velox-static-almalinux-8-gcc13`: moving aliases.
+
+CI can't delete Docker Hub tags, so a new key overwrites the least recently published slot instead
+of adding a tag. Each image records its key in the `org.apache.gluten.velox-key` label and its
+publish order in `org.apache.gluten.velox-sequence`. An existing key is reused without rebuilding.
+`dev/ci-velox-key.py slot --expected-key=<key>` reports the slot holding a key, inspecting only
+the image manifests. If no slot holds it, use `velox-static-latest`: the build script checks out the
+requested Velox commit and rebuilds only what changed.
+
+Native-input pushes to `main` run `velox_image.yml` directly. `docker_image.yml` also calls it
+after the AlmaLinux base image is published, including weekly refreshes. This keeps native-only
+updates from rebuilding all unrelated images. Pull requests run the key unit tests without
+building or publishing the large native image. Publishing is restricted to `apache/gluten` on
+`main` and requires the existing Docker Hub secrets.
+
+To build and measure locally, use a clean Git checkout (the key script reads the tracked input
+list), Docker with BuildKit, and an amd64 Linux host:
+
+```bash
+base=apache/gluten:vcpkg-almalinux-8-gcc13
+docker pull --platform linux/amd64 "$base"
+base_digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$base")
+python3 dev/ci-velox-key.py key --base-image="$base_digest" > /tmp/velox-image.json
+key=$(python3 -c 'import json; print(json.load(open("/tmp/velox-image.json"))["key"])')
+commit=$(python3 -c 'import json; print(json.load(open("/tmp/velox-image.json"))["velox_commit"])')
+docker buildx build --load --platform linux/amd64 \
+  -f dev/docker/Dockerfile.velox-static-almalinux8-gcc13 \
+  --build-arg BASE_IMAGE="$base_digest" --build-arg VELOX_COMMIT="$commit" \
+  --build-arg VELOX_KEY="$key" -t "gluten-velox:$key" .
+docker run --rm --mount "type=bind,source=$PWD,target=/workspace" "gluten-velox:$key" \
+  bash -c 'source /opt/rh/gcc-toolset-13/enable && python3.9 /opt/gluten/dev/ci-velox-key.py smoke --repository-root=/workspace'
+```
 
 ## Building an image locally
 
