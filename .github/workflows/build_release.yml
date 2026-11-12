@@ -30,7 +30,7 @@ jobs:
       - name: Build
         run: |
           source /opt/rh/gcc-toolset-13/enable
-          bash dev/release/build-release.sh
+          ./dev/release/build-release.sh
       - name: Upload packages
         if: ${{ success() }}
         uses: actions/upload-artifact@v7
