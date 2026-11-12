@@ -152,6 +152,53 @@ class GlutenClickhouseStringFunctionsSuite extends GlutenClickHouseWholeStageTra
     }
   }
 
+  test("regex extraction and matching agree with Spark for matches and missing groups") {
+    withTable("regex_consistency_extract") {
+      sql("create table regex_consistency_extract(src String) using parquet")
+      sql("""insert into regex_consistency_extract values
+            | ('ab12cd34'), ('ab'), (''), (null)
+            |""".stripMargin)
+
+      runQueryAndCompare("""select regexp_extract(src, '([0-9]+)', 0),
+                           |       regexp_extract(src, '([0-9]+)', 1),
+                           |       regexp_extract(src, '([0-9]+)', 1) = '',
+                           |       regexp_extract_all(src, '([0-9]+)', 1),
+                           |       rlike(src, '[0-9]+')
+                           |from regex_consistency_extract
+                           |""".stripMargin) { _ => }
+    }
+  }
+
+  test("regex replacement and splitting agree with Spark on literal and pattern inputs") {
+    withTable("regex_consistency_transform") {
+      sql("create table regex_consistency_transform(src String) using parquet")
+      sql("""insert into regex_consistency_transform values
+            | ('a.1.b.2'), ('a..b.'), (''), (null)
+            |""".stripMargin)
+
+      runQueryAndCompare("""select regexp_replace(src, '[0-9]+$', 'X'),
+                           |       replace(src, '.', '-'),
+                           |       split(src, '[.]'),
+                           |       split(src, '[.]', -1)
+                           |from regex_consistency_transform
+                           |""".stripMargin) { _ => }
+    }
+  }
+
+  test("regex DOTALL scope agrees with Spark") {
+    withTable("regex_dotall_scope") {
+      sql("create table regex_dotall_scope(src String) using parquet")
+      sql("insert into regex_dotall_scope select concat('a', char(10), 'b')")
+
+      runQueryAndCompare("""select regexp_extract(src, 'a(?s:.)b', 0),
+                           |       regexp_extract(src, 'a.b', 0),
+                           |       rlike(src, 'a(?s:.)b'),
+                           |       regexp_replace(src, '(?s:.)', 'X')
+                           |from regex_dotall_scope
+                           |""".stripMargin) { _ => }
+    }
+  }
+
   test("replace") {
     val tableName = "replace_table"
     withTable(tableName) {

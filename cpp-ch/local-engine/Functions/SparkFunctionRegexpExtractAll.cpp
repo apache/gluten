@@ -180,7 +180,10 @@ namespace
                 res_strings_offsets.push_back(res_strings_offset);
                 ++i;
 
-                pos += matches[0].offset + matches[0].length;
+                // Spark advances by one character after a zero-width match. At
+                // minimum make forward progress here instead of looping forever.
+                const auto advance = matches[0].offset + matches[0].length;
+                pos += advance ? advance : 1;
             }
 
             /// Update offsets of Column:Array(String)

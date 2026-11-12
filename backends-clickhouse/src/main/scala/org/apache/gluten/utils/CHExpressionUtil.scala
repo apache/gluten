@@ -79,10 +79,35 @@ case class GetJsonObjectValidator() extends FunctionValidator {
   }
 }
 
+// Reject non-constant patterns and common unsupported Java constructs before offloading.
+// The native translator performs the complete supported-subset check.
+case class SparkRegexpValidator() extends FunctionValidator {
+  override def doValidate(expr: Expression): Boolean =
+    expr.children.size > 1 && SparkRegexpValidator.isSupported(expr.children(1))
+}
+
+object SparkRegexpValidator {
+  def isSupported(pattern: Expression): Boolean = pattern match {
+    case literal: Literal if literal.value.isInstanceOf[UTF8String] =>
+      val text = literal.value.asInstanceOf[UTF8String].toString
+      // Features without an equivalent RE2 translation must run in Spark.
+      !text.contains("&&") &&
+      !text.contains("(?=") && !text.contains("(?!") &&
+      !text.contains("(?<") && !text.contains("(?>") &&
+      !text.contains("(?m") &&
+      !text.contains("(?u") && !text.contains("(?x") && !text.contains("(?d") &&
+      !text.contains("(?U") && !text.contains("(?c") &&
+      !text.contains("}+") &&
+      !text.matches("(?s).*\\\\[1-9].*") &&
+      !text.matches("(?s).*\\\\[RXC].*")
+    case _ => false
+  }
+}
+
 case class StringSplitValidator() extends FunctionValidator {
   override def doValidate(expr: Expression): Boolean = {
     val split = expr.asInstanceOf[StringSplit]
-    if (!split.regex.isInstanceOf[Literal] || !split.limit.isInstanceOf[Literal]) {
+    if (!SparkRegexpValidator.isSupported(split.regex) || !split.limit.isInstanceOf[Literal]) {
       return false
     }
 
@@ -180,6 +205,10 @@ object CHExpressionUtil {
     SEQUENCE -> SequenceValidator(),
     GET_JSON_OBJECT -> GetJsonObjectValidator(),
     SPLIT -> StringSplitValidator(),
+    RLIKE -> SparkRegexpValidator(),
+    REGEXP_EXTRACT -> SparkRegexpValidator(),
+    REGEXP_EXTRACT_ALL -> SparkRegexpValidator(),
+    REGEXP_REPLACE -> SparkRegexpValidator(),
     SUBSTRING_INDEX -> SubstringIndexValidator(),
     LPAD -> StringLPadValidator(),
     RPAD -> StringRPadValidator(),
