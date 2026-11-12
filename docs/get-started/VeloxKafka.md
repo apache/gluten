@@ -39,8 +39,9 @@ Spark can distribute tasks across multiple executors.
 - Supported columns are `key` and `value` (`binary`), `topic` (`string`),
   `partition` and `timestampType` (`int`), `offset` (`long`), and `timestamp`
   (`timestamp`). Decode keys and values in the query as needed.
-- The native reader does not support `headers`. Filters run above the scan;
-  Kafka predicate pushdown is not supported.
+- The native reader does not support `headers`. Queries that request `headers`
+  with `includeHeaders=true` fall back to Spark for the Kafka scan. Filters run
+  above the scan; Kafka predicate pushdown is not supported.
 - Spark's driver uses the Java Kafka client; native readers use librdkafka.
   Unknown native properties are skipped, and Java JAAS, callback, and credential
   settings are not translated. Validate both client paths before using TLS or
@@ -203,8 +204,20 @@ in the plan do not prove that the Kafka scan was offloaded.
 | --- | --- |
 | Kafka data source missing | Supply the matching `spark-sql-kafka-0-10` runtime package. |
 | Kafka scan stays in Spark | Confirm `GlutenPlugin` is loaded, both Kafka build options are enabled, and the build includes Velox Kafka scan offloading. |
-| Unsupported native schema | Use the supported Kafka columns listed above; `headers` is not supported. |
-| Native read times out | Check broker reachability, authentication compatibility, offset availability, and poll timeout. |
+| Unsupported native schema | Use the supported Kafka columns listed above; requesting `headers` falls back to Spark. |
+| Native read times out | Check broker reachability, authentication compatibility, offset availability, and `kafkaConsumer.pollTimeoutMs`. |
+
+Set the source option `.option("kafkaConsumer.pollTimeoutMs", "120000")` to allow
+up to 120 seconds for executor polling. When omitted, Spark derives this timeout
+from `spark.network.timeout`, which defaults to 120 seconds. The native reader
+bounds record-consumption waits by the remaining poll timeout; metadata and
+recovery operations have separate timeout allowances. This is not a whole-query
+deadline.
+
+The source option `failOnDataLoss` defaults to `true`, so unavailable offsets
+cause the query to fail. Setting `.option("failOnDataLoss", "false")` allows the
+native reader to skip unavailable offsets and read the remaining records. Missing
+data is not recovered.
 
 See Spark's [Kafka integration guide](https://spark.apache.org/docs/3.5.6/structured-streaming-kafka-integration.html)
 for full source options. Native consumers default to `read_uncommitted` unless
