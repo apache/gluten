@@ -138,3 +138,5 @@ read offload engages automatically whenever lance-spark is present on the classp
   `queue_depth` and `use_queued_write_buffer` write options apply only to its own writer.
 - Velox exports at most 2 GiB of string or binary data per column in one batch, so very large
   values need smaller batches.
+- The memory Lance itself uses to encode and write fragments is not counted as Spark task memory,
+  as with lance-spark's own writer. The Arrow batches the native write hands to Lance are counted.
