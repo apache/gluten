@@ -65,7 +65,7 @@ jobs:
       (github.event.issue.pull_request &&
        (contains(github.event.comment.body, '/ansi-test') ||
         contains(github.event.comment.body, '/ansi-analyze')))
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     outputs:
       pr_number: ${{ steps.pr-info.outputs.pr_number }}
       pr_sha: ${{ steps.pr-info.outputs.pr_sha }}
@@ -111,7 +111,7 @@ jobs:
   build-native-lib:
     needs: check-comment
     if: (inputs.mode || needs.check-comment.outputs.mode) != 'analyze-only'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -152,7 +152,7 @@ jobs:
   spark-test-backends-velox-ansi41:
     # Lists check-comment directly so that needs.check-comment.outputs.pr_sha is set.
     needs: [check-comment, build-native-lib]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     env:
       SPARK_TESTING: true
     container: apache/gluten:centos-9-jdk17
@@ -221,7 +221,7 @@ jobs:
   spark-test-spark-ut-ansi41:
     # Lists check-comment directly so that needs.check-comment.outputs.pr_sha is set.
     needs: [check-comment, build-native-lib]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     env:
       SPARK_TESTING: true
     container: apache/gluten:centos-9-jdk17
@@ -300,7 +300,7 @@ jobs:
   spark-test-backends-velox-ansi-spark40:
     # Lists check-comment directly so that needs.check-comment.outputs.pr_sha is set.
     needs: [check-comment, build-native-lib]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     env:
       SPARK_TESTING: true
     container: apache/gluten:centos-9-jdk17
@@ -369,7 +369,7 @@ jobs:
   spark-test-spark-ut-ansi-spark40:
     # Lists check-comment directly so that needs.check-comment.outputs.pr_sha is set.
     needs: [check-comment, build-native-lib]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     env:
       SPARK_TESTING: true
     container: apache/gluten:centos-9-jdk17
@@ -453,7 +453,7 @@ jobs:
       - spark-test-backends-velox-ansi-spark40
       - spark-test-spark-ut-ansi-spark40
     if: always() && needs.check-comment.result == 'success' && (inputs.mode || needs.check-comment.outputs.mode) != 'analyze-only'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: write
@@ -498,7 +498,7 @@ jobs:
   analyze-only:
     needs: check-comment
     if: (inputs.mode || needs.check-comment.outputs.mode) == 'analyze-only'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: write
