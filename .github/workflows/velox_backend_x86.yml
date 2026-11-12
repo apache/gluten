@@ -104,7 +104,7 @@ jobs:
        github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'schedule' && github.repository_owner == 'apache') ||
       (github.event_name == 'workflow_dispatch' && github.repository_owner == 'apache')
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     outputs:
@@ -204,7 +204,7 @@ jobs:
           fi
           echo "full_run=false" >> $GITHUB_OUTPUT
           if [ "${{ needs.merge-upstream.outputs.relevant }}" = "false" ]; then
-            for flag in cpp java shims34 shims35 shims40 shims41 shims42 tools_it; do
+            for flag in cpp java udf shims34 shims35 shims40 shims41 shims42 tools_it; do
               echo "$flag=false" >> $GITHUB_OUTPUT
             done
             exit 0
