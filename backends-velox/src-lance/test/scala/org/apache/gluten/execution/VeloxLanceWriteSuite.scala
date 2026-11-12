@@ -214,6 +214,28 @@ class VeloxLanceWriteSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
+  test("copies of a write node keep its batch write") {
+    // SparkWrite.toBatch opens the table and pins its version on every call, and the planner copies
+    // the node after validating it, so a copy must keep the batch write rather than build its own.
+    withLanceTable(rows(0, 10)) {
+      uri =>
+        val plans = executedPlans {
+          rows(10, 10).write.format("lance").mode("append").option("path", uri).save()
+          rows(20, 10).write.format("lance").mode("overwrite").option("path", uri).save()
+        }
+        val nodes = plans.flatMap(_.collect { case w: LanceWriteExec => w })
+        assert(nodes.exists(_.isInstanceOf[VeloxLanceAppendDataExec]), plans)
+        assert(nodes.exists(_.isInstanceOf[VeloxLanceOverwriteByExpressionExec]), plans)
+        nodes.foreach {
+          node =>
+            val copy = node.withNewQuery(node.query).asInstanceOf[LanceWriteExec]
+            assert(copy ne node)
+            assert(copy.batchWrite eq node.batchWrite)
+        }
+        checkAnswer(read(uri), rows(20, 10))
+    }
+  }
+
   test("write_mode=overwrite turns an offloaded append into an overwrite") {
     withLanceTable(rows(0, 50)) {
       uri =>

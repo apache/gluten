@@ -16,14 +16,15 @@
  */
 package org.apache.gluten.execution
 
-import org.apache.spark.sql.connector.write.Write
+import org.apache.spark.sql.connector.write.{BatchWrite, Write}
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.datasources.v2.OverwriteByExpressionExec
 
 case class VeloxLanceOverwriteByExpressionExec(
     query: SparkPlan,
     refreshCache: () => Unit,
-    write: Write)
+    write: Write,
+    override val batchWrite: BatchWrite)
   extends LanceWriteExec {
   override protected def withNewChildInternal(
       newChild: SparkPlan): VeloxLanceOverwriteByExpressionExec =
@@ -32,5 +33,9 @@ case class VeloxLanceOverwriteByExpressionExec(
 
 object VeloxLanceOverwriteByExpressionExec {
   def apply(original: OverwriteByExpressionExec): VeloxLanceOverwriteByExpressionExec =
-    VeloxLanceOverwriteByExpressionExec(original.query, original.refreshCache, original.write)
+    VeloxLanceOverwriteByExpressionExec(
+      original.query,
+      original.refreshCache,
+      original.write,
+      original.write.toBatch)
 }

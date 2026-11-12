@@ -16,11 +16,15 @@
  */
 package org.apache.gluten.execution
 
-import org.apache.spark.sql.connector.write.Write
+import org.apache.spark.sql.connector.write.{BatchWrite, Write}
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.datasources.v2.AppendDataExec
 
-case class VeloxLanceAppendDataExec(query: SparkPlan, refreshCache: () => Unit, write: Write)
+case class VeloxLanceAppendDataExec(
+    query: SparkPlan,
+    refreshCache: () => Unit,
+    write: Write,
+    override val batchWrite: BatchWrite)
   extends LanceWriteExec {
   override protected def withNewChildInternal(newChild: SparkPlan): VeloxLanceAppendDataExec =
     copy(query = newChild)
@@ -28,5 +32,9 @@ case class VeloxLanceAppendDataExec(query: SparkPlan, refreshCache: () => Unit, 
 
 object VeloxLanceAppendDataExec {
   def apply(original: AppendDataExec): VeloxLanceAppendDataExec =
-    VeloxLanceAppendDataExec(original.query, original.refreshCache, original.write)
+    VeloxLanceAppendDataExec(
+      original.query,
+      original.refreshCache,
+      original.write,
+      original.write.toBatch)
 }

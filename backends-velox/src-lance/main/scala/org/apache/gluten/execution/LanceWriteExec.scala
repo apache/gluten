@@ -20,7 +20,7 @@ import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.connector.write.{ColumnarBatchDataWriterFactory, ColumnarStreamingDataWriterFactory, LanceColumnarBatchDataWriterFactory}
 
 import org.apache.spark.sql.connector.distributions.UnspecifiedDistribution
-import org.apache.spark.sql.connector.write.{BatchWrite, RequiresDistributionAndOrdering, Write}
+import org.apache.spark.sql.connector.write.{RequiresDistributionAndOrdering, Write}
 import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType, TimestampType}
 
 import org.apache.arrow.vector.types.{DateUnit, FloatingPointPrecision, TimeUnit}
@@ -36,14 +36,13 @@ import scala.collection.JavaConverters._
  * A Lance batch write offloaded to Velox. Executors export their Velox batches as an Arrow C stream
  * that lance-spark writes into uncommitted fragments; lance-spark's [[LanceBatchWrite]] then
  * commits them on the driver, exactly as for its own row writer.
+ *
+ * Implementations take the [[LanceBatchWrite]] as a constructor argument, built once when the node
+ * is created. `SparkWrite.toBatch` builds a new one on every call, and each opens the table to pin
+ * its version, while the planner copies the node after validating it. A field keeps one batch write
+ * through those copies, so the validation, the writer factory and the commit all use it.
  */
 trait LanceWriteExec extends ColumnarV2TableWriteExec {
-
-  /**
-   * One [[LanceBatchWrite]] per node. `SparkWrite.toBatch` builds a new one on every call and each
-   * pins the table version, so validation, the writer factory and the commit must share it.
-   */
-  @transient override lazy val batchWrite: BatchWrite = write.toBatch
 
   private def lanceBatchWrite: LanceBatchWrite = batchWrite.asInstanceOf[LanceBatchWrite]
 

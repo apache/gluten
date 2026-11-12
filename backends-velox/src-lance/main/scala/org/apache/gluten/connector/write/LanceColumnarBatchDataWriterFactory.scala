@@ -20,6 +20,7 @@ import org.apache.spark.sql.connector.write.DataWriter
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 import org.apache.arrow.vector.types.pojo.Schema
+import org.lance.spark.LanceRuntime
 import org.lance.spark.write.FragmentWriteSpec
 
 /**
@@ -28,6 +29,10 @@ import org.lance.spark.write.FragmentWriteSpec
  */
 case class LanceColumnarBatchDataWriterFactory(spec: FragmentWriteSpec, commitSchemaJson: String)
   extends ColumnarBatchDataWriterFactory {
-  override def createWriter(partitionId: Int, taskId: Long): DataWriter[ColumnarBatch] =
+  override def createWriter(partitionId: Int, taskId: Long): DataWriter[ColumnarBatch] = {
+    // Installs Lance's OpenTelemetry metrics when they are enabled, as lance-spark's writer does
+    // before each write task. It does nothing otherwise, and only the first call installs them.
+    LanceRuntime.enableOpenTelemetry()
     new LanceColumnarBatchDataWriter(spec, Schema.fromJSON(commitSchemaJson))
+  }
 }

@@ -47,8 +47,8 @@ import scala.collection.JavaConverters._
  *
  * Spark pushes batches through [[write]], while Lance pulls batches from an Arrow C stream until it
  * ends. A background thread bridges the two, as lance-spark's own row writer does: each batch is
- * exported to Arrow C structs on the task thread and queued, and the thread runs `Fragment.create`
- * with the parameters of the [[FragmentWriteSpec]] over a stream that drains the queue.
+ * exported to Arrow C structs on the task thread and queued, and the thread writes fragments with
+ * the parameters of the [[FragmentWriteSpec]] from a stream that drains the queue.
  *
  * The stream advertises the commit schema, so its names, nullability and timestamp zone are the
  * ones `LanceBatchWrite.commit` uses. The first exported batch is checked against it, so a type
@@ -177,7 +177,12 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
   private def runWriter(): Unit = {
     val startNs = System.nanoTime()
     try {
-      fragments = Fragment.create(spec.getDatasetUri, stream, spec.toWriteParams())
+      fragments = Fragment
+        .write()
+        .datasetUri(spec.getDatasetUri)
+        .data(stream)
+        .writeParams(spec.toWriteParams())
+        .execute()
     } catch {
       case t: Throwable => failure = t
     } finally {
