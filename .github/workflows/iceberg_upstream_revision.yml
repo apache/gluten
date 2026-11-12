@@ -60,7 +60,7 @@ jobs:
   build:
     needs: native
     if: ${{ !cancelled() && (needs.native.result == 'success' || needs.native.result == 'skipped') }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: ${{ inputs.test_image }}
     env:
       JAVA_HOME: /usr/lib/jvm/java-17-openjdk
@@ -107,7 +107,7 @@ jobs:
     name: iceberg-upstream-test (3.5, ${{ inputs.label }}, ${{ matrix.shard }})
     needs: build
     if: always() && !cancelled() && needs.build.result == 'success'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: ${{ inputs.test_image }}
     strategy:
       fail-fast: false

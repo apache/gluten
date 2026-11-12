@@ -147,7 +147,7 @@ jobs:
   # JDKs, older Celeborn, chaos tests on java-only changes).
   detect-changes:
     needs: merge-upstream
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     outputs:
       # false only on a fork run that changes nothing in the `paths:` list above.
       relevant: ${{ needs.merge-upstream.outputs.relevant }}
@@ -158,6 +158,7 @@ jobs:
       full_run: ${{ steps.filter.outputs.full_run }}
       cpp:      ${{ steps.filter.outputs.cpp }}
       java:     ${{ steps.filter.outputs.java }}
+      udf:      ${{ steps.filter.outputs.udf }}
       shims34:  ${{ steps.filter.outputs.shims34 }}
       shims35:  ${{ steps.filter.outputs.shims35 }}
       shims40:  ${{ steps.filter.outputs.shims40 }}
@@ -187,7 +188,7 @@ jobs:
               recent=$(git log --oneline --after="24 hours ago" HEAD | wc -l)
               if [ "$recent" -eq 0 ]; then
                 echo "No commits in the last 24 hours -- skipping nightly run."
-                for flag in cpp java shims34 shims35 shims40 shims41 shims42 tools_it; do
+                for flag in cpp java udf shims34 shims35 shims40 shims41 shims42 tools_it; do
                   echo "$flag=false" >> $GITHUB_OUTPUT
                 done
                 echo "full_run=false" >> $GITHUB_OUTPUT
@@ -195,7 +196,7 @@ jobs:
               fi
             fi
             # Run everything, including the extended matrices PR runs skip.
-            for flag in cpp java shims34 shims35 shims40 shims41 shims42 tools_it; do
+            for flag in cpp java udf shims34 shims35 shims40 shims41 shims42 tools_it; do
               echo "$flag=true" >> $GITHUB_OUTPUT
             done
             echo "full_run=true" >> $GITHUB_OUTPUT
@@ -222,6 +223,7 @@ jobs:
 
           echo "cpp=$(match      '^(cpp/|ep/build-velox/|dev/)')"                                            >> $GITHUB_OUTPUT
           echo "java=$(match     '^(\.github/(workflows|actions)/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi|paimon)/|gluten-ut/(common/|test/|src-iceberg-upstream/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
+          echo "udf=$(match      '^(backends-velox/src/test/scala/org/apache/gluten/expression/VeloxUdfSuite\.scala|\.github/workflows/velox_backend_x86\.yml)$')" >> $GITHUB_OUTPUT
           echo "shims34=$(match  '^(shims/(spark34|common)/|gluten-ut/spark34/)')"                           >> $GITHUB_OUTPUT
           echo "shims35=$(match  '^(shims/(spark35|common)/|gluten-ut/spark35/)')"                           >> $GITHUB_OUTPUT
           echo "shims40=$(match  '^(shims/(spark40|common)/|gluten-ut/spark40/)')"                           >> $GITHUB_OUTPUT
@@ -232,7 +234,7 @@ jobs:
   build-native-lib-centos-8:
     needs: detect-changes
     if: needs.detect-changes.outputs.relevant != 'false'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: apache/gluten:vcpkg-almalinux-8-gcc13
     steps:
       - name: Install CI tools (temporary - until image is rebuilt with gh/jq/bison/python3.9)
@@ -296,7 +298,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ "ubuntu:22.04" ]
+        os: [ "ubuntu:24.04" ]
         spark: [ "spark-3.4", "spark-3.5", "spark-4.0", "spark-4.1"  ]
         # PR runs test the primary JDK per Spark line (8 for 3.x, 17 for 4.x --
         # after the static excludes below that is 4 combos instead of 8). The
@@ -333,7 +335,7 @@ jobs:
           - spark: spark-4.1
             java: java-11
 
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -347,7 +349,7 @@ jobs:
       - name: Setup tzdata
         run: |
           sed -i 's|http://archive|http://eu.archive|g' /etc/apt/sources.list
-          if [ "${{ matrix.os }}" = "ubuntu:22.04" ]; then
+          if [ "${{ matrix.os }}" = "ubuntu:24.04" ]; then
             apt-get update
             TZ="Etc/GMT" DEBIAN_FRONTEND=noninteractive apt-get install -y tzdata
           fi
@@ -367,7 +369,7 @@ jobs:
             apt remove openjdk-11* -y
           fi
       - name: Install Hadoop & Setup HDFS
-        if: matrix.os == 'ubuntu:22.04' && matrix.spark == 'spark-3.5' && matrix.java == 'java-8'
+        if: matrix.os == 'ubuntu:24.04' && matrix.spark == 'spark-3.5' && matrix.java == 'java-8'
         shell: bash
         run: |
           export JAVA_HOME=/usr/lib/jvm/${{ matrix.java }}-openjdk-amd64
@@ -375,7 +377,7 @@ jobs:
           install_hadoop
           setup_hdfs
       - name: Install MinIO
-        if: matrix.os == 'ubuntu:22.04' && matrix.spark == 'spark-3.5' && matrix.java == 'java-8'
+        if: matrix.os == 'ubuntu:24.04' && matrix.spark == 'spark-3.5' && matrix.java == 'java-8'
         shell: bash
         run: |
           export JAVA_HOME=/usr/lib/jvm/${{ matrix.java }}-openjdk-amd64
@@ -398,7 +400,7 @@ jobs:
           cd $GITHUB_WORKSPACE/tools/gluten-it
           $GITHUB_WORKSPACE/$MVN_CMD clean install -P${{ matrix.spark }} -P${{ matrix.java }}
           # Setup S3 JARs after gluten-it build 
-          if [ "${{ matrix.os }}" = "ubuntu:22.04" ] && \
+          if [ "${{ matrix.os }}" = "ubuntu:24.04" ] && \
             [ "${{ matrix.spark }}" = "spark-3.5" ] && \
             [ "${{ matrix.java }}" = "java-8" ]; then
             source $GITHUB_WORKSPACE/.github/workflows/util/install-spark-deps.sh
@@ -409,7 +411,7 @@ jobs:
             --local --preset=velox --benchmark-type=h --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1 \
           && GLUTEN_IT_JVM_ARGS=-Xmx6G sbin/gluten-it.sh queries-compare \
             --local --preset=velox --benchmark-type=ds --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1
-          if [ "${{ matrix.os }}" = "ubuntu:22.04" ] && \
+          if [ "${{ matrix.os }}" = "ubuntu:24.04" ] && \
             [ "${{ matrix.spark }}" = "spark-3.5" ] && \
             [ "${{ matrix.java }}" = "java-8" ]; then
             GLUTEN_IT_JVM_ARGS=-Xmx6G sbin/gluten-it.sh queries-compare \
@@ -465,7 +467,7 @@ jobs:
           - spark: spark-4.1
             java: java-11
 
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -536,7 +538,7 @@ jobs:
       fail-fast: false
       matrix:
         spark: [ "spark-3.5" ]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Maximize build disk space
         shell: bash
@@ -656,7 +658,7 @@ jobs:
       matrix:
         spark: [ "spark-3.5" ]
         shard: [ 1, 2, 3 ]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Maximize build disk space
         shell: bash
@@ -711,7 +713,7 @@ jobs:
         spark: [ "spark-3.5" ]
         uniffle: [ "0.10.0" ]
         hadoop: [ "2.10.2" ]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v7
@@ -770,7 +772,7 @@ jobs:
           && '["celeborn-0.6.3", "celeborn-0.5.4"]'
           || '["celeborn-0.6.3"]') }}
         writer: ["sort", "hash"]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: centos:8
     steps:
       - uses: actions/checkout@v7
@@ -843,7 +845,7 @@ jobs:
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims34 == 'true' ||
       needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -916,7 +918,7 @@ jobs:
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims34 == 'true' ||
       needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -967,7 +969,7 @@ jobs:
   spark-test-spark35:
     needs: [detect-changes, build-native-lib-centos-8]
     if: needs.detect-changes.outputs.spark35_needed == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -1042,7 +1044,7 @@ jobs:
     # little PR-specific signal. The nightly full_run (or a workflow_dispatch run)
     # still covers it daily.
     if: needs.detect-changes.outputs.full_run == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -1107,7 +1109,7 @@ jobs:
   spark-test-spark35-slow:
     needs: [detect-changes, build-native-lib-centos-8]
     if: needs.detect-changes.outputs.spark35_needed == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -1158,8 +1160,8 @@ jobs:
 
   cpp-test-udf-test:
     needs: detect-changes
-    if: needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    if: needs.detect-changes.outputs.cpp == 'true' || needs.detect-changes.outputs.udf == 'true'
+    runs-on: ubuntu-24.04
     container: apache/gluten:centos-9-jdk8
     steps:
       - uses: actions/checkout@v7
@@ -1250,14 +1252,22 @@ jobs:
           --data $(realpath backends-velox/generated-native-benchmark/data_12_0_*_0.parquet),$(realpath backends-velox/generated-native-benchmark/data_12_0_*_1.parquet)
       - name: Run UDF test
         run: |
+          export SPARK_SCALA_VERSION=2.12
           yum install -y java-17-openjdk-devel
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
           # Depends on --build_example=ON.
-          $MVN_CMD test -Pspark-3.5 -Pbackends-velox -Pjava-17 -Piceberg -Pdelta -Ppaimon -DtagsToExclude=org.apache.gluten.tags.EnhancedFeaturesTest \
-          -DtagsToInclude=org.apache.gluten.tags.UDFTest \
-          -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/"
+          $MVN_CMD install -Pspark-3.5 -Pbackends-velox -Pjava-17 -pl backends-velox -am -DskipTests
+          for bypass_registration in false true; do
+            for suite in VeloxUdfSuiteLocal VeloxUdfSuiteCluster; do
+              echo "Running $suite with bypass registration=$bypass_registration"
+              $MVN_CMD test -pl backends-velox -Pspark-3.5 -Pbackends-velox -Pjava-17 -DtagsToExclude=org.apache.gluten.tags.EnhancedFeaturesTest \
+                -DtagsToInclude=org.apache.gluten.tags.UDFTest \
+                -Dsuites=org.apache.gluten.expression.$suite \
+                -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/ -Dspark.gluten.sql.columnar.backend.velox.nativeUDF.bypassRegistration=$bypass_registration"
+            done
+          done
       - name: Run CPP benchmark test for Spark 4.0
         run: |
           export SPARK_SCALA_VERSION=2.13
@@ -1308,7 +1318,7 @@ jobs:
   build-cudf-centos-9:
     needs: detect-changes
     if: needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: "node-cleanup" # by default the free runner does not have enough disk space
         run: |
@@ -1379,7 +1389,7 @@ jobs:
     if: >-
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: apache/gluten:centos-8-jdk17
     steps:
       - uses: actions/checkout@v7
@@ -1396,7 +1406,7 @@ jobs:
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims42 == 'true' ||
       needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: apache/gluten:centos-8-jdk17
     steps:
       - uses: actions/checkout@v7
@@ -1413,7 +1423,7 @@ jobs:
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims40 == 'true' ||
       needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -1481,7 +1491,7 @@ jobs:
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims40 == 'true' ||
       needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -1536,7 +1546,7 @@ jobs:
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims41 == 'true' ||
       needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -1613,7 +1623,7 @@ jobs:
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims41 == 'true' ||
       needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -1669,7 +1679,7 @@ jobs:
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims42 == 'true' ||
       needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -1749,7 +1759,7 @@ jobs:
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims42 == 'true' ||
       needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:

@@ -96,7 +96,7 @@ jobs:
   build-native:
     needs: merge-upstream
     if: needs.merge-upstream.outputs.relevant != 'false'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: apache/gluten:vcpkg-almalinux-8-gcc13
     timeout-minutes: 180
     steps:
@@ -156,7 +156,7 @@ jobs:
 
   spark35:
     needs: build-native
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       KAFKA_BOOTSTRAP_SERVERS: localhost:9092

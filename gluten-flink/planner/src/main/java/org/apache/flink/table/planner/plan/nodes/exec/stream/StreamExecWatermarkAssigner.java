@@ -23,12 +23,15 @@ import org.apache.gluten.table.runtime.operators.GlutenOneInputOperator;
 import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.util.PlanNodeIdGenerator;
 
+import io.github.zhztheplayer.velox4j.expression.CallTypedExpr;
 import io.github.zhztheplayer.velox4j.expression.TypedExpr;
 import io.github.zhztheplayer.velox4j.plan.EmptyNode;
 import io.github.zhztheplayer.velox4j.plan.PlanNode;
 import io.github.zhztheplayer.velox4j.plan.ProjectNode;
 import io.github.zhztheplayer.velox4j.plan.StatefulPlanNode;
 import io.github.zhztheplayer.velox4j.plan.WatermarkAssignerNode;
+import io.github.zhztheplayer.velox4j.type.BigIntType;
+import io.github.zhztheplayer.velox4j.type.TimestampType;
 
 import org.apache.flink.FlinkVersion;
 import org.apache.flink.api.dag.Transformation;
@@ -136,6 +139,15 @@ public class StreamExecWatermarkAssigner extends ExecNodeBase<RowData>
     List<String> inNames = Utils.getNamesFromRowType(inputEdge.getOutputType());
     RexConversionContext conversionContext = new RexConversionContext(inNames);
     TypedExpr watermarkExprs = RexNodeConverter.toTypedExpr(watermarkExpr, conversionContext);
+    // The native WatermarkAssigner reads the expression result as a flat
+    // int64 millis vector. The legacy conversion produced BIGINT
+    // (unix_millis(ts) - millis) directly; TIMESTAMP-typed results (e.g. the
+    // flinksql ts - interval minus) carry a Timestamp C++ type, which the
+    // assigner's asFlatVector<int64_t> cannot read. Wrap TIMESTAMP results
+    // with unix_millis to keep the int64 millis contract.
+    if (watermarkExprs.getReturnType() instanceof TimestampType) {
+      watermarkExprs = new CallTypedExpr(new BigIntType(), List.of(watermarkExprs), "unix_millis");
+    }
     io.github.zhztheplayer.velox4j.type.RowType outputType =
         (io.github.zhztheplayer.velox4j.type.RowType)
             LogicalTypeConverter.toVLType(getOutputType());

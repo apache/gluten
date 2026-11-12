@@ -55,7 +55,7 @@ env:
 # The head revision reuses the static native build of velox_backend_x86.yml when called from it.
 jobs:
   prepare:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     outputs:
       base_sha: ${{ steps.baseline.outputs.base_sha }}
       baseline_key: ${{ steps.baseline.outputs.baseline_key }}
@@ -134,7 +134,7 @@ jobs:
     name: iceberg-upstream-gate (3.5)
     needs: [prepare, iceberg-upstream-test, iceberg-base-test]
     if: always() && !cancelled()
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
