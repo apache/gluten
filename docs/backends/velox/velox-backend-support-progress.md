@@ -119,16 +119,19 @@ python3 tools/scripts/gen-function-support-docs.py --spark_home=/path/to/spark_s
 
 ### Decimal PMOD
 
-Native decimal `pmod` requires a Velox build that provides the decimal signatures of `checked_pmod` and
-`checked_pmod_deny_precision_loss`. Older native builds fall back to Spark during plan validation. Decimal
-`pmod` also falls back when `spark.gluten.sql.enable.native.validation=false`, since its native capability
-cannot then be checked. The existing ANSI fallback setting still applies.
+Native decimal `pmod` requires a Velox build that provides the decimal signatures of `pmod` and
+`pmod_deny_precision_loss`. Older native builds fall back to Spark when native plan validation is enabled.
+The existing ANSI fallback setting still applies. If an expression's captured ANSI mode differs from the
+session during plan validation, the expression falls back to Spark.
 
 Operands are currently limited to decimal columns and literals. Computed operands fall back to preserve
 Spark's evaluation order: a null divisor, or a zero divisor in legacy mode, can skip evaluation of the
-dividend. The native operation preserves the expression's captured ANSI mode even when the session setting
-changes after planning. Zero divisors and decimal result overflow produce null in legacy mode and an error
-in ANSI mode. Decimal remainder (`%`) support is unchanged.
+dividend. Velox reads `spark.ansi_enabled` from the query configuration. Zero divisors and decimal result
+overflow produce null in legacy mode and an error in ANSI mode. Decimal remainder (`%`) support is unchanged.
+
+For extreme scale differences where the integral quotient needs more than 39 digits, native decimal `pmod`
+matches Spark's SPARK-61050 fix in 4.3.1 and 4.4.0. Earlier Spark versions can throw
+`java.lang.ArithmeticException: Division impossible` for these inputs in either ANSI mode.
 
 The support status is generated with `spark.sql.ansi.enabled=false`. When ANSI mode is enabled, Gluten falls back
 to vanilla Spark for the whole query (see `spark.gluten.sql.ansiFallback.enabled`). Spark 4.x enables ANSI mode by

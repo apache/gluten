@@ -163,21 +163,22 @@ class DecimalPmodValidateSuite extends WholeStageTransformerSuite {
     }
   }
 
-  test("decimal pmod preserves captured ANSI mode after physical planning") {
+  test("decimal pmod falls back when captured ANSI mode differs before physical planning") {
     for (
       (leftType, rightType, values, message) <- Seq(
-        (DecimalType(12, 2), DecimalType(12, 2), Seq("1.00" -> "0.00"), "Division by zero"),
-        (DecimalType(1, 0), DecimalType(3, 0), Seq("-1" -> "100"), "Decimal overflow in pmod")
+        (DecimalType(12, 2), DecimalType(12, 2), Seq("1.00" -> "0.00"), "BY_ZERO"),
+        (DecimalType(1, 0), DecimalType(3, 0), Seq("-1" -> "100"), "NUMERIC_VALUE_OUT_OF_RANGE")
       )
     ) {
       withDecimalTable(leftType, rightType, values) {
         for (capturedAnsi <- Seq("false", "true")) {
           withSQLConf(SQLConf.ANSI_ENABLED.key -> capturedAnsi) {
             val df = sql("SELECT pmod(a, n) FROM decimal_pmod")
-            // Force physical planning before changing the setting used to create the native
-            // runtime. Neither the checked operation nor its TRY wrapper may read that setting.
-            checkGlutenPlan[ProjectExecTransformer](df)
+            // Capture the expression's mode during analysis, then change the session before
+            // physical planning so validation can select Spark execution for the mismatch.
+            df.queryExecution.analyzed
             withSQLConf(SQLConf.ANSI_ENABLED.key -> (capturedAnsi == "false").toString) {
+              checkFallback(df)
               if (capturedAnsi == "false") {
                 checkAnswer(df, Row(null))
               } else {
@@ -209,12 +210,14 @@ class DecimalPmodValidateSuite extends WholeStageTransformerSuite {
     }
   }
 
-  test("decimal pmod falls back when native capability validation is disabled") {
+  test("decimal pmod offloads when native capability validation is disabled") {
     withDecimalTable(DecimalType(12, 2), DecimalType(12, 2), Seq("-5.00" -> "3.00")) {
-      withSQLConf(
-        SQLConf.ANSI_ENABLED.key -> "false",
-        GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> "false") {
-        runQueryAndCompare("SELECT pmod(a, n) FROM decimal_pmod")(checkFallback)
+      for (ansi <- Seq("false", "true")) {
+        withSQLConf(
+          SQLConf.ANSI_ENABLED.key -> ansi,
+          GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> "false") {
+          checkNative(DecimalType(12, 2))
+        }
       }
     }
   }

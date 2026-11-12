@@ -100,34 +100,29 @@ class GlutenDecimalPrecisionSuite extends GlutenTestsTrait {
     for (
       ansi <- Seq("false", "true");
       allowPrecisionLoss <- Seq("false", "true");
-      capturedMode <- Seq(EvalMode.LEGACY, EvalMode.ANSI)
+      nativeValidation <- Seq("false", "true")
     ) {
       withSQLConf(
         SQLConf.ANSI_ENABLED.key -> ansi,
         SQLConf.DECIMAL_OPERATIONS_ALLOW_PREC_LOSS.key -> allowPrecisionLoss,
-        GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> "true"
+        GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> nativeValidation
       ) {
         checkType(Pmod(d1, d2), DecimalType(3, 2))
         val left = AttributeReference("a", DecimalType(1, 0))()
         val right = AttributeReference("n", DecimalType(3, 0))()
         val transformed = ExpressionConverter.replaceWithExpressionTransformer(
-          Pmod(left, right, NumericEvalContext(capturedMode)),
+          Pmod(left, right),
           Seq(left, right))
         assert(transformed.dataType == DecimalType(1, 0))
-        val checked = if (capturedMode == EvalMode.LEGACY) {
-          assert(transformed.substraitExprName == "try")
-          transformed.children.head
-        } else {
-          transformed
-        }
-        assert(checked.substraitExprName ==
-          (if (allowPrecisionLoss == "true") "checked_pmod"
-           else "checked_pmod_deny_precision_loss"))
+        assert(transformed.isInstanceOf[DecimalArithmeticExpressionTransformer])
+        assert(transformed.substraitExprName ==
+          (if (allowPrecisionLoss == "true") "pmod"
+           else "pmod_deny_precision_loss"))
       }
     }
   }
 
-  test("Velox decimal pmod rejects unsafe evaluation modes and operands") {
+  test("Velox decimal pmod rejects mismatched modes and unsafe operands") {
     assume(BackendTestUtils.isVeloxBackendLoaded())
     val left = AttributeReference("a", DecimalType(12, 2))()
     val right = AttributeReference("n", DecimalType(12, 2))()
@@ -136,18 +131,17 @@ class GlutenDecimalPrecisionSuite extends GlutenTestsTrait {
         ExpressionConverter.replaceWithExpressionTransformer(expression, Seq(left, right))
       }
     }
-    for (ansi <- Seq("false", "true")) {
+    for (ansi <- Seq("false", "true"); nativeValidation <- Seq("false", "true")) {
       withSQLConf(
         SQLConf.ANSI_ENABLED.key -> ansi,
-        GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> "true") {
+        GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> nativeValidation) {
+        val mismatchedMode = if (ansi == "true") EvalMode.LEGACY else EvalMode.ANSI
+        rejected(Pmod(left, right, NumericEvalContext(mismatchedMode)))
         rejected(Pmod(left, right, NumericEvalContext(EvalMode.TRY)))
         rejected(Pmod(UnaryMinus(left), right))
         rejected(Pmod(left, UnaryMinus(right)))
         // Supporting PMOD must not also enable decimal remainder.
         rejected(Remainder(left, right))
-        withSQLConf(GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> "false") {
-          rejected(Pmod(left, right))
-        }
       }
     }
   }

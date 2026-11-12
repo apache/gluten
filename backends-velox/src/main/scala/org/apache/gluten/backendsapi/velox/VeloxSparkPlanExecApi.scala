@@ -203,6 +203,11 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
           throw new GlutenNotSupportException(
             s"Decimal pmod with evaluation mode ${p.evalMode} is not supported.")
         }
+        // Velox reads the session's ANSI setting, so a different captured mode must run in Spark.
+        if ((p.evalMode == EvalMode.ANSI) != SQLConf.get.ansiEnabled) {
+          throw new GlutenNotSupportException(
+            "Decimal pmod's captured ANSI mode differs from the session.")
+        }
         // Spark evaluates the divisor first and can skip the dividend for a null/zero divisor.
         // An eager native function is equivalent only when neither child can raise an error.
         // Restrict this initial implementation to values whose evaluation cannot throw.
@@ -215,31 +220,14 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
           throw new GlutenNotSupportException(
             "Decimal pmod with computed operands is not supported.")
         }
-        // Checked decimal pmod is not present in older Velox builds. Validation must resolve its
-        // signature before offloading; otherwise preserve Spark execution even when validation
-        // was explicitly disabled.
-        if (!GlutenConfig.get.enableNativeValidation) {
-          throw new GlutenNotSupportException("Decimal pmod requires native validation.")
-        }
         // Use Spark's resolved decimal type, including the precision check needed after
-        // adjusting a negative remainder. The checked function has fixed ANSI semantics,
-        // preserving the expression's captured mode even if the session changes after planning.
-        val checked = DecimalArithmeticExpressionTransformer(
-          "checked_" + substraitExprName,
+        // adjusting a negative remainder. Velox handles both ANSI and legacy errors itself.
+        DecimalArithmeticExpressionTransformer(
+          substraitExprName,
           left,
           right,
           p.dataType.asInstanceOf[DecimalType],
           p)
-        if (p.evalMode == EvalMode.LEGACY) {
-          // With only safe leaf operands, the only errors TRY can catch are PMOD's own
-          // division-by-zero and result-overflow errors, which Spark LEGACY returns as null.
-          GenericExpressionTransformer(
-            ExpressionMappings.expressionsMap(classOf[TryEval]),
-            Seq(checked),
-            p)
-        } else {
-          checked
-        }
       case _ =>
         super.genDecimalArithmeticTransformer(substraitExprName, left, right, original)
     }
