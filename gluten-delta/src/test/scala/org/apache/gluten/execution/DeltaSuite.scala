@@ -855,14 +855,14 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
     }
   }
 
-  test("delta: TIMESTAMP_NTZ as partition column should fallback and return correct results") {
+  test("delta: TIMESTAMP_NTZ as partition column returns correct results") {
     withTable("delta_ntz_part") {
       spark.sql("""CREATE TABLE delta_ntz_part(c1 STRING, c2 TIMESTAMP, c3 TIMESTAMP_NTZ)
                   |USING DELTA PARTITIONED BY (c3)""".stripMargin)
       spark.sql("""INSERT INTO delta_ntz_part VALUES
                   |('foo','2022-01-02 03:04:05.123456','2022-01-02 03:04:05.123456'),
                   |('bar','2023-06-15 10:30:00.000000','2023-06-15 10:30:00.000000')""".stripMargin)
-      val df = runQueryAndCompare("select * from delta_ntz_part order by c1", noFallBack = false) {
+      val df = runQueryAndCompare("select * from delta_ntz_part order by c1") {
         _ =>
       }
       checkAnswer(
