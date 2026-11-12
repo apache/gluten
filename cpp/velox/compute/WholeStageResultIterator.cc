@@ -330,6 +330,14 @@ int64_t WholeStageResultIterator::spillFixedSize(int64_t size) {
   std::string poolName{pool->root()->name() + "/" + pool->name()};
   std::string logPrefix{"Spill[" + poolName + "]: "};
   int64_t shrunken = memoryManager_->shrink(size);
+  if (shrunken >= size) {
+    LOG(INFO) << fmt::format(
+        "{} Reclaimed {} by shrinking for a target of {}; skipping spill.",
+        logPrefix,
+        velox::succinctBytes(shrunken),
+        velox::succinctBytes(size));
+    return shrunken;
+  }
   if (spillStrategy_ == "auto") {
     int64_t remaining = size - shrunken;
     LOG(INFO) << fmt::format("{} trying to request spill for {}.", logPrefix, velox::succinctBytes(remaining));
