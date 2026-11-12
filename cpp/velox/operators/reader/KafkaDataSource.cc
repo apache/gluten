@@ -218,7 +218,7 @@ std::vector<std::unique_ptr<RdKafka::Message>> KafkaDataSource::poll(uint64_t ma
   // operations retain their separate timeout allowances.
   const auto remainingTimeoutMs = [this, &deadline]() {
     return static_cast<int>(std::clamp<int64_t>(
-        std::chrono::ceil<std::chrono::milliseconds>(deadline - pollTime()).count(),
+        std::chrono::duration_cast<std::chrono::milliseconds>(deadline - pollTime()).count(),
         0,
         std::numeric_limits<int>::max()));
   };
