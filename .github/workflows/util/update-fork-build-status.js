@@ -104,6 +104,19 @@ module.exports = async ({ github, context, core }) => {
     return runs;
   };
 
+  const runOutput = (pr, run) => ({
+    title: 'Fork run',
+    summary:
+      `[See the run in ${pr.head.repo.full_name}](${run.html_url}). ` +
+      'Rerun failed jobs there if the failure is unrelated to this pull request.',
+    text: JSON.stringify({
+      owner: pr.head.repo.owner.login,
+      repo: pr.head.repo.name,
+      run_id: run.id,
+      run_attempt: run.run_attempt,
+    }),
+  });
+
   const syncCheck = (pr, w, check, run) => {
     const state = stateOf(run);
     if (check.status == state.status && check.conclusion == (state.conclusion || null)) return;
@@ -113,6 +126,8 @@ module.exports = async ({ github, context, core }) => {
       check_run_id: check.id,
       details_url: run.html_url,
       ...state,
+      // An update without `output` clears its text, which is how the next pass finds this check.
+      output: runOutput(pr, run),
     });
   };
 
@@ -124,18 +139,7 @@ module.exports = async ({ github, context, core }) => {
       head_sha: pr.head.sha,
       details_url: run.html_url,
       ...stateOf(run),
-      output: {
-        title: 'Fork run',
-        summary:
-          `[See the run in ${pr.head.repo.full_name}](${run.html_url}). ` +
-          'Rerun failed jobs there if the failure is unrelated to this pull request.',
-        text: JSON.stringify({
-          owner: pr.head.repo.owner.login,
-          repo: pr.head.repo.name,
-          run_id: run.id,
-          run_attempt: run.run_attempt,
-        }),
-      },
+      output: runOutput(pr, run),
     });
   };
 
