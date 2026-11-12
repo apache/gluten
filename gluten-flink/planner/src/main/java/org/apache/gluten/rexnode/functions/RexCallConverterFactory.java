@@ -77,6 +77,7 @@ public class RexCallConverterFactory {
           Map.entry(
               "-",
               Arrays.asList(
+                  () -> new UnaryMinusRexCallConverter("negate"),
                   () -> new SubtractRexCallConverter(),
                   () -> new DecimalArithmeticOperatorRexCallConverters("subtract"),
                   () -> new IntervalArithmeticRexCallConverter("minus", false))),
@@ -131,7 +132,12 @@ public class RexCallConverterFactory {
           Map.entry("SHA512", Arrays.asList(() -> new DefaultRexCallConverter("sha512"))),
           Map.entry("count_char", Arrays.asList(() -> new DefaultRexCallConverter("count_char"))),
           Map.entry("EXTRACT", Arrays.asList(() -> new DefaultRexCallConverter("extract"))),
-          Map.entry("IS TRUE", Arrays.asList(() -> new IsTrueRexCallConverter())),
+          Map.entry("IS TRUE", Arrays.asList(() -> new DefaultRexCallConverter("is_true"))),
+          Map.entry("IS FALSE", Arrays.asList(() -> new DefaultRexCallConverter("is_false"))),
+          Map.entry("IS NOT TRUE", Arrays.asList(() -> new DefaultRexCallConverter("is_not_true"))),
+          Map.entry(
+              "IS NOT FALSE", Arrays.asList(() -> new DefaultRexCallConverter("is_not_false"))),
+          Map.entry("NOT", Arrays.asList(() -> new DefaultRexCallConverter("not"))),
           Map.entry("CONCAT", Arrays.asList(() -> new DefaultRexCallConverter("concat"))),
           Map.entry("CONCAT_WS", Arrays.asList(() -> new DefaultRexCallConverter("concat_ws"))),
           // A literal negative length is rejected by SubstringRexCallConverter
@@ -140,6 +146,13 @@ public class RexCallConverterFactory {
           // substring returns an empty string. Start semantics (0 counts as 1,
           // negative counts from the end) already match Flink.
           Map.entry("SUBSTRING", Arrays.asList(() -> new SubstringRexCallConverter())),
+          // Offload targets implemented in velox's flinksql namespace. ABS/
+          // FLOOR/CEIL/ROUND arrive upper-cased from the operator table;
+          // unary minus arrives as a one-operand "-" (see above).
+          Map.entry("ABS", Arrays.asList(() -> new DefaultRexCallConverter("abs"))),
+          Map.entry("FLOOR", Arrays.asList(() -> new NumericOnlyRexCallConverter("floor"))),
+          Map.entry("CEIL", Arrays.asList(() -> new NumericOnlyRexCallConverter("ceil"))),
+          Map.entry("ROUND", Arrays.asList(() -> new DecimalPostCastRexCallConverter("round"))),
           // Offload targets implemented in velox's flinksql namespace;
           // the names arrive upper-cased from the operator table.
           Map.entry(
@@ -175,7 +188,17 @@ public class RexCallConverterFactory {
             .map(RexCallConverterBuilder::build)
             .filter(
                 c -> {
-                  ValidationResult validationResult = c.isSuitable(callNode, context);
+                  ValidationResult validationResult;
+                  try {
+                    validationResult = c.isSuitable(callNode, context);
+                  } catch (RuntimeException e) {
+                    // A converter blowing up while probing operand types
+                    // (e.g. toType on an unmapped interval) counts as not
+                    // suitable so the decision stays a planning-time
+                    // rejection instead of a hard failure.
+                    failureMessages.add(c.getClass().getName() + ": " + e.getMessage());
+                    return false;
+                  }
                   if (!validationResult.isOk()) {
                     failureMessages.add(
                         c.getClass().getName() + ": " + validationResult.getMessage());
