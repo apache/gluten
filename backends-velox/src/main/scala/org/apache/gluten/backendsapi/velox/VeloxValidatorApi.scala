@@ -27,45 +27,29 @@ import org.apache.gluten.substrait.plan.PlanNode
 import org.apache.gluten.validate.NativePlanValidationInfo
 import org.apache.gluten.vectorized.NativePlanEvaluator
 
-import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, Literal, Round}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, FormatString, Literal}
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.types._
 import org.apache.spark.task.TaskResources
+import org.apache.spark.unsafe.types.UTF8String
 
 import io.substrait.proto.SimpleExtensionDeclaration
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
 
-class VeloxValidatorApi extends ValidatorApi with Logging {
+class VeloxValidatorApi extends ValidatorApi {
   import VeloxValidatorApi._
 
-  /**
-   * Enforce integral ROUND eligibility on the JVM to preserve Spark's captured ANSI semantics,
-   * independently of optional native plan validation.
-   */
-  override def doExprValidate(substraitExprName: String, expr: Expression): Boolean = expr match {
-    case round: Round =>
-      round.child.dataType match {
-        case ByteType | ShortType | IntegerType | LongType =>
-          // Negative scales can overflow, and Spark captures ANSI mode in the expression.
-          val supported = round.scale match {
-            case Literal(null, IntegerType) => true
-            case Literal(scale: Int, IntegerType) =>
-              scale >= 0 && scale <= MaxQualifiedIntegralRoundScale
-            case _ => false
-          }
-          if (!supported) {
-            logDebug(
-              "Integral ROUND requires a folded INTEGER scale in " +
-                s"[0, $MaxQualifiedIntegralRoundScale] or NULL; retaining Spark.")
-          }
-          supported
-        case _ => true
-      }
-    case _ => true
+  /** For velox backend, key validation is on native side. */
+  override def doExprValidate(substraitExprName: String, expr: Expression): Boolean = {
+    expr match {
+      // Both format_string and printf resolve to Spark's FormatString expression.
+      case formatString: FormatString =>
+        supportsFormatString(formatString)
+      case _ => true
+    }
   }
 
   override def doNativeValidateWithFailureReason(plan: PlanNode): ValidationResult = {
@@ -127,8 +111,150 @@ class VeloxValidatorApi extends ValidatorApi with Logging {
 }
 
 object VeloxValidatorApi {
-  // Qualified compatibility bound, not the native INTEGER scale limit.
-  final private val MaxQualifiedIntegralRoundScale = 400
+  private val nativeFormatFlags = Set('-', '+', ' ', '0')
+  // Match Velox's per-specifier output limit to prevent excessive allocations.
+  private val maxNativeFormatWidth = 1 << 20
+
+  private def supportsFormatString(formatString: FormatString): Boolean = {
+    val format = formatString.children.headOption match {
+      case Some(Literal(value: UTF8String, dataType))
+          if dataType.isInstanceOf[StringType] =>
+        value.toString
+      case _ =>
+        return false
+    }
+    val conversions = parseNativeFormatString(format).getOrElse {
+      return false
+    }
+    conversions.length <= formatString.children.length - 1 &&
+    conversions
+      .zip(formatString.children.tail)
+      .forall {
+        case (conversion, argument) =>
+          supportsNativeFormatType(conversion, argument.dataType)
+      }
+  }
+
+  private def parseNativeFormatString(format: String): Option[Seq[Char]] = {
+    val conversions = scala.collection.mutable.ArrayBuffer.empty[Char]
+    var index = 0
+    while (index < format.length) {
+      if (format.charAt(index) != '%') {
+        index += 1
+      } else if (index + 1 < format.length && format.charAt(index + 1) == '%') {
+        index += 2
+      } else {
+        index += 1
+        val flags = scala.collection.mutable.Set.empty[Char]
+        while (index < format.length && nativeFormatFlags.contains(format.charAt(index))) {
+          if (!flags.add(format.charAt(index))) {
+            return None
+          }
+          index += 1
+        }
+        val widthStart = index
+        while (
+          index < format.length && format.charAt(index) >= '0' &&
+          format.charAt(index) <= '9'
+        ) {
+          index += 1
+        }
+        val width =
+          if (widthStart == index) None
+          else parseBoundedFormatNumber(format, widthStart, index)
+        if (widthStart != index && width.isEmpty) {
+          return None
+        }
+        var precision: Option[Int] = None
+        if (index < format.length && format.charAt(index) == '.') {
+          index += 1
+          val precisionStart = index
+          while (
+            index < format.length && format.charAt(index) >= '0' &&
+            format.charAt(index) <= '9'
+          ) {
+            index += 1
+          }
+          if (precisionStart == index) {
+            return None
+          }
+          precision = parseBoundedFormatNumber(format, precisionStart, index)
+          if (precision.isEmpty) {
+            return None
+          }
+        }
+        if (index >= format.length) {
+          return None
+        }
+        val conversion = format.charAt(index)
+        index += 1
+        if (!isNativeFormatSpecifierSupported(conversion, flags.toSet, width, precision)) {
+          return None
+        }
+        conversions += conversion
+      }
+    }
+    Some(conversions.toSeq)
+  }
+
+  private def parseBoundedFormatNumber(format: String, start: Int, end: Int): Option[Int] = {
+    var value = 0
+    var index = start
+    while (index < end) {
+      val digit = format.charAt(index) - '0'
+      if (value > (maxNativeFormatWidth - digit) / 10) {
+        return None
+      }
+      value = value * 10 + digit
+      index += 1
+    }
+    Some(value)
+  }
+
+  private def isNativeFormatSpecifierSupported(
+      conversion: Char,
+      flags: Set[Char],
+      width: Option[Int],
+      precision: Option[Int]): Boolean = {
+    if ((flags.contains('-') || flags.contains('0')) && width.isEmpty) {
+      return false
+    }
+    if (
+      (flags.contains('-') && flags.contains('0')) ||
+      (flags.contains('+') && flags.contains(' '))
+    ) {
+      return false
+    }
+    conversion match {
+      case 's' => flags.isEmpty && width.isEmpty && precision.isEmpty
+      case 'd' => precision.isEmpty
+      case 'o' | 'x' | 'X' =>
+        precision.isEmpty && !flags.contains('+') && !flags.contains(' ')
+      case _ => false
+    }
+  }
+
+  private def supportsNativeFormatType(conversion: Char, dataType: DataType): Boolean = {
+    if (dataType == NullType) {
+      true
+    } else {
+      conversion match {
+        case 's' =>
+          dataType.isInstanceOf[StringType] ||
+          dataType == BooleanType ||
+          dataType == ByteType ||
+          dataType == ShortType ||
+          dataType == IntegerType ||
+          dataType == LongType
+        case 'd' | 'o' | 'x' | 'X' =>
+          dataType == ByteType ||
+          dataType == ShortType ||
+          dataType == IntegerType ||
+          dataType == LongType
+        case _ => false
+      }
+    }
+  }
 
   private def isPrimitiveType(dataType: DataType): Boolean = {
     val enableTimestampNtzValidation = VeloxConfig.get.enableTimestampNtzValidation

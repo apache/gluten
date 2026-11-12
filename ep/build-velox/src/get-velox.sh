@@ -18,14 +18,14 @@ set -exu
 
 CURRENT_DIR=$(cd "$(dirname "$BASH_SOURCE")"; pwd)
 VELOX_REPO=https://github.com/IBM/velox.git
-VELOX_BRANCH=dft-2026_10_30
-VELOX_ENHANCED_BRANCH=ibm-2026_10_30
+VELOX_BRANCH=dft-2026_11_10
+VELOX_ENHANCED_BRANCH=ibm-2026_11_10
 VELOX_HOME=""
 RUN_SETUP_SCRIPT=ON
 ENABLE_ENHANCED_FEATURES=OFF
 
 # Developer use only for testing Velox PR.
-UPSTREAM_VELOX_PR_ID="19480"
+UPSTREAM_VELOX_PR_ID=""
 
 OS=`uname -s`
 
@@ -105,41 +105,6 @@ function process_setup_macos {
   fi
 }
 
-function clean_previous_velox_patch_files {
-  if [[ -z "$UPSTREAM_VELOX_PR_ID" ]]; then
-    return
-  fi
-
-  local patch_name="$UPSTREAM_VELOX_PR_ID.patch"
-  if [[ ! -f "$patch_name" ]]; then
-    return
-  fi
-
-  local patch_summary
-  patch_summary=$(git -c core.quotePath=false apply --summary "$patch_name") || {
-    echo "Failed to inspect the previous Velox patch"
-    exit 1
-  }
-  local created_files
-  created_files=$(printf '%s\n' "$patch_summary" |
-    sed -n 's/^ create mode [0-9][0-9]* //p')
-  while IFS= read -r path; do
-    if [[ -z "$path" ]]; then
-      continue
-    fi
-    if git ls-files --error-unmatch -- "$path" >/dev/null 2>&1; then
-      continue
-    else
-      local status=$?
-      if [[ "$status" -ne 1 ]]; then
-        echo "Failed to inspect the previous patch path: $path"
-        exit 1
-      fi
-      rm -f -- "$path"
-    fi
-  done <<< "$created_files"
-}
-
 function prepare_velox_source_code {
   echo "Preparing Velox source code..."
 
@@ -156,7 +121,6 @@ function prepare_velox_source_code {
       if [ -z "$EXISTS" ]; then
         git fetch $VELOX_REPO $TARGET_BUILD_COMMIT:refs/tags/build_$TARGET_BUILD_COMMIT
       fi
-      clean_previous_velox_patch_files
       git reset --hard HEAD
       git checkout refs/tags/build_$TARGET_BUILD_COMMIT
     else

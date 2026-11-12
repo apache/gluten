@@ -151,27 +151,53 @@ TEST_F(SparkFunctionTest, integralRoundNullScaleSkipsChild) {
       evaluate("round(round(c0, cast(-1 as integer)), cast(null as integer))", input));
 }
 
-TEST_F(SparkFunctionTest, integralRoundNullScaleValidation) {
+TEST_F(SparkFunctionTest, integralRoundScaleValidation) {
+  const auto validate = [&](std::optional<int32_t> scale, bool castInput) {
+    ::substrait::Expression expression;
+    auto* function = expression.mutable_scalar_function();
+    function->set_function_reference(1);
+    auto* value = function->add_arguments()->mutable_value();
+    if (castInput) {
+      auto* cast = value->mutable_cast();
+      cast->mutable_type()->mutable_i8()->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+      value = cast->mutable_input();
+    }
+    value->mutable_selection()->mutable_direct_reference()->mutable_struct_field()->set_field(0);
+    auto* literal = function->add_arguments()->mutable_value()->mutable_literal();
+    if (scale.has_value()) {
+      literal->set_i32(scale.value());
+    } else {
+      literal->mutable_null()->mutable_i32()->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+    }
+    function->mutable_output_type()->mutable_i8()->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+    gluten::SubstraitToVeloxPlanValidator validator(pool());
+    TypePtr inputType = TINYINT();
+    if (castInput) {
+      inputType = VARCHAR();
+    }
+    return validator.validate(expression, ROW({"value"}, {inputType}), {{1, "round:opt_i8_i32"}});
+  };
+
+  for (const auto scale : {0, 1, 400, 401, std::numeric_limits<int32_t>::max()}) {
+    SCOPED_TRACE(scale);
+    EXPECT_TRUE(validate(scale, false));
+  }
+  EXPECT_TRUE(validate(std::nullopt, false));
+  EXPECT_TRUE(validate(std::nullopt, true));
+  for (const auto scale : {std::numeric_limits<int32_t>::min(), -401, -1}) {
+    SCOPED_TRACE(scale);
+    EXPECT_FALSE(validate(scale, false));
+  }
+
   ::substrait::Expression expression;
   auto* function = expression.mutable_scalar_function();
   function->set_function_reference(1);
-  function->add_arguments()
-      ->mutable_value()
-      ->mutable_selection()
-      ->mutable_direct_reference()
-      ->mutable_struct_field()
-      ->set_field(0);
+  function->add_arguments();
   function->add_arguments()->mutable_value()->mutable_literal()->mutable_null()->mutable_i32()->set_nullability(
       ::substrait::Type_Nullability_NULLABILITY_NULLABLE);
   function->mutable_output_type()->mutable_i8()->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
   gluten::SubstraitToVeloxPlanValidator validator(pool());
-  EXPECT_TRUE(validator.validate(expression, ROW({"value"}, {TINYINT()}), {{1, "round:opt_i8_i32"}}));
-
-  auto* cast = function->mutable_arguments(0)->mutable_value()->mutable_cast();
-  cast->mutable_type()->mutable_i8()->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
-  cast->mutable_input()->mutable_selection()->mutable_direct_reference()->mutable_struct_field()->set_field(0);
-  gluten::SubstraitToVeloxPlanValidator castValidator(pool());
-  EXPECT_TRUE(castValidator.validate(expression, ROW({"value"}, {VARCHAR()}), {{1, "round:opt_i8_i32"}}));
+  EXPECT_FALSE(validator.validate(expression, ROW({"value"}, {TINYINT()}), {{1, "round:opt_i8_i32"}}));
 }
 
 TEST_F(SparkFunctionTest, expressionLevelAnsiCastIgnoresSessionAnsiOff) {

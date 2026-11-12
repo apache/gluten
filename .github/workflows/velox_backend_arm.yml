@@ -55,7 +55,7 @@ jobs:
   # Detect which parts of the codebase were modified so downstream jobs can
   # skip work that is irrelevant to the change.
   detect-changes:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     outputs:
       cpp:      ${{ steps.filter.outputs.cpp }}
       java:     ${{ steps.filter.outputs.java }}
@@ -216,6 +216,13 @@ jobs:
           df -a
           bash dev/ci-velox-buildshared-centos-9.sh
           ccache -s
+      - name: "Save ccache"
+        if: always()
+        uses: apache/infrastructure-actions/stash/save@0ba14156c9f4c3cfbe4b0c9f36339ab0f8d81e53
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos9-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+          include-hidden-files: true
       - name: Run CPP unit test
         run: |
           cd ./cpp/build && ctest -V
@@ -228,16 +235,6 @@ jobs:
           --conf $(realpath backends-velox/generated-native-benchmark/conf_12_0_*.ini) \
           --plan $(realpath backends-velox/generated-native-benchmark/plan_12_0_*.json) \
           --data $(realpath backends-velox/generated-native-benchmark/data_12_0_*_0.parquet),$(realpath backends-velox/generated-native-benchmark/data_12_0_*_1.parquet)
-      # - name: Run UDF test
-      #   run: |
-      #     # Depends on --build_example=ON.
-      #     yum update -y
-      #     yum install -y java-17-openjdk-devel
-      #     export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
-      #     export PATH=$JAVA_HOME/bin:$PATH
-      #     java -version
-      #     $MVN_CMD test -Pspark-3.5 -Pbackends-velox -Pjava-17 -Piceberg -Pdelta -Ppaimon -DtagsToExclude=None \
-      #     -DtagsToInclude=org.apache.gluten.tags.UDFTest
       - name: Upload test report
         uses: actions/upload-artifact@v7
         with:

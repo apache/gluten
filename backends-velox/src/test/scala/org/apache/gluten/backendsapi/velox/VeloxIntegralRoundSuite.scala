@@ -16,8 +16,6 @@
  */
 package org.apache.gluten.backendsapi.velox
 
-import org.apache.gluten.config.GlutenConfig
-
 import org.apache.spark.sql.catalyst.expressions.{Add, BoundReference, Cast, Literal, Round}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
@@ -25,51 +23,37 @@ import org.apache.spark.sql.types._
 import org.scalatest.funsuite.AnyFunSuite
 
 class VeloxIntegralRoundSuite extends AnyFunSuite {
-  test("integral ROUND rejects unsafe scales even when general native validation is disabled") {
-    val conf = new SQLConf
-    conf.setConfString(GlutenConfig.NATIVE_VALIDATION_ENABLED.key, "false")
-    conf.setConfString(SQLConf.ANSI_ENABLED.key, "false")
-    SQLConf.withExistingConf(conf) {
-      val validator = new VeloxValidatorApi
-      for (dataType <- Seq(ByteType, ShortType, IntegerType, LongType)) {
-        val value = BoundReference(0, dataType, nullable = true)
-        Seq(0, 1, 400).foreach {
-          scale => assert(validator.doExprValidate("round", Round(value, Literal(scale))))
-        }
-        Seq(Int.MinValue, -401, -400, -1, 401, Int.MaxValue).foreach {
-          scale => assert(!validator.doExprValidate("round", Round(value, Literal(scale))))
-        }
-        assert(validator.doExprValidate(
-          "round",
-          Round(value, Literal.create(null, IntegerType))))
-        assert(!validator.doExprValidate(
-          "round",
-          Round(value, BoundReference(1, IntegerType, nullable = false))))
-        Seq(
-          Add(Literal(0), Literal(0)),
-          Add(Literal(400), Literal(0)),
-          Cast(Literal.create(null, NullType), IntegerType)).foreach {
-          scale =>
-            assert(scale.foldable)
-            assert(scale.dataType == IntegerType)
-            assert(!validator.doExprValidate("round", Round(value, scale)))
-        }
+  test("integral ROUND eligibility defers to native validation") {
+    val validator = new VeloxValidatorApi
+    for (dataType <- Seq(ByteType, ShortType, IntegerType, LongType)) {
+      val value = BoundReference(0, dataType, nullable = true)
+      Seq(Int.MinValue, -401, -1, 0, 1, 400, 401, Int.MaxValue).foreach {
+        scale => assert(validator.doExprValidate("round", Round(value, Literal(scale))))
+      }
+      assert(validator.doExprValidate(
+        "round",
+        Round(value, Literal.create(null, IntegerType))))
+      assert(validator.doExprValidate(
+        "round",
+        Round(value, BoundReference(1, IntegerType, nullable = false))))
+      Seq(
+        Add(Literal(0), Literal(0)),
+        Add(Literal(400), Literal(1)),
+        Cast(Literal.create(null, NullType), IntegerType)).foreach {
+        scale =>
+          assert(scale.foldable)
+          assert(scale.dataType == IntegerType)
+          assert(validator.doExprValidate("round", Round(value, scale)))
       }
     }
-  }
 
-  test("negative integral ROUND preserves Spark's captured overflow mode") {
     val conf = new SQLConf
+    conf.setConfString(SQLConf.ANSI_ENABLED.key, "true")
     SQLConf.withExistingConf(conf) {
-      val validator = new VeloxValidatorApi
-      val value = BoundReference(0, ByteType, nullable = true)
-      conf.setConfString(SQLConf.ANSI_ENABLED.key, "false")
-      val legacy = Round(value, Literal(-1))
-      assert(!validator.doExprValidate("round", legacy))
-      conf.setConfString(SQLConf.ANSI_ENABLED.key, "true")
-      assert(!validator.doExprValidate("round", legacy))
-      val current = Round(value, Literal(-1))
-      assert(!validator.doExprValidate("round", current))
+      val value = BoundReference(0, LongType, nullable = true)
+      val scale = Cast(Literal("invalid-scale"), IntegerType)
+      intercept[Exception](scale.eval())
+      assert(validator.doExprValidate("round", Round(value, scale)))
     }
   }
 }

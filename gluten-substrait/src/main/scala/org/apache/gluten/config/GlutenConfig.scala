@@ -872,7 +872,8 @@ object GlutenConfig extends ConfigRegistry {
       .doc(
         "This is tmp config to specify whether to enable the native validation based on " +
           "Substrait plan. After the validations in all backends are correctly implemented, " +
-          "this config should be removed.")
+          "this config should be removed. Disabling native validation is intended for debugging " +
+          "and may cause unsupported operations to fail at runtime instead of falling back.")
       .booleanConf
       .createWithDefault(true)
 

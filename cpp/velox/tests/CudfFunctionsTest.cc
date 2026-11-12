@@ -141,9 +141,10 @@ TEST_F(CudfFunctionsTest, rejectsAllLiteralRow) {
       RowConstructorWithNullCallToSpecialForm::kRowConstructorWithNull);
 
   EXPECT_FALSE(cudf_velox::canExprRunOnGpu(rowConstructor, nullptr, pool_.get()));
+  core::QueryConfig queryConfig{{}};
   EXPECT_EQ(
       cudf_velox::createCudfFunction(
-          RowConstructorWithNullCallToSpecialForm::kRowConstructorWithNull, rowConstructor, pool_.get()),
+          RowConstructorWithNullCallToSpecialForm::kRowConstructorWithNull, rowConstructor, pool_.get(), queryConfig),
       nullptr);
 }
 

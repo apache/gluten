@@ -21,7 +21,7 @@ import org.apache.gluten.execution.ProjectExecTransformer
 
 import org.apache.spark.SparkThrowable
 import org.apache.spark.sql.catalyst.expressions.Round
-import org.apache.spark.sql.catalyst.optimizer.NullPropagation
+import org.apache.spark.sql.catalyst.optimizer.{ConstantFolding, NullPropagation}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
@@ -39,7 +39,9 @@ class GlutenIntegralRoundSuite extends GlutenSQLTestsTrait {
       GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false") {
       withTempPath {
         path =>
-          spark.createDataFrame(rows.asJava, schema).coalesce(1).write.parquet(path.toString)
+          withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+            spark.createDataFrame(rows.asJava, schema).coalesce(1).write.parquet(path.toString)
+          }
           withTempView("integral_round_input") {
             spark.read.parquet(path.toString).createOrReplaceTempView("integral_round_input")
             f
@@ -71,7 +73,7 @@ class GlutenIntegralRoundSuite extends GlutenSQLTestsTrait {
     withInput {
       for (ansi <- Seq("false", "true")) {
         withSQLConf(SQLConf.ANSI_ENABLED.key -> ansi) {
-          for (scale <- Seq(0, 2, 400)) {
+          for (scale <- Seq(0, 2, 400, 401, Int.MaxValue)) {
             val columns = Seq("b", "s", "i", "l")
             val query = columns.map(c => s"round($c, $scale)").mkString(
               "SELECT ",
@@ -92,7 +94,9 @@ class GlutenIntegralRoundSuite extends GlutenSQLTestsTrait {
   testGluten("negative integral ROUND preserves Spark ANSI overflow and legacy wrapping") {
     withInput {
       for (ansi <- Seq(false, true)) {
-        withSQLConf(SQLConf.ANSI_ENABLED.key -> ansi.toString) {
+        withSQLConf(
+          SQLConf.ANSI_ENABLED.key -> ansi.toString,
+          GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> "true") {
           val query = "SELECT round(b, -1) FROM integral_round_input"
           val df = sql(query)
           assertExecution(df, native = false)
@@ -119,28 +123,30 @@ class GlutenIntegralRoundSuite extends GlutenSQLTestsTrait {
 
   testGluten("integral ROUND keeps captured overflow behavior after the session changes") {
     withInput {
-      for (captured <- Seq(false, true); planFirst <- Seq(false, true)) {
-        val df = withSQLConf(SQLConf.ANSI_ENABLED.key -> captured.toString) {
-          val query = sql("SELECT round(b, -1) FROM integral_round_input")
-          query.queryExecution.analyzed
-          if (planFirst) {
-            query.queryExecution.executedPlan
+      withSQLConf(GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> "true") {
+        for (captured <- Seq(false, true); planFirst <- Seq(false, true)) {
+          val df = withSQLConf(SQLConf.ANSI_ENABLED.key -> captured.toString) {
+            val query = sql("SELECT round(b, -1) FROM integral_round_input")
+            query.queryExecution.analyzed
+            if (planFirst) {
+              query.queryExecution.executedPlan
+            }
+            query
           }
-          query
-        }
-        withSQLConf(SQLConf.ANSI_ENABLED.key -> (!captured).toString) {
-          if (captured) {
-            assertOverflow(df)
-          } else {
-            checkAnswer(
-              df,
-              Seq(
-                Row((-126).toByte),
-                Row(126.toByte),
-                Row(30.toByte),
-                Row((-30).toByte),
-                Row(0.toByte),
-                Row(null)))
+          withSQLConf(SQLConf.ANSI_ENABLED.key -> (!captured).toString) {
+            if (captured) {
+              assertOverflow(df)
+            } else {
+              checkAnswer(
+                df,
+                Seq(
+                  Row((-126).toByte),
+                  Row(126.toByte),
+                  Row(30.toByte),
+                  Row((-30).toByte),
+                  Row(0.toByte),
+                  Row(null)))
+            }
           }
         }
       }
@@ -174,18 +180,37 @@ class GlutenIntegralRoundSuite extends GlutenSQLTestsTrait {
     }
   }
 
-  testGluten("integral ROUND extreme scales retain Spark execution without native validation") {
+  testGluten("integral ROUND debug mode bypasses negative-scale compatibility fallback") {
     withInput {
-      withSQLConf(GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> "false") {
-        for (scale <- Seq(-401, 401)) {
-          val query = s"SELECT round(l, $scale) FROM integral_round_input"
-          val expected = withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
-            sql(query).collect().toSeq
+      for (nativeValidation <- Seq("false", "true")) {
+        withSQLConf(GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> nativeValidation) {
+          for (scale <- Seq(-401, -1, 401, Int.MaxValue)) {
+            val query = s"SELECT round(l, CAST($scale AS INT)) FROM integral_round_input"
+            val expectedNative = nativeValidation == "false" || scale >= 0
+            val expected = withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+              sql(query).collect().toSeq
+            }
+            val df = sql(query)
+            assertExecution(df, native = expectedNative)
+            checkAnswer(df, expected)
           }
-          val df = sql(query)
-          assertExecution(df, native = false)
-          checkAnswer(df, expected)
         }
+      }
+    }
+  }
+
+  testGluten("integral ROUND keeps foldable nonliteral scales on Spark") {
+    withInput {
+      withSQLConf(
+        GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> "true",
+        SQLConf.OPTIMIZER_EXCLUDED_RULES.key -> ConstantFolding.ruleName) {
+        val query = "SELECT round(l, 1 + 1) FROM integral_round_input"
+        val expected = withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+          sql(query).collect().toSeq
+        }
+        val df = sql(query)
+        assertExecution(df, native = false)
+        checkAnswer(df, expected)
       }
     }
   }
