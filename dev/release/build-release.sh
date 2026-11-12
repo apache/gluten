@@ -25,9 +25,8 @@ cd ${GLUTEN_HOME}
 ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --build_arrow=OFF --build_tests=OFF --build_benchmarks=OFF \
                            --build_examples=OFF --enable_s3=ON --enable_gcs=ON --enable_hdfs=ON --enable_abfs=ON
 
-sudo curl -Lo /etc/yum.repos.d/corretto.repo https://yum.corretto.aws/corretto.repo
-sudo yum install -y java-17-amazon-corretto-devel
-export JAVA_HOME=/usr/lib/jvm/java-17-amazon-corretto
+sudo yum install -y java-17-openjdk-devel
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
 export PATH=$JAVA_HOME/bin:$PATH
 
 JAVA_VERSION=$("java" -version 2>&1 | awk -F '"' '/version/ {print $2}')
