@@ -21,7 +21,8 @@ import org.apache.gluten.config.{GlutenConfig, VeloxConfig, VeloxLanceConfig}
 import org.apache.spark.SparkConf
 import org.apache.spark.scheduler.{SparkListener, SparkListenerTaskEnd}
 import org.apache.spark.sql.{DataFrame, Row}
-import org.apache.spark.sql.execution.{QueryExecution, SparkPlan}
+import org.apache.spark.sql.execution.{ColumnarToRowTransition, QueryExecution, RowToColumnarTransition, SparkPlan}
+import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, QueryStageExec}
 import org.apache.spark.sql.execution.datasources.v2.{AppendDataExec, OverwriteByExpressionExec}
 import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.gluten.LanceTestUtils
@@ -167,6 +168,19 @@ class VeloxLanceWriteSuite extends VeloxWholeStageTransformerSuite {
       : Unit = {
     val cls = implicitly[scala.reflect.ClassTag[T]].runtimeClass
     assert(plans.exists(_.exists(cls.isInstance(_))), s"Expected ${cls.getSimpleName} in:\n$plans")
+  }
+
+  /** The row-to-columnar and columnar-to-row conversions in `plans`, adaptive plans included. */
+  private def rowConversions(plans: Seq[SparkPlan]): Seq[SparkPlan] = {
+    def nodes(plan: SparkPlan): Seq[SparkPlan] = plan +: (plan match {
+      case adaptive: AdaptiveSparkPlanExec => nodes(adaptive.executedPlan)
+      case stage: QueryStageExec => nodes(stage.plan)
+      case other => other.children.flatMap(nodes)
+    })
+    plans.flatMap(nodes).filter {
+      case _: ColumnarToRowTransition | _: RowToColumnarTransition => true
+      case _ => false
+    }
   }
 
   private def assertFellBack(plans: Seq[SparkPlan]): Unit = {
@@ -629,6 +643,29 @@ class VeloxLanceWriteSuite extends VeloxWholeStageTransformerSuite {
         checkAnswer(read(uri), spark.read.parquet(parquet))
         // Lance would otherwise encode those values, which grows the files.
         assert(nonZeroNullSlots(uri).isEmpty)
+    }
+  }
+
+  test("a write from a native query converts no batches to rows") {
+    withTempPath {
+      dir =>
+        val parquet = s"${dir.getCanonicalPath}/input"
+        rows(0, 2000, partitions = 2).write.parquet(parquet)
+        def query: DataFrame =
+          spark.read.parquet(parquet).where("id % 3 <> 0").selectExpr("id", "l + 1 as l", "s", "ts")
+        val uri = s"${dir.getCanonicalPath}/native.lance"
+        val plans = executedPlans(query.write.format("lance").option("path", uri).save())
+        assertOffloaded[VeloxLanceAppendDataExec](plans)
+        assert(rowConversions(plans).isEmpty, plans)
+        checkAnswer(read(uri), query)
+        // lance-spark's own writer takes rows, so the same write converts Velox's batches.
+        withSQLConf(VeloxLanceConfig.ENABLE_NATIVE_WRITE.key -> "false") {
+          val rowWriterPlans = executedPlans {
+            query.write.format("lance").option("path", s"${dir.getCanonicalPath}/rows.lance").save()
+          }
+          assertFellBack(rowWriterPlans)
+          assert(rowConversions(rowWriterPlans).nonEmpty, rowWriterPlans)
+        }
     }
   }
 
