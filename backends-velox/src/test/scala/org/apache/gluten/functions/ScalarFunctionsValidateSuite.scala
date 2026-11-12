@@ -17,7 +17,7 @@
 package org.apache.gluten.functions
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.execution.{BatchScanExecTransformer, FilterExecTransformer, ProjectExecTransformer}
+import org.apache.gluten.execution.{BatchScanExecTransformer, ColumnarPartialProjectExec, FilterExecTransformer, ProjectExecTransformer}
 import org.apache.gluten.expression.FormatNumberRestrictions
 import org.apache.gluten.extension.columnar.FallbackTags
 
@@ -194,6 +194,60 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
   test("shiftright") {
     runQueryAndCompare("SELECT shiftright(int_field1, 1) from datatab limit 1") {
       checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  test("shiftrightunsigned and >>> (Spark 4.0+)") {
+    def assertNativeUnsignedShift(df: DataFrame): Unit = {
+      checkGlutenPlan[ProjectExecTransformer](df)
+      val partialProjects = getExecutedPlan(df).collect {
+        case p: ColumnarPartialProjectExec => p
+      }
+      assert(
+        partialProjects.isEmpty,
+        s"Unsigned shifts must not use partial JVM projection:\n${partialProjects.mkString("\n")}")
+    }
+
+    withTempPath {
+      path =>
+        withTempView("shift_input") {
+          Seq[(Integer, java.lang.Long, Integer)](
+            (8, 8L, 1),
+            (-1, -1L, 1),
+            (Int.MinValue, Long.MinValue, 1),
+            (Int.MinValue, Long.MinValue, 31),
+            (-1, -1L, 32),
+            (-1, -1L, 33),
+            (-1, -1L, 63),
+            (-1, -1L, 64),
+            (-1, -1L, 65),
+            (-1, -1L, -1),
+            (Int.MinValue, Long.MinValue, Int.MaxValue),
+            (null, null, 1),
+            (1, 1L, null)
+          )
+            .toDF("int_value", "long_value", "shift")
+            .write
+            .parquet(path.getCanonicalPath)
+
+          spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("shift_input")
+          runQueryAndCompare(
+            """
+              |SELECT
+              |  shiftrightunsigned(int_value, shift),
+              |  shiftrightunsigned(long_value, shift)
+              |FROM shift_input
+              |""".stripMargin)(assertNativeUnsignedShift)
+          if (isSparkVersionGE("4.0")) {
+            runQueryAndCompare(
+              """
+                |SELECT
+                |  int_value >>> shift,
+                |  long_value >>> shift
+                |FROM shift_input
+                |""".stripMargin)(assertNativeUnsignedShift)
+          }
+        }
     }
   }
 
@@ -1018,6 +1072,27 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
         runQueryAndCompare("select filter(value, x -> x is not null) as res from array_tbl;") {
           checkGlutenPlan[ProjectExecTransformer]
         }
+
+        runQueryAndCompare(
+          "select filter(value, (x, i) -> i < size(value) - 1) as res from array_tbl;") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+    }
+  }
+
+  test("filter with is not null on a struct field or an outer column") {
+    withTable("t") {
+      sql("create table t (arr array<struct<a: int>>, c int) using parquet")
+      sql(
+        "insert into t values " +
+          "(array(named_struct('a', 1), named_struct('a', cast(null as int))), null), " +
+          "(array(named_struct('a', 2), null), 3)")
+      runQueryAndCompare("select filter(arr, x -> x.a is not null) from t") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+      runQueryAndCompare("select filter(arr, x -> c is not null) from t") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
     }
   }
 
@@ -1041,8 +1116,11 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
   test("transform") {
     withTable("t") {
       sql("create table t (arr ARRAY<INT>) using parquet")
-      sql("insert into t values(array(1, 2, 3, null))")
+      sql("insert into t values (array(1, 2, 3, null)), (array()), (null)")
       runQueryAndCompare("select transform(arr, x -> x + 1) from t") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+      runQueryAndCompare("select transform(arr, (x, i) -> x + i) from t") {
         checkGlutenPlan[ProjectExecTransformer]
       }
     }

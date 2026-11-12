@@ -107,6 +107,27 @@ class GlutenClickhouseStringFunctionsSuite extends GlutenClickHouseWholeStageTra
     }
   }
 
+  test("GLUTEN-13593: regexp_extract with escaped bracket in character class") {
+    withTable("regexp_extract_escaped_bracket") {
+      sql("create table regexp_extract_escaped_bracket(a String) using parquet")
+      sql("""
+            |insert into regexp_extract_escaped_bracket
+            | values ('[com.example.demo.AlphaController viewDidAppear:]'),
+            |  ('[com.example.demo.BetaViewController]'), ('[123-456]')
+            |""".stripMargin)
+
+      val sql_str =
+        """select
+          |    regexp_extract(a, '\\[(?:.*\\.)?([^\\.\\s\\]]+)', 1)
+          |  , regexp_extract(a, '\\[([0-9-]+)\\]', 1)
+          |  , regexp_extract(a, '[\\[]', 0)
+          |  from regexp_extract_escaped_bracket
+          """.stripMargin
+
+      runQueryAndCompare(sql_str) { _ => }
+    }
+  }
+
   test("GLUTEN-8325 $. missmatched") {
     withTable("regexp_string_end") {
       sql("create table regexp_string_end(a String) using parquet")
