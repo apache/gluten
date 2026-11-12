@@ -51,8 +51,20 @@ object MetricsUtil extends Logging {
       .map(_.asLong())
       .getOrElse(0L)
 
+  private[metrics] def expressionStatsFromJson(node: JsonNode): JMap[String, java.lang.Long] = {
+    val stats = new java.util.HashMap[String, java.lang.Long]()
+    Option(node.get("expressionStats")).foreach {
+      exprStats =>
+        exprStats.fields().asScala.foreach {
+          entry => stats.put(entry.getKey, java.lang.Long.valueOf(entry.getValue.asLong()))
+        }
+    }
+    stats
+  }
+
   private def operatorMetricFromJson(node: JsonNode): OperatorMetrics = {
     val metrics = new OperatorMetrics()
+    metrics.expressionStats = expressionStatsFromJson(node)
     metrics.inputRows = value(node, "inputRows")
     metrics.inputVectors = value(node, "inputVectors")
     metrics.inputBytes = value(node, "inputBytes")
@@ -207,7 +219,7 @@ object MetricsUtil extends Logging {
    * @return
    *   the merged metrics
    */
-  private def mergeMetrics(operatorMetrics: JList[OperatorMetrics]): OperatorMetrics = {
+  private[metrics] def mergeMetrics(operatorMetrics: JList[OperatorMetrics]): OperatorMetrics = {
     if (operatorMetrics.size() == 0) {
       return null
     }
@@ -359,6 +371,16 @@ object MetricsUtil extends Logging {
     aggregated.bloomFilterTestedRows = bloomFilterTestedRows
     aggregated.bloomFilterAcceptedRows = bloomFilterAcceptedRows
     aggregated.bloomFilterBypassed = bloomFilterBypassed
+    val expressionStats = new java.util.HashMap[String, java.lang.Long]()
+    operatorMetrics.asScala.foreach {
+      metrics =>
+        metrics.expressionStats.asScala.foreach {
+          case (name, rows) =>
+            val sum = Option(expressionStats.get(name)).map(_.longValue()).getOrElse(0L) + rows
+            expressionStats.put(name, java.lang.Long.valueOf(sum))
+        }
+    }
+    aggregated.expressionStats = expressionStats
     aggregated
   }
 
