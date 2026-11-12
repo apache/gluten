@@ -216,7 +216,8 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       expr: ArrayFilter): ExpressionTransformer = {
     expr.function match {
       // Transformer for array_compact.
-      case LambdaFunction(_: IsNotNull, _, _) =>
+      case LambdaFunction(IsNotNull(element: NamedLambdaVariable), Seq(variable), _)
+          if element.exprId == variable.exprId =>
         GenericExpressionTransformer(ExpressionNames.ARRAY_COMPACT, Seq(argument), expr)
       case _ => GenericExpressionTransformer(substraitExprName, Seq(argument, function), expr)
     }
