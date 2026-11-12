@@ -142,7 +142,6 @@ class VeloxTestSettings extends BackendTestSettings {
     // Excluded in favour of the GlutenCastWithAnsiOffSuite rewrite, which drops the Long.MinValue
     // assertion: collect() -> toJavaTimestamp -> rebaseGregorianToJulianMicros overflows.
     .exclude("cast from timestamp II")
-    .exclude("SPARK-39749: cast Decimal to string")
   enableSuite[GlutenTryCastSuite]
     .exclude(
       "Process Infinity, -Infinity, NaN in case insensitive manner" // +inf not supported in folly.
@@ -186,9 +185,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .excludeGlutenTest("from_unixtime")
     // Replaced by a gluten test to pass timezone through config.
     .exclude("months_between")
-    .exclude(
-      "TruncTimestamp of Long.MinValue overflows with ArithmeticException"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenDecimalExpressionSuite]
   enableSuite[GlutenDecimalPrecisionSuite]
   enableSuite[GlutenGeneratorExpressionSuite]
@@ -214,6 +210,11 @@ class VeloxTestSettings extends BackendTestSettings {
     // Exception class different.
     .exclude("from_json - invalid data")
   enableSuite[GlutenJsonFunctionsSuite]
+    // Velox nulls the whole nested struct on a conversion error instead of returning
+    // partial results for it (facebookincubator/velox#19725).
+    .exclude("SPARK-33134: return partial results only for root JSON objects")
+    .exclude("SPARK-40646: return partial results for objects with values as JSON arrays")
+    .exclude("SPARK-48863: parse object as an array with partial results enabled")
     // * in get_json_object expression not supported in velox
     .exclude("SPARK-42782: Hive compatibility check for get_json_object")
     // Velox does not support single quotes in get_json_object function.
@@ -225,6 +226,7 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("default")
     // FIXME(yma11): ObjectType is not covered in RowEncoder/Serializer in vanilla spark
     .exclude("SPARK-37967: Literal.create support ObjectType")
+  enableSuite[GlutenTimestampNtzLiteralSuite]
   enableSuite[GlutenMathExpressionsSuite]
     // Spark round UT for round(3.1415,3) is not correct.
     .exclude("round/bround/floor/ceil")
@@ -381,8 +383,6 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenJsonParsingOptionsSuite]
   // Generated suites for org.apache.spark.sql.execution.datasources.parquet
   enableSuite[GlutenParquetAvroCompatibilitySuite]
-    // TODO: https://github.com/apache/gluten/issues/11865
-    .exclude("various complex types")
   enableSuite[GlutenParquetCommitterSuite]
   enableSuite[GlutenParquetFieldIdSchemaSuite]
   enableSuite[GlutenParquetTypeWideningSuite]
@@ -597,7 +597,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude(
       "SPARK-53535: vectorized reader: missing all struct fields, struct with complex fields")
     .exclude("SPARK-54220: vectorized reader: missing all struct fields, struct with NullType only")
-    .exclude("SPARK-54220: NullType") // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenParquetV1PartitionDiscoverySuite]
   enableSuite[GlutenParquetV2PartitionDiscoverySuite]
   enableSuite[GlutenParquetProtobufCompatibilitySuite]
@@ -863,9 +862,10 @@ class VeloxTestSettings extends BackendTestSettings {
     .excludeByPrefix("bucket coalescing is applied when join expressions match")
   enableSuite[GlutenBucketedWriteWithoutHiveSupportSuite]
   enableSuite[GlutenCreateTableAsSelectSuite]
-    // TODO Gluten can not catch the spark exception in Driver side.
+    // The CTAS writes JSON, which the Velox backend does not write natively (only Parquet is
+    // supported), so the write falls back to Spark's writer. The test also depends on a read-only
+    // directory, which does not stop writes when running as root like Gluten's CI.
     .exclude("CREATE TABLE USING AS SELECT based on the file without write permission")
-    .exclude("create a table, drop it and create another one with the same name")
   enableSuite[GlutenDDLSourceLoadSuite]
   disableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuite](
     "GLUTEN-4893: Vanilla UT checks scan operator by exactly matching the class type")
@@ -956,7 +956,6 @@ class VeloxTestSettings extends BackendTestSettings {
     // TODO: Velox parquet writer marks all struct fields as OPTIONAL (nullable),
     //  but Spark's variant type requires REQUIRED fields. Needs Velox-side fix.
     .exclude("SPARK-47546: invalid variant binary")
-    .exclude("SPARK-47546: valid variant binary")
   enableSuite[GlutenVariantWriteShreddingSuite]
   enableSuite[GlutenXmlFunctionsSuite]
   enableSuite[GlutenApproxCountDistinctForIntervalsQuerySuite]
@@ -1014,9 +1013,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude(
       "SPARK-57298: collect_set normalizes NaN and -0.0 nested in complex types"
     ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "collect_set with RESPECT NULLS preserves null in set"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenDataFrameAsOfJoinSuite]
   enableSuite[GlutenDataFrameComplexTypeSuite]
   enableSuite[GlutenDataFrameFunctionsSuite]
@@ -1027,6 +1023,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("transform keys function - primitive data types")
     // Overridden.
     .exclude("map with arrays")
+    // Overridden: asserts vanilla WholeStageCodegenExec, which Gluten replaces.
+    .exclude("array_join with nullable nullReplacement under whole-stage codegen")
     .exclude(
       "SPARK-54918: array set ops normalize -0.0 and NaN via VALUES inline table"
     ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
@@ -1047,9 +1045,6 @@ class VeloxTestSettings extends BackendTestSettings {
     ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
     .exclude(
       "SPARK-54918: array_union normalizes -0.0 to +0.0 - literals"
-    ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
-    .exclude(
-      "array_join with nullable nullReplacement under whole-stage codegen"
     ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenDataFrameHintSuite]
   enableSuite[GlutenDataFrameImplicitsSuite]
@@ -1216,6 +1211,8 @@ class VeloxTestSettings extends BackendTestSettings {
     // Rewrite from ORC scan to Parquet scan because ORC is not well supported.
     .exclude("SPARK-28156: self-join should not miss cached view")
     .exclude("SPARK-33338: GROUP BY using literal map should not fail")
+    // Spark checks its own plan node, which Gluten replaces with a native transformer.
+    .excludeByPrefix("SPARK-52060: one row relation with codegen enabled")
     // Rewrite to disable plan check for SMJ because SHJ is preferred in Gluten.
     .exclude("SPARK-11111 null-safe join should not use cartesian product")
     // Rewrite to change the information of a caught exception.
@@ -1311,12 +1308,20 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("NOT NULL checks for nested struct fields (byPosition)")
     .exclude("NOT NULL checks for nested structs, arrays, maps (byName)")
     .exclude("NOT NULL checks for nested structs, arrays, maps (byPosition)")
+    // Overridden.
+    .exclude("NOT NULL checks for nullable array with required element (byName)")
+    // Overridden.
     .exclude("NOT NULL checks for nullable array with required element (byPosition)")
+    // Overridden.
+    .exclude("NOT NULL checks for fields inside nullable array (byName)")
+    // Overridden.
     .exclude("not null checks for fields inside nullable array (byPosition)")
     // Overridden.
     .exclude("NOT NULL checks for nullable map with required values (byName)")
     // Overridden.
     .exclude("NOT NULL checks for nullable map with required values (byPosition)")
+    // Overridden.
+    .exclude("NOT NULL checks for fields inside nullable maps (byName)")
     // Overridden.
     .exclude("NOT NULL checks for fields inside nullable maps (byPosition)")
   enableSuite[GlutenTableOptionsConstantFoldingSuite]

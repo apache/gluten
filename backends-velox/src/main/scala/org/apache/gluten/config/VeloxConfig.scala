@@ -79,6 +79,9 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def broadcastNestedLoopJoinFullOuterRewriteThreshold: Long =
     getConf(VELOX_BROADCAST_NESTED_LOOP_JOIN_FULL_OUTER_REWRITE_THRESHOLD)
 
+  def optimizeSortMergeJoinStreamedSide: Boolean =
+    getConf(SORT_MERGE_JOIN_OPTIMIZE_STREAMED_SIDE)
+
   def veloxBroadcastHashTableBuildTargetBytes: Long =
     getConf(COLUMNAR_VELOX_BROADCAST_HASH_TABLE_BUILD_TARGET_BYTES)
 
@@ -256,9 +259,12 @@ object VeloxConfig extends ConfigRegistry {
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.broadcastHashTableBuildThreads")
       .doc(
         "Size of the dedicated CPU thread pool for the parallel broadcast hash-table build. " +
-          "By default, the thread pool is sized to the maximum task slots per Spark executor " +
-          "on executors, or to spark.driver.cores on the driver (used when " +
-          "driver-side broadcast hash-table build is enabled), with a minimum of one thread.")
+          "If unset, the size is resolved separately for each process at backend initialization: " +
+          "spark.gluten.numTaskSlotsPerExecutor on executors, and spark.driver.cores on the " +
+          "driver. In local mode, the shared pool uses the number of cores specified by " +
+          "spark.master (for example, local[N] uses N). An explicit value applies to both " +
+          "driver and executors. A value less than or equal to one uses the serial build path " +
+          "without creating a dedicated thread pool.")
       .intConf
       .createOptional
 
@@ -281,6 +287,16 @@ object VeloxConfig extends ConfigRegistry {
           "threshold. Set to -1 to disable the rewrite.")
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("10MB")
+
+  val SORT_MERGE_JOIN_OPTIMIZE_STREAMED_SIDE =
+    buildConf("spark.gluten.sql.columnar.backend.velox.sortMergeJoin.optimizeStreamedSide")
+      .doc(
+        "Use input size statistics to put the larger input on the streamed left side of " +
+          "native inner and outer sort merge joins. Skew joins and joins without known input " +
+          "sizes keep their original orientation. Velox can buffer matching groups from " +
+          "both sides.")
+      .booleanConf
+      .createWithDefault(false)
 
   val COLUMNAR_VELOX_ASYNC_TIMEOUT_ON_TASK_STOPPING =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.asyncTimeoutOnTaskStopping")

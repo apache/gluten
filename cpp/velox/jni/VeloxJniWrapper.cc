@@ -717,6 +717,28 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_columnarbatch_VeloxColumnarBatchJ
   JNI_METHOD_END(kInvalidObjectHandle)
 }
 
+JNIEXPORT jint JNICALL Java_org_apache_gluten_columnarbatch_VeloxColumnarBatchJniWrapper_firstNullColumnIndex( // NOLINT
+    JNIEnv* env,
+    jobject wrapper,
+    jlong veloxBatchHandle,
+    jintArray columnOrdinals) {
+  JNI_METHOD_START
+  auto ctx = getRuntime(env, wrapper);
+  auto runtime = dynamic_cast<VeloxRuntime*>(ctx);
+  auto batch = ObjectStore::retrieve<ColumnarBatch>(veloxBatchHandle);
+  auto safeColumnOrdinals = getIntArrayElementsSafe(env, columnOrdinals);
+
+  if (safeColumnOrdinals.length() == 0 || batch->numRows() == 0) {
+    return -1;
+  }
+
+  auto veloxBatch = VeloxColumnarBatch::from(runtime->memoryManager()->getLeafMemoryPool().get(), batch);
+  const std::vector<int32_t> columnIndices(
+      safeColumnOrdinals.elems(), safeColumnOrdinals.elems() + safeColumnOrdinals.length());
+  return veloxBatch->firstNullColumnIndex(columnIndices);
+  JNI_METHOD_END(-1)
+}
+
 JNIEXPORT void JNICALL Java_org_apache_gluten_monitor_VeloxMemoryProfiler_start( // NOLINT
     JNIEnv* env,
     jclass) {
@@ -1022,10 +1044,11 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
     cb.push_back(ObjectStore::retrieve<ColumnarBatch>(handle));
   }
 
-  if (numThreads == 1) {
-    // Use default global pool for driver-side build
-    // The hash table will be serialized and broadcast, so it doesn't need runtime's pool
-    // Using runtime pool causes lifecycle management issues
+  auto* executor = VeloxBackend::get()->broadcastHashTableBuildExecutor();
+  if (numThreads == 1 || executor == nullptr) {
+    // Allocate the hash table from the backend-global memory pool because it may outlive the runtime that initiated the
+    // build. Driver-side builds are serialized for broadcast, while executor-side builds may be cached and reused
+    // across tasks.
     auto memoryPool = defaultLeafVeloxMemoryPool();
 
     auto builder = nativeHashTableBuild(
@@ -1067,8 +1090,6 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
 
   // Use a dedicated CPU thread pool for the parallel hash-table build. The build is CPU-bound,
   // so it must not run on the io executor which is reserved for async IO tasks.
-  auto executor = VeloxBackend::get()->broadcastHashTableBuildExecutor();
-
   std::vector<std::shared_ptr<gluten::HashTableBuilder>> hashTableBuilders(numThreads);
   std::vector<std::unique_ptr<facebook::velox::exec::BaseHashTable>> otherTables(numThreads);
   std::vector<folly::Future<folly::Unit>> futures;
@@ -1086,8 +1107,9 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
         threadBatches.push_back(cb[i]);
       }
 
-      // Use default global pool for driver-side build
-      // The hash table will be serialized and broadcast, so it doesn't need runtime's pool
+      // Allocate the hash table from the backend-global memory pool because it may outlive the runtime that initiated
+      // the build. Driver-side builds are serialized for broadcast, while executor-side builds may be cached and reused
+      // across tasks.
       auto threadMemoryPool = defaultLeafVeloxMemoryPool();
 
       auto builder = nativeHashTableBuild(
@@ -1138,7 +1160,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
       facebook::velox::exec::BaseHashTable::kNoSpillInputStartPartitionBit,
       hashTableBuilders[0]->joinBuildVectorHasherMaxNumDistinct(),
       hashTableBuilders[0]->dropDuplicates(),
-      allowParallelJoinBuild ? VeloxBackend::get()->broadcastHashTableBuildExecutor() : nullptr);
+      executor);
 
   for (int i = 1; i < numThreads; ++i) {
     if (hashTableBuilders[i]->joinHasNullKeys()) {

@@ -23,6 +23,7 @@
 #include "compute/delta/DeltaSplitInfo.h"
 #include "compute/iceberg/IcebergPlanConverter.h"
 #include "jni/JniHashTable.h"
+#include "operators/functions/IncrementMetricFunction.h"
 #include "operators/hashjoin/HashTableBuilder.h"
 #include "operators/plannodes/RowVectorStream.h"
 #ifdef ENABLE_KAFKA
@@ -32,6 +33,7 @@
 #endif
 #include "velox/connectors/hive/HiveDataSink.h"
 #include "velox/connectors/hive/iceberg/IcebergColumnHandle.h"
+#include "velox/connectors/hive/iceberg/IcebergTableHandle.h"
 #include "velox/exec/TableWriter.h"
 #include "velox/type/Type.h"
 
@@ -1318,6 +1320,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
       sortingOrders,
       rowNumberColumnName,
       static_cast<int32_t>(windowGroupLimitRel.limit()),
+      /*partial=*/true,
       childNode);
 }
 
@@ -1656,34 +1659,48 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   auto names = colNameList;
   auto types = veloxTypeList;
 
-  // The columns we project from the file.
+  // The logical scan schema includes columns supplied by the connector, not just the file.
   auto baseSchema = ROW(std::move(names), std::move(types));
-  // The columns present in the table, if not available default to the baseSchema.
-  auto tableSchema = splitInfo->tableSchema ? splitInfo->tableSchema : baseSchema;
 
-  // Build dataColumns from tableSchema, excluding partition columns.
   // HiveTableHandle::dataColumns() is used as fileSchema for the reader.
-  // Partition columns should not be validated against the file's physical types
-  // (their values come from the partition path, not from the file).
-  std::unordered_set<std::string> partitionColNames;
-  for (int idx = 0; idx < colNameList.size(); idx++) {
-    if (columnTypes[idx] == ColumnType::kPartitionKey) {
-      partitionColNames.insert(colNameList[idx]);
-    }
-  }
   RowTypePtr dataColumns;
-  if (partitionColNames.empty()) {
-    dataColumns = tableSchema;
-  } else {
+  if (!splitInfo->tableSchema) {
+    // Scan outputs include connector-generated columns, not just physical fields.
+    // For example, _metadata.file_name is VARCHAR even if the file contains a
+    // file_name BIGINT column. Exclude metadata here to avoid Parquet type-checking
+    // that unrelated field before the connector supplies the metadata constant.
     std::vector<std::string> dataColNames;
     std::vector<TypePtr> dataColTypes;
-    for (int idx = 0; idx < tableSchema->size(); idx++) {
-      if (partitionColNames.find(tableSchema->nameOf(idx)) == partitionColNames.end()) {
-        dataColNames.push_back(tableSchema->nameOf(idx));
-        dataColTypes.push_back(tableSchema->childAt(idx));
+    for (int idx = 0; idx < colNameList.size(); idx++) {
+      if (columnTypes[idx] == ColumnType::kRegular) {
+        dataColNames.push_back(colNameList[idx]);
+        dataColTypes.push_back(veloxTypeList[idx]);
       }
     }
     dataColumns = ROW(std::move(dataColNames), std::move(dataColTypes));
+  } else {
+    // An explicit schema describes physical fields and their ordinals. A field
+    // must not be removed just because a synthetic output has the same name.
+    const auto& tableSchema = splitInfo->tableSchema;
+    std::unordered_set<std::string> partitionColNames;
+    for (int idx = 0; idx < colNameList.size(); idx++) {
+      if (columnTypes[idx] == ColumnType::kPartitionKey) {
+        partitionColNames.insert(colNameList[idx]);
+      }
+    }
+    if (partitionColNames.empty()) {
+      dataColumns = tableSchema;
+    } else {
+      std::vector<std::string> dataColNames;
+      std::vector<TypePtr> dataColTypes;
+      for (int idx = 0; idx < tableSchema->size(); idx++) {
+        if (partitionColNames.find(tableSchema->nameOf(idx)) == partitionColNames.end()) {
+          dataColNames.push_back(tableSchema->nameOf(idx));
+          dataColTypes.push_back(tableSchema->childAt(idx));
+        }
+      }
+      dataColumns = ROW(std::move(dataColNames), std::move(dataColTypes));
+    }
   }
 
   connector::ConnectorTableHandlePtr tableHandle;
@@ -1700,8 +1717,14 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 #endif
   }
   common::SubfieldFilters subfieldFilters;
-  tableHandle = std::make_shared<connector::hive::HiveTableHandle>(
-      connectorId, "hive_table", std::move(subfieldFilters), remainingFilter, dataColumns);
+  if (connectorId == connectorIds_.iceberg) {
+    // The Iceberg connector's data source requires an IcebergTableHandle.
+    tableHandle = std::make_shared<connector::hive::iceberg::IcebergTableHandle>(
+        connectorId, "hive_table", std::move(subfieldFilters), remainingFilter, dataColumns);
+  } else {
+    tableHandle = std::make_shared<connector::hive::HiveTableHandle>(
+        connectorId, "hive_table", std::move(subfieldFilters), remainingFilter, dataColumns);
+  }
 
   // Required subfields of scan columns (map-key pruning), from the RequiredSubfieldsExtension the
   // ScanMapKeyPruning rule packs into the ReadRel advanced extension. Each path is transported as
@@ -1930,13 +1953,16 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   // In fact, only one RelRoot or Rel is expected here.
   VELOX_CHECK_EQ(substraitPlan.relations_size(), 1);
   const auto& rel = substraitPlan.relations(0);
+  core::PlanNodePtr plan;
   if (rel.has_root()) {
-    return toVeloxPlan(rel.root());
+    plan = toVeloxPlan(rel.root());
   } else if (rel.has_rel()) {
-    return toVeloxPlan(rel.rel());
+    plan = toVeloxPlan(rel.rel());
   } else {
     VELOX_FAIL("RelRoot or Rel is expected in Plan.");
   }
+  checkIncrementMetricFunctionsInProjects(functionMap_, *plan);
+  return plan;
 }
 
 std::string SubstraitToVeloxPlanConverter::nextPlanNodeId() {

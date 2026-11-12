@@ -687,7 +687,7 @@ class GlutenDynamicPartitionPruningV1SuiteAEOnDisableScan
 
 // Same as above except AQE is off.
 class GlutenDynamicPartitionPruningV1SuiteAEOffDisableScan
-  extends GlutenDynamicPartitionPruningV2SuiteAEOff {
+  extends GlutenDynamicPartitionPruningV1SuiteAEOff {
   override def sparkConf: SparkConf = {
     super.sparkConf.set(GlutenConfig.COLUMNAR_FILESCAN_ENABLED.key, "false")
   }
@@ -713,7 +713,7 @@ class GlutenDynamicPartitionPruningV2SuiteAEOffDisableScan
 // Test DPP with project disabled by user for some reason, which can also mock the situation
 // that project is not transformable.
 class GlutenDynamicPartitionPruningV1SuiteAEOffWSCGOnDisableProject
-  extends GlutenDynamicPartitionPruningV2SuiteAEOff {
+  extends GlutenDynamicPartitionPruningV1SuiteAEOff {
   override def sparkConf: SparkConf = {
     super.sparkConf.set(GlutenConfig.COLUMNAR_PROJECT_ENABLED.key, "false")
   }
@@ -721,7 +721,7 @@ class GlutenDynamicPartitionPruningV1SuiteAEOffWSCGOnDisableProject
 
 // Same as above except whole-stage codegen is off.
 class GlutenDynamicPartitionPruningV1SuiteAEOffWSCGOffDisableProject
-  extends GlutenDynamicPartitionPruningV2SuiteAEOff {
+  extends GlutenDynamicPartitionPruningV1SuiteAEOff {
   override def sparkConf: SparkConf = {
     super.sparkConf
       .set(GlutenConfig.COLUMNAR_PROJECT_ENABLED.key, "false")
