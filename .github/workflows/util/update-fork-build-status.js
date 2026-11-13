@@ -43,20 +43,31 @@ function isTransient(e) {
 
 const runPath = (w) => '.github/workflows/' + w.file;
 
-// The fork run attempt a check points at, as "run_id/attempt", or null. Checks
-// written before attempts were recorded count as attempt 1.
-function attemptOf(check) {
+// Job conclusions that make the run fail. No job in these workflows sets
+// continue-on-error, so a check can turn red before the run ends.
+const FAILED = ['failure', 'timed_out'];
+
+// What a check records in its output text about its fork run, or null.
+function recordOf(check) {
   if (check.conclusion == 'action_required') return null;
   try {
     const p = JSON.parse(check.output.text);
-    return p && p.run_id ? `${p.run_id}/${p.run_attempt || 1}` : null;
+    return p && p.run_id ? p : null;
   } catch (e) {
     return null;
   }
 }
 
-// The check status (and conclusion) for a run's current state.
-function stateOf(run) {
+// The fork run attempt a check points at, as "run_id/attempt", or null. Checks
+// written before attempts were recorded count as attempt 1.
+function attemptOf(check) {
+  const p = recordOf(check);
+  return p ? `${p.run_id}/${p.run_attempt || 1}` : null;
+}
+
+// The check status (and conclusion) for a run's current state and its failed jobs.
+function stateOf(run, failedJobs) {
+  if (failedJobs.length) return { status: 'completed', conclusion: 'failure' };
   if (run.status == 'completed') {
     return { status: 'completed', conclusion: CONCLUSIONS.includes(run.conclusion) ? run.conclusion : 'failure' };
   }
@@ -104,42 +115,80 @@ module.exports = async ({ github, context, core }) => {
     return runs;
   };
 
-  const runOutput = (pr, run) => ({
-    title: 'Fork run',
-    summary:
-      `[See the run in ${pr.head.repo.full_name}](${run.html_url}). ` +
-      'Rerun failed jobs there if the failure is unrelated to this pull request.',
-    text: JSON.stringify({
+  // Jobs of the run's latest attempt that failed. Read only while the run is going or
+  // when it didn't pass.
+  const failedJobsOf = async (pr, run) => {
+    if (run.status == 'completed' && ['success', 'skipped', 'neutral'].includes(run.conclusion)) return [];
+    const jobs = await github.paginate('GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs', {
       owner: pr.head.repo.owner.login,
       repo: pr.head.repo.name,
       run_id: run.id,
-      run_attempt: run.run_attempt,
-    }),
-  });
+      filter: 'latest',
+      per_page: 100,
+    });
+    return jobs.filter((j) => FAILED.includes(j.conclusion));
+  };
 
-  const syncCheck = (pr, w, check, run) => {
-    const state = stateOf(run);
-    if (check.status == state.status && check.conclusion == (state.conclusion || null)) return;
-    console.log(`#${pr.number} ${w.file}: ${state.status} ${state.conclusion || ''}`);
+  const checkFor = async (pr, run) => {
+    const failedJobs = await failedJobsOf(pr, run);
+    const done = run.status == 'completed';
+    const count = failedJobs.length == 1 ? '1 job failed' : `${failedJobs.length} jobs failed`;
+    const lines = [
+      `[See the run in ${pr.head.repo.full_name}](${run.html_url}). ` +
+        'Rerun failed jobs there if the failure is unrelated to this pull request.',
+    ];
+    if (failedJobs.length) {
+      lines.push('', done ? 'Failed jobs:' : 'Failed jobs so far (the run is still going):');
+      for (const j of failedJobs) lines.push(`- [${j.name}](${j.html_url})`);
+    }
+    return {
+      ...stateOf(run, failedJobs),
+      output: {
+        title: failedJobs.length ? count + (done ? '' : ', run still going') : 'Fork run',
+        summary: lines.join('\n'),
+        // `done` stops further reads of a check whose run has ended.
+        text: JSON.stringify({
+          owner: pr.head.repo.owner.login,
+          repo: pr.head.repo.name,
+          run_id: run.id,
+          run_attempt: run.run_attempt,
+          done,
+        }),
+      },
+    };
+  };
+
+  const syncCheck = async (pr, w, check, run) => {
+    if (recordOf(check).done) return;
+    const next = await checkFor(pr, run);
+    const same = (k) => (check.output[k] || '') == next.output[k];
+    if (
+      check.status == next.status &&
+      check.conclusion == (next.conclusion || null) &&
+      same('title') &&
+      same('summary') &&
+      same('text')
+    ) {
+      return;
+    }
+    console.log(`#${pr.number} ${w.file}: ${next.status} ${next.conclusion || ''} ${next.output.title}`);
+    // An update without `output` clears its text, which is how the next pass finds this check.
     return github.request('PATCH /repos/{owner}/{repo}/check-runs/{check_run_id}', {
       ...repo,
       check_run_id: check.id,
       details_url: run.html_url,
-      ...state,
-      // An update without `output` clears its text, which is how the next pass finds this check.
-      output: runOutput(pr, run),
+      ...next,
     });
   };
 
-  const createRunCheck = (pr, w, run) => {
+  const createRunCheck = async (pr, w, run) => {
     console.log(`#${pr.number} ${w.file}: tracking ${run.html_url}`);
     return github.rest.checks.create({
       ...repo,
       name: w.check,
       head_sha: pr.head.sha,
       details_url: run.html_url,
-      ...stateOf(run),
-      output: runOutput(pr, run),
+      ...(await checkFor(pr, run)),
     });
   };
 

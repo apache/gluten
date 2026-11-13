@@ -22,7 +22,8 @@ name: Update fork build status
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    # Every 5 minutes, off the top of the hour, when GitHub delays scheduled runs most.
+    - cron: '2-57/5 * * * *'
   workflow_dispatch:
 
 permissions: {}
