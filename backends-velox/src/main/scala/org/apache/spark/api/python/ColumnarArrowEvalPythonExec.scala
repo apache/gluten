@@ -16,14 +16,14 @@
  */
 package org.apache.spark.api.python
 
-import org.apache.gluten.backendsapi.arrow.ArrowBatchTypes.ArrowJavaBatchType
-import org.apache.gluten.columnarbatch.ColumnarBatches
+import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.columnarbatch.{ColumnarBatches, VeloxColumnarBatches}
 import org.apache.gluten.execution.{ValidatablePlan, ValidationResult}
-import org.apache.gluten.extension.columnar.transition.{Convention, ConventionReq}
+import org.apache.gluten.extension.columnar.transition.Convention
 import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
 import org.apache.gluten.utils.PullOutProjectHelper
-import org.apache.gluten.vectorized.{ArrowColumnVectors, RefCountedArrowColumnVector}
+import org.apache.gluten.vectorized.ArrowColumnVectors
 
 import org.apache.spark.{ContextAwareIterator, SparkEnv, TaskContext}
 import org.apache.spark.rdd.RDD
@@ -35,15 +35,19 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DataType, StructField, StructType}
 import org.apache.spark.sql.utils.{SparkArrowUtil, SparkSchemaUtil, SparkVectorUtil}
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
-import org.apache.spark.util.{SparkVersionUtil, Utils}
+import org.apache.spark.util.SparkVersionUtil
 
-import org.apache.arrow.vector.{VectorLoader, VectorSchemaRoot}
-import org.apache.arrow.vector.ipc.{ArrowStreamReader, ArrowStreamWriter}
+import org.apache.arrow.vector.{FieldVector, VectorSchemaRoot}
+import org.apache.arrow.vector.ipc.{ArrowStreamReader, ArrowStreamWriter, WriteChannel}
+import org.apache.arrow.vector.ipc.message.{IpcOption, MessageSerializer}
 
 import java.io.{DataInputStream, DataOutputStream}
+import java.nio.channels.Channels
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 
 import scala.annotation.nowarn
+import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 import scala.util.control.NonFatal
@@ -92,7 +96,6 @@ class ColumnarArrowPythonRunner(
       private var reader: ArrowStreamReader = _
       private var root: VectorSchemaRoot = _
       private var schema: StructType = _
-      private var vectors: Array[ColumnVector] = _
 
       context.addTaskCompletionListener[Unit] {
         _ =>
@@ -114,9 +117,17 @@ class ColumnarArrowPythonRunner(
           if (reader != null && batchLoaded) {
             batchLoaded = reader.loadNextBatch()
             if (batchLoaded) {
-              val batch = new ColumnarBatch(vectors)
-              batch.setNumRows(root.getRowCount)
-              batch
+              // The reader loads every batch into the same vectors, so move the buffers to new
+              // vectors (without copying) for the batch to own them.
+              val vectors = root.getFieldVectors.asScala.map {
+                vector =>
+                  val pair = vector.getTransferPair(allocator)
+                  pair.transfer()
+                  pair.getTo.asInstanceOf[FieldVector]
+              }
+              new ColumnarBatch(
+                ArrowColumnVectors.wrap(vectors.asJava).toArray[ColumnVector],
+                root.getRowCount)
             } else {
               reader.close(false)
               // Reach end of stream. Call `read()` again to read control data.
@@ -128,9 +139,6 @@ class ColumnarArrowPythonRunner(
                 reader = new ArrowStreamReader(stream, allocator)
                 root = reader.getVectorSchemaRoot()
                 schema = SparkArrowUtil.fromArrowSchema(root.getSchema())
-                vectors = ArrowColumnVectors
-                  .wrap(root.getFieldVectors)
-                  .toArray[ColumnVector]
                 read()
               case SpecialLengths.TIMING_DATA =>
                 handleTimingData()
@@ -145,6 +153,39 @@ class ColumnarArrowPythonRunner(
         } catch handleException
       }
     }
+  }
+
+  /**
+   * Writes the input batches to `out` as an Arrow IPC stream, and closes each batch once written. A
+   * batch's vectors are serialized as they are, without loading them into a shared
+   * [[org.apache.arrow.vector.VectorSchemaRoot]]: [[ColumnarArrowEvalPythonExec]] loads them from
+   * the native input batches into [[ArrowBufferAllocators.contextUntrackedInstance]], a separate
+   * allocator root, and Arrow can't move or share buffers across roots.
+   */
+  private class ArrowBatchStreamWriter(out: DataOutputStream) {
+    private val channel = new WriteChannel(Channels.newChannel(out))
+
+    def start(): Unit = {
+      MessageSerializer.serialize(
+        channel,
+        SparkSchemaUtil.toArrowSchema(schema, timeZoneId),
+        IpcOption.DEFAULT)
+    }
+
+    def write(batch: ColumnarBatch): Unit = {
+      try {
+        val recordBatch = SparkVectorUtil.toArrowRecordBatch(batch)
+        try {
+          MessageSerializer.serialize(channel, recordBatch, IpcOption.DEFAULT)
+        } finally {
+          recordBatch.close()
+        }
+      } finally {
+        batch.close()
+      }
+    }
+
+    def end(): Unit = ArrowStreamWriter.writeEndOfStream(channel, IpcOption.DEFAULT)
   }
 
   override def createNewWriter(
@@ -185,9 +226,7 @@ class ColumnarArrowPythonRunner(
         writeNextInputToStreamHelper(dataOut)
       }
 
-      private var nextInputRoot: VectorSchemaRoot = _
-      private var nextInputLoader: VectorLoader = _
-      private var nextInputWriter: ArrowStreamWriter = _
+      private var nextInputWriter: ArrowBatchStreamWriter = _
       private var nextInputWriterClosed = false
 
       context.addTaskCompletionListener[Unit] {
@@ -201,25 +240,15 @@ class ColumnarArrowPythonRunner(
 
       private def ensureNextInputWriter(dataOut: DataOutputStream): Unit = {
         if (nextInputWriter == null) {
-          val arrowSchema = SparkSchemaUtil.toArrowSchema(schema, timeZoneId)
-          val allocator = ArrowBufferAllocators.contextInstance()
-          nextInputRoot = VectorSchemaRoot.create(arrowSchema, allocator)
-          nextInputLoader = new VectorLoader(nextInputRoot)
-          nextInputWriter = new ArrowStreamWriter(nextInputRoot, null, dataOut)
+          nextInputWriter = new ArrowBatchStreamWriter(dataOut)
           nextInputWriter.start()
         }
       }
 
       private def closeNextInputWriter(): Unit = {
-        if (!nextInputWriterClosed && nextInputRoot != null) {
-          try {
-            if (nextInputWriter != null) {
-              nextInputWriter.end()
-            }
-          } finally {
-            nextInputRoot.close()
-            nextInputWriterClosed = true
-          }
+        if (!nextInputWriterClosed && nextInputWriter != null) {
+          nextInputWriterClosed = true
+          nextInputWriter.end()
         }
       }
 
@@ -232,25 +261,8 @@ class ColumnarArrowPythonRunner(
           // otherwise Spark won't stop calling this method repeatedly.
           return false
         }
-        val nextBatch = inputIterator.next()
-        val cols = (0 until nextBatch.numCols).toList.map(
-          i =>
-            nextBatch
-              .asInstanceOf[ColumnarBatch]
-              .column(i)
-              .asInstanceOf[RefCountedArrowColumnVector]
-              .getValueVector)
-        val nextRecordBatch =
-          SparkVectorUtil.toArrowRecordBatch(nextBatch.numRows, cols)
-        try {
-          nextInputLoader.load(nextRecordBatch)
-          nextInputWriter.writeBatch()
-          true
-        } finally {
-          if (nextRecordBatch != null) {
-            nextRecordBatch.close()
-          }
-        }
+        nextInputWriter.write(inputIterator.next())
+        true
       }
 
       def writeToStreamHelper(dataOut: DataOutputStream): Boolean = {
@@ -260,44 +272,15 @@ class ColumnarArrowPythonRunner(
           // otherwise Spark won't stop calling this method repeatedly.
           return false
         }
-        var numRows: Long = 0
-        val arrowSchema = SparkSchemaUtil.toArrowSchema(schema, timeZoneId)
-        val allocator = ArrowBufferAllocators.contextInstance()
-        val root = VectorSchemaRoot.create(arrowSchema, allocator)
-
-        Utils.tryWithSafeFinally {
-          val loader = new VectorLoader(root)
-          val writer = new ArrowStreamWriter(root, null, dataOut)
-          writer.start()
-          while (inputIterator.hasNext) {
-            val nextBatch = inputIterator.next()
-            numRows += nextBatch.numRows
-
-            val cols = (0 until nextBatch.numCols).toList.map(
-              i =>
-                nextBatch
-                  .asInstanceOf[ColumnarBatch]
-                  .column(i)
-                  .asInstanceOf[RefCountedArrowColumnVector]
-                  .getValueVector)
-            val nextRecordBatch =
-              SparkVectorUtil.toArrowRecordBatch(nextBatch.numRows, cols)
-            loader.load(nextRecordBatch)
-            writer.writeBatch()
-            if (nextRecordBatch != null) {
-              nextRecordBatch.close()
-            }
-          }
-          // end writes footer to the output stream and doesn't clean any resources.
-          // It could throw exception if the output stream is closed, so it should be
-          // in the try block.
-          writer.end()
-          true
-        } {
-          root.close()
-          // allocator can't close now or the data will loss
-          // allocator.close()
+        val writer = new ArrowBatchStreamWriter(dataOut)
+        writer.start()
+        while (inputIterator.hasNext) {
+          writer.write(inputIterator.next())
         }
+        // end writes the end-of-stream marker to the output stream and doesn't clean any
+        // resources. It could throw exception if the output stream is closed.
+        writer.end()
+        true
       }
     }
   }
@@ -312,7 +295,7 @@ case class ColumnarArrowEvalPythonExec(
   extends EvalPythonExecBase
   with ValidatablePlan {
 
-  override def batchType(): Convention.BatchType = ArrowJavaBatchType
+  override def batchType(): Convention.BatchType = BackendsApiManager.getSettings.primaryBatchType
 
   override def rowType(): Convention.RowType = Convention.RowType.None
 
@@ -331,9 +314,6 @@ case class ColumnarArrowEvalPythonExec(
     }
     super.doValidateInternal()
   }
-
-  override def requiredChildConvention(): Seq[ConventionReq] = List(
-    ConventionReq.ofBatch(ConventionReq.BatchType.Is(ArrowJavaBatchType)))
 
   override lazy val metrics = Map(
     "numOutputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"),
@@ -452,72 +432,67 @@ case class ColumnarArrowEvalPythonExec(
         }.toSeq)
 
         @nowarn val contextAwareIterator = new ContextAwareIterator(context, iter)
-        val inputCbCache = new ArrayBuffer[ColumnarBatch]()
+        // The input batches, in order, until their results are merged in. The Python runner may
+        // read the input in another thread.
+        val inputCbCache = new ConcurrentLinkedQueue[ColumnarBatch]()
+        val udfInputIndices = originalOffsets.toArray
         var start_time: Long = 0
         val inputBatchIter = contextAwareIterator.map {
           inputCb =>
             start_time = System.nanoTime()
-            ColumnarBatches.checkLoaded(inputCb)
+            VeloxColumnarBatches.checkVeloxBatch(inputCb)
             ColumnarBatches.retain(inputCb)
             // 0. cache input for later merge
-            inputCbCache += inputCb
+            inputCbCache.add(inputCb)
             numInputRows += inputCb.numRows
-            // We only need to pass the referred cols data to python worker for evaluation.
-            val colsForEval = new ArrayBuffer[ColumnVector]()
-            for (i <- originalOffsets) {
-              colsForEval += inputCb.column(i)
+            // Only load the columns the UDFs read. The Python runner closes them once written to
+            // the worker, so they can be untracked: their buffers stay reserved by the native batch.
+            if (udfInputIndices.isEmpty) {
+              new ColumnarBatch(Array.empty[ColumnVector], inputCb.numRows)
+            } else {
+              val udfInput = ColumnarBatches.select(
+                BackendsApiManager.getBackendName,
+                inputCb,
+                udfInputIndices)
+              ColumnarBatches.load(ArrowBufferAllocators.contextUntrackedInstance(), udfInput)
             }
-            new ColumnarBatch(colsForEval.toArray, inputCb.numRows())
         }
 
         val outputColumnarBatchIterator =
           evaluateColumnar(pyFuncs, argMetas, inputBatchIter, schema, context)
         val res =
-          outputColumnarBatchIterator.zipWithIndex.map {
-            case (outputCb, batchId) =>
-              val inputCb = inputCbCache(batchId)
-              val joinedVectors = (0 until inputCb.numCols).toArray.map(
-                i => inputCb.column(i)) ++ (0 until outputCb.numCols).toArray.map(
-                i => outputCb.column(i))
-              // Columns in outputCb has random 0 or 1 refCnt and will fail checks in ensureOffload,
-              // so we do a hard reset here.
-              (0 until joinedVectors.length).foreach(
-                i => {
-                  adjustRefCnt(joinedVectors(i).asInstanceOf[RefCountedArrowColumnVector], 1)
-                })
-              val numRows = inputCb.numRows
+          outputColumnarBatchIterator.map {
+            outputCb =>
+              val inputCb = inputCbCache.poll()
+              val resultCb = VeloxColumnarBatches.toVeloxBatch(
+                ColumnarBatches.offload(ArrowBufferAllocators.contextInstance(), outputCb))
+              // Merge the results natively, so the input columns pass through without leaving
+              // Velox.
+              val batch =
+                try {
+                  VeloxColumnarBatches.compose(inputCb, resultCb)
+                } finally {
+                  resultCb.close()
+                  ColumnarBatches.release(inputCb)
+                }
               numOutputBatches += 1
-              numOutputRows += numRows
-              val batch = new ColumnarBatch(joinedVectors, numRows)
-              ColumnarBatches.checkLoaded(batch)
+              numOutputRows += batch.numRows
               procTime += (System.nanoTime() - start_time) / 1000000
               batch
           }
         Iterators
           .wrap(res)
           .recycleIterator {
-            inputCbCache.foreach(ColumnarBatches.release(_))
+            // The inputs whose results didn't come, e.g. when the task is interrupted.
+            var inputCb = inputCbCache.poll()
+            while (inputCb != null) {
+              ColumnarBatches.release(inputCb)
+              inputCb = inputCbCache.poll()
+            }
           }
           .recyclePayload(_.close())
           .create()
     }
-  }
-
-  private def adjustRefCnt(vector: RefCountedArrowColumnVector, to: Long): Unit = {
-    val from = vector.refCnt()
-    if (from == to) {
-      return
-    }
-    if (from > to) {
-      do {
-        vector.close()
-      } while (vector.refCnt() != to)
-      return
-    }
-    // from < to
-    do {
-      vector.retain()
-    } while (vector.refCnt() != to)
   }
 
   override protected def withNewChildInternal(newChild: SparkPlan): ColumnarArrowEvalPythonExec =
