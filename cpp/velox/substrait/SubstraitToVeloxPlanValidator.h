@@ -150,7 +150,8 @@ class SubstraitToVeloxPlanValidator {
   bool validateAggRelFunctionType(const ::substrait::AggregateRel& substraitAgg);
 
   /// Validate the round scalar function using its already-converted arguments.
-  /// The caller supplies one non-null expression for each Substrait argument.
+  /// Converted arguments may be missing or null when conversion is unavailable;
+  /// validation rejects these before inspecting their types.
   bool validateRound(
       const ::substrait::Expression::ScalarFunction& scalarFunction,
       const std::vector<core::TypedExprPtr>& params);
