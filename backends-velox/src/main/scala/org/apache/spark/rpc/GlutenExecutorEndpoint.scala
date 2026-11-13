@@ -65,7 +65,9 @@ class GlutenExecutorEndpoint(val executorId: String, val conf: SparkConf)
           s"thread=${Thread.currentThread().getName}")
       if (executionId != null) {
         hashIds.forEach(
-          resource_id => VeloxBroadcastBuildSideCache.invalidateBroadcastHashtable(resource_id))
+          resource_id =>
+            VeloxBroadcastBuildSideCache.invalidateBroadcastHashtable(
+              VeloxBroadcastBuildSideCache.executionCacheKey(resource_id, executionId)))
       }
 
     case e =>

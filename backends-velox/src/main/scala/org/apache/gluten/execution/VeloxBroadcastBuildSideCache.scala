@@ -24,7 +24,7 @@ import org.apache.gluten.vectorized.HashJoinBuilder
 import org.apache.spark.{SparkEnv, TaskContext}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.execution.ColumnarBuildSideRelation
+import org.apache.spark.sql.execution.{ColumnarBuildSideRelation, SQLExecution}
 import org.apache.spark.sql.execution.joins.BuildSideRelation
 import org.apache.spark.sql.execution.unsafe.UnsafeColumnarBuildSideRelation
 import org.apache.spark.task.TaskResources
@@ -94,33 +94,54 @@ object VeloxBroadcastBuildSideCache
     s"$task, thread=${Thread.currentThread().getName}"
   }
 
+  /**
+   * The cache key of the hash table of `buildHashTableId` in SQL execution `executionId`.
+   *
+   * Runs of the same physical plan share `buildHashTableId`, but each run cleans up its tables when
+   * it ends, asynchronously. Keying by execution as well keeps the cleanup of one run from dropping
+   * the table that the next run is building or probing.
+   */
+  def executionCacheKey(buildHashTableId: String, executionId: String): String =
+    s"$buildHashTableId:$executionId"
+
+  /**
+   * The cache key of the hash table of `buildHashTableId` in the SQL execution of the current task.
+   * This is also called from c++ side.
+   */
+  def taskCacheKey(buildHashTableId: String): String = {
+    val taskContext = TaskContext.get()
+    val executionId =
+      if (taskContext == null) null
+      else taskContext.getLocalProperty(SQLExecution.EXECUTION_ID_KEY)
+    executionCacheKey(buildHashTableId, executionId)
+  }
+
   def getOrBuildBroadcastHashTable(
       broadcast: Broadcast[BuildSideRelation],
       broadcastContext: BroadcastHashJoinContext): BroadcastHashTable = {
 
-    val debugKey = broadcastContext.buildHashTableId
+    val cacheKey = taskCacheKey(broadcastContext.buildHashTableId)
     logWarning(
-      s"[BHJ-DEBUG] getOrBuild: key=$debugKey, " +
-        s"cached=${buildSideRelationCache.getIfPresent(debugKey) != null}, " + debugTaskInfo())
+      s"[BHJ-DEBUG] getOrBuild: key=$cacheKey, " +
+        s"cached=${buildSideRelationCache.getIfPresent(cacheKey) != null}, " + debugTaskInfo())
     buildSideRelationCache
       .get(
-        broadcastContext.buildHashTableId,
+        cacheKey,
         (_: String) => {
-          logWarning(
-            s"[BHJ-DEBUG] build start: key=${broadcastContext.buildHashTableId}, " +
-              debugTaskInfo())
+          logWarning(s"[BHJ-DEBUG] build start: key=$cacheKey, " + debugTaskInfo())
+          // The native side caches the table under the id of the context.
+          val context = broadcastContext.copy(buildHashTableId = cacheKey)
           val (pointer, relation, droppedDuplicates) = broadcast.value match {
             case columnar: ColumnarBuildSideRelation =>
-              columnar.buildHashTable(broadcastContext)
+              columnar.buildHashTable(context)
             case unsafe: UnsafeColumnarBuildSideRelation =>
-              unsafe.buildHashTable(broadcastContext)
+              unsafe.buildHashTable(context)
           }
 
           broadcastContext.hashTableMemorySizeMetric.foreach(
             _ += HashJoinBuilder.getHashTableMemoryUsage(pointer))
           logWarning(
-            s"[BHJ-DEBUG] build end: key=${broadcastContext.buildHashTableId}, " +
-              s"pointer=$pointer, " + debugTaskInfo())
+            s"[BHJ-DEBUG] build end: key=$cacheKey, pointer=$pointer, " + debugTaskInfo())
 
           BroadcastHashTable(pointer, relation, droppedDuplicates)
         }
@@ -217,12 +238,13 @@ object VeloxBroadcastBuildSideCache
       deserializeHashTableTimeMetric: Option[org.apache.spark.sql.execution.metric.SQLMetric] =
         None): BroadcastHashTable = {
 
+    val cacheKey = taskCacheKey(broadcastHashTableId)
     buildSideRelationCache.get(
-      broadcastHashTableId,
+      cacheKey,
       (_: String) => {
-        logInfo(s"Deserializing hash table on executor for broadcast ID: $broadcastHashTableId")
+        logInfo(s"Deserializing hash table on executor for broadcast ID: $cacheKey")
         val startTime = System.currentTimeMillis()
-        val hashTableHandle = serialized.deserialize(broadcastHashTableId)
+        val hashTableHandle = serialized.deserialize(cacheKey)
         val timeMs = System.currentTimeMillis() - startTime
         deserializeHashTableTimeMetric.foreach(_ += timeMs)
         BroadcastHashTable(
@@ -233,13 +255,16 @@ object VeloxBroadcastBuildSideCache
     )
   }
 
-  /** This is called from c++ side. */
-  def get(broadcastHashtableId: String): Long = {
-    Option(buildSideRelationCache.getIfPresent(broadcastHashtableId))
+  /** This is called from c++ side, with a key from [[taskCacheKey]]. */
+  def get(cacheKey: String): Long = {
+    val pointer = Option(buildSideRelationCache.getIfPresent(cacheKey))
       .map(_.pointer)
-      .getOrElse(0)
+      .getOrElse(0L)
+    logWarning(s"[BHJ-DEBUG] native get: key=$cacheKey, pointer=$pointer, " + debugTaskInfo())
+    pointer
   }
 
+  /** `broadcastHashtableId` is a key from [[executionCacheKey]]. */
   def invalidateBroadcastHashtable(broadcastHashtableId: String): Unit = {
     logWarning(
       s"[BHJ-DEBUG] invalidate: key=$broadcastHashtableId, " +
