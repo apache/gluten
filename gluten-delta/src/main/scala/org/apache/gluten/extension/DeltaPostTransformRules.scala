@@ -17,7 +17,7 @@
 package org.apache.gluten.extension
 
 import org.apache.gluten.backendsapi.BackendsApiManager
-import org.apache.gluten.execution.{DeltaScanTransformer, FilterExecTransformerBase, ProjectExecTransformer}
+import org.apache.gluten.execution.{DeltaScanTransformer, FilterExecTransformerBase, ProjectExecTransformer, ProjectExecTransformerBase}
 import org.apache.gluten.extension.columnar.transition.RemoveTransitions
 
 import org.apache.spark.sql.SparkSession
@@ -37,6 +37,7 @@ object DeltaPostTransformRules {
   def rules: Seq[Rule[SparkPlan]] =
     RemoveTransitions ::
       deltaSpecificRules ::
+      incrementMetricParentsRule ::
       Nil
 
   /**
@@ -96,6 +97,50 @@ object DeltaPostTransformRules {
           if projectList.exists(containsInputFileRelatedExpr) =>
         child.copy(output = p.output)
     }
+
+  /**
+   * Keeps the trivial operators Delta stacks above a projection that stayed on Spark for its
+   * `IncrementMetric` counters on Spark as well. MERGE writes through
+   * `filter(ROW_DROPPED_COL = false)` and a column drop above that projection; offloading those two
+   * would only add a row-to-columnar transition in front of them and a second columnar-to-row
+   * behind them, since the writer below is row based anyway.
+   *
+   * {{{
+   * Input:                                          Output:
+   *   ProjectExecTransformer (drop)                   ProjectExec (drop)
+   *   +- FilterExecTransformer (dropped = false)      +- FilterExec (dropped = false)
+   *      +- ProjectExec (CASE WHEN ... increment)        +- ProjectExec (CASE WHEN ... increment)
+   * }}}
+   */
+  val incrementMetricParentsRule: Rule[SparkPlan] = (plan: SparkPlan) => {
+    if (!plan.exists(isSparkIncrementMetricProject)) {
+      plan
+    } else {
+      plan.transformUp {
+        case filter: FilterExecTransformerBase if staysOnSparkForIncrementMetric(filter.child) =>
+          FilterExec(filter.cond, filter.child)
+        case project: ProjectExecTransformerBase
+            if staysOnSparkForIncrementMetric(project.child) =>
+          ProjectExec(project.list, project.child)
+      }
+    }
+  }
+
+  private def isSparkIncrementMetricProject(plan: SparkPlan): Boolean = plan match {
+    case ProjectExec(projectList, _) => projectList.exists(containsIncrementMetricExpr)
+    case _ => false
+  }
+
+  /**
+   * A Spark project or filter whose subtree, through Spark projects and filters only, reaches a
+   * project carrying `IncrementMetric`.
+   */
+  private def staysOnSparkForIncrementMetric(plan: SparkPlan): Boolean = plan match {
+    case project @ ProjectExec(_, child) =>
+      isSparkIncrementMetricProject(project) || staysOnSparkForIncrementMetric(child)
+    case FilterExec(_, child) => staysOnSparkForIncrementMetric(child)
+    case _ => false
+  }
 
   /**
    * Spark Delta injects synthetic deletion-vector predicates and columns into the plan (via

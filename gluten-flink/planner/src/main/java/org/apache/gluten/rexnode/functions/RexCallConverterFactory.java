@@ -142,6 +142,8 @@ public class RexCallConverterFactory {
           Map.entry("SHA256", Arrays.asList(() -> new DefaultRexCallConverter("sha256"))),
           Map.entry("SHA384", Arrays.asList(() -> new DefaultRexCallConverter("sha384"))),
           Map.entry("SHA512", Arrays.asList(() -> new DefaultRexCallConverter("sha512"))),
+          Map.entry("MD5", Arrays.asList(() -> new DefaultRexCallConverter("md5"))),
+          Map.entry("SHA1", Arrays.asList(() -> new DefaultRexCallConverter("sha1"))),
           Map.entry("count_char", Arrays.asList(() -> new DefaultRexCallConverter("count_char"))),
           Map.entry("EXTRACT", Arrays.asList(() -> new DefaultRexCallConverter("extract"))),
           Map.entry("IS TRUE", Arrays.asList(() -> new DefaultRexCallConverter("is_true"))),
@@ -150,6 +152,16 @@ public class RexCallConverterFactory {
           Map.entry(
               "IS NOT FALSE", Arrays.asList(() -> new DefaultRexCallConverter("is_not_false"))),
           Map.entry("NOT", Arrays.asList(() -> new DefaultRexCallConverter("not"))),
+          Map.entry(
+              "LOCALTIMESTAMP", Arrays.asList(() -> new DefaultRexCallConverter("localtimestamp"))),
+          // LOCALTIME maps by name to the flinksql function returning the
+          // INTEGER carrier (milliseconds of day in the session timezone);
+          // the result type goes through toType(TIME(0)) -> IntegerType.
+          Map.entry("LOCALTIME", Arrays.asList(() -> new DefaultRexCallConverter("localtime"))),
+          Map.entry(
+              "CURRENT_TIMESTAMP",
+              Arrays.asList(() -> new DefaultRexCallConverter("current_timestamp"))),
+          Map.entry("NOW", Arrays.asList(() -> new DefaultRexCallConverter("now"))),
           Map.entry("CONCAT", Arrays.asList(() -> new DefaultRexCallConverter("concat"))),
           Map.entry("CONCAT_WS", Arrays.asList(() -> new DefaultRexCallConverter("concat_ws"))),
           // A literal negative length is rejected by SubstringRexCallConverter
