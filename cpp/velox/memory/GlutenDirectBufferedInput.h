@@ -54,8 +54,7 @@ class GlutenDirectBufferedInput : public facebook::velox::dwio::common::DirectBu
         load->cancel();
       }
     }
-    // Ensure all the loadings can finish in the TableScan destructor to avoid the issue that the load is still running
-    // when the VeloxMemoryManager used by the whole task is trying to destruct.
+    // Ensure running loads finish before the task memory manager is destroyed.
     for (auto& load : coalescedLoads_) {
       if (load->state() == facebook::velox::cache::CoalescedLoad::State::kLoading) {
         folly::SemiFuture<bool> waitFuture(false);
