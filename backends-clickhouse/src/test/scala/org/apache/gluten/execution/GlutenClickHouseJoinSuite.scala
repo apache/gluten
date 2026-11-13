@@ -101,39 +101,39 @@ class GlutenClickHouseJoinSuite extends GlutenClickHouseWholeStageTransformerSui
   }
 
   test("GLUTEN-8168 eliminate non-attribute expressions in join keys and condition") {
-    sql("create table tj1 (a int, b int, c int, d int) using parquet")
-    sql("create table tj2 (a int, b int, c int, d int) using parquet")
-    sql("insert into tj1 values (1, 2, 3, 4), (2, 2, 4, 5), (3, 4, 5, 4), (4, 5, 3, 7)")
-    sql("insert into tj2 values (1, 2, 3, 4), (2, 2, 4, 5), (3, 4, 5, 4), (4, 5, 3, 7)")
-    compareResultsAgainstVanillaSpark(
-      """
-        |SELECT t1.*, t2.*
-        |FROM tj1 t1 LEFT JOIN tj2 t2
-        |ON t1.a  = t2.a AND (t1.b = t2.b or t1.c + 1 = t2.c) ORDER BY t1.a, t2.a
-        |""".stripMargin,
-      true,
-      { _ => }
-    )
-    compareResultsAgainstVanillaSpark(
-      """
-        |SELECT t1.*, t2.*
-        |FROM tj1 t1 LEFT JOIN tj2 t2
-        |ON t1.a  = t2.a AND (t1.b = t2.b or t1.c = t2.c) ORDER BY t1.a, t2.a
-        |""".stripMargin,
-      true,
-      { _ => }
-    )
-    compareResultsAgainstVanillaSpark(
-      """
-        |SELECT t1.*, t2.*
-        |FROM tj1 t1 LEFT JOIN tj2 t2
-        |ON t1.a  = t2.a + 1 AND (t1.b + 1 = t2.b or t1.c = t2.c + 1) ORDER BY t1.a, t2.a
-        |""".stripMargin,
-      true,
-      { _ => }
-    )
-    sql("drop table if exists tj1")
-    sql("drop table if exists tj2")
+    withTable("tj1", "tj2") {
+      sql("create table tj1 (a int, b int, c int, d int) using parquet")
+      sql("create table tj2 (a int, b int, c int, d int) using parquet")
+      sql("insert into tj1 values (1, 2, 3, 4), (2, 2, 4, 5), (3, 4, 5, 4), (4, 5, 3, 7)")
+      sql("insert into tj2 values (1, 2, 3, 4), (2, 2, 4, 5), (3, 4, 5, 4), (4, 5, 3, 7)")
+      compareResultsAgainstVanillaSpark(
+        """
+          |SELECT t1.*, t2.*
+          |FROM tj1 t1 LEFT JOIN tj2 t2
+          |ON t1.a  = t2.a AND (t1.b = t2.b or t1.c + 1 = t2.c) ORDER BY t1.a, t2.a
+          |""".stripMargin,
+        true,
+        { _ => }
+      )
+      compareResultsAgainstVanillaSpark(
+        """
+          |SELECT t1.*, t2.*
+          |FROM tj1 t1 LEFT JOIN tj2 t2
+          |ON t1.a  = t2.a AND (t1.b = t2.b or t1.c = t2.c) ORDER BY t1.a, t2.a
+          |""".stripMargin,
+        true,
+        { _ => }
+      )
+      compareResultsAgainstVanillaSpark(
+        """
+          |SELECT t1.*, t2.*
+          |FROM tj1 t1 LEFT JOIN tj2 t2
+          |ON t1.a  = t2.a + 1 AND (t1.b + 1 = t2.b or t1.c = t2.c + 1) ORDER BY t1.a, t2.a
+          |""".stripMargin,
+        true,
+        { _ => }
+      )
+    }
   }
 
   test("GLUTEN-8216 Fix OOM when cartesian product with empty data") {

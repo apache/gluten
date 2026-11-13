@@ -1281,16 +1281,16 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
 
   ignoreSpark33OnlyCase(
     "test posexplode issue: https://github.com/oap-project/gluten/issues/1767") {
-    spark.sql("create table test_1767 (id bigint, data map<string, string>) using parquet")
-    spark.sql("INSERT INTO test_1767 values(1, map('k', 'v'))")
+    withTable("test_1767") {
+      spark.sql("create table test_1767 (id bigint, data map<string, string>) using parquet")
+      spark.sql("INSERT INTO test_1767 values(1, map('k', 'v'))")
 
-    val sql =
-      """
-        | select id from test_1767 lateral view
-        | posexplode(split(data['k'], ',')) tx as a, b""".stripMargin
-    runQueryAndCompare(sql)(checkGlutenPlan[CHGenerateExecTransformer])
-
-    spark.sql("drop table test_1767")
+      val sql =
+        """
+          | select id from test_1767 lateral view
+          | posexplode(split(data['k'], ',')) tx as a, b""".stripMargin
+      runQueryAndCompare(sql)(checkGlutenPlan[CHGenerateExecTransformer])
+    }
   }
 
   test("test posexplode issue: https://github.com/oap-project/gluten/issues/2492") {
@@ -1312,13 +1312,13 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
   }
 
   test("test explode issue: https://github.com/oap-project/gluten/issues/3124") {
-    spark.sql("create table test_3124 (id bigint, name string, sex string) using parquet")
-    spark.sql("insert into test_3124  values (31, null, 'm'), (32, 'a,b,c', 'f')")
+    withTable("test_3124") {
+      spark.sql("create table test_3124 (id bigint, name string, sex string) using parquet")
+      spark.sql("insert into test_3124  values (31, null, 'm'), (32, 'a,b,c', 'f')")
 
-    val sql = "select id, flag from test_3124 lateral view explode(split(name, ',')) as flag"
-    runQueryAndCompare(sql)(checkGlutenPlan[CHGenerateExecTransformer])
-
-    spark.sql("drop table test_3124")
+      val sql = "select id, flag from test_3124 lateral view explode(split(name, ',')) as flag"
+      runQueryAndCompare(sql)(checkGlutenPlan[CHGenerateExecTransformer])
+    }
   }
 
   test("test 'scala udf'") {
@@ -2053,28 +2053,30 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
   }
 
   test("GLUTEN-3149/GLUTEN-5580: Fix convert float to int") {
-    val tbl_create_sql = "create table test_tbl_3149(a int, b bigint) using parquet"
-    val tbl_insert_sql = "insert into test_tbl_3149 values(1, 0), (2, 171396196666200)"
-    val select_sql_1 = "select cast(a * 1.0f/b as int) as x from test_tbl_3149 where a = 1"
-    val select_sql_2 = "select cast(b/100 as int) from test_tbl_3149 where a = 2"
-    spark.sql(tbl_create_sql)
-    spark.sql(tbl_insert_sql)
-    compareResultsAgainstVanillaSpark(select_sql_1, true, { _ => })
-    compareResultsAgainstVanillaSpark(select_sql_2, true, { _ => })
-    spark.sql("drop table test_tbl_3149")
+    withTable("test_tbl_3149") {
+      val tbl_create_sql = "create table test_tbl_3149(a int, b bigint) using parquet"
+      val tbl_insert_sql = "insert into test_tbl_3149 values(1, 0), (2, 171396196666200)"
+      val select_sql_1 = "select cast(a * 1.0f/b as int) as x from test_tbl_3149 where a = 1"
+      val select_sql_2 = "select cast(b/100 as int) from test_tbl_3149 where a = 2"
+      spark.sql(tbl_create_sql)
+      spark.sql(tbl_insert_sql)
+      compareResultsAgainstVanillaSpark(select_sql_1, true, { _ => })
+      compareResultsAgainstVanillaSpark(select_sql_2, true, { _ => })
+    }
   }
 
   test("GLUTEN-3289: Fix convert float to string") {
-    val tbl_create_sql = "create table test_tbl_3289(id bigint, a float) using parquet"
-    val tbl_insert_sql = "insert into test_tbl_3289 values(1, 2.0), (2, 2.1), (3, 2.2)"
-    val select_sql_1 = "select cast(a as string), cast(a * 1.0f as string) from test_tbl_3289"
-    val select_sql_2 =
-      "select cast(cast(a as double) as string), cast(cast(a * 1.0f as double) as string) from test_tbl_3289"
-    spark.sql(tbl_create_sql)
-    spark.sql(tbl_insert_sql)
-    compareResultsAgainstVanillaSpark(select_sql_1, true, { _ => })
-    compareResultsAgainstVanillaSpark(select_sql_2, true, { _ => })
-    spark.sql("drop table test_tbl_3289")
+    withTable("test_tbl_3289") {
+      val tbl_create_sql = "create table test_tbl_3289(id bigint, a float) using parquet"
+      val tbl_insert_sql = "insert into test_tbl_3289 values(1, 2.0), (2, 2.1), (3, 2.2)"
+      val select_sql_1 = "select cast(a as string), cast(a * 1.0f as string) from test_tbl_3289"
+      val select_sql_2 =
+        "select cast(cast(a as double) as string), cast(cast(a * 1.0f as double) as string) from test_tbl_3289"
+      spark.sql(tbl_create_sql)
+      spark.sql(tbl_insert_sql)
+      compareResultsAgainstVanillaSpark(select_sql_1, true, { _ => })
+      compareResultsAgainstVanillaSpark(select_sql_2, true, { _ => })
+    }
   }
 
   test("test in-filter contains null value (bigint)") {
@@ -2100,77 +2102,78 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
   }
 
   test("GLUTEN-3135/GLUTEN-7896: Bug fix to_date") {
-    val create_table_sql =
-      """
-        | create table test_tbl_3135(id bigint, data string) using parquet
-        |""".stripMargin
-    val insert_data_sql =
-      """
-        |insert into test_tbl_3135 values
-        |(1, '2023-09-02 23:59:59.299+11'),
-        |(2, '2023-09-02 23:59:59.299-11'),
-        |(3, '2023-09-02 00:00:01.333+11'),
-        |(4, '2023-09-02 00:00:01.333-11'),
-        |(5, '  2023-09-02 agdfegfew'),
-        |(6, 'afe2023-09-02 11:22:33'),
-        |(7, '1970-01-01 00:00:00'),
-        |(8, '2024-3-2'),
-        |(9, '2024-03-2'),
-        |(10, '2024-03'),
-        |(11, '2024-03-02 11:22:33')
-        |""".stripMargin
-    spark.sql(create_table_sql)
-    spark.sql(insert_data_sql)
+    withTable("test_tbl_3135") {
+      val create_table_sql =
+        """
+          | create table test_tbl_3135(id bigint, data string) using parquet
+          |""".stripMargin
+      val insert_data_sql =
+        """
+          |insert into test_tbl_3135 values
+          |(1, '2023-09-02 23:59:59.299+11'),
+          |(2, '2023-09-02 23:59:59.299-11'),
+          |(3, '2023-09-02 00:00:01.333+11'),
+          |(4, '2023-09-02 00:00:01.333-11'),
+          |(5, '  2023-09-02 agdfegfew'),
+          |(6, 'afe2023-09-02 11:22:33'),
+          |(7, '1970-01-01 00:00:00'),
+          |(8, '2024-3-2'),
+          |(9, '2024-03-2'),
+          |(10, '2024-03'),
+          |(11, '2024-03-02 11:22:33')
+          |""".stripMargin
+      spark.sql(create_table_sql)
+      spark.sql(insert_data_sql)
 
-    val select_sql = "select id, to_date(data) from test_tbl_3135"
-    compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
+      val select_sql = "select id, to_date(data) from test_tbl_3135"
+      compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
 
-    withSQLConf("spark.sql.legacy.timeParserPolicy" -> "corrected") {
-      compareResultsAgainstVanillaSpark(
-        "select id, to_date('2024-03-2 11:22:33', 'yyyy-MM-dd') from test_tbl_3135 where id = 11",
-        true,
-        { _ => })
+      withSQLConf("spark.sql.legacy.timeParserPolicy" -> "corrected") {
+        compareResultsAgainstVanillaSpark(
+          "select id, to_date('2024-03-2 11:22:33', 'yyyy-MM-dd') from test_tbl_3135 where id = 11",
+          true,
+          { _ => })
+      }
+      withSQLConf("spark.sql.legacy.timeParserPolicy" -> "legacy") {
+        compareResultsAgainstVanillaSpark(
+          "select id, to_date(data, 'yyyy-MM-dd') from test_tbl_3135 where id = 11",
+          true,
+          { _ => })
+      }
     }
-    withSQLConf("spark.sql.legacy.timeParserPolicy" -> "legacy") {
-      compareResultsAgainstVanillaSpark(
-        "select id, to_date(data, 'yyyy-MM-dd') from test_tbl_3135 where id = 11",
-        true,
-        { _ => })
-    }
-    spark.sql("drop table test_tbl_3135")
   }
 
   test("GLUTEN-3134: Bug fix left join not match") {
-    withSQLConf(("spark.sql.autoBroadcastJoinThreshold", "1B")) {
-      val left_tbl_create_sql =
-        "create table test_tbl_left_3134(id bigint, name string) using parquet"
-      val right_tbl_create_sql =
-        "create table test_tbl_right_3134(id string, name string) using parquet"
-      val left_data_insert_sql =
-        "insert into test_tbl_left_3134 values(2, 'a'), (3, 'b'), (673, 'c')"
-      val right_data_insert_sql = "insert into test_tbl_right_3134 values('673', 'c')"
-      val join_select_sql_1 = "select a.id, b.cnt from " +
-        "(select id from test_tbl_left_3134) as a " +
-        "left join (select id, 12 as cnt from test_tbl_right_3134 group by id) as b on a.id = b.id"
-      val join_select_sql_2 = "select a.id, b.cnt from" +
-        "(select id from test_tbl_left_3134) as a " +
-        "left join (select id, count(1) as cnt from test_tbl_right_3134 group by id) as b on a.id = b.id"
-      val join_select_sql_3 = "select a.id, b.cnt1, b.cnt2 from" +
-        "(select id as id from test_tbl_left_3134) as a " +
-        "left join (select id as id, 12 as cnt1, count(1) as cnt2 from test_tbl_right_3134 group by id) as b on a.id = b.id"
-      val agg_select_sql_4 =
-        "select id, 12 as cnt1, count(1) as cnt2 from test_tbl_left_3134 group by id"
+    withTable("test_tbl_left_3134", "test_tbl_right_3134") {
+      withSQLConf(("spark.sql.autoBroadcastJoinThreshold", "1B")) {
+        val left_tbl_create_sql =
+          "create table test_tbl_left_3134(id bigint, name string) using parquet"
+        val right_tbl_create_sql =
+          "create table test_tbl_right_3134(id string, name string) using parquet"
+        val left_data_insert_sql =
+          "insert into test_tbl_left_3134 values(2, 'a'), (3, 'b'), (673, 'c')"
+        val right_data_insert_sql = "insert into test_tbl_right_3134 values('673', 'c')"
+        val join_select_sql_1 = "select a.id, b.cnt from " +
+          "(select id from test_tbl_left_3134) as a " +
+          "left join (select id, 12 as cnt from test_tbl_right_3134 group by id) as b on a.id = b.id"
+        val join_select_sql_2 = "select a.id, b.cnt from" +
+          "(select id from test_tbl_left_3134) as a " +
+          "left join (select id, count(1) as cnt from test_tbl_right_3134 group by id) as b on a.id = b.id"
+        val join_select_sql_3 = "select a.id, b.cnt1, b.cnt2 from" +
+          "(select id as id from test_tbl_left_3134) as a " +
+          "left join (select id as id, 12 as cnt1, count(1) as cnt2 from test_tbl_right_3134 group by id) as b on a.id = b.id"
+        val agg_select_sql_4 =
+          "select id, 12 as cnt1, count(1) as cnt2 from test_tbl_left_3134 group by id"
 
-      spark.sql(left_tbl_create_sql)
-      spark.sql(right_tbl_create_sql)
-      spark.sql(left_data_insert_sql)
-      spark.sql(right_data_insert_sql)
-      compareResultsAgainstVanillaSpark(join_select_sql_1, true, { _ => })
-      compareResultsAgainstVanillaSpark(join_select_sql_2, true, { _ => })
-      compareResultsAgainstVanillaSpark(join_select_sql_3, true, { _ => })
-      compareResultsAgainstVanillaSpark(agg_select_sql_4, true, { _ => })
-      spark.sql("drop table test_tbl_left_3134")
-      spark.sql("drop table test_tbl_right_3134")
+        spark.sql(left_tbl_create_sql)
+        spark.sql(right_tbl_create_sql)
+        spark.sql(left_data_insert_sql)
+        spark.sql(right_data_insert_sql)
+        compareResultsAgainstVanillaSpark(join_select_sql_1, true, { _ => })
+        compareResultsAgainstVanillaSpark(join_select_sql_2, true, { _ => })
+        compareResultsAgainstVanillaSpark(join_select_sql_3, true, { _ => })
+        compareResultsAgainstVanillaSpark(agg_select_sql_4, true, { _ => })
+      }
     }
   }
 
@@ -2319,14 +2322,15 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
   }
 
   test("GLUTEN-3521: Bug fix substring index start from 1") {
-    val tbl_create_sql = "create table test_tbl_3521(id bigint, name string) using parquet"
-    val data_insert_sql = "insert into test_tbl_3521 values(1, 'abcdefghijk'), (2, '2023-10-32')"
-    val select_sql =
-      "select id, substring(name, 0), substring(name, 0, 3), substring(name from 0), substring(name from 0 for 100) from test_tbl_3521"
-    spark.sql(tbl_create_sql)
-    spark.sql(data_insert_sql)
-    compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
-    spark.sql("drop table test_tbl_3521")
+    withTable("test_tbl_3521") {
+      val tbl_create_sql = "create table test_tbl_3521(id bigint, name string) using parquet"
+      val data_insert_sql = "insert into test_tbl_3521 values(1, 'abcdefghijk'), (2, '2023-10-32')"
+      val select_sql =
+        "select id, substring(name, 0), substring(name, 0, 3), substring(name from 0), substring(name from 0 for 100) from test_tbl_3521"
+      spark.sql(tbl_create_sql)
+      spark.sql(data_insert_sql)
+      compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
+    }
   }
 
   test("GLUTEN-3948: trunc function") {
@@ -2454,91 +2458,95 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
   }
 
   test("GLUTEN-4085: Fix unix_timestamp/to_unix_timestamp") {
-    val tbl_create_sql = "create table test_tbl_4085(id bigint, data string) using parquet"
-    val data_insert_sql =
-      "insert into test_tbl_4085 values(1, '2023-12-18'),(2, '2023-12-19'), (3, '2023-12-20'),  (4, '2024-10-15 07:35:26.486')"
-    val select_sql =
-      "select id, unix_timestamp(to_date(data), 'yyyy-MM-dd') from test_tbl_4085"
-    val select_sql_1 = "select id, to_unix_timestamp(to_date(data)) from test_tbl_4085"
-    val select_sql_2 = "select id, to_unix_timestamp(to_timestamp(data)) from test_tbl_4085"
-    val select_sql_3 =
-      "select id, unix_timestamp(data, 'yyyy-MM-dd HH:mm:ss') from test_tbl_4085 where id = 4"
-    val select_sql_4 = "select id, unix_timestamp(data, 'yyyy-M-d') from test_tbl_4085 where id = 1"
-    val select_sql_5 =
-      "select id, unix_timestamp(data, 'yyyy-MM-dd HH') from test_tbl_4085 where id = 4"
-    val select_sql_6 =
-      "select id, unix_timestamp(data, 'yyyy-MM-dd HH:mm') from test_tbl_4085 where id = 4"
-    val select_sql_7 =
-      "select id, unix_timestamp(data, 'yyyy-MM-dd') from test_tbl_4085 where id = 4"
-    val select_sql_8 =
-      "select id, unix_timestamp(data, 'yyyy-MM-dd HH:mm:ss.SSS') from test_tbl_4085 where id = 4"
-    val select_sql_9 =
-      "select id, unix_timestamp(data, 'yyyy-MM-dd HH:mm:ss.S') from test_tbl_4085 where id = 4"
-    val select_sql_10 =
-      "select id, unix_timestamp(data, 'yyyy-MM-dd HH:mm:ss.') from test_tbl_4085 where id = 4"
-    spark.sql(tbl_create_sql)
-    spark.sql(data_insert_sql)
-    compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
-    compareResultsAgainstVanillaSpark(select_sql_1, true, { _ => })
-    compareResultsAgainstVanillaSpark(select_sql_2, true, { _ => })
-    withSQLConf("spark.sql.legacy.timeParserPolicy" -> "LEGACY") {
-      compareResultsAgainstVanillaSpark(select_sql_3, true, { _ => })
-      compareResultsAgainstVanillaSpark(select_sql_4, true, { _ => })
-      compareResultsAgainstVanillaSpark(select_sql_5, true, { _ => })
-      compareResultsAgainstVanillaSpark(select_sql_6, true, { _ => })
-      compareResultsAgainstVanillaSpark(select_sql_7, true, { _ => })
-      compareResultsAgainstVanillaSpark(select_sql_8, true, { _ => })
-      compareResultsAgainstVanillaSpark(select_sql_9, true, { _ => })
-      compareResultsAgainstVanillaSpark(select_sql_10, true, { _ => })
+    withTable("test_tbl_4085") {
+      val tbl_create_sql = "create table test_tbl_4085(id bigint, data string) using parquet"
+      val data_insert_sql =
+        "insert into test_tbl_4085 values(1, '2023-12-18'),(2, '2023-12-19'), (3, '2023-12-20'),  (4, '2024-10-15 07:35:26.486')"
+      val select_sql =
+        "select id, unix_timestamp(to_date(data), 'yyyy-MM-dd') from test_tbl_4085"
+      val select_sql_1 = "select id, to_unix_timestamp(to_date(data)) from test_tbl_4085"
+      val select_sql_2 = "select id, to_unix_timestamp(to_timestamp(data)) from test_tbl_4085"
+      val select_sql_3 =
+        "select id, unix_timestamp(data, 'yyyy-MM-dd HH:mm:ss') from test_tbl_4085 where id = 4"
+      val select_sql_4 =
+        "select id, unix_timestamp(data, 'yyyy-M-d') from test_tbl_4085 where id = 1"
+      val select_sql_5 =
+        "select id, unix_timestamp(data, 'yyyy-MM-dd HH') from test_tbl_4085 where id = 4"
+      val select_sql_6 =
+        "select id, unix_timestamp(data, 'yyyy-MM-dd HH:mm') from test_tbl_4085 where id = 4"
+      val select_sql_7 =
+        "select id, unix_timestamp(data, 'yyyy-MM-dd') from test_tbl_4085 where id = 4"
+      val select_sql_8 =
+        "select id, unix_timestamp(data, 'yyyy-MM-dd HH:mm:ss.SSS') from test_tbl_4085 where id = 4"
+      val select_sql_9 =
+        "select id, unix_timestamp(data, 'yyyy-MM-dd HH:mm:ss.S') from test_tbl_4085 where id = 4"
+      val select_sql_10 =
+        "select id, unix_timestamp(data, 'yyyy-MM-dd HH:mm:ss.') from test_tbl_4085 where id = 4"
+      spark.sql(tbl_create_sql)
+      spark.sql(data_insert_sql)
+      compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
+      compareResultsAgainstVanillaSpark(select_sql_1, true, { _ => })
+      compareResultsAgainstVanillaSpark(select_sql_2, true, { _ => })
+      withSQLConf("spark.sql.legacy.timeParserPolicy" -> "LEGACY") {
+        compareResultsAgainstVanillaSpark(select_sql_3, true, { _ => })
+        compareResultsAgainstVanillaSpark(select_sql_4, true, { _ => })
+        compareResultsAgainstVanillaSpark(select_sql_5, true, { _ => })
+        compareResultsAgainstVanillaSpark(select_sql_6, true, { _ => })
+        compareResultsAgainstVanillaSpark(select_sql_7, true, { _ => })
+        compareResultsAgainstVanillaSpark(select_sql_8, true, { _ => })
+        compareResultsAgainstVanillaSpark(select_sql_9, true, { _ => })
+        compareResultsAgainstVanillaSpark(select_sql_10, true, { _ => })
+      }
     }
-    spark.sql("drop table test_tbl_4085")
   }
 
   test("GLUTEN-3951: Bug fix floor") {
-    val tbl_create_sql = "create table test_tbl_3951(d double) using parquet"
-    val data_insert_sql = "insert into test_tbl_3951 values(1.0), (2.0), (2.5)"
-    val select_sql =
-      "select floor(d), floor(log10(d-1)), floor(log10(d-2)) from test_tbl_3951"
-    spark.sql(tbl_create_sql)
-    spark.sql(data_insert_sql)
-    compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
-    spark.sql("drop table test_tbl_3951")
+    withTable("test_tbl_3951") {
+      val tbl_create_sql = "create table test_tbl_3951(d double) using parquet"
+      val data_insert_sql = "insert into test_tbl_3951 values(1.0), (2.0), (2.5)"
+      val select_sql =
+        "select floor(d), floor(log10(d-1)), floor(log10(d-2)) from test_tbl_3951"
+      spark.sql(tbl_create_sql)
+      spark.sql(data_insert_sql)
+      compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
+    }
   }
 
   // will test on local NativeWriter and NativeReader on different types
   test("GLUTEN-4603: NativeWriter and NativeReader on different types") {
-    val create_sql =
-      """
-        |create table if not exists test_shuffle_type(
-        | id int,
-        | str string,
-        | f32 float,
-        | f64 double,
-        | dec decimal(10, 2),
-        | a_str array<string>,
-        | m_str map<string, string>,
-        | st struct<x: int, y: string>
-        |) using parquet
-        |""".stripMargin
-    val fill_sql =
-      """
-        |insert into test_shuffle_type select
-        | l_orderkey as id, '123213', 1.2, 3.4, 5.6,
-        | array('123', '22'), map('1', '2'),
-        | named_struct('x', 1, 'y', 'sdfsd')
-        |from lineitem limit 100000;
-        |""".stripMargin
-    val query_sql =
-      """
-        |select t1.l_orderkey, t2.* from
-        | (select l_orderkey from lineitem limit 100000) as t1
-        |left join test_shuffle_type as t2
-        |on t1.l_orderkey = t2.id order by t1.l_orderkey limit 10;
-        |""".stripMargin
-    spark.sql(create_sql)
-    spark.sql(fill_sql)
-    compareResultsAgainstVanillaSpark(query_sql, true, { _ => })
-    spark.sql("drop table test_shuffle_type")
+    withTable("test_shuffle_type") {
+      val create_sql =
+        """
+          |create table test_shuffle_type(
+          | id int,
+          | str string,
+          | f32 float,
+          | f64 double,
+          | dec decimal(10, 2),
+          | a_str array<string>,
+          | m_str map<string, string>,
+          | st struct<x: int, y: string>
+          |) using parquet
+          |""".stripMargin
+      val fill_sql =
+        """
+          |insert into test_shuffle_type select
+          | l_orderkey as id, '123213', 1.2, 3.4, 5.6,
+          | array('123', '22'), map('1', '2'),
+          | named_struct('x', 1, 'y', 'sdfsd')
+          |from lineitem limit 100000;
+          |""".stripMargin
+      val query_sql =
+        """
+          |select t1.l_orderkey, t2.* from
+          | (select l_orderkey from lineitem limit 100000) as t1
+          |left join test_shuffle_type as t2
+          |on t1.l_orderkey = t2.id order by t1.l_orderkey limit 10;
+          |""".stripMargin
+      spark.sql(create_sql)
+      spark.sql(fill_sql)
+      compareResultsAgainstVanillaSpark(query_sql, true, { _ => })
+    }
   }
 
   test("GLUTEN-4521: Invalid result from grace mergeing aggregation with spill") {
@@ -2555,31 +2563,33 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
   }
 
   test("GLUTEN-4279: Bug fix hour diff") {
-    val tbl_create_sql = "create table test_tbl_4279(id bigint, data string) using parquet"
-    val tbl_insert_sql = "insert into test_tbl_4279 values(1, '2024-01-04 11:22:33'), " +
-      "(2, '2024-01-04 11:22:33.456+08'), (3, '2024'), (4, '2024-01'), (5, '2024-01-04'), " +
-      "(6, '2024-01-04 12'), (7, '2024-01-04 12:12'), (8, '11:22:33'), (9, '22:33')," +
-      "(10, '2024-01-04 '), (11, '2024-01-04 11.22.33.')"
-    val select_sql = "select id, hour(data) from test_tbl_4279 order by id"
-    spark.sql(tbl_create_sql)
-    spark.sql(tbl_insert_sql)
-    compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
-    spark.sql("drop table test_tbl_4279")
+    withTable("test_tbl_4279") {
+      val tbl_create_sql = "create table test_tbl_4279(id bigint, data string) using parquet"
+      val tbl_insert_sql = "insert into test_tbl_4279 values(1, '2024-01-04 11:22:33'), " +
+        "(2, '2024-01-04 11:22:33.456+08'), (3, '2024'), (4, '2024-01'), (5, '2024-01-04'), " +
+        "(6, '2024-01-04 12'), (7, '2024-01-04 12:12'), (8, '11:22:33'), (9, '22:33')," +
+        "(10, '2024-01-04 '), (11, '2024-01-04 11.22.33.')"
+      val select_sql = "select id, hour(data) from test_tbl_4279 order by id"
+      spark.sql(tbl_create_sql)
+      spark.sql(tbl_insert_sql)
+      compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
+    }
   }
 
   test("GLUTEN-4997/GLUTEN-5352: Bug fix year diff") {
-    val tbl_create_sql = "create table test_tbl_4997(id bigint, data string) using parquet"
-    val tbl_insert_sql =
-      "insert into test_tbl_4997 values(1, '2024-01-03'), (2, '2024'), (3, '2024-'), (4, '2024-1')," +
-        "(5, '2024-1-'), (6, '2024-1-3'), (7, '2024-1-3T'), (8, '21-0'), (9, '12-9'), (10, '-1')," +
-        "(11, '999'), (12, '1000'), (13, '9999'), (15, '2024-04-19 00:00:00-12'), (16, '2024-04-19 00:00:00+12'), " +
-        "(17, '2024-04-19 23:59:59-12'), (18, '2024-04-19 23:59:59+12'), (19, '1899-12-01')," +
-        "(20, '2024:12'), (21, '2024ABC'), (22, NULL), (23, '0'), (24, '')"
-    val select_sql = "select id, year(data) from test_tbl_4997 order by id"
-    spark.sql(tbl_create_sql)
-    spark.sql(tbl_insert_sql)
-    compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
-    spark.sql("drop table test_tbl_4997")
+    withTable("test_tbl_4997") {
+      val tbl_create_sql = "create table test_tbl_4997(id bigint, data string) using parquet"
+      val tbl_insert_sql =
+        "insert into test_tbl_4997 values(1, '2024-01-03'), (2, '2024'), (3, '2024-'), (4, '2024-1')," +
+          "(5, '2024-1-'), (6, '2024-1-3'), (7, '2024-1-3T'), (8, '21-0'), (9, '12-9'), (10, '-1')," +
+          "(11, '999'), (12, '1000'), (13, '9999'), (15, '2024-04-19 00:00:00-12'), (16, '2024-04-19 00:00:00+12'), " +
+          "(17, '2024-04-19 23:59:59-12'), (18, '2024-04-19 23:59:59+12'), (19, '1899-12-01')," +
+          "(20, '2024:12'), (21, '2024ABC'), (22, NULL), (23, '0'), (24, '')"
+      val select_sql = "select id, year(data) from test_tbl_4997 order by id"
+      spark.sql(tbl_create_sql)
+      spark.sql(tbl_insert_sql)
+      compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
+    }
   }
 
   test("aggregate function approx_percentile") {
@@ -2609,174 +2619,181 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
   }
 
   test("GLUTEN-5096: Bug fix regexp_extract diff") {
-    val tbl_create_sql = "create table test_tbl_5096(id bigint, data string) using parquet"
-    val tbl_insert_sql = "insert into test_tbl_5096 values(1, 'abc'), (2, 'abc\n')"
-    val select_sql = "select id, regexp_extract(data, '(abc)$', 1) from test_tbl_5096"
-    spark.sql(tbl_create_sql)
-    spark.sql(tbl_insert_sql)
-    compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
-    spark.sql("drop table test_tbl_5096")
+    withTable("test_tbl_5096") {
+      val tbl_create_sql = "create table test_tbl_5096(id bigint, data string) using parquet"
+      val tbl_insert_sql = "insert into test_tbl_5096 values(1, 'abc'), (2, 'abc\n')"
+      val select_sql = "select id, regexp_extract(data, '(abc)$', 1) from test_tbl_5096"
+      spark.sql(tbl_create_sql)
+      spark.sql(tbl_insert_sql)
+      compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
+    }
   }
 
   test("GLUTEN-5896: Bug fix greatest/least diff") {
-    val tbl_create_sql =
-      "create table test_tbl_5896(id bigint, x1 int, x2 int, x3 int) using parquet"
-    val tbl_insert_sql =
-      "insert into test_tbl_5896 values(1, 12, NULL, 13), (2, NULL, NULL, NULL), (3, 11, NULL, NULL), (4, 10, 9, 8)"
-    val select_sql = "select id, greatest(x1, x2, x3), least(x1, x2, x3) from test_tbl_5896"
-    spark.sql(tbl_create_sql)
-    spark.sql(tbl_insert_sql)
-    compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
-    spark.sql("drop table test_tbl_5896")
+    withTable("test_tbl_5896") {
+      val tbl_create_sql =
+        "create table test_tbl_5896(id bigint, x1 int, x2 int, x3 int) using parquet"
+      val tbl_insert_sql =
+        "insert into test_tbl_5896 values(1, 12, NULL, 13), (2, NULL, NULL, NULL), (3, 11, NULL, NULL), (4, 10, 9, 8)"
+      val select_sql = "select id, greatest(x1, x2, x3), least(x1, x2, x3) from test_tbl_5896"
+      spark.sql(tbl_create_sql)
+      spark.sql(tbl_insert_sql)
+      compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
+    }
   }
 
   test("test left with len -1") {
-    val tbl_create_sql =
-      "create table test_left(col string) using parquet"
-    val tbl_insert_sql =
-      "insert into test_left values('test1'), ('test2')"
-    spark.sql(tbl_create_sql)
-    spark.sql(tbl_insert_sql)
-    compareResultsAgainstVanillaSpark("select left(col, -1) from test_left", true, { _ => })
-    compareResultsAgainstVanillaSpark("select left(col, -2) from test_left", true, { _ => })
-    compareResultsAgainstVanillaSpark("select substring(col, 0, -1) from test_left", true, { _ => })
-    spark.sql("drop table test_left")
+    withTable("test_left") {
+      val tbl_create_sql =
+        "create table test_left(col string) using parquet"
+      val tbl_insert_sql =
+        "insert into test_left values('test1'), ('test2')"
+      spark.sql(tbl_create_sql)
+      spark.sql(tbl_insert_sql)
+      compareResultsAgainstVanillaSpark("select left(col, -1) from test_left", true, { _ => })
+      compareResultsAgainstVanillaSpark("select left(col, -2) from test_left", true, { _ => })
+      compareResultsAgainstVanillaSpark(
+        "select substring(col, 0, -1) from test_left",
+        true,
+        { _ => })
+    }
   }
 
   test("Inequal join support") {
-    withSQLConf(("spark.sql.autoBroadcastJoinThreshold", "-1")) {
-      spark.sql("create table ineq_join_t1 (key bigint, value bigint) using parquet")
-      spark.sql("create table ineq_join_t2 (key bigint, value bigint) using parquet")
-      spark.sql("insert into ineq_join_t1 values(1, 1), (2, 2), (3, 3), (4, 4), (5, 5)")
-      spark.sql("insert into ineq_join_t2 values(2, 2), (2, 1), (3, 3), (4, 6), (5, 3)")
-      val sql1 =
-        """
-          | select t1.key, t1.value, t2.key, t2.value from ineq_join_t1 as t1
-          | left join ineq_join_t2 as t2
-          | on t1.key = t2.key and t1.value > t2.value
-          |""".stripMargin
-      compareResultsAgainstVanillaSpark(sql1, true, { _ => })
+    withTable("ineq_join_t1", "ineq_join_t2") {
+      withSQLConf(("spark.sql.autoBroadcastJoinThreshold", "-1")) {
+        spark.sql("create table ineq_join_t1 (key bigint, value bigint) using parquet")
+        spark.sql("create table ineq_join_t2 (key bigint, value bigint) using parquet")
+        spark.sql("insert into ineq_join_t1 values(1, 1), (2, 2), (3, 3), (4, 4), (5, 5)")
+        spark.sql("insert into ineq_join_t2 values(2, 2), (2, 1), (3, 3), (4, 6), (5, 3)")
+        val sql1 =
+          """
+            | select t1.key, t1.value, t2.key, t2.value from ineq_join_t1 as t1
+            | left join ineq_join_t2 as t2
+            | on t1.key = t2.key and t1.value > t2.value
+            |""".stripMargin
+        compareResultsAgainstVanillaSpark(sql1, true, { _ => })
 
-      val sql2 =
-        """
-          | select t1.key, t1.value from ineq_join_t1 as t1
-          | left join ineq_join_t2 as t2
-          | on t1.key = t2.key and t1.value > t2.value and t1.value > t2.key
-          |""".stripMargin
-      compareResultsAgainstVanillaSpark(sql2, true, { _ => })
-      spark.sql("drop table ineq_join_t1")
-      spark.sql("drop table ineq_join_t2")
+        val sql2 =
+          """
+            | select t1.key, t1.value from ineq_join_t1 as t1
+            | left join ineq_join_t2 as t2
+            | on t1.key = t2.key and t1.value > t2.value and t1.value > t2.key
+            |""".stripMargin
+        compareResultsAgainstVanillaSpark(sql2, true, { _ => })
+      }
     }
   }
 
   test("GLUTEN-5910: Fix ASTLiteral type is lost in CH") {
-    spark.sql("create table test_tbl_5910_0(c_time bigint, type int) using parquet")
-    spark.sql("create table test_tbl_5910_1(type int) using parquet")
-    spark.sql("insert into test_tbl_5910_0 values(1717209159, 12)")
-    spark.sql("insert into test_tbl_5910_1 values(12)")
-    val select_sql =
-      """
-        | select t1.cday, t2.type from (
-        | select type, to_date(from_unixtime(c_time)) as cday from test_tbl_5910_0 ) t1
-        | left join (
-        | select type, "2024-06-01" as cday from test_tbl_5910_1 ) t2
-        | on t1.cday = t2.cday and t1.type = t2.type
-        |""".stripMargin
-    compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
-    spark.sql("drop table test_tbl_5910_0")
-    spark.sql("drop table test_tbl_5910_1")
+    withTable("test_tbl_5910_0", "test_tbl_5910_1") {
+      spark.sql("create table test_tbl_5910_0(c_time bigint, type int) using parquet")
+      spark.sql("create table test_tbl_5910_1(type int) using parquet")
+      spark.sql("insert into test_tbl_5910_0 values(1717209159, 12)")
+      spark.sql("insert into test_tbl_5910_1 values(12)")
+      val select_sql =
+        """
+          | select t1.cday, t2.type from (
+          | select type, to_date(from_unixtime(c_time)) as cday from test_tbl_5910_0 ) t1
+          | left join (
+          | select type, "2024-06-01" as cday from test_tbl_5910_1 ) t2
+          | on t1.cday = t2.cday and t1.type = t2.type
+          |""".stripMargin
+      compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
+    }
   }
 
   test("GLUTEN-4451: Fix schema may be changed by filter") {
-    val create_sql =
-      """
-        |create table if not exists test_tbl_4451(
-        |  month_day string,
-        |  month_dif int,
-        |  is_month_new string,
-        |  country string,
-        |  os string,
-        |  mr bigint
-        |) using parquet
-        |PARTITIONED BY (
-        |  day string,
-        |  app_name string)
-        |""".stripMargin
-    val insert_sql1 =
-      "INSERT into test_tbl_4451 partition (day='2024-06-01', app_name='abc') " +
-        "values('2024-06-01', 0, '1', 'CN', 'iOS', 100)"
-    val insert_sql2 =
-      "INSERT into test_tbl_4451 partition (day='2024-06-01', app_name='abc') " +
-        "values('2024-06-01', 0, '1', 'CN', 'iOS', 50)"
-    val insert_sql3 =
-      "INSERT into test_tbl_4451 partition (day='2024-06-01', app_name='abc') " +
-        "values('2024-06-01', 1, '1', 'CN', 'iOS', 80)"
-    spark.sql(create_sql)
-    spark.sql(insert_sql1)
-    spark.sql(insert_sql2)
-    spark.sql(insert_sql3)
-    val select_sql =
-      """
-        |SELECT * FROM (
-        |  SELECT
-        |    month_day,
-        |    country,
-        |    if(os = 'ALite','Android',os) AS os,
-        |    is_month_new,
-        |    nvl(sum(if(month_dif = 0, mr, 0)),0) AS `month0_n`,
-        |    nvl(sum(if(month_dif = 1, mr, 0)) / sum(if(month_dif = 0, mr, 0)),0) AS `month1_rate`,
-        |    '2024-06-18' as day,
-        |    app_name
-        |  FROM test_tbl_4451
-        |  GROUP BY month_day,country,if(os = 'ALite','Android',os),is_month_new,app_name
-        |) tt
-        |WHERE month0_n > 0 AND month1_rate <= 1  AND os IN ('all','Android','iOS')
-        |  AND app_name IS NOT NULL
-        |""".stripMargin
-    compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
-    spark.sql("drop table test_tbl_4451")
+    withTable("test_tbl_4451") {
+      val create_sql =
+        """
+          |create table test_tbl_4451(
+          |  month_day string,
+          |  month_dif int,
+          |  is_month_new string,
+          |  country string,
+          |  os string,
+          |  mr bigint
+          |) using parquet
+          |PARTITIONED BY (
+          |  day string,
+          |  app_name string)
+          |""".stripMargin
+      val insert_sql1 =
+        "INSERT into test_tbl_4451 partition (day='2024-06-01', app_name='abc') " +
+          "values('2024-06-01', 0, '1', 'CN', 'iOS', 100)"
+      val insert_sql2 =
+        "INSERT into test_tbl_4451 partition (day='2024-06-01', app_name='abc') " +
+          "values('2024-06-01', 0, '1', 'CN', 'iOS', 50)"
+      val insert_sql3 =
+        "INSERT into test_tbl_4451 partition (day='2024-06-01', app_name='abc') " +
+          "values('2024-06-01', 1, '1', 'CN', 'iOS', 80)"
+      spark.sql(create_sql)
+      spark.sql(insert_sql1)
+      spark.sql(insert_sql2)
+      spark.sql(insert_sql3)
+      val select_sql =
+        """
+          |SELECT * FROM (
+          |  SELECT
+          |    month_day,
+          |    country,
+          |    if(os = 'ALite','Android',os) AS os,
+          |    is_month_new,
+          |    nvl(sum(if(month_dif = 0, mr, 0)),0) AS `month0_n`,
+          |    nvl(sum(if(month_dif = 1, mr, 0)) / sum(if(month_dif = 0, mr, 0)),0) AS `month1_rate`,
+          |    '2024-06-18' as day,
+          |    app_name
+          |  FROM test_tbl_4451
+          |  GROUP BY month_day,country,if(os = 'ALite','Android',os),is_month_new,app_name
+          |) tt
+          |WHERE month0_n > 0 AND month1_rate <= 1  AND os IN ('all','Android','iOS')
+          |  AND app_name IS NOT NULL
+          |""".stripMargin
+      compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
+    }
   }
 
   test("array functions date add") {
-    spark.sql("create table tb_date(day Date) using parquet")
-    spark.sql("""
-                |insert into tb_date values
-                |(cast('2024-06-01' as Date)),
-                |(cast('2024-06-02' as Date)),
-                |(cast('2024-06-03' as Date)),
-                |(cast('2024-06-04' as Date)),
-                |(cast('2024-06-05' as Date))
-                |""".stripMargin)
-    val sql1 = """
-                 |select * from tb_date where day between
-                 |'2024-06-01' and
-                 |cast('2024-06-01' as Date) + interval 2 day
-                 |order by day
-                 |""".stripMargin
-    compareResultsAgainstVanillaSpark(sql1, true, { _ => })
-    val sql2 = """
-                 |select * from tb_date where day between
-                 |'2024-06-01' and
-                 |cast('2024-06-01' as Date) + interval 48 hour
-                 |order by day
-                 |""".stripMargin
-    compareResultsAgainstVanillaSpark(sql2, true, { _ => })
-    val sql3 = """
-                 |select * from tb_date where day between
-                 |'2024-06-01' and
-                 |cast('2024-06-05' as Date) - interval 2 day
-                 |order by day
-                 |""".stripMargin
-    compareResultsAgainstVanillaSpark(sql3, true, { _ => })
-    val sql4 = """
-                 |select * from tb_date where day between
-                 |'2024-06-01' and
-                 |cast('2024-06-05' as Date) - interval 48 hour
-                 |order by day
-                 |""".stripMargin
-    compareResultsAgainstVanillaSpark(sql4, true, { _ => })
-
-    spark.sql("drop table tb_date")
+    withTable("tb_date") {
+      spark.sql("create table tb_date(day Date) using parquet")
+      spark.sql("""
+                  |insert into tb_date values
+                  |(cast('2024-06-01' as Date)),
+                  |(cast('2024-06-02' as Date)),
+                  |(cast('2024-06-03' as Date)),
+                  |(cast('2024-06-04' as Date)),
+                  |(cast('2024-06-05' as Date))
+                  |""".stripMargin)
+      val sql1 = """
+                   |select * from tb_date where day between
+                   |'2024-06-01' and
+                   |cast('2024-06-01' as Date) + interval 2 day
+                   |order by day
+                   |""".stripMargin
+      compareResultsAgainstVanillaSpark(sql1, true, { _ => })
+      val sql2 = """
+                   |select * from tb_date where day between
+                   |'2024-06-01' and
+                   |cast('2024-06-01' as Date) + interval 48 hour
+                   |order by day
+                   |""".stripMargin
+      compareResultsAgainstVanillaSpark(sql2, true, { _ => })
+      val sql3 = """
+                   |select * from tb_date where day between
+                   |'2024-06-01' and
+                   |cast('2024-06-05' as Date) - interval 2 day
+                   |order by day
+                   |""".stripMargin
+      compareResultsAgainstVanillaSpark(sql3, true, { _ => })
+      val sql4 = """
+                   |select * from tb_date where day between
+                   |'2024-06-01' and
+                   |cast('2024-06-05' as Date) - interval 48 hour
+                   |order by day
+                   |""".stripMargin
+      compareResultsAgainstVanillaSpark(sql4, true, { _ => })
+    }
   }
 
   test("test CartesianProductExec") {
@@ -2998,15 +3015,16 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
   }
 
   test("GLUTEN-7220: Fix bug of grouping sets") {
-    val table_create_sql = "create table test_tbl_7220(id bigint, name string) using parquet"
-    val insert_data_sql = "insert into test_tbl_7220 values(1, 'a123'), (2, 'a124'), (3, 'a125')"
-    val query_sql = "select '2024-08-26' as day, id,name from" +
-      " (select id, name from test_tbl_7220 group by id, name grouping sets((id),(id,name))) " +
-      " where name  = 'a124'"
-    spark.sql(table_create_sql)
-    spark.sql(insert_data_sql)
-    compareResultsAgainstVanillaSpark(query_sql, true, { _ => })
-    spark.sql("drop table test_tbl_7220")
+    withTable("test_tbl_7220") {
+      val table_create_sql = "create table test_tbl_7220(id bigint, name string) using parquet"
+      val insert_data_sql = "insert into test_tbl_7220 values(1, 'a123'), (2, 'a124'), (3, 'a125')"
+      val query_sql = "select '2024-08-26' as day, id,name from" +
+        " (select id, name from test_tbl_7220 group by id, name grouping sets((id),(id,name))) " +
+        " where name  = 'a124'"
+      spark.sql(table_create_sql)
+      spark.sql(insert_data_sql)
+      compareResultsAgainstVanillaSpark(query_sql, true, { _ => })
+    }
   }
 
   test("GLLUTEN-7647 lazy expand") {
@@ -3063,124 +3081,125 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
   }
 
   test("GLUTEN-7647 lazy expand for avg and sum") {
-    val create_table_sql =
-      """
-        |create table test_7647(x bigint, y bigint, z bigint, v decimal(10, 2)) using parquet
-        |""".stripMargin
-    spark.sql(create_table_sql)
-    val insert_data_sql =
-      """
-        |insert into test_7647 values
-        |(1, 1, 1, 1.0),
-        |(2, 2, 2, 2.0),
-        |(3, 3, 3, 3.0),
-        |(2,2,1, 4.0)
-        |""".stripMargin
-    spark.sql(insert_data_sql)
+    withTable("test_7647") {
+      val create_table_sql =
+        """
+          |create table test_7647(x bigint, y bigint, z bigint, v decimal(10, 2)) using parquet
+          |""".stripMargin
+      spark.sql(create_table_sql)
+      val insert_data_sql =
+        """
+          |insert into test_7647 values
+          |(1, 1, 1, 1.0),
+          |(2, 2, 2, 2.0),
+          |(3, 3, 3, 3.0),
+          |(2,2,1, 4.0)
+          |""".stripMargin
+      spark.sql(insert_data_sql)
 
-    def checkLazyExpand(df: DataFrame): Unit = {
-      val expands = collectWithSubqueries(df.queryExecution.executedPlan) {
-        case e: ExpandExecTransformer if e.child.isInstanceOf[HashAggregateExecBaseTransformer] =>
-          e
+      def checkLazyExpand(df: DataFrame): Unit = {
+        val expands = collectWithSubqueries(df.queryExecution.executedPlan) {
+          case e: ExpandExecTransformer if e.child.isInstanceOf[HashAggregateExecBaseTransformer] =>
+            e
+        }
+        assert(expands.size == 1)
       }
-      assert(expands.size == 1)
-    }
 
-    var sql = "select x, y, avg(z), sum(v) from test_7647 group by x, y with cube order by x, y"
-    compareResultsAgainstVanillaSpark(sql, compareResult = true, checkLazyExpand)
-    sql =
-      "select x, y, count(distinct z), avg(v) from test_7647 group by x, y with cube order by x, y"
-    compareResultsAgainstVanillaSpark(sql, compareResult = true, checkLazyExpand)
-    sql =
-      "select x, y, count(distinct z), sum(v) from test_7647 group by x, y with cube order by x, y"
-    compareResultsAgainstVanillaSpark(sql, compareResult = true, checkLazyExpand)
-    spark.sql("drop table if exists test_7647")
+      var sql = "select x, y, avg(z), sum(v) from test_7647 group by x, y with cube order by x, y"
+      compareResultsAgainstVanillaSpark(sql, compareResult = true, checkLazyExpand)
+      sql =
+        "select x, y, count(distinct z), avg(v) from test_7647 group by x, y with cube order by x, y"
+      compareResultsAgainstVanillaSpark(sql, compareResult = true, checkLazyExpand)
+      sql =
+        "select x, y, count(distinct z), sum(v) from test_7647 group by x, y with cube order by x, y"
+      compareResultsAgainstVanillaSpark(sql, compareResult = true, checkLazyExpand)
+    }
   }
 
   test("GLUTEN-7905 get topk of window by aggregate") {
-    withSQLConf(
-      (CHConfig.runtimeSettings("enable_window_group_limit_to_aggregate"), "true"),
-      (CHConfig.runtimeSettings("window.aggregate_topk_high_cardinality_threshold"), "2.0")
-    ) {
-      def checkWindowGroupLimit(df: DataFrame): Unit = {
-        val expands = collectWithSubqueries(df.queryExecution.executedPlan) {
-          case e: CHAggregateGroupLimitExecTransformer => e
-          case wgl: CHWindowGroupLimitExecTransformer => wgl
+    withTable("test_win_top") {
+      withSQLConf(
+        (CHConfig.runtimeSettings("enable_window_group_limit_to_aggregate"), "true"),
+        (CHConfig.runtimeSettings("window.aggregate_topk_high_cardinality_threshold"), "2.0")
+      ) {
+        def checkWindowGroupLimit(df: DataFrame): Unit = {
+          val expands = collectWithSubqueries(df.queryExecution.executedPlan) {
+            case e: CHAggregateGroupLimitExecTransformer => e
+            case wgl: CHWindowGroupLimitExecTransformer => wgl
+          }
+          assert(expands.nonEmpty)
         }
-        assert(expands.nonEmpty)
+        spark.sql("create table test_win_top (a string, b int, c int) using parquet")
+        spark.sql("""
+                    |insert into test_win_top values
+                    |('a', 3, 3), ('a', 1, 5), ('a', 2, 2), ('a', null, null), ('a', null, 1),
+                    |('b', 1, 1), ('b', 2, 1),
+                    |('c', 2, 3)
+                    |""".stripMargin)
+        compareResultsAgainstVanillaSpark(
+          """
+            |select * from(
+            |select a, b, c,
+            |row_number() over (partition by a order by b desc nulls first, c nulls last) as r
+            |from test_win_top)
+            |where r <= 1
+            |""".stripMargin,
+          compareResult = true,
+          checkWindowGroupLimit
+        )
+        compareResultsAgainstVanillaSpark(
+          """
+            |select * from(
+            |select a, b, c, row_number() over (partition by a order by b desc, c nulls last) as r
+            |from test_win_top
+            |)where r <= 1
+            |""".stripMargin,
+          compareResult = true,
+          checkWindowGroupLimit
+        )
+        compareResultsAgainstVanillaSpark(
+          """
+            |select * from(
+            |select a, b, c, row_number() over (partition by a order by b asc nulls first, c) as r
+            |from test_win_top)
+            |where r <= 1
+            |""".stripMargin,
+          compareResult = true,
+          checkWindowGroupLimit
+        )
+        compareResultsAgainstVanillaSpark(
+          """
+            |select * from(
+            |select a, b, c, row_number() over (partition by a order by b asc nulls last) as r
+            |from test_win_top)
+            |where r <= 1
+            |""".stripMargin,
+          compareResult = true,
+          checkWindowGroupLimit
+        )
+        compareResultsAgainstVanillaSpark(
+          """
+            |select * from(
+            |select a, b, c, row_number() over (partition by a order by b , c) as r
+            |from test_win_top)
+            |where r <= 1
+            |""".stripMargin,
+          compareResult = true,
+          checkWindowGroupLimit
+        )
+
+        compareResultsAgainstVanillaSpark(
+          """
+            |select * from(
+            |select a, b, c, row_number() over (partition by a order by b, c, a) as r
+            |from test_win_top)
+            |where r <= 1
+            |""".stripMargin,
+          compareResult = true,
+          checkWindowGroupLimit
+        )
       }
-      spark.sql("create table test_win_top (a string, b int, c int) using parquet")
-      spark.sql("""
-                  |insert into test_win_top values
-                  |('a', 3, 3), ('a', 1, 5), ('a', 2, 2), ('a', null, null), ('a', null, 1),
-                  |('b', 1, 1), ('b', 2, 1),
-                  |('c', 2, 3)
-                  |""".stripMargin)
-      compareResultsAgainstVanillaSpark(
-        """
-          |select * from(
-          |select a, b, c,
-          |row_number() over (partition by a order by b desc nulls first, c nulls last) as r
-          |from test_win_top)
-          |where r <= 1
-          |""".stripMargin,
-        compareResult = true,
-        checkWindowGroupLimit
-      )
-      compareResultsAgainstVanillaSpark(
-        """
-          |select * from(
-          |select a, b, c, row_number() over (partition by a order by b desc, c nulls last) as r
-          |from test_win_top
-          |)where r <= 1
-          |""".stripMargin,
-        compareResult = true,
-        checkWindowGroupLimit
-      )
-      compareResultsAgainstVanillaSpark(
-        """
-          |select * from(
-          |select a, b, c, row_number() over (partition by a order by b asc nulls first, c) as r
-          |from test_win_top)
-          |where r <= 1
-          |""".stripMargin,
-        compareResult = true,
-        checkWindowGroupLimit
-      )
-      compareResultsAgainstVanillaSpark(
-        """
-          |select * from(
-          |select a, b, c, row_number() over (partition by a order by b asc nulls last) as r
-          |from test_win_top)
-          |where r <= 1
-          |""".stripMargin,
-        compareResult = true,
-        checkWindowGroupLimit
-      )
-      compareResultsAgainstVanillaSpark(
-        """
-          |select * from(
-          |select a, b, c, row_number() over (partition by a order by b , c) as r
-          |from test_win_top)
-          |where r <= 1
-          |""".stripMargin,
-        compareResult = true,
-        checkWindowGroupLimit
-      )
-
-      compareResultsAgainstVanillaSpark(
-        """
-          |select * from(
-          |select a, b, c, row_number() over (partition by a order by b, c, a) as r
-          |from test_win_top)
-          |where r <= 1
-          |""".stripMargin,
-        compareResult = true,
-        checkWindowGroupLimit
-      )
-      spark.sql("drop table if exists test_win_top")
     }
-
   }
 
   test("row number aggregate topk handles first array result offset") {
@@ -3208,105 +3227,105 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
   }
 
   test("GLUTEN-7905 get topk of window by window") {
-    withSQLConf(
-      (CHConfig.runtimeSettings("enable_window_group_limit_to_aggregate"), "true"),
-      (CHConfig.runtimeSettings("window.aggregate_topk_high_cardinality_threshold"), "0.0")
-    ) {
-      def checkWindowGroupLimit(df: DataFrame): Unit = {
-        // for spark 3.5, CHWindowGroupLimitExecTransformer is in used
-        val expands = collectWithSubqueries(df.queryExecution.executedPlan) {
-          case e: CHAggregateGroupLimitExecTransformer => e
-          case wgl: CHWindowGroupLimitExecTransformer => wgl
+    withTable("test_win_top") {
+      withSQLConf(
+        (CHConfig.runtimeSettings("enable_window_group_limit_to_aggregate"), "true"),
+        (CHConfig.runtimeSettings("window.aggregate_topk_high_cardinality_threshold"), "0.0")
+      ) {
+        def checkWindowGroupLimit(df: DataFrame): Unit = {
+          // for spark 3.5, CHWindowGroupLimitExecTransformer is in used
+          val expands = collectWithSubqueries(df.queryExecution.executedPlan) {
+            case e: CHAggregateGroupLimitExecTransformer => e
+            case wgl: CHWindowGroupLimitExecTransformer => wgl
+          }
+          assert(expands.nonEmpty)
         }
-        assert(expands.nonEmpty)
+        spark.sql("create table test_win_top (a string, b int, c int) using parquet")
+        spark.sql("""
+                    |insert into test_win_top values
+                    |('a', 3, 3), ('a', 1, 5), ('a', 2, 2), ('a', null, null), ('a', null, 1),
+                    |('b', 1, 1), ('b', 2, 1),
+                    |('c', 2, 3)
+                    |""".stripMargin)
+        compareResultsAgainstVanillaSpark(
+          """
+            |select * from(
+            |select a, b, c,
+            |row_number() over (partition by a order by b desc nulls first, c nulls last) as r
+            |from test_win_top
+            |)where r <= 1
+            |""".stripMargin,
+          compareResult = true,
+          checkWindowGroupLimit
+        )
+        compareResultsAgainstVanillaSpark(
+          """
+            |select * from(
+            |select a, b, c, row_number() over (partition by a order by b desc, c nulls last) as r
+            |from test_win_top)
+            |where r <= 1
+            |""".stripMargin,
+          compareResult = true,
+          checkWindowGroupLimit
+        )
+        compareResultsAgainstVanillaSpark(
+          """
+            | select * from(
+            |select a, b, c, row_number() over (partition by a order by b asc nulls first, c) as r
+            |from test_win_top)
+            |where r <= 1
+            |""".stripMargin,
+          compareResult = true,
+          checkWindowGroupLimit
+        )
+        compareResultsAgainstVanillaSpark(
+          """
+            |select * from(
+            |select a, b, c, row_number() over (partition by a order by b asc nulls last) as r
+            |from test_win_top)
+            |where r <= 1
+            |""".stripMargin,
+          compareResult = true,
+          checkWindowGroupLimit
+        )
+        compareResultsAgainstVanillaSpark(
+          """
+            |select * from(
+            |select a, b, c, row_number() over (partition by a order by b , c) as r
+            |from test_win_top)
+            |where r <= 1
+            |""".stripMargin,
+          compareResult = true,
+          checkWindowGroupLimit
+        )
       }
-      spark.sql("drop table if exists test_win_top")
-      spark.sql("create table test_win_top (a string, b int, c int) using parquet")
-      spark.sql("""
-                  |insert into test_win_top values
-                  |('a', 3, 3), ('a', 1, 5), ('a', 2, 2), ('a', null, null), ('a', null, 1),
-                  |('b', 1, 1), ('b', 2, 1),
-                  |('c', 2, 3)
-                  |""".stripMargin)
-      compareResultsAgainstVanillaSpark(
-        """
-          |select * from(
-          |select a, b, c,
-          |row_number() over (partition by a order by b desc nulls first, c nulls last) as r
-          |from test_win_top
-          |)where r <= 1
-          |""".stripMargin,
-        compareResult = true,
-        checkWindowGroupLimit
-      )
-      compareResultsAgainstVanillaSpark(
-        """
-          |select * from(
-          |select a, b, c, row_number() over (partition by a order by b desc, c nulls last) as r
-          |from test_win_top)
-          |where r <= 1
-          |""".stripMargin,
-        compareResult = true,
-        checkWindowGroupLimit
-      )
-      compareResultsAgainstVanillaSpark(
-        """
-          | select * from(
-          |select a, b, c, row_number() over (partition by a order by b asc nulls first, c) as r
-          |from test_win_top)
-          |where r <= 1
-          |""".stripMargin,
-        compareResult = true,
-        checkWindowGroupLimit
-      )
-      compareResultsAgainstVanillaSpark(
-        """
-          |select * from(
-          |select a, b, c, row_number() over (partition by a order by b asc nulls last) as r
-          |from test_win_top)
-          |where r <= 1
-          |""".stripMargin,
-        compareResult = true,
-        checkWindowGroupLimit
-      )
-      compareResultsAgainstVanillaSpark(
-        """
-          |select * from(
-          |select a, b, c, row_number() over (partition by a order by b , c) as r
-          |from test_win_top)
-          |where r <= 1
-          |""".stripMargin,
-        compareResult = true,
-        checkWindowGroupLimit
-      )
-      spark.sql("drop table if exists test_win_top")
     }
-
   }
 
   test("GLUTEN-7759: Fix bug of agg pre-project push down") {
-    val table_create_sql =
-      "create table test_tbl_7759(id bigint, name string, day string) using parquet"
-    val insert_data_sql =
-      "insert into test_tbl_7759 values(1, 'a123', '2024-11-01'),(2, 'a124', '2024-11-01')"
-    val query_sql =
-      """
-        |select distinct day, name from(
-        |select '2024-11-01' as day
-        |,coalesce(name,'all') name
-        |,cnt
-        |from
-        |(
-        |select count(distinct id) as cnt, name
-        |from test_tbl_7759
-        |group by name
-        |with cube
-        |)) limit 10
-        |""".stripMargin
-    spark.sql(table_create_sql)
-    spark.sql(insert_data_sql)
-    compareResultsAgainstVanillaSpark(query_sql, true, { _ => })
-    spark.sql("drop table test_tbl_7759")
+    withTable("test_tbl_7759") {
+      val table_create_sql =
+        "create table test_tbl_7759(id bigint, name string, day string) using parquet"
+      val insert_data_sql =
+        "insert into test_tbl_7759 values(1, 'a123', '2024-11-01'),(2, 'a124', '2024-11-01')"
+      val query_sql =
+        """
+          |select distinct day, name from(
+          |select '2024-11-01' as day
+          |,coalesce(name,'all') name
+          |,cnt
+          |from
+          |(
+          |select count(distinct id) as cnt, name
+          |from test_tbl_7759
+          |group by name
+          |with cube
+          |)) limit 10
+          |""".stripMargin
+      spark.sql(table_create_sql)
+      spark.sql(insert_data_sql)
+      compareResultsAgainstVanillaSpark(query_sql, true, { _ => })
+    }
   }
 
   test("GLUTEN-8253: Fix cast failed when in-filter with tuple values") {
@@ -3323,17 +3342,19 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
   }
 
   test("GLUTEN-8343: Cast number to decimal") {
-    val create_table_sql = "create table test_tbl_8343(id bigint, d bigint, f double) using parquet"
-    val insert_data_sql =
-      "insert into test_tbl_8343 values(1, 55, 55.12345), (2, 137438953483, 137438953483.12345), (3, -12, -12.123), (4, 0, 0.0001), (5, NULL, NULL), (6, %d, NULL), (7, %d, NULL)"
-        .format(Double.MaxValue.longValue(), Double.MinValue.longValue())
-    val query_sql =
-      "select cast(d as decimal(1, 0)), cast(d as decimal(9, 1)), cast((f-55.12345) as decimal(9,1)), cast(f as decimal(4,2)), " +
-        "cast(f as decimal(32, 3)), cast(f as decimal(2, 1)), cast(d as decimal(38,3)) from test_tbl_8343"
-    spark.sql(create_table_sql)
-    spark.sql(insert_data_sql)
-    compareResultsAgainstVanillaSpark(query_sql, true, { _ => })
-    spark.sql("drop table test_tbl_8343")
+    withTable("test_tbl_8343") {
+      val create_table_sql =
+        "create table test_tbl_8343(id bigint, d bigint, f double) using parquet"
+      val insert_data_sql =
+        "insert into test_tbl_8343 values(1, 55, 55.12345), (2, 137438953483, 137438953483.12345), (3, -12, -12.123), (4, 0, 0.0001), (5, NULL, NULL), (6, %d, NULL), (7, %d, NULL)"
+          .format(Double.MaxValue.longValue(), Double.MinValue.longValue())
+      val query_sql =
+        "select cast(d as decimal(1, 0)), cast(d as decimal(9, 1)), cast((f-55.12345) as decimal(9,1)), cast(f as decimal(4,2)), " +
+          "cast(f as decimal(32, 3)), cast(f as decimal(2, 1)), cast(d as decimal(38,3)) from test_tbl_8343"
+      spark.sql(create_table_sql)
+      spark.sql(insert_data_sql)
+      compareResultsAgainstVanillaSpark(query_sql, true, { _ => })
+    }
   }
 
   test("GLUTEN-8995: Fix column not found in row_number") {
@@ -3379,14 +3400,15 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
   }
 
   test("GLUTEN-9177: Fix diff of parse_url") {
-    val create_tbl_sql = "create table test_9177(id bigint, s string) using parquet"
-    val insert_data_sql = "insert into test_9177 values(1, 'http://user:pass@locahost')," +
-      "(2, 'http://user:pass@localhost/a/b/c'), (3, 'http://user:pass@localhost:10010/a/b/c')"
-    val select_sql = "select id, parse_url(s, 'HOST') from test_9177"
-    spark.sql(create_tbl_sql)
-    spark.sql(insert_data_sql)
-    compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
-    spark.sql("drop table test_9177")
+    withTable("test_9177") {
+      val create_tbl_sql = "create table test_9177(id bigint, s string) using parquet"
+      val insert_data_sql = "insert into test_9177 values(1, 'http://user:pass@locahost')," +
+        "(2, 'http://user:pass@localhost/a/b/c'), (3, 'http://user:pass@localhost:10010/a/b/c')"
+      val select_sql = "select id, parse_url(s, 'HOST') from test_9177"
+      spark.sql(create_tbl_sql)
+      spark.sql(insert_data_sql)
+      compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
+    }
   }
 }
 // scalastyle:on line.size.limit

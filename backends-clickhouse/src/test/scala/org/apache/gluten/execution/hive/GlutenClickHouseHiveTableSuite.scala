@@ -545,33 +545,33 @@ class GlutenClickHouseHiveTableSuite
 
   test("GLUTEN-7700: test hive table with partition values contain space") {
     val tbl = "test_7700"
-    val create_table_sql =
-      s"""
-         |create table if not exists $tbl (
-         |  id int
-         |) partitioned by (itime string)
-         |stored as orc;
-         |""".stripMargin
-    val insert_sql =
-      s"""
-         |insert overwrite table $tbl partition (itime = '2024-10-24 10:02:04')
-         |select id from range(3)
-         |""".stripMargin
-    val select_sql =
-      s"""
-         |select * from $tbl
-         |""".stripMargin
-    val drop_sql = s"drop table if exists $tbl"
+    withTable(tbl) {
+      val create_table_sql =
+        s"""
+           |create table $tbl (
+           |  id int
+           |) partitioned by (itime string)
+           |stored as orc;
+           |""".stripMargin
+      val insert_sql =
+        s"""
+           |insert overwrite table $tbl partition (itime = '2024-10-24 10:02:04')
+           |select id from range(3)
+           |""".stripMargin
+      val select_sql =
+        s"""
+           |select * from $tbl
+           |""".stripMargin
 
-    spark.sql(create_table_sql)
-    spark.sql(insert_sql)
+      spark.sql(create_table_sql)
+      spark.sql(insert_sql)
 
-    compareResultsAgainstVanillaSpark(
-      select_sql,
-      compareResult = true,
-      df => assert(df.count() == 3)
-    )
-    spark.sql(drop_sql)
+      compareResultsAgainstVanillaSpark(
+        select_sql,
+        compareResult = true,
+        df => assert(df.count() == 3)
+      )
+    }
   }
 
   test("test hive compressed txt table") {
@@ -661,25 +661,22 @@ class GlutenClickHouseHiveTableSuite
     val select2_template = "select id, info.name from test_%s"
     val select3_template = "select id from test_%s where info.name = 'Bob'"
 
-    val drop_template = "DROP TABLE test_%s"
-
     val formats = Array("orc", "parquet")
     for (format <- formats) {
-      val create_sql = create_template.format(format, format)
-      val insert_sql = insert_template.format(format)
-      val select1_sql = select1_template.format(format)
-      val select2_sql = select2_template.format(format)
-      val select3_sql = select3_template.format(format)
-      val drop_sql = drop_template.format(format)
+      withTable(s"test_$format") {
+        val create_sql = create_template.format(format, format)
+        val insert_sql = insert_template.format(format)
+        val select1_sql = select1_template.format(format)
+        val select2_sql = select2_template.format(format)
+        val select3_sql = select3_template.format(format)
 
-      spark.sql(create_sql)
-      spark.sql(insert_sql)
+        spark.sql(create_sql)
+        spark.sql(insert_sql)
 
-      compareResultsAgainstVanillaSpark(select1_sql, compareResult = true, _ => {})
-      compareResultsAgainstVanillaSpark(select2_sql, compareResult = true, _ => {})
-      compareResultsAgainstVanillaSpark(select3_sql, compareResult = true, _ => {})
-
-      spark.sql(drop_sql)
+        compareResultsAgainstVanillaSpark(select1_sql, compareResult = true, _ => {})
+        compareResultsAgainstVanillaSpark(select2_sql, compareResult = true, _ => {})
+        compareResultsAgainstVanillaSpark(select3_sql, compareResult = true, _ => {})
+      }
     }
   }
 
@@ -857,98 +854,100 @@ class GlutenClickHouseHiveTableSuite
   }
 
   test("fix reading string from number bug: https://github.com/oap-project/gluten/issues/3023") {
-    val data_path = resPath + "/text-data/json-settings"
-    spark.sql(s"""
-                 |CREATE TABLE json_settings (
-                 |  a string,
-                 |  b string,
-                 |  c int,
-                 |  t struct<ta:string, tb:int, tc:float>)
-                 |ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe'
-                 |STORED AS INPUTFORMAT 'org.apache.hadoop.mapred.TextInputFormat'
-                 |OUTPUTFORMAT 'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
-                 |LOCATION '$data_path'
-      """.stripMargin)
+    withTable("json_settings") {
+      val data_path = resPath + "/text-data/json-settings"
+      spark.sql(s"""
+                   |CREATE TABLE json_settings (
+                   |  a string,
+                   |  b string,
+                   |  c int,
+                   |  t struct<ta:string, tb:int, tc:float>)
+                   |ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe'
+                   |STORED AS INPUTFORMAT 'org.apache.hadoop.mapred.TextInputFormat'
+                   |OUTPUTFORMAT 'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
+                   |LOCATION '$data_path'
+        """.stripMargin)
 
-    val select_sql = "select * from json_settings"
-    compareResultsAgainstVanillaSpark(select_sql, compareResult = true, _ => {})
-    spark.sql("DROP TABLE json_settings")
+      val select_sql = "select * from json_settings"
+      compareResultsAgainstVanillaSpark(select_sql, compareResult = true, _ => {})
+    }
   }
 
   test("fix empty field delim bug: https://github.com/oap-project/gluten/issues/3098") {
-    spark.sql(s"""
-                 |CREATE TABLE a (
-                 |  uid bigint,
-                 |  appid int,
-                 |  type int,
-                 |  account string)
-                 |ROW FORMAT SERDE
-                 |  'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe'
-                 |WITH SERDEPROPERTIES (
-                 |  'field.delim'='',
-                 |  'line.delim'='\n',
-                 |  'serialization.format'='')
-                 |STORED AS INPUTFORMAT
-                 |  'org.apache.hadoop.mapred.TextInputFormat'
-                 |OUTPUTFORMAT
-                 |  'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
-      """.stripMargin)
-    spark.sql("insert into a select id, id, id, cast(id as string) from range(10)")
+    withTable("a") {
+      spark.sql(s"""
+                   |CREATE TABLE a (
+                   |  uid bigint,
+                   |  appid int,
+                   |  type int,
+                   |  account string)
+                   |ROW FORMAT SERDE
+                   |  'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe'
+                   |WITH SERDEPROPERTIES (
+                   |  'field.delim'='',
+                   |  'line.delim'='\n',
+                   |  'serialization.format'='')
+                   |STORED AS INPUTFORMAT
+                   |  'org.apache.hadoop.mapred.TextInputFormat'
+                   |OUTPUTFORMAT
+                   |  'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
+        """.stripMargin)
+      spark.sql("insert into a select id, id, id, cast(id as string) from range(10)")
 
-    val select_sql = "select * from a"
-    compareResultsAgainstVanillaSpark(select_sql, compareResult = true, _ => {})
-    spark.sql("DROP TABLE a")
+      val select_sql = "select * from a"
+      compareResultsAgainstVanillaSpark(select_sql, compareResult = true, _ => {})
+    }
   }
 
   test("fix csv serde bug: https://github.com/oap-project/gluten/issues/3108") {
-    spark.sql(s"""
-                 |CREATE TABLE b (
-                 |  uid bigint,
-                 |  appid int,
-                 |  type int,
-                 |  account string)
-                 |ROW FORMAT SERDE
-                 |  'org.apache.hadoop.hive.serde2.OpenCSVSerde'
-                 |STORED AS INPUTFORMAT
-                 |  'org.apache.hadoop.mapred.TextInputFormat'
-                 |OUTPUTFORMAT
-                 |  'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
-      """.stripMargin)
-    spark.sql("insert into b select id, id, id, cast(id as string) from range(10)")
+    withTable("b") {
+      spark.sql(s"""
+                   |CREATE TABLE b (
+                   |  uid bigint,
+                   |  appid int,
+                   |  type int,
+                   |  account string)
+                   |ROW FORMAT SERDE
+                   |  'org.apache.hadoop.hive.serde2.OpenCSVSerde'
+                   |STORED AS INPUTFORMAT
+                   |  'org.apache.hadoop.mapred.TextInputFormat'
+                   |OUTPUTFORMAT
+                   |  'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
+        """.stripMargin)
+      spark.sql("insert into b select id, id, id, cast(id as string) from range(10)")
 
-    val sql = "select * from b"
-    compareResultsAgainstVanillaSpark(sql, compareResult = true, _ => {})
-
-    spark.sql("DROP TABLE b")
+      val sql = "select * from b"
+      compareResultsAgainstVanillaSpark(sql, compareResult = true, _ => {})
+    }
   }
 
   test("GLUTEN-3337: fix get_json_object for abnormal json") {
-    val data_path = resPath + "/text-data/abnormal-json"
-    spark.sql(s"""
-                 |CREATE TABLE test_tbl_3337 (
-                 |  id bigint,
-                 |  data string) stored as textfile
-                 |LOCATION '$data_path'
-      """.stripMargin)
+    withTable("test_tbl_3337") {
+      val data_path = resPath + "/text-data/abnormal-json"
+      spark.sql(s"""
+                   |CREATE TABLE test_tbl_3337 (
+                   |  id bigint,
+                   |  data string) stored as textfile
+                   |LOCATION '$data_path'
+        """.stripMargin)
 
-    val select_sql_1 = "select id, get_json_object(data, '$.data.v') from test_tbl_3337"
-    val select_sql_2 = "select id, get_json_object(data, '$.v') from test_tbl_3337"
-    val select_sql_3 = "select id, get_json_object(data, '$.123.234') from test_tbl_3337"
-    val select_sql_4 = "select id, get_json_object(data, '$.v111') from test_tbl_3337"
-    val select_sql_5 = "select id, get_json_object(data, 'v112') from test_tbl_3337"
-    val select_sql_6 =
-      "select id, get_json_object(data, '$.id') from test_tbl_3337 where id = 123"
-    val select_sql_7 =
-      "select id, get_json_object(data, '$.id') from test_tbl_3337"
-    compareResultsAgainstVanillaSpark(select_sql_1, compareResult = true, _ => {})
-    compareResultsAgainstVanillaSpark(select_sql_2, compareResult = true, _ => {})
-    compareResultsAgainstVanillaSpark(select_sql_3, compareResult = true, _ => {})
-    compareResultsAgainstVanillaSpark(select_sql_4, compareResult = true, _ => {})
-    compareResultsAgainstVanillaSpark(select_sql_5, compareResult = true, _ => {})
-    compareResultsAgainstVanillaSpark(select_sql_6, compareResult = true, _ => {})
-    compareResultsAgainstVanillaSpark(select_sql_7, compareResult = true, _ => {})
-
-    spark.sql("DROP TABLE test_tbl_3337")
+      val select_sql_1 = "select id, get_json_object(data, '$.data.v') from test_tbl_3337"
+      val select_sql_2 = "select id, get_json_object(data, '$.v') from test_tbl_3337"
+      val select_sql_3 = "select id, get_json_object(data, '$.123.234') from test_tbl_3337"
+      val select_sql_4 = "select id, get_json_object(data, '$.v111') from test_tbl_3337"
+      val select_sql_5 = "select id, get_json_object(data, 'v112') from test_tbl_3337"
+      val select_sql_6 =
+        "select id, get_json_object(data, '$.id') from test_tbl_3337 where id = 123"
+      val select_sql_7 =
+        "select id, get_json_object(data, '$.id') from test_tbl_3337"
+      compareResultsAgainstVanillaSpark(select_sql_1, compareResult = true, _ => {})
+      compareResultsAgainstVanillaSpark(select_sql_2, compareResult = true, _ => {})
+      compareResultsAgainstVanillaSpark(select_sql_3, compareResult = true, _ => {})
+      compareResultsAgainstVanillaSpark(select_sql_4, compareResult = true, _ => {})
+      compareResultsAgainstVanillaSpark(select_sql_5, compareResult = true, _ => {})
+      compareResultsAgainstVanillaSpark(select_sql_6, compareResult = true, _ => {})
+      compareResultsAgainstVanillaSpark(select_sql_7, compareResult = true, _ => {})
+    }
   }
 
   test("test hive read recursive dirs") {
@@ -987,49 +986,51 @@ class GlutenClickHouseHiveTableSuite
   }
 
   test("GLUTEN-3552: Bug fix csv field whitespaces") {
-    val data_path = resPath + "/text-data/field_whitespaces"
-    spark.sql(s"""
-                 | CREATE TABLE test_tbl_3552(
-                 | a string,
-                 | b string,
-                 | c string)
-                 | ROW FORMAT SERDE
-                 |  'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe'
-                 |WITH SERDEPROPERTIES (
-                 |   'field.delim'=','
-                 | )
-                 | STORED AS INPUTFORMAT
-                 |  'org.apache.hadoop.mapred.TextInputFormat'
-                 |OUTPUTFORMAT
-                 |  'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
-                 |LOCATION '$data_path'
-                 |""".stripMargin)
-    val select_sql = "select * from test_tbl_3552"
-    compareResultsAgainstVanillaSpark(select_sql, compareResult = true, _ => {})
-    spark.sql("DROP TABLE test_tbl_3552")
+    withTable("test_tbl_3552") {
+      val data_path = resPath + "/text-data/field_whitespaces"
+      spark.sql(s"""
+                   | CREATE TABLE test_tbl_3552(
+                   | a string,
+                   | b string,
+                   | c string)
+                   | ROW FORMAT SERDE
+                   |  'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe'
+                   |WITH SERDEPROPERTIES (
+                   |   'field.delim'=','
+                   | )
+                   | STORED AS INPUTFORMAT
+                   |  'org.apache.hadoop.mapred.TextInputFormat'
+                   |OUTPUTFORMAT
+                   |  'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
+                   |LOCATION '$data_path'
+                   |""".stripMargin)
+      val select_sql = "select * from test_tbl_3552"
+      compareResultsAgainstVanillaSpark(select_sql, compareResult = true, _ => {})
+    }
   }
 
   test("GLUTEN-3548: Bug fix csv allow cr end of line") {
-    val data_path = resPath + "/text-data/cr_end_of_line"
-    spark.sql(s"""
-                 | CREATE TABLE test_tbl_3548(
-                 | a string,
-                 | b string,
-                 | c string)
-                 | ROW FORMAT SERDE
-                 |  'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe'
-                 |WITH SERDEPROPERTIES (
-                 |   'field.delim'=','
-                 | )
-                 | STORED AS INPUTFORMAT
-                 |  'org.apache.hadoop.mapred.TextInputFormat'
-                 |OUTPUTFORMAT
-                 |  'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
-                 |LOCATION '$data_path'
-                 |""".stripMargin)
-    val select_sql = "select * from test_tbl_3548"
-    compareResultsAgainstVanillaSpark(select_sql, compareResult = true, _ => {})
-    spark.sql("DROP TABLE test_tbl_3548")
+    withTable("test_tbl_3548") {
+      val data_path = resPath + "/text-data/cr_end_of_line"
+      spark.sql(s"""
+                   | CREATE TABLE test_tbl_3548(
+                   | a string,
+                   | b string,
+                   | c string)
+                   | ROW FORMAT SERDE
+                   |  'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe'
+                   |WITH SERDEPROPERTIES (
+                   |   'field.delim'=','
+                   | )
+                   | STORED AS INPUTFORMAT
+                   |  'org.apache.hadoop.mapred.TextInputFormat'
+                   |OUTPUTFORMAT
+                   |  'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
+                   |LOCATION '$data_path'
+                   |""".stripMargin)
+      val select_sql = "select * from test_tbl_3548"
+      compareResultsAgainstVanillaSpark(select_sql, compareResult = true, _ => {})
+    }
   }
 
   test("test 'hive udf'") {
@@ -1215,46 +1216,48 @@ class GlutenClickHouseHiveTableSuite
   }
 
   test("GLUTEN-3452: Bug fix decimal divide") {
-    val table_create_sql =
-      """
-        | create table test_tbl_3452(d1 decimal(12,2), d2 decimal(15,3)) stored as parquet;
-        |""".stripMargin
-    val data_insert_sql = "insert into test_tbl_3452 values(13.0, 0),(11, NULL), (12.3, 200)"
-    spark.sql(table_create_sql)
-    spark.sql(data_insert_sql)
-    Seq("true", "false").foreach {
-      s =>
-        withSQLConf((SQLConf.DECIMAL_OPERATIONS_ALLOW_PREC_LOSS.key, s)) {
-          val select_sql = "select d1/d2, d1/0, d1/cast(0 as decimal) from test_tbl_3452"
-          compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
-        }
+    withTable("test_tbl_3452") {
+      val table_create_sql =
+        """
+          | create table test_tbl_3452(d1 decimal(12,2), d2 decimal(15,3)) stored as parquet;
+          |""".stripMargin
+      val data_insert_sql = "insert into test_tbl_3452 values(13.0, 0),(11, NULL), (12.3, 200)"
+      spark.sql(table_create_sql)
+      spark.sql(data_insert_sql)
+      Seq("true", "false").foreach {
+        s =>
+          withSQLConf((SQLConf.DECIMAL_OPERATIONS_ALLOW_PREC_LOSS.key, s)) {
+            val select_sql = "select d1/d2, d1/0, d1/cast(0 as decimal) from test_tbl_3452"
+            compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
+          }
+      }
     }
-    spark.sql("drop table test_tbl_3452")
   }
 
   test("GLUTEN-6235: Fix crash on ExpandTransform::work()") {
     val tbl = "test_tbl_6235"
-    sql(s"drop table if exists $tbl")
-    val createSql =
-      s"""
-         |create table $tbl
-         |stored as textfile
-         |as select 1 as a1, 2 as a2, 3 as a3, 4 as a4, 5 as a5, 6 as a6, 7 as a7, 8 as a8, 9 as a9
-         |""".stripMargin
-    sql(createSql)
-    val select_sql =
-      s"""
-         |select
-         |a5,a6,a7,a8,a3,a4,a9
-         |,count(distinct a2) as a2
-         |,count(distinct a1) as a1
-         |,count(distinct if(a3=1,a2,null)) as a33
-         |,count(distinct if(a4=2,a1,null)) as a43
-         |from $tbl
-         |group by a5,a6,a7,a8,a3,a4,a9 with cube
-         |""".stripMargin
-    compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
-    sql(s"drop table if exists $tbl")
+    withTable(tbl) {
+      val createSql =
+        s"""
+           |create table $tbl
+           |stored as textfile
+           |as select 1 as a1, 2 as a2, 3 as a3, 4 as a4, 5 as a5, 6 as a6, 7 as a7, 8 as a8,
+           |9 as a9
+           |""".stripMargin
+      sql(createSql)
+      val select_sql =
+        s"""
+           |select
+           |a5,a6,a7,a8,a3,a4,a9
+           |,count(distinct a2) as a2
+           |,count(distinct a1) as a1
+           |,count(distinct if(a3=1,a2,null)) as a33
+           |,count(distinct if(a4=2,a1,null)) as a43
+           |from $tbl
+           |group by a5,a6,a7,a8,a3,a4,a9 with cube
+           |""".stripMargin
+      compareResultsAgainstVanillaSpark(select_sql, true, { _ => })
+    }
   }
 
   test("test mergetree write with column case sensitive on hive") {
@@ -1345,166 +1348,152 @@ class GlutenClickHouseHiveTableSuite
   }
 
   test("GLUTEN-6506: Orc read time zone") {
-    val dataPath = s"$dataHome/orc-data/test_reader_time_zone.snappy.orc"
-    val create_table_sql = ("create table test_tbl_6506(" +
-      "id bigint, t timestamp) stored as orc location '%s'")
-      .format(dataPath)
-    val select_sql = "select * from test_tbl_6506"
-    spark.sql(create_table_sql)
-    compareResultsAgainstVanillaSpark(select_sql, compareResult = true, _ => {})
-    spark.sql("drop table test_tbl_6506")
+    withTable("test_tbl_6506") {
+      val dataPath = s"$dataHome/orc-data/test_reader_time_zone.snappy.orc"
+      val create_table_sql = ("create table test_tbl_6506(" +
+        "id bigint, t timestamp) stored as orc location '%s'")
+        .format(dataPath)
+      val select_sql = "select * from test_tbl_6506"
+      spark.sql(create_table_sql)
+      compareResultsAgainstVanillaSpark(select_sql, compareResult = true, _ => {})
+    }
   }
 
   test("GLUTEN-7502: Orc write time zone") {
-    val create_table_sql = "create table test_tbl_7502(id bigint, t timestamp) using orc"
-    val insert_sql = "insert into test_tbl_7502 values(1, cast('2024-10-09 20:00:00' as timestamp))"
-    val select_sql = "select * from test_tbl_7502"
-    spark.sql(create_table_sql)
-    spark.sql(insert_sql)
-    compareResultsAgainstVanillaSpark(select_sql, compareResult = true, _ => {})
-    spark.sql("drop table test_tbl_7502")
+    withTable("test_tbl_7502") {
+      val create_table_sql = "create table test_tbl_7502(id bigint, t timestamp) using orc"
+      val insert_sql =
+        "insert into test_tbl_7502 values(1, cast('2024-10-09 20:00:00' as timestamp))"
+      val select_sql = "select * from test_tbl_7502"
+      spark.sql(create_table_sql)
+      spark.sql(insert_sql)
+      compareResultsAgainstVanillaSpark(select_sql, compareResult = true, _ => {})
+    }
   }
 
   test("GLUTEN-6879: Fix partition value diff when it contains blanks") {
     val tableName = "test_tbl_6879"
-    sql(s"drop table if exists $tableName")
+    withTable(tableName) {
+      val createSql =
+        s"""
+           |CREATE TABLE $tableName (
+           |  id INT,
+           |  name STRING
+           |) PARTITIONED BY (part STRING)
+           |STORED AS PARQUET;
+           |""".stripMargin
+      sql(createSql)
 
-    val createSql =
-      s"""
-         |CREATE TABLE $tableName (
-         |  id INT,
-         |  name STRING
-         |) PARTITIONED BY (part STRING)
-         |STORED AS PARQUET;
-         |""".stripMargin
-    sql(createSql)
+      val insertSql =
+        s"""
+           |INSERT INTO $tableName PARTITION (part='part with spaces')
+           |VALUES (1, 'John Doe');
+           |""".stripMargin
+      sql(insertSql)
 
-    val insertSql =
-      s"""
-         |INSERT INTO $tableName PARTITION (part='part with spaces')
-         |VALUES (1, 'John Doe');
-         |""".stripMargin
-    sql(insertSql)
-
-    val selectSql = s"SELECT * FROM $tableName"
-    compareResultsAgainstVanillaSpark(selectSql, compareResult = true, _ => {})
-    sql(s"drop table if exists $tableName")
+      val selectSql = s"SELECT * FROM $tableName"
+      compareResultsAgainstVanillaSpark(selectSql, compareResult = true, _ => {})
+    }
   }
 
   test("GLUTEN-7054: Fix exception when CSE meets common alias expression") {
-    val createTableSql = """
-                           |CREATE TABLE test_tbl_7054 (
-                           |  day STRING,
-                           |  event_id STRING,
-                           |  event STRUCT<
-                           |    event_info: MAP<STRING, STRING>
-                           |  >
-                           |) STORED AS PARQUET;
-                           |""".stripMargin
+    withTable("test_tbl_7054") {
+      val createTableSql = """
+                             |CREATE TABLE test_tbl_7054 (
+                             |  day STRING,
+                             |  event_id STRING,
+                             |  event STRUCT<
+                             |    event_info: MAP<STRING, STRING>
+                             |  >
+                             |) STORED AS PARQUET;
+                             |""".stripMargin
 
-    val insertDataSql = """
-                          |INSERT INTO test_tbl_7054
-                          |VALUES
-                          |  ('2024-08-27', '011441004',
-                          |     STRUCT(MAP('type', '1', 'action', '8', 'value_vmoney', '100'))),
-                          |  ('2024-08-27', '011441004',
-                          |     STRUCT(MAP('type', '2', 'action', '8', 'value_vmoney', '200'))),
-                          |  ('2024-08-27', '011441004',
-                          |     STRUCT(MAP('type', '4', 'action', '8', 'value_vmoney', '300')));
-                          |""".stripMargin
+      val insertDataSql = """
+                            |INSERT INTO test_tbl_7054
+                            |VALUES
+                            |  ('2024-08-27', '011441004',
+                            |     STRUCT(MAP('type', '1', 'action', '8', 'value_vmoney', '100'))),
+                            |  ('2024-08-27', '011441004',
+                            |     STRUCT(MAP('type', '2', 'action', '8', 'value_vmoney', '200'))),
+                            |  ('2024-08-27', '011441004',
+                            |     STRUCT(MAP('type', '4', 'action', '8', 'value_vmoney', '300')));
+                            |""".stripMargin
 
-    val selectSql = """
-                      |SELECT
-                      |  COALESCE(day, 'all') AS daytime,
-                      |  COALESCE(type, 'all') AS type,
-                      |  COALESCE(value_money, 'all') AS value_vmoney,
-                      |  SUM(CASE
-                      |      WHEN type IN (1, 2) AND action = 8 THEN value_vmoney
-                      |      ELSE 0
-                      |  END) / 60 AS total_value_vmoney
-                      |FROM (
-                      |  SELECT
-                      |    day,
-                      |    type,
-                      |    NVL(CAST(value_vmoney AS BIGINT), 0) AS value_money,
-                      |    action,
-                      |    type,
-                      |    CAST(value_vmoney AS BIGINT) AS value_vmoney
-                      |  FROM (
-                      |    SELECT
-                      |      day,
-                      |      event.event_info["type"] AS type,
-                      |      event.event_info["action"] AS action,
-                      |      event.event_info["value_vmoney"] AS value_vmoney
-                      |    FROM test_tbl_7054
-                      |    WHERE
-                      |      day = '2024-08-27'
-                      |      AND event_id = '011441004'
-                      |      AND event.event_info["type"] IN (1, 2, 4)
-                      |  ) a
-                      |) b
-                      |GROUP BY
-                      |  day, type, value_money
-                      |""".stripMargin
+      val selectSql = """
+                        |SELECT
+                        |  COALESCE(day, 'all') AS daytime,
+                        |  COALESCE(type, 'all') AS type,
+                        |  COALESCE(value_money, 'all') AS value_vmoney,
+                        |  SUM(CASE
+                        |      WHEN type IN (1, 2) AND action = 8 THEN value_vmoney
+                        |      ELSE 0
+                        |  END) / 60 AS total_value_vmoney
+                        |FROM (
+                        |  SELECT
+                        |    day,
+                        |    type,
+                        |    NVL(CAST(value_vmoney AS BIGINT), 0) AS value_money,
+                        |    action,
+                        |    type,
+                        |    CAST(value_vmoney AS BIGINT) AS value_vmoney
+                        |  FROM (
+                        |    SELECT
+                        |      day,
+                        |      event.event_info["type"] AS type,
+                        |      event.event_info["action"] AS action,
+                        |      event.event_info["value_vmoney"] AS value_vmoney
+                        |    FROM test_tbl_7054
+                        |    WHERE
+                        |      day = '2024-08-27'
+                        |      AND event_id = '011441004'
+                        |      AND event.event_info["type"] IN (1, 2, 4)
+                        |  ) a
+                        |) b
+                        |GROUP BY
+                        |  day, type, value_money
+                        |""".stripMargin
 
-    spark.sql(createTableSql)
-    spark.sql(insertDataSql)
-    runQueryAndCompare(selectSql)(df => checkOperatorCount[ProjectExecTransformer](3)(df))
-    spark.sql("DROP TABLE test_tbl_7054")
+      spark.sql(createTableSql)
+      spark.sql(insertDataSql)
+      runQueryAndCompare(selectSql)(df => checkOperatorCount[ProjectExecTransformer](3)(df))
+    }
   }
 
   test("Nested column pruning for Project(Filter(Generate))") {
-    spark.sql("drop table if exists aj")
-    spark.sql(
-      """
-        |CREATE TABLE if not exists aj (
-        |  country STRING,
-        |  event STRUCT<time:BIGINT, lng:BIGINT, lat:BIGINT, net:STRING,
-        |     log_extra:MAP<STRING, STRING>, event_id:STRING, event_info:MAP<STRING, STRING>>
-        |)
-        |USING orc
-      """.stripMargin)
+    withTable("aj") {
+      spark.sql(
+        """
+          |CREATE TABLE aj (
+          |  country STRING,
+          |  event STRUCT<time:BIGINT, lng:BIGINT, lat:BIGINT, net:STRING,
+          |     log_extra:MAP<STRING, STRING>, event_id:STRING, event_info:MAP<STRING, STRING>>
+          |)
+          |USING orc
+        """.stripMargin)
 
-    spark.sql("""
-                |INSERT INTO aj VALUES
-                |  ('USA', named_struct('time', 1622547800, 'lng', -122, 'lat', 37, 'net',
-                |    'wifi', 'log_extra', map('key1', 'value1'), 'event_id', 'event1',
-                |    'event_info', map('tab_type', '5', 'action', '13'))),
-                |  ('Canada', named_struct('time', 1622547801, 'lng', -79, 'lat', 43, 'net',
-                |    '4g', 'log_extra', map('key2', 'value2'), 'event_id', 'event2',
-                |    'event_info', map('tab_type', '4', 'action', '12')))
-       """.stripMargin)
+      spark.sql("""
+                  |INSERT INTO aj VALUES
+                  |  ('USA', named_struct('time', 1622547800, 'lng', -122, 'lat', 37, 'net',
+                  |    'wifi', 'log_extra', map('key1', 'value1'), 'event_id', 'event1',
+                  |    'event_info', map('tab_type', '5', 'action', '13'))),
+                  |  ('Canada', named_struct('time', 1622547801, 'lng', -79, 'lat', 43, 'net',
+                  |    '4g', 'log_extra', map('key2', 'value2'), 'event_id', 'event2',
+                  |    'event_info', map('tab_type', '4', 'action', '12')))
+         """.stripMargin)
 
-    val sql = """
-                | SELECT * FROM (
-                |  SELECT
-                |    game_name,
-                |    CASE WHEN
-                |       event.event_info['tab_type'] IN (5) THEN '1' ELSE '0' END AS entrance
-                |  FROM aj
-                |  LATERAL VIEW explode(split(nvl(event.event_info['game_name'],'0'),','))
-                |    as game_name
-                |  WHERE event.event_info['action'] IN (13)
-                |) WHERE game_name = 'xxx'
-      """.stripMargin
+      val sql = """
+                  | SELECT * FROM (
+                  |  SELECT
+                  |    game_name,
+                  |    CASE WHEN
+                  |       event.event_info['tab_type'] IN (5) THEN '1' ELSE '0' END AS entrance
+                  |  FROM aj
+                  |  LATERAL VIEW explode(split(nvl(event.event_info['game_name'],'0'),','))
+                  |    as game_name
+                  |  WHERE event.event_info['action'] IN (13)
+                  |) WHERE game_name = 'xxx'
+        """.stripMargin
 
-    compareResultsAgainstVanillaSpark(
-      sql,
-      compareResult = true,
-      df => {
-        val scan = df.queryExecution.executedPlan.collect {
-          case scan: FileSourceScanExecTransformer => scan
-        }.head
-        val fieldType = scan.schema.fields.head.dataType.asInstanceOf[StructType]
-        assert(fieldType.size == 1)
-      }
-    )
-
-    spark.sql("drop table if exists aj")
-  }
-
-  test("Nested column pruning for Project(Filter(Generate)) on generator") {
-    def assertFieldSizeAfterPruning(sql: String, expectSize: Int): Unit = {
       compareResultsAgainstVanillaSpark(
         sql,
         compareResult = true,
@@ -1512,79 +1501,94 @@ class GlutenClickHouseHiveTableSuite
           val scan = df.queryExecution.executedPlan.collect {
             case scan: FileSourceScanExecTransformer => scan
           }.head
-
-          val fieldType =
-            scan.schema.fields.head.dataType
-              .asInstanceOf[ArrayType]
-              .elementType
-              .asInstanceOf[StructType]
-          assert(fieldType.size == expectSize)
+          val fieldType = scan.schema.fields.head.dataType.asInstanceOf[StructType]
+          assert(fieldType.size == 1)
         }
       )
     }
+  }
 
-    spark.sql("drop table if exists ajog")
-    spark.sql(
-      """
-        |CREATE TABLE if not exists ajog (
-        |  country STRING,
-        |  events ARRAY<STRUCT<time:BIGINT, lng:BIGINT, lat:BIGINT, net:STRING,
-        |     log_extra:MAP<STRING, STRING>, event_id:STRING, event_info:MAP<STRING, STRING>>>
-        |)
-        |USING orc
-      """.stripMargin)
+  test("Nested column pruning for Project(Filter(Generate)) on generator") {
+    withTable("ajog") {
+      def assertFieldSizeAfterPruning(sql: String, expectSize: Int): Unit = {
+        compareResultsAgainstVanillaSpark(
+          sql,
+          compareResult = true,
+          df => {
+            val scan = df.queryExecution.executedPlan.collect {
+              case scan: FileSourceScanExecTransformer => scan
+            }.head
 
-    spark.sql("""
-                |INSERT INTO ajog VALUES
-                |  ('USA', array(named_struct('time', 1622547800, 'lng', -122, 'lat', 37, 'net',
-                |    'wifi', 'log_extra', map('key1', 'value1'), 'event_id', 'event1',
-                |    'event_info', map('tab_type', '5', 'action', '13')))),
-                |  ('Canada', array(named_struct('time', 1622547801, 'lng', -79, 'lat', 43, 'net',
-                |    '4g', 'log_extra', map('key2', 'value2'), 'event_id', 'event2',
-                |    'event_info', map('tab_type', '4', 'action', '12'))))
-       """.stripMargin)
+            val fieldType =
+              scan.schema.fields.head.dataType
+                .asInstanceOf[ArrayType]
+                .elementType
+                .asInstanceOf[StructType]
+            assert(fieldType.size == expectSize)
+          }
+        )
+      }
 
-    // Test nested column pruning on generator with single field extracted
-    val sql1 = """
-                 |select
-                 |case when event.event_info['tab_type'] in (5) then '1' else '0' end as entrance
-                 |from ajog
-                 |lateral view explode(events)  as event
-                 |where  event.event_info['action'] in (13)
-      """.stripMargin
-    assertFieldSizeAfterPruning(sql1, 1)
+      spark.sql(
+        """
+          |CREATE TABLE ajog (
+          |  country STRING,
+          |  events ARRAY<STRUCT<time:BIGINT, lng:BIGINT, lat:BIGINT, net:STRING,
+          |     log_extra:MAP<STRING, STRING>, event_id:STRING, event_info:MAP<STRING, STRING>>>
+          |)
+          |USING orc
+        """.stripMargin)
 
-    // Test nested column pruning on generator with multiple field extracted,
-    // which resolves SPARK-34956
-    val sql2 = """
-                 |select event.event_id,
-                 |case when event.event_info['tab_type'] in (5) then '1' else '0' end as entrance
-                 |from ajog
-                 |lateral view explode(events)  as event
-                 |where  event.event_info['action'] in (13)
-      """.stripMargin
-    assertFieldSizeAfterPruning(sql2, 2)
+      spark.sql("""
+                  |INSERT INTO ajog VALUES
+                  |  ('USA', array(named_struct('time', 1622547800, 'lng', -122, 'lat', 37, 'net',
+                  |    'wifi', 'log_extra', map('key1', 'value1'), 'event_id', 'event1',
+                  |    'event_info', map('tab_type', '5', 'action', '13')))),
+                  |  ('Canada', array(named_struct('time', 1622547801, 'lng', -79, 'lat', 43, 'net',
+                  |    '4g', 'log_extra', map('key2', 'value2'), 'event_id', 'event2',
+                  |    'event_info', map('tab_type', '4', 'action', '12'))))
+         """.stripMargin)
 
-    // Test nested column pruning with two adjacent generate operator
-    val sql3 = """
-                 |SELECT
-                 |abflag,
-                 |event.event_info,
-                 |event.log_extra
-                 |FROM
-                 |ajog
-                 |LATERAL VIEW EXPLODE(events) AS event
-                 |LATERAL VIEW EXPLODE(split(event.log_extra['key1'], ',')) AS abflag
-                 |WHERE
-                 |event.event_id = 'event1'
-                 |AND event.event_info['tab_type'] IS NOT NULL
-                 |AND event.event_info['tab_type'] != ''
-                 |AND event.log_extra['key1'] = 'value1'
-                 |LIMIT 100;
-      """.stripMargin
-    assertFieldSizeAfterPruning(sql3, 3)
+      // Test nested column pruning on generator with single field extracted
+      val sql1 = """
+                   |select
+                   |case when event.event_info['tab_type'] in (5) then '1' else '0' end as entrance
+                   |from ajog
+                   |lateral view explode(events)  as event
+                   |where  event.event_info['action'] in (13)
+        """.stripMargin
+      assertFieldSizeAfterPruning(sql1, 1)
 
-    spark.sql("drop table if exists ajog")
+      // Test nested column pruning on generator with multiple field extracted,
+      // which resolves SPARK-34956
+      val sql2 = """
+                   |select event.event_id,
+                   |case when event.event_info['tab_type'] in (5) then '1' else '0' end as entrance
+                   |from ajog
+                   |lateral view explode(events)  as event
+                   |where  event.event_info['action'] in (13)
+        """.stripMargin
+      assertFieldSizeAfterPruning(sql2, 2)
+
+      // Test nested column pruning with two adjacent generate operator
+      val sql3 = """
+                   |SELECT
+                   |abflag,
+                   |event.event_info,
+                   |event.log_extra
+                   |FROM
+                   |ajog
+                   |LATERAL VIEW EXPLODE(events) AS event
+                   |LATERAL VIEW EXPLODE(split(event.log_extra['key1'], ',')) AS abflag
+                   |WHERE
+                   |event.event_id = 'event1'
+                   |AND event.event_info['tab_type'] IS NOT NULL
+                   |AND event.event_info['tab_type'] != ''
+                   |AND event.log_extra['key1'] = 'value1'
+                   |LIMIT 100;
+        """.stripMargin
+      assertFieldSizeAfterPruning(sql3, 3)
+    }
   }
 
   test("test hive table scan nested column pruning") {
@@ -1592,7 +1596,7 @@ class GlutenClickHouseHiveTableSuite
     val pq_table_name = "test_tbl_7267_pq"
     val create_table_sql =
       s"""
-         | create table if not exists %s(
+         | create table %s(
          | id bigint,
          | d1 STRUCT<c: STRING, d: ARRAY<STRUCT<x: STRING, y: STRING>>>,
          | d2 STRUCT<c: STRING, d: Map<STRING, STRUCT<x: STRING, y: STRING>>>,
@@ -1621,22 +1625,23 @@ class GlutenClickHouseHiveTableSuite
     val create_table_sqls = Array.apply(create_table_json, create_table_pq)
     for (i <- table_names.indices) {
       val table_name = table_names(i)
-      val create_table = create_table_sqls(i)
-      spark.sql(create_table)
-      spark.sql(insert_sql.format(table_name))
-      withSQLConf(("spark.sql.hive.convertMetastoreParquet" -> "false")) {
-        compareResultsAgainstVanillaSpark(
-          select_sql.format(table_name),
-          compareResult = true,
-          df => {
-            val scan = collect(df.queryExecution.executedPlan) {
-              case l: HiveTableScanExecTransformer => l
+      withTable(table_name) {
+        val create_table = create_table_sqls(i)
+        spark.sql(create_table)
+        spark.sql(insert_sql.format(table_name))
+        withSQLConf(("spark.sql.hive.convertMetastoreParquet" -> "false")) {
+          compareResultsAgainstVanillaSpark(
+            select_sql.format(table_name),
+            compareResult = true,
+            df => {
+              val scan = collect(df.queryExecution.executedPlan) {
+                case l: HiveTableScanExecTransformer => l
+              }
+              assert(scan.size == 1)
             }
-            assert(scan.size == 1)
-          }
-        )
+          )
+        }
       }
-      spark.sql("drop table if exists %s".format(table_name))
     }
   }
 
@@ -1647,54 +1652,53 @@ class GlutenClickHouseHiveTableSuite
     formats.foreach {
       format =>
         val tableName = s"$tableNamePrefix${format.take(2)}"
-        val createTableSql =
-          s"""
-             |CREATE TABLE $tableName (
-             |  product_id STRING,
-             |  quantity INT
-             |) PARTITIONED BY (year STRING)
-             |STORED AS $format
-             |""".stripMargin
+        withTable(tableName) {
+          val createTableSql =
+            s"""
+               |CREATE TABLE $tableName (
+               |  product_id STRING,
+               |  quantity INT
+               |) PARTITIONED BY (year STRING)
+               |STORED AS $format
+               |""".stripMargin
 
-        val insertDataSql1 =
-          s"""
-             |INSERT INTO $tableName PARTITION(year='2001')
-             |SELECT 'prod1', 100
-             |""".stripMargin
+          val insertDataSql1 =
+            s"""
+               |INSERT INTO $tableName PARTITION(year='2001')
+               |SELECT 'prod1', 100
+               |""".stripMargin
 
-        val insertDataSql2 =
-          s"""
-             |INSERT INTO $tableName PARTITION(year='2002')
-             |SELECT 'prod1', 200
-             |""".stripMargin
+          val insertDataSql2 =
+            s"""
+               |INSERT INTO $tableName PARTITION(year='2002')
+               |SELECT 'prod1', 200
+               |""".stripMargin
 
-        val select1Sql = s"SELECT input_file_name() from $tableName"
-        val select2Sql = s"SELECT input_file_block_start(), " +
+          val select1Sql = s"SELECT input_file_name() from $tableName"
+          val select2Sql = s"SELECT input_file_block_start(), " +
+            s"input_file_block_length() FROM $tableName"
           s"input_file_block_length() FROM $tableName"
-        s"input_file_block_length() FROM $tableName"
-        val dropSql = s"DROP TABLE IF EXISTS $tableName"
 
-        spark.sql(createTableSql)
-        spark.sql(insertDataSql1)
-        spark.sql(insertDataSql2)
+          spark.sql(createTableSql)
+          spark.sql(insertDataSql1)
+          spark.sql(insertDataSql2)
 
-        if (format.equals("textfile")) {
-          // When format is textfile, input_file_name() in vanilla returns paths like 'file:/xxx'
-          // But in gluten it returns paths like 'file:///xxx'.
-          val result = spark.sql(select1Sql)
-          result
-            .collect()
-            .foreach(
-              row => {
-                assert(!row.isNullAt(0) && row.getString(0).nonEmpty)
-              })
-        } else {
-          compareResultsAgainstVanillaSpark(select1Sql, compareResult = true, _ => {})
+          if (format.equals("textfile")) {
+            // When format is textfile, input_file_name() in vanilla returns paths like 'file:/xxx'
+            // But in gluten it returns paths like 'file:///xxx'.
+            val result = spark.sql(select1Sql)
+            result
+              .collect()
+              .foreach(
+                row => {
+                  assert(!row.isNullAt(0) && row.getString(0).nonEmpty)
+                })
+          } else {
+            compareResultsAgainstVanillaSpark(select1Sql, compareResult = true, _ => {})
+          }
+
+          compareResultsAgainstVanillaSpark(select2Sql, compareResult = true, _ => {})
         }
-
-        compareResultsAgainstVanillaSpark(select2Sql, compareResult = true, _ => {})
-
-        spark.sql(dropSql)
     }
   }
 
