@@ -16,32 +16,31 @@
 name: Report test results
 on:
   workflow_run:
-    workflows: ["Velox backend Github Runner"]
+    workflows: ["Velox Backend (x86)"]
     types:
       - completed
 
+permissions: {}
+
 jobs:
   test_report:
-    if: github.event.workflow_run.conclusion != 'skipped'
+    if: github.event.workflow_run.conclusion != 'skipped' && github.event.workflow_run.conclusion != 'cancelled'
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       checks: write
-      contents: read
-      issues: read
-      pull-requests: write
     steps:
+    # The reports are test output, not code: they are parsed, never run.
     - name: Download test results to report
-      uses: dawidd6/action-download-artifact@v6 # pin @v6
+      uses: actions/download-artifact@v8
       with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        workflow: ${{ github.event.workflow_run.workflow_id }}
-        commit: ${{ github.event.workflow_run.head_commit.id }}
-        workflow_conclusion: completed
-        allow_forks: true
+        run-id: ${{ github.event.workflow_run.id }}
+        github-token: ${{ github.token }}
+        pattern: '*-report'
     - name: Publish test report
-      uses: scacap/action-surefire-report@c38a2d74b9840ae8950a4387ae02b637421d0f39 # pin @v1.13.0
+      uses: mikepenz/action-junit-report@a16be3a69023e9bd7e748ede768b3282ea7b30ce # v6.7.1
       with:
         check_name: Report test results
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        report_paths: "**/surefire-reports/TEST-*.xml"
-        commit: ${{ github.event.workflow_run.head_commit.id }}
+        report_paths: '**/surefire-reports/TEST-*.xml'
+        commit: ${{ github.event.workflow_run.head_sha }}
+        job_summary: false

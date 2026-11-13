@@ -30,6 +30,10 @@ on:
       test_image:
         required: true
         type: string
+      # The commit holding the comparison harness. Empty: the event's commit.
+      harness_revision:
+        type: string
+        default: ''
       native_artifact:
         # Native libraries already built for this revision in the calling run. When empty,
         # they are built here.
@@ -56,7 +60,7 @@ jobs:
   build:
     needs: native
     if: ${{ !cancelled() && (needs.native.result == 'success' || needs.native.result == 'skipped') }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: ${{ inputs.test_image }}
     env:
       JAVA_HOME: /usr/lib/jvm/java-17-openjdk
@@ -68,7 +72,7 @@ jobs:
         if: inputs.label == 'base'
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.harness_revision || github.sha }}
           path: iceberg-harness
       - name: Apply the current harness to the base production revision
         if: inputs.label == 'base'
@@ -103,7 +107,7 @@ jobs:
     name: iceberg-upstream-test (3.5, ${{ inputs.label }}, ${{ matrix.shard }})
     needs: build
     if: always() && !cancelled() && needs.build.result == 'success'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: ${{ inputs.test_image }}
     strategy:
       fail-fast: false
@@ -121,7 +125,7 @@ jobs:
         if: inputs.label == 'base'
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.harness_revision || github.sha }}
           path: iceberg-harness
       - name: Apply the current harness to the base production revision
         if: inputs.label == 'base'

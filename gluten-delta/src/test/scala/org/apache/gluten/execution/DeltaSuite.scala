@@ -16,12 +16,16 @@
  */
 package org.apache.gluten.execution
 
+import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.extension.DeltaPostTransformRules
 
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.scheduler.{SparkListener, SparkListenerEvent}
+import org.apache.spark.sql.{DataFrame, GlutenDeltaTestUtils, Row}
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.delta.DeltaLog
+import org.apache.spark.sql.execution.SparkPlanInfo
+import org.apache.spark.sql.execution.ui.{SparkListenerSQLAdaptiveExecutionUpdate, SparkListenerSQLExecutionStart}
 import org.apache.spark.sql.types._
 import org.apache.spark.util.SparkVersionUtil
 
@@ -1114,6 +1118,457 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         val third = scan.scanFilters
         assert(first eq second, "scanFilters should return the same cached instance")
         assert(second eq third, "scanFilters should return the same cached instance")
+    }
+  }
+
+  /** The operation metrics Delta recorded for the latest `operation` commit of `table`. */
+  private def lastOperationMetrics(table: String, operation: String): Map[String, String] = {
+    val row = spark
+      .sql(s"DESCRIBE HISTORY $table")
+      .filter(s"operation = '$operation'")
+      .orderBy(org.apache.spark.sql.functions.desc("version"))
+      .select("operationMetrics")
+      .head()
+    row.getMap[String, String](0).toMap
+  }
+
+  private def latestVersion(table: String, operation: String): Long = {
+    spark
+      .sql(s"DESCRIBE HISTORY $table")
+      .filter(s"operation = '$operation'")
+      .orderBy(org.apache.spark.sql.functions.desc("version"))
+      .select("version")
+      .head()
+      .getLong(0)
+  }
+
+  /**
+   * Runs `body` and returns the final physical plan of every SQL execution it started, including
+   * the internal jobs of Delta commands, which never surface through a returned DataFrame. Under
+   * adaptive execution the plan Gluten actually ran is the one in the last plan update.
+   */
+  private def collectExecutedPlanInfos(body: => Unit): Seq[SparkPlanInfo] = {
+    val latest = new java.util.concurrent.ConcurrentHashMap[Long, SparkPlanInfo]()
+    val listener = new SparkListener {
+      override def onOtherEvent(event: SparkListenerEvent): Unit = event match {
+        case start: SparkListenerSQLExecutionStart =>
+          latest.put(start.executionId, start.sparkPlanInfo)
+        case update: SparkListenerSQLAdaptiveExecutionUpdate =>
+          latest.put(update.executionId, update.sparkPlanInfo)
+        case _ =>
+      }
+    }
+    // Queued events from setup would otherwise reach the newly registered listener.
+    GlutenDeltaTestUtils.waitForListenerBus(spark.sparkContext)
+    spark.sparkContext.addSparkListener(listener)
+    try {
+      body
+      // Drain every execution's final plan update before inspecting the captured plans.
+      GlutenDeltaTestUtils.waitForListenerBus(spark.sparkContext)
+      assert(!latest.isEmpty, "SQL execution events not seen")
+    } finally {
+      spark.sparkContext.removeSparkListener(listener)
+    }
+    latest.values().asScala.toSeq
+  }
+
+  /**
+   * MERGE's write projection: the per-column CASE WHENs over Delta's row-present flags. Other
+   * projections carry CASE WHENs too, such as Delta 4.0's log replay, so the flag is the marker.
+   */
+  private def isMergeWriteProjection(info: SparkPlanInfo): Boolean =
+    info.simpleString.contains("CASE WHEN") && info.simpleString.contains("_source_row_present_")
+
+  private def flattenPlanInfo(info: SparkPlanInfo): Seq[SparkPlanInfo] =
+    info +: info.children.flatMap(flattenPlanInfo)
+
+  /** The nodes above every node matching `target`, nearest first, excluding the node itself. */
+  private def ancestorsOf(
+      info: SparkPlanInfo,
+      target: SparkPlanInfo => Boolean,
+      path: Seq[SparkPlanInfo] = Nil): Seq[SparkPlanInfo] = {
+    val here = if (target(info)) path else Nil
+    here ++ info.children.flatMap(ancestorsOf(_, target, info +: path))
+  }
+
+  test("delta: merge metrics count only the rows that take each clause") {
+    withTable("merge_metrics_target", "merge_metrics_source") {
+      import testImplicits._
+      // One target file, so the two unmatched rows are copied when it is rewritten.
+      Seq((1, "t1"), (2, "t2"), (3, "t3"), (4, "t4"), (5, "t5"), (6, "t6"))
+        .toDF("id", "name")
+        .coalesce(1)
+        .write
+        .format("delta")
+        .saveAsTable("merge_metrics_target")
+      spark.sql("create table merge_metrics_source (id int, name string) using delta")
+      spark.sql("""
+                  |insert into merge_metrics_source values
+                  |(3, 's3'), (4, 's4'), (5, 's5'), (6, 's6'), (7, 's7'), (8, 's8')
+                  |""".stripMargin)
+      val plans = collectExecutedPlanInfos {
+        // Native counters need expression stats for correctness even when the user disables
+        // diagnostic stats. The backend must preserve them after applying user overrides.
+        withSQLConf(
+          "spark.gluten.sql.columnar.backend.velox.operator_track_expression_stats" -> "false") {
+          spark.sql("""
+                      |merge into merge_metrics_target t
+                      |using merge_metrics_source s
+                      |on t.id = s.id
+                      |when matched and s.id = 3 then delete
+                      |when matched then update set name = s.name
+                      |when not matched then insert *
+                      |""".stripMargin)
+        }
+      }
+      checkAnswer(
+        spark.sql("select * from merge_metrics_target order by id"),
+        Seq(
+          Row(1, "t1"),
+          Row(2, "t2"),
+          Row(4, "s4"),
+          Row(5, "s5"),
+          Row(6, "s6"),
+          Row(7, "s7"),
+          Row(8, "s8"))
+      )
+
+      // Every clause counter sits inside the CASE WHEN of the write projection, so it counts
+      // only the rows that took its branch. Before GLUTEN-9003 each was credited with all rows.
+      val metrics = lastOperationMetrics("merge_metrics_target", "MERGE")
+      // Delta 3 counts source rows through IncrementMetric; Delta 2.4 counts them with a UDF
+      // whose evaluation count is not exact even on vanilla Spark (8 for these 6 rows).
+      if (SparkVersionUtil.gteSpark35) {
+        assert(metrics("numSourceRows") === "6", metrics)
+      }
+      assert(metrics("numTargetRowsDeleted") === "1", metrics)
+      assert(metrics("numTargetRowsUpdated") === "3", metrics)
+      assert(metrics("numTargetRowsInserted") === "2", metrics)
+      assert(metrics("numTargetRowsCopied") === "2", metrics)
+
+      // A backend that counts natively offloads the write projection with its CASE WHEN counters.
+      // Otherwise that projection stays on Spark while the unconditional source-row counter is
+      // still offloaded. Delta 2.4 (Spark 3.4) counts through a UDF instead of IncrementMetric,
+      // so there is no Delta transformer to look for there.
+      val nativeCounting = BackendsApiManager.getSettings.supportNativeIncrementMetric()
+      if (SparkVersionUtil.gteSpark35 && nativeCounting) {
+        val nodes = plans.flatMap(flattenPlanInfo)
+        val nativeDeltaProjects = nodes.filter(_.nodeName == "DeltaProjectExecTransformer")
+        assert(
+          nativeDeltaProjects.exists(isMergeWriteProjection),
+          nodes.map(n => s"${n.nodeName}: ${n.simpleString}"))
+        assert(
+          !nodes.exists(n => n.nodeName == "Project" && isMergeWriteProjection(n)),
+          nodes.map(n => s"${n.nodeName}: ${n.simpleString}"))
+      } else if (SparkVersionUtil.gteSpark35) {
+        val nodes = plans.flatMap(flattenPlanInfo)
+        val nativeDeltaProjects = nodes.filter(_.nodeName == "DeltaProjectExecTransformer")
+        assert(nativeDeltaProjects.nonEmpty, nodes.map(_.nodeName).distinct)
+        assert(
+          nativeDeltaProjects.forall(!isMergeWriteProjection(_)),
+          nativeDeltaProjects.map(_.simpleString))
+        assert(
+          nodes.exists(n => n.nodeName == "Project" && isMergeWriteProjection(n)),
+          nodes.map(n => s"${n.nodeName}: ${n.simpleString}"))
+        // The filter and column drop Delta stacks above that projection stay on Spark too, so
+        // nothing in the same stage converts its rows back into columnar batches. The walk stops
+        // at the stage boundary: on Delta 4.0 the whole write query is nested below a native sort
+        // and exchange that consume its rows regardless of this projection.
+        val boundaries =
+          Seq("WholeStageCodegen", "AdaptiveSparkPlan", "QueryStage", "Exchange", "Shuffle")
+        val sameStage = plans.flatMap {
+          p =>
+            ancestorsOf(p, n => n.nodeName == "Project" && isMergeWriteProjection(n))
+              .takeWhile(n => !boundaries.exists(n.nodeName.contains))
+        }
+        assert(sameStage.nonEmpty, plans.map(flattenPlanInfo(_).map(_.nodeName)))
+        assert(!sameStage.exists(_.nodeName == "RowToVeloxColumnar"), sameStage.map(_.nodeName))
+      }
+    }
+  }
+
+  testWithMinSparkVersion(
+    "delta: operators above a merge write projection that stays on Spark stay on Spark",
+    "3.5") {
+    // Blacklisting the native counter keeps every projection carrying IncrementMetric on Spark, the
+    // way any other unsupported expression in MERGE's write projection would.
+    withSQLConf("spark.gluten.expression.blacklist" -> "increment_metric") {
+      withTable("fallback_merge_target", "fallback_merge_source") {
+        import testImplicits._
+        Seq((1, "t1"), (2, "t2"), (3, "t3"))
+          .toDF("id", "name")
+          .coalesce(1)
+          .write
+          .format("delta")
+          .saveAsTable("fallback_merge_target")
+        spark.sql("create table fallback_merge_source (id int, name string) using delta")
+        spark.sql("insert into fallback_merge_source values (2, 's2'), (4, 's4')")
+        val plans = collectExecutedPlanInfos {
+          spark.sql("""
+                      |merge into fallback_merge_target t
+                      |using fallback_merge_source s
+                      |on t.id = s.id
+                      |when matched then update set name = s.name
+                      |when not matched then insert *
+                      |""".stripMargin)
+        }
+        checkAnswer(
+          spark.sql("select * from fallback_merge_target order by id"),
+          Seq(Row(1, "t1"), Row(2, "s2"), Row(3, "t3"), Row(4, "s4")))
+        val metrics = lastOperationMetrics("fallback_merge_target", "MERGE")
+        assert(metrics("numTargetRowsUpdated") === "1", metrics)
+        assert(metrics("numTargetRowsInserted") === "1", metrics)
+        assert(metrics("numTargetRowsCopied") === "2", metrics)
+
+        // The filter and column drop Delta stacks above the projection stay in its Spark codegen
+        // stage instead of moving to a native stage behind a row-to-columnar transition.
+        val writeProjection =
+          (n: SparkPlanInfo) => n.nodeName == "Project" && isMergeWriteProjection(n)
+        val nodes = plans.flatMap(flattenPlanInfo)
+        assert(nodes.exists(writeProjection), nodes.map(n => s"${n.nodeName}: ${n.simpleString}"))
+        val boundaries =
+          Seq("WholeStageCodegen", "AdaptiveSparkPlan", "QueryStage", "Exchange", "Shuffle")
+        val sameStage = plans.flatMap {
+          p =>
+            ancestorsOf(p, writeProjection).takeWhile(n => !boundaries.exists(n.nodeName.contains))
+        }
+        assert(sameStage.headOption.map(_.nodeName).contains("Filter"), sameStage.map(_.nodeName))
+      }
+    }
+  }
+
+  test("delta: no-op merge with change data feed produces no change rows") {
+    withTable("noop_merge_target", "noop_merge_source") {
+      spark.sql("""
+                  |create table noop_merge_target (id int, name string) using delta
+                  |tblproperties ("delta.enableChangeDataFeed" = "true")
+                  |""".stripMargin)
+      spark.sql("insert into noop_merge_target values (1, 'a'), (2, 'b')")
+      spark.sql("create table noop_merge_source (id int, name string) using delta")
+      spark.sql("insert into noop_merge_source values (1, 'a'), (2, 'b')")
+      spark.sql("""
+                  |merge into noop_merge_target t
+                  |using noop_merge_source s
+                  |on t.id = s.id
+                  |when matched and t.name <> s.name then update set name = s.name
+                  |when not matched then insert *
+                  |""".stripMargin)
+      checkAnswer(
+        spark.sql("select * from noop_merge_target order by id"),
+        Seq(Row(1, "a"), Row(2, "b")))
+
+      val metrics = lastOperationMetrics("noop_merge_target", "MERGE")
+      assert(metrics("numTargetRowsUpdated") === "0", metrics)
+      assert(metrics("numTargetRowsInserted") === "0", metrics)
+      assert(metrics("numTargetRowsDeleted") === "0", metrics)
+      assert(metrics("numTargetRowsCopied") === "2", metrics)
+
+      // Delta's CDC reader skips a MERGE commit only when these three counters are all zero.
+      // Inflated counters made it read the rewritten file as real changes.
+      val mergeVersion = latestVersion("noop_merge_target", "MERGE")
+      val changes = spark.sql(s"select * from table_changes('noop_merge_target', $mergeVersion)")
+      assert(changes.count() === 0, changes.collect().toSeq)
+    }
+  }
+
+  test("delta: merge with change data feed keeps exact metrics and change rows") {
+    withTable("cdf_merge_target", "cdf_merge_source") {
+      spark.sql("""
+                  |create table cdf_merge_target (id int, name string) using delta
+                  |tblproperties ("delta.enableChangeDataFeed" = "true")
+                  |""".stripMargin)
+      spark.sql("insert into cdf_merge_target values (1, 'a'), (2, 'b'), (3, 'c'), (4, 'd')")
+      spark.sql("create table cdf_merge_source (id int, name string) using delta")
+      spark.sql("insert into cdf_merge_source values (1, 'a'), (2, 'x'), (3, 'c'), (5, 'e')")
+      val plans = collectExecutedPlanInfos {
+        spark.sql("""
+                    |merge into cdf_merge_target t
+                    |using cdf_merge_source s
+                    |on t.id = s.id
+                    |when matched and s.id = 3 then delete
+                    |when matched and t.name <> s.name then update set name = s.name
+                    |when not matched then insert *
+                    |""".stripMargin)
+      }
+      checkAnswer(
+        spark.sql("select * from cdf_merge_target order by id"),
+        Seq(Row(1, "a"), Row(2, "x"), Row(4, "d"), Row(5, "e")))
+
+      // Row 1 matches without a clause taking it and row 4 has no source row: both are copied.
+      val metrics = lastOperationMetrics("cdf_merge_target", "MERGE")
+      assert(metrics("numTargetRowsDeleted") === "1", metrics)
+      assert(metrics("numTargetRowsUpdated") === "1", metrics)
+      assert(metrics("numTargetRowsInserted") === "1", metrics)
+      assert(metrics("numTargetRowsCopied") === "2", metrics)
+
+      // With change data feed on, the counters sit inside the packed change rows that Delta
+      // explodes above the write projection. Each change must appear exactly once.
+      val mergeVersion = latestVersion("cdf_merge_target", "MERGE")
+      val changes = spark
+        .sql(s"""
+                |select _change_type, count(*) from table_changes('cdf_merge_target', $mergeVersion)
+                |group by _change_type
+                |""".stripMargin)
+        .collect()
+        .map(r => r.getString(0) -> r.getLong(1))
+        .toMap
+      assert(
+        changes === Map(
+          "insert" -> 1L,
+          "update_preimage" -> 1L,
+          "update_postimage" -> 1L,
+          "delete" -> 1L),
+        changes)
+
+      if (SparkVersionUtil.gteSpark35) {
+        val nodes = plans.flatMap(flattenPlanInfo)
+        if (BackendsApiManager.getSettings.supportNativeIncrementMetric()) {
+          // The write projection and the explode chain above it stay in one native stage, so no
+          // row-to-columnar transition sits between them.
+          val nativeDeltaProjects = nodes.filter(_.nodeName == "DeltaProjectExecTransformer")
+          assert(
+            nativeDeltaProjects.exists(isMergeWriteProjection),
+            nodes.map(n => s"${n.nodeName}: ${n.simpleString}"))
+          assert(
+            !nodes.exists(n => n.nodeName == "Project" && isMergeWriteProjection(n)),
+            nodes.map(n => s"${n.nodeName}: ${n.simpleString}"))
+          val boundaries =
+            Seq("WholeStageCodegen", "AdaptiveSparkPlan", "QueryStage", "Exchange", "Shuffle")
+          val sameStage = plans.flatMap {
+            p =>
+              ancestorsOf(
+                p,
+                n => n.nodeName == "DeltaProjectExecTransformer" && isMergeWriteProjection(n))
+                .takeWhile(n => !boundaries.exists(n.nodeName.contains))
+          }
+          // Delta packs the change rows and explodes them twice, then unpacks them.
+          assert(
+            sameStage.count(_.nodeName == "GenerateExecTransformer") == 2,
+            sameStage.map(_.nodeName))
+        } else {
+          // Without native counting the write projection stays on Spark. Delta's explode chain
+          // above it is native, so this shape keeps one row-to-columnar transition.
+          assert(
+            nodes.exists(n => n.nodeName == "Project" && isMergeWriteProjection(n)),
+            nodes.map(n => s"${n.nodeName}: ${n.simpleString}"))
+        }
+      }
+    }
+  }
+
+  testWithMinSparkVersion(
+    "delta: insert-only merge with change data feed counts inserts in every evaluation mode",
+    "3.5") {
+    // Velox's simplified evaluation applies functions without counting the rows they process. A
+    // plan with a native counter must keep the regular evaluation path after user overrides, or the
+    // insert counter reads 0 and change data feed drops this commit's inserts.
+    Seq("false", "true").foreach {
+      simplified =>
+        withTable("insert_only_target", "insert_only_source") {
+          spark.sql("""
+                      |create table insert_only_target (id int, name string) using delta
+                      |tblproperties ("delta.enableChangeDataFeed" = "true")
+                      |""".stripMargin)
+          spark.sql("insert into insert_only_target values (1, 'a')")
+          spark.sql("create table insert_only_source (id int, name string) using delta")
+          spark.sql("insert into insert_only_source values (1, 'x'), (2, 'b'), (3, 'c')")
+          val plans = collectExecutedPlanInfos {
+            withSQLConf(
+              "spark.databricks.delta.merge.optimizeInsertOnlyMerge.enabled" -> "true",
+              "spark.gluten.sql.columnar.backend.velox.expression.eval_simplified" -> simplified
+            ) {
+              spark.sql("""
+                          |merge into insert_only_target t
+                          |using insert_only_source s
+                          |on t.id = s.id
+                          |when not matched then insert *
+                          |""".stripMargin)
+            }
+          }
+          checkAnswer(
+            spark.sql("select * from insert_only_target order by id"),
+            Seq(Row(1, "a"), Row(2, "b"), Row(3, "c")))
+
+          // With a single insert clause, Delta 3.3 counts inserted rows with an IncrementMetric at
+          // the root of the first output column's alias; Delta 4.x counts them with a filter over a
+          // literal true, credited with its output rows.
+          val metrics = lastOperationMetrics("insert_only_target", "MERGE")
+          assert(metrics("numTargetRowsInserted") === "2", metrics)
+          assert(metrics("numTargetRowsUpdated") === "0", metrics)
+          assert(metrics("numTargetRowsDeleted") === "0", metrics)
+          // Delta 3.3 also evaluates the source-row counter once per source file while it lists the
+          // files to scan, which Delta 4.x no longer does, so the count is exact from Spark 4.0.
+          if (SparkVersionUtil.gteSpark40) {
+            assert(metrics("numSourceRows") === "3", metrics)
+          }
+
+          // Insert-only MERGE writes no change files: change data feed infers the inserts from the
+          // commit's added files, and skips them when the three counters above are all 0.
+          val mergeVersion = latestVersion("insert_only_target", "MERGE")
+          checkAnswer(
+            spark.sql(s"""
+                         |select id, name, _change_type
+                         |from table_changes('insert_only_target', $mergeVersion, $mergeVersion)
+                         |""".stripMargin),
+            Seq(Row(2, "b", "insert"), Row(3, "c", "insert"))
+          )
+
+          // Only a projection that carries IncrementMetric becomes a DeltaProjectExecTransformer,
+          // and on Delta 3.3 this MERGE has one, so finding it in the executed plan shows the
+          // counter ran natively.
+          if (
+            BackendsApiManager.getSettings.supportNativeIncrementMetric() &&
+            !SparkVersionUtil.gteSpark40
+          ) {
+            val nodes = plans.flatMap(flattenPlanInfo)
+            assert(
+              nodes.exists(_.nodeName == "DeltaProjectExecTransformer"),
+              s"eval_simplified=$simplified: " + nodes.map(_.nodeName).distinct)
+          }
+        }
+    }
+  }
+
+  test("delta: delete and update metrics stay exact with and without deletion vectors") {
+    withTempPath {
+      dir =>
+        val path = dir.getCanonicalPath
+        spark.range(10).coalesce(1).write.format("delta").save(path)
+        spark.sql(s"delete from delta.`$path` where id < 3")
+        val deleteMetrics = lastOperationMetrics(s"delta.`$path`", "DELETE")
+        assert(deleteMetrics("numDeletedRows") === "3", deleteMetrics)
+        assert(deleteMetrics("numCopiedRows") === "7", deleteMetrics)
+
+        spark.sql(s"update delta.`$path` set id = id + 100 where id >= 7")
+        val updateMetrics = lastOperationMetrics(s"delta.`$path`", "UPDATE")
+        assert(updateMetrics("numUpdatedRows") === "3", updateMetrics)
+        assert(updateMetrics("numCopiedRows") === "4", updateMetrics)
+        checkAnswer(
+          spark.sql(s"select id from delta.`$path` order by id"),
+          Seq(3L, 4L, 5L, 6L, 107L, 108L, 109L).map(Row(_)))
+    }
+    withTempPath {
+      dir =>
+        val path = dir.getCanonicalPath
+        spark.range(10).coalesce(1).write.format("delta").save(path)
+        spark.sql(
+          s"alter table delta.`$path` set tblproperties ('delta.enableDeletionVectors' = true)")
+        spark.sql(s"delete from delta.`$path` where id < 3")
+        val deleteMetrics = lastOperationMetrics(s"delta.`$path`", "DELETE")
+        assert(deleteMetrics("numDeletedRows") === "3", deleteMetrics)
+        // Delta 2.4 writes the deletion vector but does not report this metric yet.
+        if (SparkVersionUtil.gteSpark35) {
+          assert(deleteMetrics("numDeletionVectorsAdded") === "1", deleteMetrics)
+        }
+        assert(
+          DeltaLog.forTable(
+            spark,
+            path).update().allFiles.collect().exists(_.deletionVector != null),
+          "expected the DELETE to write a deletion vector instead of rewriting the file"
+        )
+        checkAnswer(
+          spark.sql(s"select id from delta.`$path` order by id"),
+          Seq(3L, 4L, 5L, 6L, 7L, 8L, 9L).map(Row(_)))
     }
   }
 }

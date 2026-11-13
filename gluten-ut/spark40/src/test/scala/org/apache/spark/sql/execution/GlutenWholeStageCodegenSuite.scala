@@ -492,7 +492,7 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
     Seq(true, false).foreach {
       codegenEnabled =>
         withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> codegenEnabled.toString) {
-          assertWholeStageCount[VeloxBroadcastNestedLoopJoinExecTransformer](
+          assertWholeStageCount[BroadcastNestedLoopJoinExecTransformer](
             df1.join(df2),
             expectedCount = 1)
           checkAnswer(
@@ -511,7 +511,7 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
               Row(3, 1),
               Row(3, 2)))
           val conditionalJoin = df1.join(df2, $"k1" + 1 =!= $"k2")
-          assertWholeStageCount[VeloxBroadcastNestedLoopJoinExecTransformer](
+          assertWholeStageCount[BroadcastNestedLoopJoinExecTransformer](
             conditionalJoin,
             expectedCount = 1)
           checkAnswer(
@@ -528,7 +528,7 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
               Row(3, 1),
               Row(3, 2)))
           val twoJoins = df1.join(df2, $"k1" < $"k2").crossJoin(df3)
-          assertWholeStageCount[VeloxBroadcastNestedLoopJoinExecTransformer](
+          assertWholeStageCount[BroadcastNestedLoopJoinExecTransformer](
             twoJoins,
             expectedCount = 1)
           checkAnswer(
@@ -556,7 +556,7 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
       codegenEnabled =>
         withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> codegenEnabled.toString) {
           val leftOuterJoin = df1.join(df2, $"k1" > $"k2", "left_outer")
-          assertWholeStageCount[VeloxBroadcastNestedLoopJoinExecTransformer](
+          assertWholeStageCount[BroadcastNestedLoopJoinExecTransformer](
             leftOuterJoin,
             expectedCount = 1)
           checkAnswer(
@@ -570,7 +570,7 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
               Row(3, 1),
               Row(3, 2)))
           val rightOuterJoin = df1.join(df2, $"k1" < $"k2", "right_outer")
-          assertWholeStageCount[VeloxBroadcastNestedLoopJoinExecTransformer](
+          assertWholeStageCount[BroadcastNestedLoopJoinExecTransformer](
             rightOuterJoin,
             expectedCount = 1)
           checkAnswer(
@@ -579,14 +579,14 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
           val twoJoins = df1
             .join(df2, $"k1" > $"k2" + 1, "right_outer")
             .join(df3, $"k1" <= $"k3", "left_outer")
-          assertWholeStageCount[VeloxBroadcastNestedLoopJoinExecTransformer](
+          assertWholeStageCount[BroadcastNestedLoopJoinExecTransformer](
             twoJoins,
             expectedCount = 1)
           checkAnswer(
             twoJoins,
             Seq(Row(2, 0, null), Row(3, 0, null), Row(3, 1, null), Row(null, 2, null)))
           val emptyBuildSide = df3.join(empty, $"k3" > $"k4", "left_outer")
-          assertWholeStageCount[VeloxBroadcastNestedLoopJoinExecTransformer](
+          assertWholeStageCount[BroadcastNestedLoopJoinExecTransformer](
             emptyBuildSide,
             expectedCount = 1)
           checkAnswer(
@@ -607,13 +607,13 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
       codegenEnabled =>
         withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> codegenEnabled.toString) {
           val semiJoin = df1.join(df2, $"k1" + 1 <= $"k2", "left_semi")
-          assertWholeStageCount[VeloxBroadcastNestedLoopJoinExecTransformer](
+          assertWholeStageCount[BroadcastNestedLoopJoinExecTransformer](
             semiJoin,
             expectedCount = 0)
           checkAnswer(semiJoin, Seq(Row(0), Row(1)))
 
           val antiJoin = df1.join(df2, $"k1" + 1 <= $"k2", "left_anti")
-          assertWholeStageCount[VeloxBroadcastNestedLoopJoinExecTransformer](
+          assertWholeStageCount[BroadcastNestedLoopJoinExecTransformer](
             antiJoin,
             expectedCount = 0)
           checkAnswer(antiJoin, Seq(Row(2), Row(3)))
@@ -621,7 +621,7 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
           val twoJoins = df1
             .join(df2, $"k1" < $"k2", "left_semi")
             .join(df3, $"k1" > $"k3", "left_anti")
-          assertWholeStageCount[VeloxBroadcastNestedLoopJoinExecTransformer](
+          assertWholeStageCount[BroadcastNestedLoopJoinExecTransformer](
             twoJoins,
             expectedCount = 0)
           checkAnswer(twoJoins, Row(0))
