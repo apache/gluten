@@ -33,6 +33,8 @@ import io.github.zhztheplayer.velox4j.variant.TimestampValue;
 import io.github.zhztheplayer.velox4j.variant.VarCharValue;
 import io.github.zhztheplayer.velox4j.variant.Variant;
 
+import org.apache.flink.calcite.shaded.com.google.common.collect.ImmutableRangeSet;
+import org.apache.flink.calcite.shaded.com.google.common.collect.Range;
 import org.apache.flink.table.planner.calcite.FlinkRexBuilder;
 import org.apache.flink.table.planner.calcite.FlinkTypeFactory;
 import org.apache.flink.table.planner.calcite.FlinkTypeSystem;
@@ -46,12 +48,16 @@ import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.sql.SqlFunction;
 import org.apache.calcite.sql.SqlIntervalQualifier;
+import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.parser.SqlParserPos;
 import org.apache.calcite.sql.type.SqlTypeName;
+import org.apache.calcite.util.Sarg;
 import org.apache.calcite.util.TimeString;
 import org.apache.calcite.util.TimestampString;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -522,5 +528,209 @@ public class RexNodeConverterTest {
     assertThat(expr).isInstanceOf(CallTypedExpr.class);
     assertThat(((CallTypedExpr) expr).getFunctionName()).isEqualTo("cast");
     assertThat(((CallTypedExpr) expr).getInputs()).hasSize(1);
+  }
+
+  // R1: CURRENT_TIMESTAMP maps by name to the flinksql current_timestamp
+  // with a Timestamp (TIMESTAMP_LTZ(3)) result.
+  @Test
+  public void testCurrentTimestampMapping() {
+    RexCall call = (RexCall) rexBuilder.makeCall(SqlStdOperatorTable.CURRENT_TIMESTAMP);
+    TypedExpr expr = RexNodeConverter.toTypedExpr(call, new RexConversionContext(List.of()));
+    assertThat(expr).isInstanceOf(CallTypedExpr.class);
+    assertThat(((CallTypedExpr) expr).getFunctionName()).isEqualTo("current_timestamp");
+    assertThat(expr.getReturnType()).isInstanceOf(TimestampType.class);
+  }
+
+  // R2: NOW has no named static field — it is registered at runtime via
+  // FlinkSqlOperatorTable.dynamicFunctions (streaming mode here), matching
+  // the operator shape the Flink planner hands to the converter.
+  @Test
+  public void testNowMapping() {
+    RexCall call =
+        (RexCall)
+            rexBuilder.makeCall(
+                FlinkSqlOperatorTable.dynamicFunctions(false /* isBatchMode */).stream()
+                    .filter(f -> f.getName().equals("NOW"))
+                    .findFirst()
+                    .get());
+    TypedExpr expr = RexNodeConverter.toTypedExpr(call, new RexConversionContext(List.of()));
+    assertThat(expr).isInstanceOf(CallTypedExpr.class);
+    assertThat(((CallTypedExpr) expr).getFunctionName()).isEqualTo("now");
+    assertThat(expr.getReturnType()).isInstanceOf(TimestampType.class);
+  }
+
+  // R3: LOCALTIMESTAMP maps by name to the flinksql localtimestamp with a
+  // Timestamp (TIMESTAMP(3)) result.
+  @Test
+  public void testLocalTimestampMapping() {
+    RexCall call = (RexCall) rexBuilder.makeCall(SqlStdOperatorTable.LOCALTIMESTAMP);
+    TypedExpr expr = RexNodeConverter.toTypedExpr(call, new RexConversionContext(List.of()));
+    assertThat(expr).isInstanceOf(CallTypedExpr.class);
+    assertThat(((CallTypedExpr) expr).getFunctionName()).isEqualTo("localtimestamp");
+    assertThat(expr.getReturnType()).isInstanceOf(TimestampType.class);
+  }
+
+  // R4: LOCALTIME maps by name to the flinksql localtime with an INTEGER
+  // result — the TIME(0) milliseconds-of-day carrier.
+  @Test
+  public void testLocalTimeMapping() {
+    RexCall call = (RexCall) rexBuilder.makeCall(SqlStdOperatorTable.LOCALTIME);
+    TypedExpr expr = RexNodeConverter.toTypedExpr(call, new RexConversionContext(List.of()));
+    assertThat(expr).isInstanceOf(CallTypedExpr.class);
+    assertThat(((CallTypedExpr) expr).getFunctionName()).isEqualTo("localtime");
+    assertThat(expr.getReturnType()).isInstanceOf(IntegerType.class);
+  }
+
+  // G1: CAST(LOCALTIME AS STRING) is rejected — casting the TIME carrier
+  // away from TIME would expose the raw integer.
+  @Test
+  public void testCastLocalTimeToStringRejected() {
+    RexCall localtime = (RexCall) rexBuilder.makeCall(SqlStdOperatorTable.LOCALTIME);
+    RexCall cast =
+        (RexCall) rexBuilder.makeCast(typeFactory.createSqlType(SqlTypeName.VARCHAR), localtime);
+    assertThatThrownBy(
+            () -> RexNodeConverter.toTypedExpr(cast, new RexConversionContext(List.of())))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining("CAST")
+        .hasMessageContaining("milliseconds-of-day carrier");
+  }
+
+  // G2: EXTRACT(HOUR FROM LOCALTIME) is rejected — the velox extract
+  // signature has no TIME form and would read the raw integer carrier.
+  @Test
+  public void testExtractHourFromLocalTimeRejected() {
+    RexCall localtime = (RexCall) rexBuilder.makeCall(SqlStdOperatorTable.LOCALTIME);
+    RexCall extract =
+        (RexCall)
+            rexBuilder.makeCall(
+                SqlStdOperatorTable.EXTRACT, rexBuilder.makeFlag(TimeUnit.HOUR), localtime);
+    assertThatThrownBy(
+            () -> RexNodeConverter.toTypedExpr(extract, new RexConversionContext(List.of())))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining("EXTRACT")
+        .hasMessageContaining("milliseconds-of-day carrier");
+  }
+
+  // G3: LOCALTIME < TIME '12:00:00' is supported — comparisons on the
+  // INTEGER carrier keep TIME ordering semantics (CURRENT_TIME comparisons
+  // are part of the same supported surface).
+  @Test
+  public void testLocalTimeComparisonAllowed() {
+    RexCall localtime = (RexCall) rexBuilder.makeCall(SqlStdOperatorTable.LOCALTIME);
+    RexLiteral noon = rexBuilder.makeTimeLiteral(new TimeString(12, 0, 0), 0);
+    RexCall lessThan =
+        (RexCall) rexBuilder.makeCall(SqlStdOperatorTable.LESS_THAN, localtime, noon);
+    TypedExpr expr = RexNodeConverter.toTypedExpr(lessThan, new RexConversionContext(List.of()));
+    assertThat(expr).isInstanceOf(CallTypedExpr.class);
+  }
+
+  // G4: CASE WHEN b THEN LOCALTIME ELSE LOCALTIME END is rejected — the
+  // TIME-typed result would silently integer-ize.
+  @Test
+  public void testCaseOverLocalTimeRejected() {
+    RexCall localtime = (RexCall) rexBuilder.makeCall(SqlStdOperatorTable.LOCALTIME);
+    RexInputRef condition =
+        rexBuilder.makeInputRef(typeFactory.createSqlType(SqlTypeName.BOOLEAN), 0);
+    RexCall caseCall =
+        (RexCall) rexBuilder.makeCall(SqlStdOperatorTable.CASE, condition, localtime, localtime);
+    assertThatThrownBy(
+            () -> RexNodeConverter.toTypedExpr(caseCall, new RexConversionContext(List.of())))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining("CASE")
+        .hasMessageContaining("milliseconds-of-day carrier");
+  }
+
+  // G5: the whitelist — the LOCALTIME direct projection itself converts
+  // (INTEGER carrier), and a TIME-typed InputRef flows through as the
+  // isomorphic carrier.
+  @Test
+  public void testLocalTimeDirectProjectionAndInputRefAllowed() {
+    RexCall localtime = (RexCall) rexBuilder.makeCall(SqlStdOperatorTable.LOCALTIME);
+    TypedExpr expr =
+        RexNodeConverter.toTypedExpr(localtime, new RexConversionContext(java.util.List.of("f0")));
+    assertThat(expr).isInstanceOf(CallTypedExpr.class);
+    assertThat(((CallTypedExpr) expr).getFunctionName()).isEqualTo("localtime");
+    assertThat(expr.getReturnType()).isInstanceOf(IntegerType.class);
+
+    RexInputRef timeRef = rexBuilder.makeInputRef(typeFactory.createSqlType(SqlTypeName.TIME), 0);
+    TypedExpr refExpr =
+        RexNodeConverter.toTypedExpr(timeRef, new RexConversionContext(java.util.List.of("f0")));
+    assertThat(refExpr).isInstanceOf(FieldAccessTypedExpr.class);
+    assertThat(((FieldAccessTypedExpr) refExpr).getFieldName()).isEqualTo("f0");
+    assertThat(refExpr.getReturnType()).isInstanceOf(IntegerType.class);
+  }
+
+  // G6: CAST to TIME keeps carrier semantics only when the operand is already
+  // TIME — CAST(CURRENT_TIME AS TIME) (the upstream surface) passes, while
+  // CAST(<timestamp or varchar column> AS TIME) would lower to a velox
+  // cast(<type> AS INTEGER) that neither computes the milliseconds-of-day
+  // nor parses a time-of-day string, so it is rejected at plan time.
+  @Test
+  public void testCastToTimeFromNonTimeOperandRejected() {
+    RexCall castTime = (RexCall) rexBuilder.makeCall(SqlStdOperatorTable.LOCALTIME);
+    RexCall cast =
+        (RexCall) rexBuilder.makeCast(typeFactory.createSqlType(SqlTypeName.TIME), castTime);
+    TypedExpr timeToTime = RexNodeConverter.toTypedExpr(cast, new RexConversionContext(List.of()));
+    assertThat(timeToTime).isInstanceOf(CallTypedExpr.class);
+
+    RexInputRef tsRef =
+        rexBuilder.makeInputRef(typeFactory.createSqlType(SqlTypeName.TIMESTAMP, 3), 0);
+    RexCall tsCast =
+        (RexCall) rexBuilder.makeCast(typeFactory.createSqlType(SqlTypeName.TIME), tsRef);
+    assertThatThrownBy(
+            () -> RexNodeConverter.toTypedExpr(tsCast, new RexConversionContext(List.of())))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining("CAST")
+        .hasMessageContaining("casts a non-TIME operand to TIME")
+        .hasMessageContaining("milliseconds-of-day carrier");
+
+    RexInputRef strRef = rexBuilder.makeInputRef(typeFactory.createSqlType(SqlTypeName.VARCHAR), 0);
+    RexCall strCast =
+        (RexCall) rexBuilder.makeCast(typeFactory.createSqlType(SqlTypeName.TIME), strRef);
+    assertThatThrownBy(
+            () -> RexNodeConverter.toTypedExpr(strCast, new RexConversionContext(List.of())))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining("CAST")
+        .hasMessageContaining("casts a non-TIME operand to TIME")
+        .hasMessageContaining("milliseconds-of-day carrier");
+  }
+
+  // G7: IS [NOT] NULL and SEARCH over a TIME-typed operand are
+  // carrier-isomorphic — a nullability check and a point / range search on
+  // the INTEGER carrier — and plan through the existing converters: IS [NOT]
+  // NULL lowers to isnull / isnotnull over the carrier, and SEARCH (the
+  // Calcite form of IN) lowers to "in" over the carrier millisecond-of-day
+  // points.
+  @Test
+  public void testCarrierPredicatesOverTimeAllowed() {
+    RexInputRef timeRef = rexBuilder.makeInputRef(typeFactory.createSqlType(SqlTypeName.TIME), 0);
+    RexConversionContext context = new RexConversionContext(List.of("t"));
+
+    RexCall isNotNull = (RexCall) rexBuilder.makeCall(SqlStdOperatorTable.IS_NOT_NULL, timeRef);
+    TypedExpr isNotNullExpr = RexNodeConverter.toTypedExpr(isNotNull, context);
+    assertThat(isNotNullExpr).isInstanceOf(CallTypedExpr.class);
+    assertThat(((CallTypedExpr) isNotNullExpr).getFunctionName()).isEqualTo("isnotnull");
+
+    RexCall isNull = (RexCall) rexBuilder.makeCall(SqlStdOperatorTable.IS_NULL, timeRef);
+    TypedExpr isNullExpr = RexNodeConverter.toTypedExpr(isNull, context);
+    assertThat(isNullExpr).isInstanceOf(CallTypedExpr.class);
+    assertThat(((CallTypedExpr) isNullExpr).getFunctionName()).isEqualTo("isnull");
+
+    TimeString noon = new TimeString(12, 0, 0);
+    TimeString halfPastNoon = new TimeString(12, 30, 0);
+    RexLiteral searchLiteral =
+        rexBuilder.makeSearchArgumentLiteral(
+            Sarg.of(
+                false,
+                ImmutableRangeSet.<TimeString>builder()
+                    .add(Range.closed(noon, noon))
+                    .add(Range.closed(halfPastNoon, halfPastNoon))
+                    .build()),
+            typeFactory.createSqlType(SqlTypeName.TIME));
+    RexCall search =
+        (RexCall) rexBuilder.makeCall(SqlStdOperatorTable.SEARCH, timeRef, searchLiteral);
+    TypedExpr searchExpr = RexNodeConverter.toTypedExpr(search, context);
+    assertThat(searchExpr).isInstanceOf(CallTypedExpr.class);
+    assertThat(((CallTypedExpr) searchExpr).getFunctionName()).isEqualTo("in");
   }
 }
