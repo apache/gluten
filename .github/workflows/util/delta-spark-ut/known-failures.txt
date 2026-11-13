@@ -13,6 +13,7 @@
 # failure count is the number of entries below (and the delta-spark-aggregate
 # job summary); it is deliberately not restated here so it can't drift as the
 # baseline is refreshed.
+# Updated after run 41188486128: removed only tests reported as now-passing.
 #
 # IMPORTANT: regenerate this baseline under the SAME NUM_SHARDS x
 # TEST_PARALLELISM_COUNT the gate runs (here 8 x 4). Some of these failures are
