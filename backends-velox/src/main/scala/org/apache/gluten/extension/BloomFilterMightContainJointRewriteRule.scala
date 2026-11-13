@@ -21,7 +21,7 @@ import org.apache.gluten.expression.VeloxBloomFilterMightContain
 import org.apache.gluten.expression.aggregate.VeloxBloomFilterAggregate
 
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.expressions.{And, BinaryExpression, BloomFilterMightContain, Cast, Expression, IsNotNull, NamedExpression, ScalarSubquery, SubqueryExpression}
+import org.apache.spark.sql.catalyst.expressions.{And, BinaryExpression, BloomFilterMightContain, Cast, Expression, IsNotNull, NamedExpression, ScalarSubquery, SubqueryExpression, XxHash64}
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, BloomFilterAggregate, TypedImperativeAggregate}
 import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.Rule
@@ -55,7 +55,7 @@ case class BloomFilterMightContainJointRewriteRule(
           Int,
           Int) => TypedImperativeAggregate[T]): Expression = expr match {
     case bf @ BloomFilterAggregate(
-          child,
+          child: XxHash64,
           estimatedNumItemsExpression,
           numBitsExpression,
           mutableAggBufferOffset,
@@ -72,7 +72,7 @@ case class BloomFilterMightContainJointRewriteRule(
   private def replaceMightContain[T](
       expr: Expression,
       mightContainReplacer: (Expression, Expression) => BinaryExpression): Expression = expr match {
-    case mc @ BloomFilterMightContain(bloomFilterExpression, valueExpression)
+    case mc @ BloomFilterMightContain(bloomFilterExpression, valueExpression: XxHash64)
         if !isKeepVanilla(mc) =>
       mightContainReplacer(bloomFilterExpression, valueExpression)
     case other => other

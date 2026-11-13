@@ -21,12 +21,13 @@ import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.{FilterExecTransformerBase, HashAggregateExecBaseTransformer, WholeStageTransformerSuite}
 import org.apache.gluten.expression.VeloxBloomFilterMightContain
 import org.apache.gluten.expression.aggregate.VeloxBloomFilterAggregate
+import org.apache.gluten.extension.BloomFilterMightContainJointRewriteRule
 
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.FunctionIdentifier
-import org.apache.spark.sql.catalyst.expressions.BloomFilterMightContain
-import org.apache.spark.sql.catalyst.expressions.ExpressionInfo
+import org.apache.spark.sql.catalyst.expressions.{Alias, BloomFilterMightContain, ExpressionInfo, Literal}
 import org.apache.spark.sql.catalyst.expressions.aggregate.BloomFilterAggregate
+import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.execution.aggregate.{BaseAggregateExec, ObjectHashAggregateExec}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.util.sketch.BloomFilter
@@ -45,9 +46,9 @@ import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
  * at Pre-CBO, and tags unpaired or unsupported expressions with `KEEP_VANILLA_BLOOM_FILTER_TAG` so
  * they stay on vanilla Spark. For runtime bloom filters injected later by Spark's
  * `InjectRuntimeFilter` (GLUTEN-12013), the physical `BloomFilterMightContainJointRewriteRule`
- * registered at `injectPre` rewrites both untagged sides before `HeuristicApplier` captures the
- * plan that `ExpandFallbackPolicy` reverts to, so a whole-stage fallback can no longer strip the
- * rewrite from one stage and leave it mismatched against another.
+ * registered at `injectPre` rewrites both untagged `XxHash64`-wrapped sides before
+ * `HeuristicApplier` captures the plan that `ExpandFallbackPolicy` reverts to, so a whole-stage
+ * fallback can no longer strip the rewrite from one stage and leave it mismatched against another.
  */
 class GlutenBloomFilterFallbackSuite extends WholeStageTransformerSuite {
   protected val resourcePath: String = null
@@ -248,9 +249,9 @@ class GlutenBloomFilterFallbackSuite extends WholeStageTransformerSuite {
   // the aggregate node executes in JVM mode (ObjectHashAggregateExec).
   //
   // When hash-aggregate offloading is disabled, the subquery runs as
-  // ObjectHashAggregateExec(VeloxBloomFilterAggregate).  VeloxBloomFilterAggregate.eval() calls
-  // serialize(buffer) directly without a cardinality guard, so it always produces Velox-format
-  // (version=1) bytes.  VeloxBloomFilterMightContain on the outer side reads those bytes correctly.
+  // ObjectHashAggregateExec(VeloxBloomFilterAggregate). For non-empty inputs,
+  // VeloxBloomFilterAggregate.eval() produces Velox-format (version=1) bytes, and
+  // VeloxBloomFilterMightContain on the outer side reads those bytes correctly.
   test("GLUTEN-12013: VeloxBloomFilterAggregate in JVM subquery produces correct Velox bytes") {
     if (BackendsApiManager.getSettings.requireBloomFilterAggMightContainJointFallback()) {
       val table = "bloom_filter_test"
@@ -560,6 +561,19 @@ class GlutenBloomFilterFallbackSuite extends WholeStageTransformerSuite {
           case h: HashAggregateExecBaseTransformer => h
         }
         assert(allNullNativeAggs.size == 2, df.queryExecution.executedPlan.toString)
+
+        withSQLConf(GlutenConfig.COLUMNAR_HASHAGG_ENABLED.key -> "false") {
+          val jvmDf = spark.sql(
+            s"SELECT might_contain((SELECT bloom_filter_agg(col) FROM $allNullTable), 1L)")
+          checkAnswer(jvmDf, Seq(Row(null)))
+          val jvmVeloxAggs = collectWithSubqueries(jvmDf.queryExecution.executedPlan) {
+            case agg: ObjectHashAggregateExec
+                if agg.aggregateExpressions.exists(
+                  _.aggregateFunction.isInstanceOf[VeloxBloomFilterAggregate]) =>
+              agg
+          }
+          assert(jvmVeloxAggs.nonEmpty, jvmDf.queryExecution.executedPlan.toString)
+        }
       }
     }
   }
@@ -580,6 +594,12 @@ class GlutenBloomFilterFallbackSuite extends WholeStageTransformerSuite {
           s"SELECT col, might_contain(X'$sparkBfHex', col) FROM $table")
         checkAnswer(literalDf, Seq(Row(201L, true), Row(999L, false)))
         assert(!literalDf.queryExecution.executedPlan.toString.contains("velox_might_contain"))
+
+        val literalXxHashDf = spark.sql(
+          s"SELECT col, might_contain(X'$sparkBfHex', xxhash64(col)) FROM $table")
+        checkAnswer(literalXxHashDf, Seq(Row(201L, false), Row(999L, false)))
+        assert(
+          !literalXxHashDf.queryExecution.executedPlan.toString.contains("velox_might_contain"))
 
         Seq(out.toByteArray).toDF("bf").createOrReplaceTempView(bytesTable)
         val nonAggSubqueryDf = spark.sql(
@@ -677,6 +697,28 @@ class GlutenBloomFilterFallbackSuite extends WholeStageTransformerSuite {
         val bf = BloomFilter.readFrom(new ByteArrayInputStream(bytes))
         assert(bf.mightContainLong(50L))
         assert(!bf.mightContainLong(500L))
+
+        val xxHashDf = spark.sql(s"SELECT bloom_filter_agg(xxhash64(col)) AS bf FROM $table")
+        val xxHashBytes = xxHashDf.collect().head.getAs[Array[Byte]]("bf")
+        assert(!xxHashDf.queryExecution.executedPlan.toString.contains("velox_bloom_filter_agg"))
+        assert(BloomFilter.readFrom(new ByteArrayInputStream(xxHashBytes)).cardinality() > 0L)
+
+        // Even if a rule rebuilds expressions and drops TreeNodeTags, the physical rule must not
+        // rewrite non-XxHash64 user-written BloomFilterAggregate or BloomFilterMightContain calls.
+        val scanPlan = spark.sql(s"SELECT col FROM $table").queryExecution.sparkPlan
+        val colAttr = scanPlan.output.head
+        val untaggedPlan = ProjectExec(
+          Seq(
+            Alias(new BloomFilterAggregate(colAttr), "bf")(),
+            Alias(BloomFilterMightContain(Literal(Array[Byte](1)), colAttr), "mc")()
+          ),
+          scanPlan
+        )
+        val afterPhysicalRule =
+          BloomFilterMightContainJointRewriteRule(spark, isBloomFilterStatFunction = false)
+            .apply(untaggedPlan)
+        assert(!afterPhysicalRule.toString.contains("velox_bloom_filter_agg"))
+        assert(!afterPhysicalRule.toString.contains("velox_might_contain"))
       }
     }
   }

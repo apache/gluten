@@ -33,6 +33,7 @@ public class VeloxBloomFilterTest extends VeloxBackendTestBase {
     TaskResources$.MODULE$.runUnsafe(
         () -> {
           final BloomFilter filter = VeloxBloomFilter.empty(10000);
+          Assert.assertEquals(0L, filter.cardinality());
           for (int i = 0; i < 1000; i++) {
             Assert.assertFalse(filter.mightContainLong(i));
           }
@@ -75,6 +76,7 @@ public class VeloxBloomFilterTest extends VeloxBackendTestBase {
             filter.putLong(i);
             Assert.assertTrue(filter.mightContainLong(i));
           }
+          Assert.assertTrue(filter.cardinality() > 0L);
           for (int i = -halfNumItems; i < halfNumItems; i++) {
             Assert.assertTrue(filter.mightContainLong(i));
           }
