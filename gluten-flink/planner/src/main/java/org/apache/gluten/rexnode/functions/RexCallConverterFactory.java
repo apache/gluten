@@ -142,6 +142,8 @@ public class RexCallConverterFactory {
           Map.entry("SHA256", Arrays.asList(() -> new DefaultRexCallConverter("sha256"))),
           Map.entry("SHA384", Arrays.asList(() -> new DefaultRexCallConverter("sha384"))),
           Map.entry("SHA512", Arrays.asList(() -> new DefaultRexCallConverter("sha512"))),
+          Map.entry("MD5", Arrays.asList(() -> new DefaultRexCallConverter("md5"))),
+          Map.entry("SHA1", Arrays.asList(() -> new DefaultRexCallConverter("sha1"))),
           Map.entry("count_char", Arrays.asList(() -> new DefaultRexCallConverter("count_char"))),
           Map.entry("EXTRACT", Arrays.asList(() -> new DefaultRexCallConverter("extract"))),
           Map.entry("IS TRUE", Arrays.asList(() -> new DefaultRexCallConverter("is_true"))),
