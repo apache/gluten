@@ -39,7 +39,13 @@ fi
 
 for spark_version in 3.4 3.5 4.0 4.1
 do
-  ${GLUTEN_HOME}/build/mvn clean install -Pjava-17 -Pbackends-velox -Pspark-${spark_version} -Pceleborn,uniffle \
+  scala_profile=""
+  # Spark 4.x is built with Scala 2.13; keep Spark 3.x behavior unchanged.
+  if [[ "${spark_version}" == 4.* ]]; then
+    scala_profile="-Pscala-2.13"
+  fi
+
+  ${GLUTEN_HOME}/build/mvn clean install -Pjava-17 -Pbackends-velox ${scala_profile} -Pbackends-velox -Pspark-${spark_version} -Pceleborn,uniffle \
                     -Piceberg,delta,hudi,paimon -DskipTests -Dmaven.source.skip
 done
 
