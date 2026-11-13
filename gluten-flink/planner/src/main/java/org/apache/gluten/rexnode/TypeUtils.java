@@ -49,6 +49,15 @@ public class TypeUtils {
     return NUMERIC_TYPE_PRIORITY_LIST.contains(type.getClass());
   }
 
+  /**
+   * Operand-guard variant of the numeric check: unlike {@link #isNumericType}, also accepts
+   * DECIMAL. The plain list must stay decimal-free — the basic arithmetic converters rely on it to
+   * decline decimal operands so the decimal converters (with their promotion casts) take them.
+   */
+  public static boolean isNumericOrDecimalType(Type type) {
+    return isNumericType(type) || type instanceof DecimalType;
+  }
+
   public static boolean isStringType(Type type) {
     return type instanceof VarCharType;
   }

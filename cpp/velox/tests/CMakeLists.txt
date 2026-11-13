@@ -154,7 +154,7 @@ add_velox_test(
   VeloxSubstraitSignatureTest.cc
   VeloxToSubstraitTypeTest.cc)
 add_velox_test(spark_functions_test SOURCES SparkFunctionTest.cc
-               FunctionTest.cc)
+               FunctionTest.cc IncrementMetricFunctionTest.cc)
 add_velox_test(runtime_test SOURCES RuntimeTest.cc)
 add_velox_test(velox_backend_test SOURCES VeloxBackendTest.cc)
 add_velox_test(velox_memory_test SOURCES MemoryManagerTest.cc)
@@ -182,5 +182,10 @@ if(ENABLE_ENHANCED_FEATURES)
 endif()
 
 if(ENABLE_KAFKA)
-  add_velox_test(velox_kafka_connector_test SOURCES KafkaConnectorTest.cc)
+  add_velox_test(
+    velox_kafka_connector_test
+    SOURCES
+    KafkaConnectorTest.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../gluten-ut/native/KafkaPollTimeoutTest.cc
+  )
 endif()

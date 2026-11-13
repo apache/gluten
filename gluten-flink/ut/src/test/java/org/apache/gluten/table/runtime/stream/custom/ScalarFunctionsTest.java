@@ -447,4 +447,36 @@ class ScalarFunctionsTest extends GlutenStreamingTestBase {
     runAndCheck(
         literalQuery, Arrays.asList("+I[2024-03-15T10:15:30.000]", "+I[2024-03-15T10:15:30.000]"));
   }
+
+  @Test
+  void testTimestampAddSubDayOnDate() {
+    // Flink: TIMESTAMPADD with sub-day units on a DATE returns a TIMESTAMP;
+    // the converter casts DATE -> TIMESTAMP before the plus call. DATE_FORMAT
+    // with a second-precision pattern keeps the expectation rendering-stable
+    // (the sub-day results are whole seconds by construction).
+    // The DATE input is derived via CAST from a string: the values connector
+    // round-trips rows through their string form, whose DATE parsing is not
+    // implemented in the connector's formatter yet (a pre-existing gap,
+    // unrelated to this path; the GFV e2e suite covers real DATE sources).
+    List<Row> rows =
+        Arrays.asList(Row.of(1, "2017-11-29"), Row.of(2, "2025-01-31"), Row.of(3, "2025-12-31"));
+    createSimpleBoundedValuesTable("tblDateSubday", "a int, d string", rows);
+    String query =
+        "select DATE_FORMAT(TIMESTAMPADD(HOUR, 5, CAST(d AS DATE)), 'yyyy-MM-dd HH:mm:ss'), "
+            + "DATE_FORMAT(TIMESTAMPADD(MINUTE, -90, CAST(d AS DATE)), 'yyyy-MM-dd HH:mm:ss'), "
+            + "DATE_FORMAT(TIMESTAMPADD(SECOND, 30, CAST(d AS DATE)), 'yyyy-MM-dd HH:mm:ss') "
+            + "from tblDateSubday";
+    runAndCheck(
+        query,
+        Arrays.asList(
+            "+I[2017-11-29 05:00:00, 2017-11-28 22:30:00, 2017-11-29 00:00:30]",
+            "+I[2025-01-31 05:00:00, 2025-01-30 22:30:00, 2025-01-31 00:00:30]",
+            "+I[2025-12-31 05:00:00, 2025-12-30 22:30:00, 2025-12-31 00:00:30]"));
+
+    // A handwritten DATE + day-time interval keeps the DATE type in Flink;
+    // rendered via CAST to stay independent of raw DATE rendering.
+    String handwritten =
+        "select CAST(CAST(d AS DATE) + INTERVAL '8' HOUR AS STRING) from tblDateSubday";
+    runAndCheck(handwritten, Arrays.asList("+I[2017-11-29]", "+I[2025-01-31]", "+I[2025-12-31]"));
+  }
 }

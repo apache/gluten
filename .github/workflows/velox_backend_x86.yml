@@ -24,6 +24,7 @@ on:
       - '.github/workflows/iceberg_upstream_revision.yml'
       - '.github/workflows/velox_native_build.yml'
       - '.github/workflows/util/iceberg-upstream/**'
+      - '.github/actions/**'
       - 'pom.xml'
       - 'backends-velox/**'
       - 'gluten-uniffle/**'
@@ -45,6 +46,12 @@ on:
       - '!cpp/bolt.CMakeLists.cmake'
       - 'dev/**'
       - 'build/mvn'
+  # A pull request from a fork is tested in the fork: each push to a branch
+  # other than main runs this workflow there (see detect-changes). In
+  # apache/gluten a push run skips every job.
+  push:
+    branches-ignore:
+      - main
   # Nightly full run. PR runs trim the TPC matrices to representative JDKs and
   # skip the OOM / random-kill chaos jobs unless native code changed (see
   # detect-changes' `full_run` output); this scheduled run restores the full
@@ -73,10 +80,51 @@ env:
   UT_PARALLELISM: 3
 
 concurrency:
-  group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
+  # head_ref is empty on push. Keying push runs by branch lets a new push cancel the previous run.
+  group: >-
+    ${{ github.repository }}-${{ github.head_ref || (github.event_name == 'push' && github.ref) ||
+    github.sha }}-${{ github.workflow }}
   cancel-in-progress: true
 
 jobs:
+  # Every other job chains off this one, so its `if` decides whether the workflow runs:
+  #   • push / workflow_dispatch in a fork: the run tests a fork pull request.
+  #   • pull_request: only in apache/gluten and only from its own branches
+  #     (Dependabot); a fork's pull request is tested by the push run in the fork.
+  #   • schedule: only in apache/gluten. A fork with Actions enabled would
+  #     otherwise burn ~1800 runner minutes nightly on a signal nobody reads.
+  # In a fork it squash-merges the commit under test onto apache/gluten main and
+  # publishes the result, which the jobs below check out by `revision`. It is the
+  # only job that can write, and none of its steps run in apache/gluten.
+  merge-upstream:
+    if: >-
+      (github.repository_owner != 'apache' &&
+       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) ||
+      (github.event_name == 'pull_request' && github.repository_owner == 'apache' &&
+       github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'schedule' && github.repository_owner == 'apache') ||
+      (github.event_name == 'workflow_dispatch' && github.repository_owner == 'apache')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      relevant: ${{ steps.merge.outputs.relevant }}
+      revision: ${{ steps.merge.outputs.revision }}
+      base_sha: ${{ steps.merge.outputs.base_sha }}
+    steps:
+      - uses: actions/checkout@v7
+        if: github.repository_owner != 'apache'
+        with:
+          fetch-depth: 0
+      - name: Squash-merge onto apache/gluten main
+        id: merge
+        if: github.repository_owner != 'apache'
+        uses: ./.github/actions/squash-merge-upstream
+        with:
+          # The `paths:` list above. Keep the two in sync.
+          paths: '^(\.github/workflows/(velox_backend_x86|iceberg_spark_ut|iceberg_upstream_revision|velox_native_build)\.yml$|\.github/workflows/util/(parallel-ut|iceberg-upstream)/|\.github/actions/|pom\.xml$|build/mvn$|(backends-velox|gluten-(uniffle|celeborn|core|substrait|arrow|delta|iceberg|hudi|paimon|ut)|package|shims|tools/gluten-it|ep/build-velox|cpp|dev)/)'
+          paths-ignore: '^cpp/bolt/|^cpp/bolt\.CMakeLists\.cmake$'
+
   # Detect which parts of the codebase were modified so downstream jobs can
   # skip work that is irrelevant to the change (e.g. a Spark-3.4-shim-only change does
   # not need to run spark-test-spark35/40/41; C++ changes still run spark-test-*
@@ -98,15 +146,19 @@ jobs:
   # widen their matrices to the extended combos that PR runs skip (alternative
   # JDKs, older Celeborn, chaos tests on java-only changes).
   detect-changes:
-    # Every job chains off this one, so the fork guard here skips the whole
-    # workflow: a fork with Actions enabled would otherwise burn ~1800 runner
-    # minutes nightly on a signal nobody reads.
-    if: github.event_name != 'schedule' || github.repository_owner == 'apache'
-    runs-on: ubuntu-22.04
+    needs: merge-upstream
+    runs-on: ubuntu-24.04
     outputs:
+      # false only on a fork run that changes nothing in the `paths:` list above.
+      relevant: ${{ needs.merge-upstream.outputs.relevant }}
+      # The commit the other jobs check out: the merged commit on a fork run, otherwise
+      # empty, which keeps actions/checkout's default.
+      revision: ${{ needs.merge-upstream.outputs.revision }}
+      base_sha: ${{ needs.merge-upstream.outputs.base_sha }}
       full_run: ${{ steps.filter.outputs.full_run }}
       cpp:      ${{ steps.filter.outputs.cpp }}
       java:     ${{ steps.filter.outputs.java }}
+      udf:      ${{ steps.filter.outputs.udf }}
       shims34:  ${{ steps.filter.outputs.shims34 }}
       shims35:  ${{ steps.filter.outputs.shims35 }}
       shims40:  ${{ steps.filter.outputs.shims40 }}
@@ -120,12 +172,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.merge-upstream.outputs.revision }}
           fetch-depth: 0
       - name: Detect changed paths
         id: filter
         run: |
           event="${{ github.event_name }}"
-          if [ "$event" = "schedule" ] || [ "$event" = "workflow_dispatch" ]; then
+          # A fork run, including a manual one, diffs its merged commit against main.
+          if [ -z "${{ needs.merge-upstream.outputs.base_sha }}" ] &&
+             { [ "$event" = "schedule" ] || [ "$event" = "workflow_dispatch" ]; }; then
             # schedule / workflow_dispatch: no PR diff to inspect.
             # For scheduled runs, skip entirely when no commits landed in the
             # last 24 hours — avoids burning runner minutes on idle days.
@@ -133,7 +188,7 @@ jobs:
               recent=$(git log --oneline --after="24 hours ago" HEAD | wc -l)
               if [ "$recent" -eq 0 ]; then
                 echo "No commits in the last 24 hours -- skipping nightly run."
-                for flag in cpp java shims34 shims35 shims40 shims41 shims42 tools_it; do
+                for flag in cpp java udf shims34 shims35 shims40 shims41 shims42 tools_it; do
                   echo "$flag=false" >> $GITHUB_OUTPUT
                 done
                 echo "full_run=false" >> $GITHUB_OUTPUT
@@ -141,22 +196,34 @@ jobs:
               fi
             fi
             # Run everything, including the extended matrices PR runs skip.
-            for flag in cpp java shims34 shims35 shims40 shims41 shims42 tools_it; do
+            for flag in cpp java udf shims34 shims35 shims40 shims41 shims42 tools_it; do
               echo "$flag=true" >> $GITHUB_OUTPUT
             done
             echo "full_run=true" >> $GITHUB_OUTPUT
             exit 0
           fi
           echo "full_run=false" >> $GITHUB_OUTPUT
-          BASE=${{ github.event.pull_request.base.sha }}
-          HEAD=${{ github.sha }}
+          if [ "${{ needs.merge-upstream.outputs.relevant }}" = "false" ]; then
+            for flag in cpp java udf shims34 shims35 shims40 shims41 shims42 tools_it; do
+              echo "$flag=false" >> $GITHUB_OUTPUT
+            done
+            exit 0
+          fi
+          if [ -n "${{ needs.merge-upstream.outputs.base_sha }}" ]; then
+            BASE=${{ needs.merge-upstream.outputs.base_sha }}
+            HEAD=$(git rev-parse HEAD)
+          else
+            BASE=${{ github.event.pull_request.base.sha }}
+            HEAD=${{ github.sha }}
+          fi
           changed=$(git diff --name-only "$BASE" "$HEAD")
           echo "$changed"
 
           match() { echo "$changed" | grep -qE "$1" && echo true || echo false; }
 
           echo "cpp=$(match      '^(cpp/|ep/build-velox/|dev/)')"                                            >> $GITHUB_OUTPUT
-          echo "java=$(match     '^(\.github/workflows/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi|paimon)/|gluten-ut/(common/|test/|src-iceberg-upstream/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
+          echo "java=$(match     '^(\.github/(workflows|actions)/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi|paimon)/|gluten-ut/(common/|test/|src-iceberg-upstream/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
+          echo "udf=$(match      '^(backends-velox/src/test/scala/org/apache/gluten/expression/VeloxUdfSuite\.scala|\.github/workflows/velox_backend_x86\.yml)$')" >> $GITHUB_OUTPUT
           echo "shims34=$(match  '^(shims/(spark34|common)/|gluten-ut/spark34/)')"                           >> $GITHUB_OUTPUT
           echo "shims35=$(match  '^(shims/(spark35|common)/|gluten-ut/spark35/)')"                           >> $GITHUB_OUTPUT
           echo "shims40=$(match  '^(shims/(spark40|common)/|gluten-ut/spark40/)')"                           >> $GITHUB_OUTPUT
@@ -166,7 +233,8 @@ jobs:
 
   build-native-lib-centos-8:
     needs: detect-changes
-    runs-on: ubuntu-22.04
+    if: needs.detect-changes.outputs.relevant != 'false'
+    runs-on: ubuntu-24.04
     container: apache/gluten:vcpkg-almalinux-8-gcc13
     steps:
       - name: Install CI tools (temporary - until image is rebuilt with gh/jq/bison/python3.9)
@@ -176,14 +244,23 @@ jobs:
           dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
           dnf install -y gh --setopt=gpgcheck=0
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Get Ccache from Apache Stash
         id: ccache-stash
         uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
+      - name: Get Ccache from apache/gluten main (fork run on Stash miss)
+        id: ccache-upstream
+        if: github.repository_owner != 'apache' && steps.ccache-stash.outputs.stash-hit != 'true'
+        uses: ./.github/actions/restore-upstream-ccache
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-almalinux8-release-default-${{ hashFiles('ep/build-velox/src/**') }}
       - name: Get Ccache from actions/cache (fallback on Stash miss)
-        if: steps.ccache-stash.outputs.stash-hit != 'true'
+        if: steps.ccache-stash.outputs.stash-hit != 'true' && steps.ccache-upstream.outputs.hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
@@ -221,7 +298,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ "ubuntu:22.04" ]
+        os: [ "ubuntu:24.04" ]
         spark: [ "spark-3.4", "spark-3.5", "spark-4.0", "spark-4.1"  ]
         # PR runs test the primary JDK per Spark line (8 for 3.x, 17 for 4.x --
         # after the static excludes below that is 4 combos instead of 8). The
@@ -258,10 +335,12 @@ jobs:
           - spark: spark-4.1
             java: java-11
 
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -270,7 +349,7 @@ jobs:
       - name: Setup tzdata
         run: |
           sed -i 's|http://archive|http://eu.archive|g' /etc/apt/sources.list
-          if [ "${{ matrix.os }}" = "ubuntu:22.04" ]; then
+          if [ "${{ matrix.os }}" = "ubuntu:24.04" ]; then
             apt-get update
             TZ="Etc/GMT" DEBIAN_FRONTEND=noninteractive apt-get install -y tzdata
           fi
@@ -290,7 +369,7 @@ jobs:
             apt remove openjdk-11* -y
           fi
       - name: Install Hadoop & Setup HDFS
-        if: matrix.os == 'ubuntu:22.04' && matrix.spark == 'spark-3.5' && matrix.java == 'java-8'
+        if: matrix.os == 'ubuntu:24.04' && matrix.spark == 'spark-3.5' && matrix.java == 'java-8'
         shell: bash
         run: |
           export JAVA_HOME=/usr/lib/jvm/${{ matrix.java }}-openjdk-amd64
@@ -298,7 +377,7 @@ jobs:
           install_hadoop
           setup_hdfs
       - name: Install MinIO
-        if: matrix.os == 'ubuntu:22.04' && matrix.spark == 'spark-3.5' && matrix.java == 'java-8'
+        if: matrix.os == 'ubuntu:24.04' && matrix.spark == 'spark-3.5' && matrix.java == 'java-8'
         shell: bash
         run: |
           export JAVA_HOME=/usr/lib/jvm/${{ matrix.java }}-openjdk-amd64
@@ -321,7 +400,7 @@ jobs:
           cd $GITHUB_WORKSPACE/tools/gluten-it
           $GITHUB_WORKSPACE/$MVN_CMD clean install -P${{ matrix.spark }} -P${{ matrix.java }}
           # Setup S3 JARs after gluten-it build 
-          if [ "${{ matrix.os }}" = "ubuntu:22.04" ] && \
+          if [ "${{ matrix.os }}" = "ubuntu:24.04" ] && \
             [ "${{ matrix.spark }}" = "spark-3.5" ] && \
             [ "${{ matrix.java }}" = "java-8" ]; then
             source $GITHUB_WORKSPACE/.github/workflows/util/install-spark-deps.sh
@@ -332,7 +411,7 @@ jobs:
             --local --preset=velox --benchmark-type=h --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1 \
           && GLUTEN_IT_JVM_ARGS=-Xmx6G sbin/gluten-it.sh queries-compare \
             --local --preset=velox --benchmark-type=ds --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1
-          if [ "${{ matrix.os }}" = "ubuntu:22.04" ] && \
+          if [ "${{ matrix.os }}" = "ubuntu:24.04" ] && \
             [ "${{ matrix.spark }}" = "spark-3.5" ] && \
             [ "${{ matrix.java }}" = "java-8" ]; then
             GLUTEN_IT_JVM_ARGS=-Xmx6G sbin/gluten-it.sh queries-compare \
@@ -388,10 +467,12 @@ jobs:
           - spark: spark-4.1
             java: java-11
 
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -457,7 +538,7 @@ jobs:
       fail-fast: false
       matrix:
         spark: [ "spark-3.5" ]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Maximize build disk space
         shell: bash
@@ -472,6 +553,8 @@ jobs:
           sudo docker image prune --all --force > /dev/null
           df -h
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -575,7 +658,7 @@ jobs:
       matrix:
         spark: [ "spark-3.5" ]
         shard: [ 1, 2, 3 ]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Maximize build disk space
         shell: bash
@@ -590,6 +673,8 @@ jobs:
           sudo docker image prune --all --force > /dev/null
           df -h
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -628,10 +713,12 @@ jobs:
         spark: [ "spark-3.5" ]
         uniffle: [ "0.10.0" ]
         hadoop: [ "2.10.2" ]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -685,10 +772,12 @@ jobs:
           && '["celeborn-0.6.3", "celeborn-0.5.4"]'
           || '["celeborn-0.6.3"]') }}
         writer: ["sort", "hash"]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: centos:8
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -756,7 +845,7 @@ jobs:
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims34 == 'true' ||
       needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -764,6 +853,8 @@ jobs:
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -827,7 +918,7 @@ jobs:
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims34 == 'true' ||
       needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -835,6 +926,8 @@ jobs:
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -876,7 +969,7 @@ jobs:
   spark-test-spark35:
     needs: [detect-changes, build-native-lib-centos-8]
     if: needs.detect-changes.outputs.spark35_needed == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -886,6 +979,8 @@ jobs:
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -949,7 +1044,7 @@ jobs:
     # little PR-specific signal. The nightly full_run (or a workflow_dispatch run)
     # still covers it daily.
     if: needs.detect-changes.outputs.full_run == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -959,6 +1054,8 @@ jobs:
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -1012,7 +1109,7 @@ jobs:
   spark-test-spark35-slow:
     needs: [detect-changes, build-native-lib-centos-8]
     if: needs.detect-changes.outputs.spark35_needed == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -1022,6 +1119,8 @@ jobs:
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -1061,12 +1160,13 @@ jobs:
 
   cpp-test-udf-test:
     needs: detect-changes
-    if: needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    if: needs.detect-changes.outputs.cpp == 'true' || needs.detect-changes.outputs.udf == 'true'
+    runs-on: ubuntu-24.04
     container: apache/gluten:centos-9-jdk8
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
           # 'check.py tidy commit' diffs HEAD^..HEAD, which a depth-1 clone lacks: the
           # diff comes back empty and the check passes without inspecting anything.
           fetch-depth: 2
@@ -1088,8 +1188,15 @@ jobs:
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos9-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+      - name: Get Ccache from apache/gluten main (fork run on Stash miss)
+        id: ccache-upstream
+        if: github.repository_owner != 'apache' && steps.ccache-stash.outputs.stash-hit != 'true'
+        uses: ./.github/actions/restore-upstream-ccache
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos9-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
       - name: Get Ccache from actions/cache (fallback on Stash miss)
-        if: steps.ccache-stash.outputs.stash-hit != 'true'
+        if: steps.ccache-stash.outputs.stash-hit != 'true' && steps.ccache-upstream.outputs.hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
@@ -1145,14 +1252,22 @@ jobs:
           --data $(realpath backends-velox/generated-native-benchmark/data_12_0_*_0.parquet),$(realpath backends-velox/generated-native-benchmark/data_12_0_*_1.parquet)
       - name: Run UDF test
         run: |
+          export SPARK_SCALA_VERSION=2.12
           yum install -y java-17-openjdk-devel
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
           export PATH=$JAVA_HOME/bin:$PATH
           java -version
           # Depends on --build_example=ON.
-          $MVN_CMD test -Pspark-3.5 -Pbackends-velox -Pjava-17 -Piceberg -Pdelta -Ppaimon -DtagsToExclude=org.apache.gluten.tags.EnhancedFeaturesTest \
-          -DtagsToInclude=org.apache.gluten.tags.UDFTest \
-          -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/"
+          $MVN_CMD install -Pspark-3.5 -Pbackends-velox -Pjava-17 -pl backends-velox -am -DskipTests
+          for bypass_registration in false true; do
+            for suite in VeloxUdfSuiteLocal VeloxUdfSuiteCluster; do
+              echo "Running $suite with bypass registration=$bypass_registration"
+              $MVN_CMD test -pl backends-velox -Pspark-3.5 -Pbackends-velox -Pjava-17 -DtagsToExclude=org.apache.gluten.tags.EnhancedFeaturesTest \
+                -DtagsToInclude=org.apache.gluten.tags.UDFTest \
+                -Dsuites=org.apache.gluten.expression.$suite \
+                -DargLine="-Dspark.test.home=/opt/shims/spark35/spark_home/ -Dspark.gluten.sql.columnar.backend.velox.nativeUDF.bypassRegistration=$bypass_registration"
+            done
+          done
       - name: Run CPP benchmark test for Spark 4.0
         run: |
           export SPARK_SCALA_VERSION=2.13
@@ -1197,11 +1312,13 @@ jobs:
     uses: ./.github/workflows/iceberg_spark_ut.yml
     with:
       native_artifact: velox-native-lib-centos-8-${{github.sha}}
+      revision: ${{ needs.detect-changes.outputs.revision }}
+      base_revision: ${{ needs.detect-changes.outputs.base_sha }}
 
   build-cudf-centos-9:
     needs: detect-changes
     if: needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: "node-cleanup" # by default the free runner does not have enough disk space
         run: |
@@ -1211,14 +1328,23 @@ jobs:
       - run: df -h | sort -k 5 -nr # check disk space for debug
 
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Get Ccache from Apache Stash
         id: ccache-stash
         uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos9-cudf-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+      - name: Get Ccache from apache/gluten main (fork run on Stash miss)
+        id: ccache-upstream
+        if: github.repository_owner != 'apache' && steps.ccache-stash.outputs.stash-hit != 'true'
+        uses: ./.github/actions/restore-upstream-ccache
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos9-cudf-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
       - name: Get Ccache from actions/cache (fallback on Stash miss)
-        if: steps.ccache-stash.outputs.stash-hit != 'true'
+        if: steps.ccache-stash.outputs.stash-hit != 'true' && steps.ccache-upstream.outputs.hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
@@ -1263,10 +1389,12 @@ jobs:
     if: >-
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: apache/gluten:centos-8-jdk17
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Build with fast-build profile (Spark 4.0, Java 17)
         run: |
           cd $GITHUB_WORKSPACE/
@@ -1278,10 +1406,12 @@ jobs:
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims42 == 'true' ||
       needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: apache/gluten:centos-8-jdk17
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Build Spark 4.2 Velox (Java 17, Scala 2.13)
         run: |
           cd $GITHUB_WORKSPACE/
@@ -1293,7 +1423,7 @@ jobs:
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims40 == 'true' ||
       needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -1303,6 +1433,8 @@ jobs:
     container: apache/gluten:centos-8-jdk17
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -1359,7 +1491,7 @@ jobs:
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims40 == 'true' ||
       needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -1369,6 +1501,8 @@ jobs:
     container: apache/gluten:centos-8-jdk17
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -1412,7 +1546,7 @@ jobs:
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims41 == 'true' ||
       needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -1426,6 +1560,8 @@ jobs:
     container: apache/gluten:centos-9-jdk17
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -1487,7 +1623,7 @@ jobs:
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims41 == 'true' ||
       needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -1498,6 +1634,8 @@ jobs:
     container: apache/gluten:centos-9-jdk17
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -1541,7 +1679,7 @@ jobs:
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims42 == 'true' ||
       needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -1555,6 +1693,8 @@ jobs:
     container: apache/gluten:centos-9-jdk17
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -1619,7 +1759,7 @@ jobs:
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims42 == 'true' ||
       needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -1630,6 +1770,8 @@ jobs:
     container: apache/gluten:centos-9-jdk17
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
