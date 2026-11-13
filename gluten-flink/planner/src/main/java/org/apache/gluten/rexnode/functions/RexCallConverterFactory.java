@@ -185,7 +185,8 @@ public class RexCallConverterFactory {
           Map.entry("RTRIM", Arrays.asList(() -> new TrimSeekRexCallConverter("rtrim"))),
           Map.entry("LPAD", Arrays.asList(() -> new DefaultRexCallConverter("lpad"))),
           Map.entry("RPAD", Arrays.asList(() -> new DefaultRexCallConverter("rpad"))),
-          Map.entry("COALESCE", Arrays.asList(() -> new DefaultRexCallConverter("coalesce"))));
+          Map.entry("COALESCE", Arrays.asList(() -> new DefaultRexCallConverter("coalesce"))),
+          Map.entry("JSON_VALUE", Arrays.asList(() -> new JsonValueRexCallConverter())));
 
   public static RexCallConverter getConverter(RexCall callNode, RexConversionContext context) {
     String operatorName = callNode.getOperator().getName();
