@@ -21,7 +21,7 @@ import org.apache.gluten.backendsapi.velox.VeloxBackendSettings
 import org.apache.gluten.runtime.Runtimes
 import org.apache.gluten.vectorized.HashJoinBuilder
 
-import org.apache.spark.SparkEnv
+import org.apache.spark.{SparkEnv, TaskContext}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.execution.ColumnarBuildSideRelation
@@ -83,14 +83,32 @@ object VeloxBroadcastBuildSideCache
         }
       ).build[String, SerializedBroadcastHashTable]()
 
+  private def debugTaskInfo(): String = {
+    val tc = TaskContext.get()
+    val task =
+      if (tc == null) "none"
+      else {
+        s"stage=${tc.stageId()}.${tc.stageAttemptNumber()}, partition=${tc.partitionId()}, " +
+          s"TID=${tc.taskAttemptId()}, executionId=${tc.getLocalProperty("spark.sql.execution.id")}"
+      }
+    s"$task, thread=${Thread.currentThread().getName}"
+  }
+
   def getOrBuildBroadcastHashTable(
       broadcast: Broadcast[BuildSideRelation],
       broadcastContext: BroadcastHashJoinContext): BroadcastHashTable = {
 
+    val debugKey = broadcastContext.buildHashTableId
+    logWarning(
+      s"[BHJ-DEBUG] getOrBuild: key=$debugKey, " +
+        s"cached=${buildSideRelationCache.getIfPresent(debugKey) != null}, " + debugTaskInfo())
     buildSideRelationCache
       .get(
         broadcastContext.buildHashTableId,
         (_: String) => {
+          logWarning(
+            s"[BHJ-DEBUG] build start: key=${broadcastContext.buildHashTableId}, " +
+              debugTaskInfo())
           val (pointer, relation, droppedDuplicates) = broadcast.value match {
             case columnar: ColumnarBuildSideRelation =>
               columnar.buildHashTable(broadcastContext)
@@ -100,6 +118,9 @@ object VeloxBroadcastBuildSideCache
 
           broadcastContext.hashTableMemorySizeMetric.foreach(
             _ += HashJoinBuilder.getHashTableMemoryUsage(pointer))
+          logWarning(
+            s"[BHJ-DEBUG] build end: key=${broadcastContext.buildHashTableId}, " +
+              s"pointer=$pointer, " + debugTaskInfo())
 
           BroadcastHashTable(pointer, relation, droppedDuplicates)
         }
@@ -220,6 +241,10 @@ object VeloxBroadcastBuildSideCache
   }
 
   def invalidateBroadcastHashtable(broadcastHashtableId: String): Unit = {
+    logWarning(
+      s"[BHJ-DEBUG] invalidate: key=$broadcastHashtableId, " +
+        s"cached=${buildSideRelationCache.getIfPresent(broadcastHashtableId) != null}, " +
+        s"thread=${Thread.currentThread().getName}")
     // Cleanup operations on the backend are idempotent.
     buildSideRelationCache.invalidate(broadcastHashtableId)
   }
@@ -231,6 +256,7 @@ object VeloxBroadcastBuildSideCache
   def driverSerializedCacheSize(): Long = driverSerializedCache.estimatedSize()
 
   def cleanAll(): Unit = {
+    logWarning(s"[BHJ-DEBUG] cleanAll, thread=${Thread.currentThread().getName}")
     buildSideRelationCache.invalidateAll()
     driverSerializedCache.invalidateAll()
   }
@@ -239,6 +265,9 @@ object VeloxBroadcastBuildSideCache
       key: String,
       value: BroadcastHashTable,
       cause: RemovalCause): Unit = {
+    logWarning(
+      s"[BHJ-DEBUG] onRemoval start: key=$key, pointer=${value.pointer}, cause=$cause, " +
+        s"thread=${Thread.currentThread().getName}")
     synchronized {
       if (value.relation != null) {
         value.relation match {
@@ -251,5 +280,8 @@ object VeloxBroadcastBuildSideCache
 
       HashJoinBuilder.clearHashTable(key, value.pointer)
     }
+    logWarning(
+      s"[BHJ-DEBUG] onRemoval end: key=$key, pointer=${value.pointer}, " +
+        s"thread=${Thread.currentThread().getName}")
   }
 }

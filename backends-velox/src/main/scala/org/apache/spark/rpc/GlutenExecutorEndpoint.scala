@@ -60,6 +60,9 @@ class GlutenExecutorEndpoint(val executorId: String, val conf: SparkConf)
 
   override def receive: PartialFunction[Any, Unit] = {
     case GlutenCleanExecutionResource(executionId, hashIds) =>
+      logWarning(
+        s"[BHJ-DEBUG] executor receive clean: executionId=$executionId, hashIds=$hashIds, " +
+          s"thread=${Thread.currentThread().getName}")
       if (executionId != null) {
         hashIds.forEach(
           resource_id => VeloxBroadcastBuildSideCache.invalidateBroadcastHashtable(resource_id))

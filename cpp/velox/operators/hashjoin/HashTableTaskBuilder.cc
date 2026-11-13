@@ -107,6 +107,8 @@ std::shared_ptr<BroadcastHashTable> buildHashTableWithTask(
   VELOX_CHECK_GT(numDrivers, 0);
   VELOX_CHECK(numDrivers == 1 || executor != nullptr, "Parallel hash table build requires an executor");
   const auto buildId = nextBuildId();
+  LOG(WARNING) << "[BHJ-DEBUG] native build start: key=" << cacheKey << ", buildId=" << buildId
+               << ", cacheEntryExists=" << exec::HashTableCache::instance()->exist(cacheKey);
   auto queryCtx = core::QueryCtx::create(
       numDrivers > 1 ? executor : nullptr,
       core::QueryConfig(spec.queryConfigs),
@@ -209,6 +211,12 @@ std::shared_ptr<BroadcastHashTable> buildHashTableWithTask(
   taskDeleted.wait();
 
   auto* cache = exec::HashTableCache::instance();
+  LOG(WARNING) << "[BHJ-DEBUG] native build task done: key=" << cacheKey << ", buildId=" << buildId
+               << ", taskId=" << taskId << ", cacheEntryExists=" << cache->exist(cacheKey);
+  queryCtx->addReleaseCallback([cacheKey, buildId]() {
+    LOG(WARNING) << "[BHJ-DEBUG] native build QueryCtx released: key=" << cacheKey << ", buildId=" << buildId
+                 << ", cacheEntryExists=" << exec::HashTableCache::instance()->exist(cacheKey);
+  });
   if (!cache->exist(cacheKey)) {
     // HashBuild does not cache the table of a null-aware anti join without
     // filter whose build side has a null key. Such a join returns nothing

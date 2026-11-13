@@ -1098,6 +1098,8 @@ JNIEXPORT void JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_clearHa
     jlong tableHandler) {
   JNI_METHOD_START
   auto cacheKeyStr = jStringToCString(env, cacheKey);
+  LOG(WARNING) << "[BHJ-DEBUG] native clearHashTable: key=" << cacheKeyStr << ", handle=" << tableHandler
+               << ", cacheEntryExists=" << facebook::velox::exec::HashTableCache::instance()->exist(cacheKeyStr);
   facebook::velox::exec::HashTableCache::instance()->drop(cacheKeyStr);
   ObjectStore::release(tableHandler);
   JNI_METHOD_END()
