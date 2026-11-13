@@ -146,6 +146,7 @@ set(SPARK_COLUMNAR_PLUGIN_SRCS
     utils/tac/TypeAwareCompressCodec.cc
     utils/StringUtil.cc
     utils/ObjectStore.cc
+    jni/JavaException.cc
     jni/JniError.cc
     jni/JniCommon.cc
     jni/TaskContextJniWrapper.cc)
@@ -260,6 +261,16 @@ if(NOT ENABLE_GLUTEN_VCPKG)
                         PUBLIC Arrow::arrow_bundled_dependencies)
 endif()
 target_link_libraries(gluten_core_impl PRIVATE glog::glog)
+
+# Java CI builds this explicitly and transfers it separately from production
+# libraries.
+add_library(java_exception_jni_test SHARED EXCLUDE_FROM_ALL
+            tests/JavaExceptionJniTest.cc)
+target_link_libraries(java_exception_jni_test
+                      PRIVATE gluten_core_impl glog::glog Threads::Threads)
+set_target_properties(
+  java_exception_jni_test PROPERTIES LIBRARY_OUTPUT_DIRECTORY
+                                     ${root_directory}/test-libs)
 
 install(TARGETS gluten DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
