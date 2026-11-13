@@ -2020,4 +2020,25 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
         }
     }
   }
+
+  test("str_to_map with MAP_KEY_DEDUP_POLICY set in lower case") {
+    withTempPath {
+      path =>
+        Seq("a:1,b:2,a:3")
+          .toDF("s")
+          .write
+          .parquet(path.getCanonicalPath)
+
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("str_to_map_tbl")
+
+        withSQLConf(SQLConf.MAP_KEY_DEDUP_POLICY.key -> "exception") {
+          val df = sql("SELECT str_to_map(s, ',', ':') FROM str_to_map_tbl")
+          checkGlutenPlan[ProjectExecTransformer](df)
+          val e = intercept[SparkException] {
+            df.collect()
+          }
+          assert(e.getMessage.contains("Duplicate keys are not allowed"))
+        }
+    }
+  }
 }
