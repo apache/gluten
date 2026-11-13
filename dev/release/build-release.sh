@@ -26,7 +26,14 @@ cd ${GLUTEN_HOME}
                            --build_examples=OFF --enable_s3=ON --enable_gcs=ON --enable_hdfs=ON --enable_abfs=ON
 
 sudo yum install -y java-17-openjdk-devel
-export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+# Derive JAVA_HOME from the installed JDK 17 package instead of hard-coding the path,
+# since the install location can vary across distros/packaging.
+JAVAC_PATH=$(rpm -ql java-17-openjdk-devel | grep -m1 '/bin/javac$' || true)
+if [[ -z "${JAVAC_PATH}" ]]; then
+  echo "Error: Unable to locate javac from the java-17-openjdk-devel package."
+  exit 1
+fi
+export JAVA_HOME=$(dirname "$(dirname "$(readlink -f "${JAVAC_PATH}")")")
 export PATH=$JAVA_HOME/bin:$PATH
 
 JAVA_VERSION=$("java" -version 2>&1 | awk -F '"' '/version/ {print $2}')
