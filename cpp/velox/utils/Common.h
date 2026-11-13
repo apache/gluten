@@ -30,6 +30,18 @@ namespace gluten {
 // Compile the given pattern and return the RE2 object.
 inline std::unique_ptr<re2::RE2> compilePattern(const std::string& pattern);
 
+/// Converts Java \uXXXX Unicode escapes to RE2's \x{XXXX} syntax. A high+low surrogate escape pair
+/// becomes a single \x{code point}. Returns the input unchanged if no \uXXXX sequences are found.
+///
+/// This is a purely lexical rewrite, not a validity check: the output is NOT guaranteed to compile
+/// in RE2. An unpaired surrogate escape is deliberately left as the original \uXXXX text so that
+/// RE2 rejects it later (and the caller falls back to Spark), so the result may be only partially
+/// translated. Callers must still compile the result (see validatePattern) rather than assume it
+/// is valid.
+std::string translateJavaUnicodeToRe2(const std::string& pattern);
+
+/// Returns true if RE2 can compile `pattern` as-is, i.e. exactly what Velox will receive. It does
+/// not translate: a raw Java \uXXXX escape is rejected so the caller falls back to Spark.
 bool validatePattern(const std::string& pattern, std::string& error);
 
 static inline void fastCopy(void* dst, const void* src, size_t n) {
