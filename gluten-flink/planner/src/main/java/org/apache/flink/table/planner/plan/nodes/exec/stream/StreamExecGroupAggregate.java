@@ -30,6 +30,7 @@ import io.github.zhztheplayer.velox4j.plan.HashPartitionFunctionSpec;
 import io.github.zhztheplayer.velox4j.plan.PartitionFunctionSpec;
 import io.github.zhztheplayer.velox4j.plan.PlanNode;
 import io.github.zhztheplayer.velox4j.plan.StatefulPlanNode;
+import io.github.zhztheplayer.velox4j.stateful.KeyedStateSpec;
 
 import org.apache.flink.FlinkVersion;
 import org.apache.flink.api.dag.Transformation;
@@ -46,8 +47,6 @@ import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeMetadata;
 import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
 import org.apache.flink.table.planner.plan.nodes.exec.StateMetadata;
 import org.apache.flink.table.planner.plan.nodes.exec.utils.ExecNodeUtil;
-import org.apache.flink.table.planner.plan.utils.KeySelectorUtil;
-import org.apache.flink.table.runtime.keyselector.RowDataKeySelector;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.types.logical.RowType;
 
@@ -198,13 +197,28 @@ public class StreamExecGroupAggregate extends StreamExecAggregateBase {
             .collect(Collectors.toList());
     List<Integer> keyIndexes = Arrays.stream(grouping).boxed().collect(Collectors.toList());
     PartitionFunctionSpec keySelectorSpec = new HashPartitionFunctionSpec(inputType, keyIndexes);
+    KeyedStateSpec keyedStateSpec =
+        new KeyedStateSpec(
+            keyIndexes,
+            keyIndexes.stream()
+                .map(keyIndex -> inputType.getChildren().get(keyIndex))
+                .collect(Collectors.toList()));
     PlanNode aggsHandlerNode =
         new GroupAggsHandlerNode(
-            PlanNodeIdGenerator.newId(), outputType, generateUpdateBefore, needRetraction);
+            PlanNodeIdGenerator.newId(),
+            inputType,
+            outputType,
+            aggregates,
+            generateUpdateBefore,
+            needRetraction);
     // TODO: velox agg may not equal to flink
     PlanNode aggregation =
         new GroupAggregationNode(
-            PlanNodeIdGenerator.newId(), aggsHandlerNode, keySelectorSpec, outputType);
+            PlanNodeIdGenerator.newId(),
+            aggsHandlerNode,
+            keySelectorSpec,
+            keyedStateSpec,
+            outputType);
     final OneInputStreamOperator operator =
         new GlutenOneInputOperator(
             new StatefulPlanNode(aggregation.getId(), aggregation),
@@ -226,15 +240,13 @@ public class StreamExecGroupAggregate extends StreamExecAggregateBase {
             inputTransform.getParallelism(),
             false);
 
-    // set KeyType and Selector for state
-    final RowDataKeySelector selector =
-        KeySelectorUtil.getRowDataSelector(
-            planner.getFlinkContext().getClassLoader(),
-            grouping,
-            InternalTypeInfo.of(inputRowType));
-    transform.setStateKeySelector(selector);
-    transform.setStateKeyType(selector.getProducedType());
-
+    // Keys are owned by the velox side (KeyedStateSpec feeds the C++ keyed state
+    // backend), and routing is decided by the C++ StreamPartition exchange whose
+    // target subtask rides in the record. Declaring a Flink state key selector
+    // here would make the runtime recompute the key group with Flink's hash
+    // scheme and assert it against this subtask's KeyGroupRange, which disagrees
+    // with the velox routing at parallelism > 1. Keep the transformation
+    // non-keyed on the Flink side.
     return transform;
   }
 }
