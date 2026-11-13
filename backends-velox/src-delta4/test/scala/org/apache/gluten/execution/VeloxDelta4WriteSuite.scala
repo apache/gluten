@@ -16,13 +16,16 @@
  */
 package org.apache.gluten.execution
 
+import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
-import org.apache.spark.sql.delta.DeltaLog
+import org.apache.spark.sql.delta.{DeltaLog, FakeFileSystem, GlutenDeltaNativeWriteGate}
 import org.apache.spark.sql.delta.actions.AddFile
+import org.apache.spark.sql.delta.storage.LocalLogStore
 import org.apache.spark.sql.delta.test.DeltaSQLCommandTest
 import org.apache.spark.sql.delta.util.DeltaFileOperations
 import org.apache.spark.sql.internal.SQLConf
 
+import org.apache.hadoop.fs.Path
 import org.apache.parquet.hadoop.ParquetFileReader
 import org.apache.parquet.hadoop.metadata.ParquetMetadata
 import org.apache.parquet.hadoop.util.HadoopInputFile
@@ -39,6 +42,11 @@ import scala.jdk.CollectionConverters._
  * test checks the written files: which writer produced them, their schema and their statistics.
  */
 class VeloxDelta4WriteSuite extends DeltaSQLCommandTest {
+
+  // Delta commits to fake:// paths with LocalLogStore, as in Delta's own FakeFileSystem tests.
+  override protected def sparkConf: SparkConf =
+    super.sparkConf
+      .set(s"spark.delta.logStore.${FakeFileSystem.scheme}.impl", classOf[LocalLogStore].getName)
 
   private def footers(path: String): Seq[(AddFile, ParquetMetadata)] = {
     val deltaLog = DeltaLog.forTable(spark, path)
@@ -173,6 +181,28 @@ class VeloxDelta4WriteSuite extends DeltaSQLCommandTest {
 
         footers(path).foreach { case (file, footer) => assert(!writtenByVelox(footer), file.path) }
         assertRows(path)
+    }
+  }
+
+  test("the file system check passes local tables when the native library is loaded") {
+    withTempDir {
+      dir => assert(GlutenDeltaNativeWriteGate.unsupportedPath(new Path(dir.toURI)).isEmpty)
+    }
+  }
+
+  test("a table on a file system the Velox writer cannot open falls back") {
+    withTempDir {
+      dir =>
+        withSQLConf(
+          s"fs.${FakeFileSystem.scheme}.impl" -> classOf[FakeFileSystem].getName,
+          s"fs.${FakeFileSystem.scheme}.impl.disable.cache" -> "true") {
+          val path = s"${FakeFileSystem.scheme}://${dir.getCanonicalPath}"
+          createTable(path, partitioned = false)
+          writeRows(path)
+
+          assertWrittenBy(path, velox = false, Seq("id", "value", "part"))
+          assertRows(path)
+        }
     }
   }
 

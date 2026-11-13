@@ -17,6 +17,7 @@
 package org.apache.spark.sql.delta
 
 import org.apache.gluten.backendsapi.velox.VeloxValidatorApi
+import org.apache.gluten.utils.VeloxFileSystemValidationJniWrapper
 
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.catalyst.util.CaseInsensitiveMap
@@ -26,6 +27,7 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
 import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.Path
 import org.apache.parquet.column.ParquetProperties.WriterVersion
 import org.apache.parquet.crypto.EncryptionPropertiesFactory
 import org.apache.parquet.hadoop.ParquetOutputFormat
@@ -33,6 +35,7 @@ import org.apache.parquet.hadoop.ParquetOutputFormat
 import java.util.Locale
 
 import scala.util.Try
+import scala.util.control.NonFatal
 
 /**
  * Decides whether the Velox writer writes what vanilla Delta would: the same rows, schema, physical
@@ -61,6 +64,25 @@ object GlutenDeltaNativeWriteGate {
         // The Velox writer annotates TIMESTAMP_NTZ as isAdjustedToUTC=true; Delta requires false.
         "TIMESTAMP_NTZ columns are not supported by the Velox writer"
       })
+  }
+
+  /**
+   * Checked with the table's data path. The Velox writer opens files only for the schemes that
+   * VeloxRuntime::createDataSource maps to a sink, and throws for any other filesystem, such as
+   * viewfs, wasbs or a custom Hadoop FileSystem. It also throws for HDFS, S3, GCS and ABFS paths
+   * when Gluten was built without that filesystem, which `registered` checks as the scan does.
+   */
+  def unsupportedPath(
+      path: Path,
+      registered: String => Boolean = registeredInVelox): Option[String] = {
+    val scheme = Option(path.toUri.getScheme).map(lower)
+    if (!scheme.exists(writableSchemes.contains)) {
+      Some(s"Paths with scheme ${scheme.getOrElse("<none>")} are not written by the Velox writer")
+    } else {
+      Option.when(!registered(path.toString)) {
+        s"The Velox filesystem for scheme ${scheme.get} is not available in this build"
+      }
+    }
   }
 
   /**
@@ -115,6 +137,9 @@ object GlutenDeltaNativeWriteGate {
   }
 
   private val writePartitionColumns = DeltaOptions.WRITE_PARTITION_COLUMNS
+  // The schemes VeloxRuntime::createDataSource writes to: local, HDFS, S3, GCS and ABFS.
+  private val writableSchemes =
+    Set("file", "hdfs", "s3", "s3a", "oss", "cos", "cosn", "gs", "abfs", "abfss")
   // SQLConf.VARIANT_INFER_SHREDDING_SCHEMA, which Spark 4.0 does not have.
   private val variantInferShreddingSchema = "spark.sql.variant.inferShreddingSchema"
   // The codecs the Velox writer maps (VeloxWriterUtils); it would write others as SNAPPY.
@@ -219,6 +244,14 @@ object GlutenDeltaNativeWriteGate {
     find(options, key).exists(_.equalsIgnoreCase("true"))
 
   private def lower(key: String): String = key.toLowerCase(Locale.ROOT)
+
+  // Fails closed: if the native probe cannot run in this JVM, the write falls back.
+  private def registeredInVelox(path: String): Boolean =
+    try {
+      VeloxFileSystemValidationJniWrapper.allSupportedByRegisteredFileSystems(Array(path))
+    } catch {
+      case _: LinkageError | NonFatal(_) => false
+    }
 
   private def isNested(dataType: DataType): Boolean = dataType match {
     case _: ArrayType | _: MapType => true
