@@ -23,6 +23,10 @@ if [ "$(uname -m)" = "aarch64" ]; then
     export VCPKG_FORCE_SYSTEM_BINARIES=1;
 fi
 
+# Rewrite absolute paths under the checkout to relative ones, so a ccache saved by
+# a checkout at another path still hits.
+export CCACHE_BASEDIR=$(cd "$(dirname "$BASH_SOURCE")/.."; pwd)
+
 export NUM_THREADS=2
 ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --build_arrow=OFF --build_tests=OFF --build_benchmarks=OFF \
                            --build_examples=OFF --enable_s3=ON --enable_gcs=ON --enable_hdfs=ON --enable_abfs=ON

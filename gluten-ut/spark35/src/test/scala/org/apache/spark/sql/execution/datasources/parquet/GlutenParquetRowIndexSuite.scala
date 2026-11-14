@@ -19,15 +19,16 @@ package org.apache.spark.sql.execution.datasources.parquet
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.{BatchScanExecTransformer, FileSourceScanExecTransformer}
 
-import org.apache.spark.sql.GlutenSQLTestsBaseTrait
+import org.apache.spark.sql.{GlutenSQLTestsBaseTrait, Row}
 import org.apache.spark.sql.execution.FileSourceScanExec
 import org.apache.spark.sql.execution.datasources.FileFormat
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.execution.datasources.v2.parquet.ParquetDataSourceV2
 import org.apache.spark.sql.functions.{col, max, min}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{LongType, StringType}
+import org.apache.spark.sql.types.{LongType, StringType, StructType}
 
+import org.apache.commons.lang3.exception.ExceptionUtils
 import org.apache.hadoop.fs.Path
 import org.apache.parquet.column.ParquetProperties._
 import org.apache.parquet.format.converter.ParquetMetadataConverter
@@ -40,6 +41,41 @@ import scala.collection.JavaConverters._
 
 class GlutenParquetRowIndexSuite extends ParquetRowIndexSuite with GlutenSQLTestsBaseTrait {
   import testImplicits._
+
+  for (rowIndexType <- Seq(LongType, StringType)) {
+    testGluten(s"datasource v2 row index at schema index zero - ${rowIndexType.typeName}") {
+      withSQLConf(
+        SQLConf.ANSI_ENABLED.key -> "false",
+        SQLConf.USE_V1_SOURCE_LIST.key -> "",
+        GlutenConfig.NATIVE_WRITER_ENABLED.key -> "false") {
+        withTempPath {
+          path =>
+            spark.range(0, 10, 1, 1).write.parquet(path.getAbsolutePath)
+            val rowIndexName = ParquetFileFormat.ROW_INDEX_TEMPORARY_COLUMN_NAME
+            val readSchema = new StructType()
+              .add(rowIndexName, rowIndexType)
+              .add("id", LongType)
+            val df = spark.read
+              .format(classOf[ParquetDataSourceV2].getCanonicalName)
+              .schema(readSchema)
+              .load(path.getAbsolutePath)
+              .select(rowIndexName, "id")
+
+            if (rowIndexType == LongType) {
+              checkAnswer(df, (0L until 10L).map(id => Row(id, id)))
+              val scans = getExecutedPlan(df).collect {
+                case scan: BatchScanExecTransformer => scan
+              }
+              assert(scans.size == 1)
+              assert(scans.head.schema.fieldNames.head == rowIndexName)
+            } else {
+              val exception = intercept[Exception](df.collect())
+              assert(ExceptionUtils.getRootCauseMessage(exception).contains(rowIndexName))
+            }
+        }
+      }
+    }
+  }
 
   private def readRowGroupRowCounts(path: String): Seq[Long] = {
     ParquetFooterReader

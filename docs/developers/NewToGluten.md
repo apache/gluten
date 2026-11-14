@@ -94,6 +94,55 @@ To format Java/Scala code using the [Spotless](https://github.com/diffplug/spotl
 ./dev/format-scala-code.sh
 ```
 
+### Java exceptions crossing native code
+
+JNI callbacks must call `checkException(env)` after invoking Java. It throws
+`gluten::JavaException`, which owns a shared global reference to the original Java
+throwable. `JNI_METHOD_END` restores that same object with JNI `Throw`, retaining
+its class, cause, suppressed exceptions, stack trace, and structured Spark error
+metadata. Native diagnostic formatting is best-effort after capturing the throwable.
+If native carrier construction fails within a guarded JNI entry on the current
+thread, `checkException` restores the original throwable before local-reference
+cleanup unless a newer Java exception is pending. Without such an entry, it clears
+pending JNI state before propagating the native failure so an attached worker can
+be reused. Successfully captured carriers remain transferable across threads.
+Successful carrier propagation keeps JNI clear until the return boundary restores
+the throwable.
+Do not replace this carrier with an exception constructed from `what()`.
+
+Same-object preservation applies at the JNI return boundary. Public iterator
+`hasNext()`/`next()` may apply existing Java wrappers, usually `GlutenException`;
+existing schema-error translation also retains the original as a cause. Inspect
+the cause chain rather than assuming a top-level exception class or `SparkThrowable`.
+These wrappers catch `Exception`, not every `Throwable`.
+
+Copies and `std::exception_ptr` instances keep the throwable alive until the last
+owner releases it. Cleanup uses the current thread's JNI environment and detaches
+only threads it attached itself. Failures while describing the captured throwable
+do not replace it; if creating its global reference fails within a guarded JNI
+entry, the pending Java allocation error is preserved.
+
+`JNI_METHOD_END` also restores carriers inside standard `std::nested_exception`
+wrappers. Other native errors keep their existing `GlutenException` fallback.
+If carrier restoration leaves no pending Java exception, the boundary attempts
+that same fallback using the caught exception's diagnostic. A newer pending Java
+exception is left untouched; failure to throw the fallback is logged.
+Backend-specific callback and output-boundary propagation is separate from this
+core contract; it does not by itself protect the full Velox driver path.
+Preserving the throwable does not merge Java and C++ frames into a hybrid stack
+trace (see [#9642](https://github.com/apache/gluten/issues/9642)).
+
+`gluten-arrow/src/test/java/org/apache/gluten/jni/JavaExceptionJniTest.java` runs
+these cases through JUnit and Maven Surefire without starting Spark or a backend.
+After configuring the native core, build its test-only bridge with
+`cmake --build cpp/build --target java_exception_jni_test`, then run
+`./build/mvn test -pl gluten-arrow -Pbackends-velox -Pspark-3.5 -Pjava-17 -Pjni-test`.
+The explicit `jni-test` profile requires the bridge in `cpp/build/test-libs`;
+a missing library fails the tests rather than skipping them. The existing
+`cpp-test-udf-test` CI job builds the bridge locally and enables this profile in
+its Java 17 Maven step. No separate test artifact is needed, and the bridge is
+neither installed nor bundled in production jars.
+
 ### C++ code development
 
 This guide is for remote debugging by connecting to the remote Linux server using `SSH`.

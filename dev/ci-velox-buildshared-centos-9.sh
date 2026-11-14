@@ -25,6 +25,10 @@ if [ "$(uname -m)" = "aarch64" ]; then
 fi
 
 
+# Rewrite absolute paths under the checkout to relative ones, so a ccache saved by
+# a checkout at another path still hits.
+export CCACHE_BASEDIR=$(cd "$(dirname "$BASH_SOURCE")/.."; pwd)
+
 export VELOX_BUILD_SHARED=ON 
 
 ./dev/builddeps-veloxbe.sh --run_setup_script=OFF --build_arrow=OFF --build_tests=ON \

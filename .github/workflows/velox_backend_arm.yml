@@ -19,6 +19,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/velox_backend_arm.yml'
+      - '.github/actions/**'
       - 'pom.xml'
       - 'backends-velox/**'
       - 'gluten-uniffle/**'
@@ -40,6 +41,13 @@ on:
       - '!cpp/bolt.CMakeLists.cmake'
       - 'dev/**'
       - 'build/mvn'
+  # A pull request from a fork is tested in the fork: each push to a branch
+  # other than main runs this workflow there (see detect-changes). In
+  # apache/gluten a push run skips every job.
+  push:
+    branches-ignore:
+      - main
+  workflow_dispatch:
 
 env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
@@ -48,42 +56,99 @@ env:
   CCACHE_DIR: "${{ github.workspace }}/.ccache"
 
 concurrency:
-  group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
+  # head_ref is empty on push. Keying push runs by branch lets a new push cancel the previous run.
+  group: >-
+    ${{ github.repository }}-${{ github.head_ref || (github.event_name == 'push' && github.ref) ||
+    github.sha }}-${{ github.workflow }}
   cancel-in-progress: true
 
 jobs:
+  # Every other job chains off this one, so its `if` decides whether the workflow runs:
+  # push and workflow_dispatch only in forks, where the run tests a fork pull request;
+  # pull_request only in apache/gluten and only from its own branches (Dependabot).
+  # In a fork it squash-merges the commit under test onto apache/gluten main and
+  # publishes the result, which the jobs below check out by `revision`. It is the
+  # only job that can write, and none of its steps run in apache/gluten.
+  merge-upstream:
+    if: >-
+      (github.repository_owner != 'apache' &&
+       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) ||
+      (github.event_name == 'pull_request' && github.repository_owner == 'apache' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      relevant: ${{ steps.merge.outputs.relevant }}
+      revision: ${{ steps.merge.outputs.revision }}
+      base_sha: ${{ steps.merge.outputs.base_sha }}
+    steps:
+      - uses: actions/checkout@v7
+        if: github.repository_owner != 'apache'
+        with:
+          fetch-depth: 0
+      - name: Squash-merge onto apache/gluten main
+        id: merge
+        if: github.repository_owner != 'apache'
+        uses: ./.github/actions/squash-merge-upstream
+        with:
+          # The `paths:` list above. Keep the two in sync.
+          paths: '^(\.github/workflows/velox_backend_arm\.yml$|\.github/actions/|pom\.xml$|build/mvn$|(backends-velox|gluten-(uniffle|celeborn|core|substrait|arrow|delta|iceberg|hudi|paimon|ut)|package|shims|tools/gluten-it|ep/build-velox|cpp|dev)/)'
+          paths-ignore: '^cpp/bolt/|^cpp/bolt\.CMakeLists\.cmake$'
+
   # Detect which parts of the codebase were modified so downstream jobs can
   # skip work that is irrelevant to the change.
   detect-changes:
+    needs: merge-upstream
     runs-on: ubuntu-24.04
     outputs:
+      # false only on a fork run that changes nothing in the `paths:` list above.
+      relevant: ${{ needs.merge-upstream.outputs.relevant }}
+      # The commit the other jobs check out: the merged commit on a fork run, otherwise
+      # empty, which keeps actions/checkout's default.
+      revision: ${{ needs.merge-upstream.outputs.revision }}
       cpp:      ${{ steps.filter.outputs.cpp }}
       java:     ${{ steps.filter.outputs.java }}
       tools_it: ${{ steps.filter.outputs.tools_it }}
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.merge-upstream.outputs.revision }}
           fetch-depth: 0
       - name: Detect changed paths
         id: filter
         run: |
-          BASE=${{ github.event.pull_request.base.sha }}
-          HEAD=${{ github.sha }}
+          if [ "${{ needs.merge-upstream.outputs.relevant }}" = "false" ]; then
+            for flag in cpp java tools_it; do
+              echo "$flag=false" >> $GITHUB_OUTPUT
+            done
+            exit 0
+          fi
+          if [ -n "${{ needs.merge-upstream.outputs.base_sha }}" ]; then
+            BASE=${{ needs.merge-upstream.outputs.base_sha }}
+            HEAD=$(git rev-parse HEAD)
+          else
+            BASE=${{ github.event.pull_request.base.sha }}
+            HEAD=${{ github.sha }}
+          fi
           changed=$(git diff --name-only "$BASE" "$HEAD")
           echo "$changed"
 
           match() { echo "$changed" | grep -qE "$1" && echo true || echo false; }
 
           echo "cpp=$(match      '^(cpp/|ep/build-velox/|dev/)')"                                            >> $GITHUB_OUTPUT
-          echo "java=$(match     '^(\.github/workflows/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi|paimon)/|gluten-ut/(common/|test/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
+          echo "java=$(match     '^(\.github/(workflows|actions)/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi|paimon)/|gluten-ut/(common/|test/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
           echo "tools_it=$(match '^tools/gluten-it/')"                                                       >> $GITHUB_OUTPUT
 
   build-native-lib-centos-9:
     needs: detect-changes
+    if: needs.detect-changes.outputs.relevant != 'false'
     runs-on: ubuntu-24.04-arm
     container: apache/gluten:vcpkg-centos-9
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Install Stash restore dependencies # the stash action needs gh and jq, absent from this container
         run: |
           case "$(uname -m)" in
@@ -102,8 +167,15 @@ jobs:
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos9-release-default-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+      - name: Get Ccache from apache/gluten main (fork run on Stash miss)
+        id: ccache-upstream
+        if: github.repository_owner != 'apache' && steps.ccache-stash.outputs.stash-hit != 'true'
+        uses: ./.github/actions/restore-upstream-ccache
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos9-release-default-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
       - name: Get Ccache from actions/cache (fallback on Stash miss)
-        if: steps.ccache-stash.outputs.stash-hit != 'true'
+        if: steps.ccache-stash.outputs.stash-hit != 'true' && steps.ccache-upstream.outputs.hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'
@@ -147,6 +219,8 @@ jobs:
     container: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -185,6 +259,8 @@ jobs:
     container: apache/gluten:centos-9-jdk8
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
       - name: Install Stash restore dependencies # the stash action needs gh and jq, absent from this container
         run: |
           case "$(uname -m)" in
@@ -203,8 +279,15 @@ jobs:
         with:
           path: '${{ env.CCACHE_DIR }}'
           key: ccache-centos9-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
+      - name: Get Ccache from apache/gluten main (fork run on Stash miss)
+        id: ccache-upstream
+        if: github.repository_owner != 'apache' && steps.ccache-stash.outputs.stash-hit != 'true'
+        uses: ./.github/actions/restore-upstream-ccache
+        with:
+          path: '${{ env.CCACHE_DIR }}'
+          key: ccache-centos9-release-shared-${{runner.arch}}-${{ hashFiles('ep/build-velox/src/**') }}
       - name: Get Ccache from actions/cache (fallback on Stash miss)
-        if: steps.ccache-stash.outputs.stash-hit != 'true'
+        if: steps.ccache-stash.outputs.stash-hit != 'true' && steps.ccache-upstream.outputs.hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: '${{ env.CCACHE_DIR }}'

@@ -23,7 +23,7 @@ import org.apache.gluten.extension.columnar.PushDownInputFileExpression
 import org.apache.gluten.substrait.`type`.ColumnTypeNode
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.extensions.ExtensionBuilder
-import org.apache.gluten.substrait.rel.{ReadRelNode, RelBuilder, SplitInfo}
+import org.apache.gluten.substrait.rel.{ReadRelNode, RelBuilder, RelNode, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.Partition
@@ -46,22 +46,24 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
       val (_, scanFiltersNotInPushDownFilters) =
         scanFilters.partition(pushDownFilters.get.contains(_))
       // For filters that only exists in scan, we need to check if they are supported.
-      val unsupportedFilters = scanFiltersNotInPushDownFilters.filter(
-        !BackendsApiManager.getSparkPlanExecApiInstance.isSupportedScanFilter(_, this))
+      val unsupportedFilters = scanFiltersNotInPushDownFilters.filterNot(isSupportedScanFilter)
       if (unsupportedFilters.nonEmpty) {
         throw new UnsupportedOperationException(
           "Found unsupported filter in scan " + unsupportedFilters.mkString(", "))
       }
-      val supportedPushDownFilters = pushDownFilters.get
-        .filter(BackendsApiManager.getSparkPlanExecApiInstance.isSupportedScanFilter(_, this))
+      val supportedPushDownFilters = pushDownFilters.get.filter(isSupportedScanFilter)
       FilterHandler.combineFilters(supportedPushDownFilters, scanFiltersNotInPushDownFilters)
     } else {
       // todo: When PushDownFilterToScan is not performed, find a way to throw an
       //  exception to trigger scan fallback when encountering unsupported scan filters,
       //  instead of simply filtering them out.
-      scanFilters.filter(
-        BackendsApiManager.getSparkPlanExecApiInstance.isSupportedScanFilter(_, this))
+      scanFilters.filter(isSupportedScanFilter)
     }
+  }
+
+  private def isSupportedScanFilter(filter: Expression): Boolean = {
+    !filter.references.exists(isRowIndexMetadataColumn) &&
+    BackendsApiManager.getSparkPlanExecApiInstance.isSupportedScanFilter(filter, this)
   }
 
   /** Returns the filters that already exists in scan. */
@@ -205,10 +207,14 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
     doNativeValidation(substraitContext, relNode)
   }
 
+  protected def isRowIndexMetadataColumn(attr: Attribute): Boolean = {
+    BackendsApiManager.getSparkPlanExecApiInstance.isRowIndexMetadataColumn(attr.name)
+  }
+
   private def makeColumnTypeNode(attr: Attribute): ColumnTypeNode = {
     if (getPartitionSchema.exists(_.name.equals(attr.name))) {
       new ColumnTypeNode(NamedStruct.ColumnType.PARTITION_COL)
-    } else if (BackendsApiManager.getSparkPlanExecApiInstance.isRowIndexMetadataColumn(attr.name)) {
+    } else if (isRowIndexMetadataColumn(attr)) {
       new ColumnTypeNode(NamedStruct.ColumnType.ROWINDEX_COL)
     } else if (attr.isMetadataCol) {
       new ColumnTypeNode(NamedStruct.ColumnType.METADATA_COL)
@@ -218,13 +224,20 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
   }
 
   override protected def doTransform(context: SubstraitContext): TransformContext = {
-    val typeNodes = ConverterUtils.collectAttributeTypeNodes(output)
-    val nameList = ConverterUtils.collectAttributeNamesWithoutExprId(output)
-    val columnTypeNodes = output.map(makeColumnTypeNode).asJava
+    TransformContext(output, makeReadRel(context, output, context.nextOperatorId(this.nodeName)))
+  }
+
+  protected def makeReadRel(
+      context: SubstraitContext,
+      attributes: Seq[Attribute],
+      operatorId: java.lang.Long): RelNode = {
+    val typeNodes = ConverterUtils.collectAttributeTypeNodes(attributes)
+    val nameList = ConverterUtils.collectAttributeNamesWithoutExprId(attributes)
+    val columnTypeNodes = attributes.map(makeColumnTypeNode).asJava
     // Will put all filter expressions into an AND expression
     val exprNode = FilterHandler
       .combineConjuncts(filterExprs().map(ExpressionConverter.replaceAttributeReference))
-      .map(ExpressionConverter.replaceWithExpressionTransformer(_, output))
+      .map(ExpressionConverter.replaceWithExpressionTransformer(_, attributes))
       .map(_.doTransform(context))
       .orNull
 
@@ -247,12 +260,12 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
       columnTypeNodes,
       extensionNode,
       context,
-      context.nextOperatorId(this.nodeName))
+      operatorId)
     getInputStats.foreach(
       inputStats => {
         logInfo(s"hit scan inputStats with $inputStats")
         readNode.asInstanceOf[ReadRelNode].setInputStats(inputStats)
       })
-    TransformContext(output, readNode)
+    readNode
   }
 }

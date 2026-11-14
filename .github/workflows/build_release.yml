@@ -24,17 +24,13 @@ on:
 jobs:
   build-velox-backend-release:
     runs-on: ubuntu-latest
+    container: apache/gluten:vcpkg-almalinux-8-gcc13
     steps:
       - uses: actions/checkout@v7
       - name: Build
         run: |
-          docker pull apache/gluten:vcpkg-almalinux-8-gcc13
-          docker run -v $GITHUB_WORKSPACE:/workspace -w /workspace apache/gluten:vcpkg-almalinux-8-gcc13 bash -c "
-            set -e
-            yum install bison -y
-            cd /workspace
-            bash dev/release/build-release.sh
-          "
+          source /opt/rh/gcc-toolset-13/enable
+          ./dev/release/build-release.sh
       - name: Upload packages
         if: ${{ success() }}
         uses: actions/upload-artifact@v7
