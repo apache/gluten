@@ -763,6 +763,11 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           makeTimestampExprName,
           m.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
           m)
+      case g: GetTimestamp =>
+        BackendsApiManager.getSparkPlanExecApiInstance.genGetTimestampTransformer(
+          substraitExprName,
+          g.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
+          g)
       case tsAdd: BinaryExpression if tsAdd.getClass.getSimpleName.equals("TimestampAdd") =>
         BackendsApiManager.getSparkPlanExecApiInstance.genTimestampAddTransformer(
           substraitExprName,
