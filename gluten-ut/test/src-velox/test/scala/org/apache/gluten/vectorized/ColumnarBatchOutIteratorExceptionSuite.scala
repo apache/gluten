@@ -35,7 +35,7 @@ class ColumnarBatchOutIteratorExceptionSuite extends SparkFunSuite {
   private val overflow =
     "Cannot cast INTEGER '2147483647' to TINYINT. Overflow during arithmetic conversion: "
 
-  test("hasNext and next translate typed native cast metadata and retain the original cause") {
+  test("specific native cast translation precedes GlutenException pass-through") {
     Seq(true, false).foreach {
       hasNext =>
         val original =
@@ -50,25 +50,32 @@ class ColumnarBatchOutIteratorExceptionSuite extends SparkFunSuite {
     }
   }
 
-  test("an ordinary native error with cast-like diagnostic text is not translated") {
+  test("an existing GlutenException with cast-like text is returned unchanged") {
     val original = new GlutenException(overflow)
     val error = intercept[GlutenException] {
       iterator(original).hasNext()
     }
-    assert(error.getCause eq original)
+    assert(error eq original)
   }
 
-  test("unknown native cast reasons keep the existing GlutenException fallback") {
+  test("unrecognized native cast metadata is returned unchanged") {
     val original =
       new NativeCastException("unknown".getBytes(UTF_8), "native trace".getBytes(UTF_8))
+    val error = intercept[NativeCastException] {
+      iterator(original).next()
+    }
+    assert(error eq original)
+  }
+
+  test("raw exceptions are still wrapped with their original cause") {
+    val original = new IllegalArgumentException(overflow)
     val error = intercept[GlutenException] {
       iterator(original).next()
     }
-    assert(error.getClass == classOf[GlutenException])
     assert(error.getCause eq original)
   }
 
-  test("schema conversion errors still use the existing translator and preserve their cause") {
+  test("schema conversion precedes GlutenException pass-through and preserves the cause") {
     Seq("not allowed for requested type", "Not a valid type for").foreach {
       message =>
         val original = new GlutenException(message)
