@@ -110,132 +110,133 @@ class GlutenClickHouseColumnarShuffleAQESuite extends MergeTreeSuite {
   }
 
   test("GLUTEN-6768 rerorder hash join") {
-    withSQLConf(
-      (CHConfig.prefixOf("enable_reorder_hash_join_tables"), "true"),
-      ("spark.sql.adaptive.enabled", "true")) {
-      spark.sql("create table t1(a int, b int) using parquet")
-      spark.sql("create table t2(a int, b int) using parquet")
+    withTable("t1", "t2") {
+      withSQLConf(
+        (CHConfig.prefixOf("enable_reorder_hash_join_tables"), "true"),
+        ("spark.sql.adaptive.enabled", "true")) {
+        spark.sql("create table t1(a int, b int) using parquet")
+        spark.sql("create table t2(a int, b int) using parquet")
 
-      spark.sql("insert into t1 select id as a, id as b from range(100000)")
-      spark.sql("insert into t1 select id as a, id as b from range(100)")
+        spark.sql("insert into t1 select id as a, id as b from range(100000)")
+        spark.sql("insert into t1 select id as a, id as b from range(100)")
 
-      def isExpectedJoinNode(plan: SparkPlan, joinType: JoinType, buildSide: BuildSide): Boolean = {
-        plan match {
-          case join: CHShuffledHashJoinExecTransformer =>
-            join.joinType == joinType && join.buildSide == buildSide
-          case _ => false
+        def isExpectedJoinNode(
+            plan: SparkPlan,
+            joinType: JoinType,
+            buildSide: BuildSide): Boolean = {
+          plan match {
+            case join: CHShuffledHashJoinExecTransformer =>
+              join.joinType == joinType && join.buildSide == buildSide
+            case _ => false
+          }
         }
+
+        def collectExpectedJoinNode(
+            plan: SparkPlan,
+            joinType: JoinType,
+            buildSide: BuildSide): Seq[SparkPlan] = {
+          if (isExpectedJoinNode(plan, joinType, buildSide)) {
+            Seq(plan) ++ plan.children.flatMap(collectExpectedJoinNode(_, joinType, buildSide))
+          } else {
+            plan.children.flatMap(collectExpectedJoinNode(_, joinType, buildSide))
+          }
+        }
+
+        var sql =
+          """
+            |select * from t2 left join t1 on t1.a = t2.a
+            |""".stripMargin
+        compareResultsAgainstVanillaSpark(
+          sql,
+          true,
+          {
+            df =>
+              val joins = df.queryExecution.executedPlan.collect {
+                case adpativeNode: AdaptiveSparkPlanExec =>
+                  collectExpectedJoinNode(adpativeNode.executedPlan, RightOuter, BuildRight)
+                case _ => Seq()
+              }
+              assert(joins.size == 1)
+          }
+        )
+
+        sql = """
+                |select * from t2 right join t1 on t1.a = t2.a
+                |""".stripMargin
+        compareResultsAgainstVanillaSpark(
+          sql,
+          true,
+          {
+            df =>
+              val joins = df.queryExecution.executedPlan.collect {
+                case adpativeNode: AdaptiveSparkPlanExec =>
+                  collectExpectedJoinNode(adpativeNode.executedPlan, LeftOuter, BuildRight)
+                case _ => Seq()
+              }
+              assert(joins.size == 1)
+          }
+        )
+
+        sql = """
+                |select * from t1 right join t2 on t1.a = t2.a
+                |""".stripMargin
+        compareResultsAgainstVanillaSpark(
+          sql,
+          true,
+          {
+            df =>
+              val joins = df.queryExecution.executedPlan.collect {
+                case adpativeNode: AdaptiveSparkPlanExec =>
+                  collectExpectedJoinNode(adpativeNode.executedPlan, RightOuter, BuildRight)
+                case _ => Seq()
+              }
+              assert(joins.size == 1)
+          }
+        )
       }
-
-      def collectExpectedJoinNode(
-          plan: SparkPlan,
-          joinType: JoinType,
-          buildSide: BuildSide): Seq[SparkPlan] = {
-        if (isExpectedJoinNode(plan, joinType, buildSide)) {
-          Seq(plan) ++ plan.children.flatMap(collectExpectedJoinNode(_, joinType, buildSide))
-        } else {
-          plan.children.flatMap(collectExpectedJoinNode(_, joinType, buildSide))
-        }
-      }
-
-      var sql =
-        """
-          |select * from t2 left join t1 on t1.a = t2.a
-          |""".stripMargin
-      compareResultsAgainstVanillaSpark(
-        sql,
-        true,
-        {
-          df =>
-            val joins = df.queryExecution.executedPlan.collect {
-              case adpativeNode: AdaptiveSparkPlanExec =>
-                collectExpectedJoinNode(adpativeNode.executedPlan, RightOuter, BuildRight)
-              case _ => Seq()
-            }
-            assert(joins.size == 1)
-        }
-      )
-
-      sql = """
-              |select * from t2 right join t1 on t1.a = t2.a
-              |""".stripMargin
-      compareResultsAgainstVanillaSpark(
-        sql,
-        true,
-        {
-          df =>
-            val joins = df.queryExecution.executedPlan.collect {
-              case adpativeNode: AdaptiveSparkPlanExec =>
-                collectExpectedJoinNode(adpativeNode.executedPlan, LeftOuter, BuildRight)
-              case _ => Seq()
-            }
-            assert(joins.size == 1)
-        }
-      )
-
-      sql = """
-              |select * from t1 right join t2 on t1.a = t2.a
-              |""".stripMargin
-      compareResultsAgainstVanillaSpark(
-        sql,
-        true,
-        {
-          df =>
-            val joins = df.queryExecution.executedPlan.collect {
-              case adpativeNode: AdaptiveSparkPlanExec =>
-                collectExpectedJoinNode(adpativeNode.executedPlan, RightOuter, BuildRight)
-              case _ => Seq()
-            }
-            assert(joins.size == 1)
-        }
-      )
-
-      spark.sql("drop table t1")
-      spark.sql("drop table t2")
     }
   }
 
   test("GLUTEN-6768 change mixed join condition into multi join on clauses") {
-    withSQLConf(
-      (CHConfig.runtimeConfig("prefer_multi_join_on_clauses"), "true"),
-      (CHConfig.runtimeConfig("multi_join_on_clauses_build_side_row_limit"), "1000000")
-    ) {
+    withTable("t1", "t2") {
+      withSQLConf(
+        (CHConfig.runtimeConfig("prefer_multi_join_on_clauses"), "true"),
+        (CHConfig.runtimeConfig("multi_join_on_clauses_build_side_row_limit"), "1000000")
+      ) {
 
-      spark.sql("create table t1(a int, b int, c int, d int) using parquet")
-      spark.sql("create table t2(a int, b int, c int, d int) using parquet")
+        spark.sql("create table t1(a int, b int, c int, d int) using parquet")
+        spark.sql("create table t2(a int, b int, c int, d int) using parquet")
 
-      spark.sql("""
-                  |insert into t1
-                  |select id % 2 as a, id as b, id + 1 as c, id + 2 as d from range(1000)
-                  |""".stripMargin)
-      spark.sql("""
-                  |insert into t2
-                  |select id % 2 as a, id as b, id + 1 as c, id + 2 as d from range(1000)
-                  |""".stripMargin)
+        spark.sql("""
+                    |insert into t1
+                    |select id % 2 as a, id as b, id + 1 as c, id + 2 as d from range(1000)
+                    |""".stripMargin)
+        spark.sql("""
+                    |insert into t2
+                    |select id % 2 as a, id as b, id + 1 as c, id + 2 as d from range(1000)
+                    |""".stripMargin)
 
-      var sql = """
-                  |select * from t1 join t2 on
-                  |t1.a = t2.a and (t1.b = t2.b or t1.c = t2.c or t1.d = t2.d)
-                  |order by t1.a, t1.b, t1.c, t1.d
-                  |""".stripMargin
-      compareResultsAgainstVanillaSpark(sql, true, { _ => })
+        var sql = """
+                    |select * from t1 join t2 on
+                    |t1.a = t2.a and (t1.b = t2.b or t1.c = t2.c or t1.d = t2.d)
+                    |order by t1.a, t1.b, t1.c, t1.d
+                    |""".stripMargin
+        compareResultsAgainstVanillaSpark(sql, true, { _ => })
 
-      sql = """
-              |select * from t1 join t2 on
-              |t1.a = t2.a and (t1.b = t2.b or t1.c = t2.c or (t1.c = t2.c and t1.d = t2.d))
-              |order by t1.a, t1.b, t1.c, t1.d
-              |""".stripMargin
-      compareResultsAgainstVanillaSpark(sql, true, { _ => })
+        sql = """
+                |select * from t1 join t2 on
+                |t1.a = t2.a and (t1.b = t2.b or t1.c = t2.c or (t1.c = t2.c and t1.d = t2.d))
+                |order by t1.a, t1.b, t1.c, t1.d
+                |""".stripMargin
+        compareResultsAgainstVanillaSpark(sql, true, { _ => })
 
-      sql = """
-              |select * from t1 join t2 on
-              |t1.a = t2.a and (t1.b = t2.b or t1.c = t2.c or (t1.d = t2.d and t1.c >= t2.c))
-              |order by t1.a, t1.b, t1.c, t1.d
-              |""".stripMargin
-      compareResultsAgainstVanillaSpark(sql, true, { _ => })
-
-      spark.sql("drop table t1")
-      spark.sql("drop table t2")
+        sql = """
+                |select * from t1 join t2 on
+                |t1.a = t2.a and (t1.b = t2.b or t1.c = t2.c or (t1.d = t2.d and t1.c >= t2.c))
+                |order by t1.a, t1.b, t1.c, t1.d
+                |""".stripMargin
+        compareResultsAgainstVanillaSpark(sql, true, { _ => })
+      }
     }
   }
 

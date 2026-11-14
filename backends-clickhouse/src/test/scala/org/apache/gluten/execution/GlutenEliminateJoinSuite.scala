@@ -501,109 +501,97 @@ class GlutenEliminateJoinSuite extends GlutenClickHouseWholeStageTransformerSuit
 
   // Ensure the isAnyJoin will never lost after apply other rules
   test("lost any join setting") {
-    spark.sql("drop table if exists t_9267_1")
-    spark.sql("drop table if exists t_9267_2")
-    spark.sql("create table t_9267_1 (a bigint, b bigint) using parquet")
-    spark.sql("create table t_9267_2 (a bigint, b bigint) using parquet")
-    spark.sql("insert into t_9267_1 select id as a, id as b from range(20000000)")
-    spark.sql("insert into t_9267_2 select id as a, id as b from range(5000000)")
-    spark.sql("insert into t_9267_2 select id as a, id as b from range(5000000)")
+    withTable("t_9267_1", "t_9267_2") {
+      spark.sql("create table t_9267_1 (a bigint, b bigint) using parquet")
+      spark.sql("create table t_9267_2 (a bigint, b bigint) using parquet")
+      spark.sql("insert into t_9267_1 select id as a, id as b from range(20000000)")
+      spark.sql("insert into t_9267_2 select id as a, id as b from range(5000000)")
+      spark.sql("insert into t_9267_2 select id as a, id as b from range(5000000)")
 
-    val sql =
-      """
-        |select count(1) as n1, count(a1, b1, a2) as n2 from(
-        |  select t1.a as a1, t1.b as b1, t2.a as a2 from (
-        |    select * from t_9267_1 where a >= 0 and b < 100000000 and b >= 0
-        |  ) t1 left join (
-        |    select a, b from t_9267_2 group by a, b
-        |  ) t2 on t1.a = t2.a and t1.b = t2.b
-        |)""".stripMargin
-    compareResultsAgainstVanillaSpark(
-      sql,
-      true,
-      {
-        df =>
-          val joins = df.queryExecution.executedPlan.collect {
-            case join: ShuffledHashJoinExecTransformerBase => join
-          }
-          assert(joins.length == 1)
-      })
-
-    spark.sql("drop table t_9267_1")
-    spark.sql("drop table t_9267_2")
+      val sql =
+        """
+          |select count(1) as n1, count(a1, b1, a2) as n2 from(
+          |  select t1.a as a1, t1.b as b1, t2.a as a2 from (
+          |    select * from t_9267_1 where a >= 0 and b < 100000000 and b >= 0
+          |  ) t1 left join (
+          |    select a, b from t_9267_2 group by a, b
+          |  ) t2 on t1.a = t2.a and t1.b = t2.b
+          |)""".stripMargin
+      compareResultsAgainstVanillaSpark(
+        sql,
+        true,
+        {
+          df =>
+            val joins = df.queryExecution.executedPlan.collect {
+              case join: ShuffledHashJoinExecTransformerBase => join
+            }
+            assert(joins.length == 1)
+        })
+    }
   }
 
   test("build left side") {
-    spark.sql("drop table if exists t_9267_1")
-    spark.sql("drop table if exists t_9267_2")
-    spark.sql("create table t_9267_1 (a bigint, b bigint) using parquet")
-    spark.sql("create table t_9267_2 (a bigint, b bigint) using parquet")
-    spark.sql("insert into t_9267_1 select id as a, id as b from range(2000000)")
-    spark.sql("insert into t_9267_2 select id as a, id as b from range(500000)")
-    spark.sql("insert into t_9267_2 select id as a, id as b from range(500000)")
+    withTable("t_9267_1", "t_9267_2") {
+      spark.sql("create table t_9267_1 (a bigint, b bigint) using parquet")
+      spark.sql("create table t_9267_2 (a bigint, b bigint) using parquet")
+      spark.sql("insert into t_9267_1 select id as a, id as b from range(2000000)")
+      spark.sql("insert into t_9267_2 select id as a, id as b from range(500000)")
+      spark.sql("insert into t_9267_2 select id as a, id as b from range(500000)")
 
-    // left table is smaller, it will be used as the build side.
-    val sql =
-      """
-        |select count(1) as n1, count(a1, b1, a2) as n2 from(
-        |  select t1.a as a1, t1.b as b1, t2.a as a2 from (
-        |    select a, b from t_9267_2 group by a, b
-        |  ) t1 left join (
-        |    select * from t_9267_1 where a >= 0 and b != 100000000 and b >= 0
-        |  ) t2 on t1.a = t2.a and t1.b = t2.b
-        |)""".stripMargin
-    compareResultsAgainstVanillaSpark(
-      sql,
-      true,
-      {
-        df =>
-          val joins = df.queryExecution.executedPlan.collect {
-            case join: ShuffledHashJoinExecTransformerBase => join
-          }
-          assert(joins.length == 1)
-      })
-
-    spark.sql("drop table t_9267_1")
-    spark.sql("drop table t_9267_2")
+      // left table is smaller, it will be used as the build side.
+      val sql =
+        """
+          |select count(1) as n1, count(a1, b1, a2) as n2 from(
+          |  select t1.a as a1, t1.b as b1, t2.a as a2 from (
+          |    select a, b from t_9267_2 group by a, b
+          |  ) t1 left join (
+          |    select * from t_9267_1 where a >= 0 and b != 100000000 and b >= 0
+          |  ) t2 on t1.a = t2.a and t1.b = t2.b
+          |)""".stripMargin
+      compareResultsAgainstVanillaSpark(
+        sql,
+        true,
+        {
+          df =>
+            val joins = df.queryExecution.executedPlan.collect {
+              case join: ShuffledHashJoinExecTransformerBase => join
+            }
+            assert(joins.length == 1)
+        })
+    }
   }
 
   test("right keys are in used") {
-    spark.sql("drop table if exists t_join_1")
-    spark.sql("drop table if exists t_join_2")
-    spark.sql("drop table if exists t_join_3")
+    withTable("t_join_1", "t_join_2", "t_join_3") {
+      spark.sql("create table t_join_1 (a bigint, b bigint) using parquet")
+      spark.sql("create table t_join_2 (a bigint, b bigint) using parquet")
+      spark.sql("create table t_join_3 (a bigint, b bigint) using parquet")
 
-    spark.sql("create table t_join_1 (a bigint, b bigint) using parquet")
-    spark.sql("create table t_join_2 (a bigint, b bigint) using parquet")
-    spark.sql("create table t_join_3 (a bigint, b bigint) using parquet")
+      spark.sql("insert into t_join_1 select id % 10 as a, id as b from range(10)")
+      spark.sql("insert into t_join_2 select id % 7 as a, id as b from range(20)")
+      spark.sql("insert into t_join_3 select id % 10 as a, id as b from range(20)")
 
-    spark.sql("insert into t_join_1 select id % 10 as a, id as b from range(10)")
-    spark.sql("insert into t_join_2 select id % 7 as a, id as b from range(20)")
-    spark.sql("insert into t_join_3 select id % 10 as a, id as b from range(20)")
-
-    val sql =
-      """
-        |select a1, b, a2, a3, s2, s3 from (
-        |  select a as a1, b from t_join_1
-        |) t1 left join (
-        |  select a as a2, sum(b) as s2 from t_join_2 group by a
-        |) t2 on a1 = a2 left join (
-        |  select a as a3, sum(b) as s3 from t_join_3 group by a
-        |) t3 on a1 = a3
-        |order by a1, b, a2, a3, s2, s3
-        |""".stripMargin
-    compareResultsAgainstVanillaSpark(
-      sql,
-      true,
-      {
-        df =>
-          val joins = df.queryExecution.executedPlan.collect {
-            case join: ShuffledHashJoinExecTransformerBase => join
-          }
-          assert(joins.length == 1)
-      })
-
-    spark.sql("drop table t_join_1")
-    spark.sql("drop table t_join_2")
-    spark.sql("drop table t_join_3")
+      val sql =
+        """
+          |select a1, b, a2, a3, s2, s3 from (
+          |  select a as a1, b from t_join_1
+          |) t1 left join (
+          |  select a as a2, sum(b) as s2 from t_join_2 group by a
+          |) t2 on a1 = a2 left join (
+          |  select a as a3, sum(b) as s3 from t_join_3 group by a
+          |) t3 on a1 = a3
+          |order by a1, b, a2, a3, s2, s3
+          |""".stripMargin
+      compareResultsAgainstVanillaSpark(
+        sql,
+        true,
+        {
+          df =>
+            val joins = df.queryExecution.executedPlan.collect {
+              case join: ShuffledHashJoinExecTransformerBase => join
+            }
+            assert(joins.length == 1)
+        })
+    }
   }
 }
