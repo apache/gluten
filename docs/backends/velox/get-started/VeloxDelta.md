@@ -388,7 +388,7 @@ Delta data files are Parquet, and Gluten reads them with Velox's Parquet reader.
 | Nested field names | Lowercased below the top level when `spark.sql.caseSensitive=false`. Spark and Gluten match them case-insensitively. A case-sensitive reader can miss them. From code. |
 | Page index | Always written. From code. |
 | `spark.sql.parquet.writeLegacyFormat=true` | Applies to DECIMAL only. Arrays and maps keep the standard layout. On Spark 4.x, a write with array or map columns falls back when it is set. From code. |
-| File statistics | numRecords, min, max and nullCount are computed in Velox (checked on Spark 3.5). Gluten's tests check the values against the rows in each file on Spark 3.5 to 4.1. Most tests in Delta's data-skipping suites pass (seen on 4.1). Of the 34 that fail, 22 check statistics and expect specific rows in each file after `repartition(2)`. The other 12 hit the `_metadata.file_name` failure in [Read problems](#read-problems). |
+| File statistics | numRecords, min, max and nullCount are computed in Velox when the entire statistics plan can offload. Otherwise, Gluten converts the input batches to rows and delegates statistics to Delta, while retaining native file writing. This also applies when projection or aggregation offload is disabled ([#12538](https://github.com/apache/gluten/issues/12538)). The Spark 4.x TIMESTAMP_NTZ file-writer fallback is unchanged. Gluten's tests check the values against the rows in each file on Spark 3.5 to 4.1. Most tests in Delta's data-skipping suites pass (seen on 4.1). Of the 34 that fail, 22 check statistics and expect specific rows in each file after `repartition(2)`. The other 12 hit the `_metadata.file_name` failure in [Read problems](#read-problems). |
 | Data file paths | Come from Delta's committer, so names and random prefixes follow Delta. File names seen on 4.1, random prefixes from code. |
 
 ## SQL
@@ -457,7 +457,6 @@ These need native write on, unless a row says otherwise. On Spark 4.x, many of t
 | `maxRecordsPerFile` on an unpartitioned write counts rows but writes whole batches. When the limit is smaller than a batch, the whole batch goes into one file. The other files opened for that batch are 0-byte files that are not valid Parquet. | ResultMismatch | 3.5, from code. Spark 4.x falls back | |
 | `spark.sql.maxConcurrentOutputFileWriters` above 0 makes a partitioned write with unsorted input fail with `Underlying columnar data is inaccessible from BatchCarrierRow`. | Exception | 3.5, from code. Spark 4.x falls back | |
 | An unpartitioned native write whose first task gets no rows, for example a write of an empty DataFrame, leaves a 0-byte file that is not valid Parquet. Reading the table directory as plain Parquet can then fail with `is not a Parquet file (length is too low: 0)`. With statistics on, the file stays on disk until `VACUUM`. With `spark.databricks.delta.stats.collect=false`, Delta commits it. The last two sentences are from code. | ResultMismatch | 3.5 and 4.x, seen on 4.1 | |
-| A statistics aggregation that Velox cannot offload fails the write with `ClassCastException`. With the default `spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation=false`, the TIMESTAMP_NTZ case from the issue no longer fails on main. Tested on Spark 3.5, seen on 4.1, from code on 4.0. On Spark 3.5 with that option set to true, the TIMESTAMP_NTZ case still fails (from code). | Exception | 3.5 and 4.x, from code | [#12538](https://github.com/apache/gluten/issues/12538) |
 
 ### MERGE, UPDATE and DELETE problems
 
@@ -541,7 +540,7 @@ A blank cell means unknown.
 | spark.sql.caseSensitive | false | When false, native writes lowercase nested struct field names. From code. | ⚠️ |
 | spark.sql.sources.partitionOverwriteMode | STATIC | With native write on, Velox writes the files of a dynamic overwrite through `save(path)` (from code). The results are correct (seen on 4.1). | ✅ |
 | spark.databricks.delta.deletionVectors.useMetadataRowIndex | true | When false, scans that read Delta's generated deletion vector columns fall back. See [Deletion vectors](#deletion-vectors). | ⚠️ |
-| spark.databricks.delta.stats.collect | true | Native writes compute file statistics in Velox (checked on Spark 3.5). See [Write problems](#write-problems). | ⚠️ |
+| spark.databricks.delta.stats.collect | true | Native writes compute file statistics in Velox when supported, otherwise through Delta's row-based tracker with columnar-to-row conversion. See [Natively written files](#natively-written-files) and [Write problems](#write-problems). | ⚠️ |
 | spark.databricks.delta.stats.skipping | true | Delta skips files by statistics before the scan runs. The scan offloads either way. When false, Delta Lake rejects reads of a table with deletion vectors (seen on 4.1, see [Deletion vectors](#deletion-vectors)). | 🚫 |
 | spark.databricks.delta.optimizeWrite.enabled | (unset) | Native writes run the optimized write shuffle in Velox (from code). File counts match Delta Lake (seen on 4.1). | ✅ |
 | spark.databricks.delta.optimizeWrite.binSize | 512 (MiB) | Used by the native optimized write shuffle. From code. | ✅ |
