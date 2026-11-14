@@ -56,7 +56,8 @@ public class HashJoinBuilder implements RuntimeAware {
 
   public native long nativeBuild(
       String buildHashTableId,
-      long[] batchHandlers,
+      ColumnarBatchInIterator batchIterator,
+      boolean streamBuildInput,
       String[] joinKeys,
       String[] filterBuildColumns,
       boolean filterPropagatesNulls,

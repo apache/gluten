@@ -956,11 +956,7 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     numOutputRows += buildSideRowCount
     dataSize += rawSize
 
-    val rawThreads =
-      math
-        .ceil(dataSize.value.toDouble / VeloxConfig.get.veloxBroadcastHashTableBuildTargetBytes)
-        .toInt
-    val buildThreadsValue = if (rawThreads < 1) 1 else rawThreads
+    val buildThreadsValue = VeloxConfig.get.broadcastHashTableBuildThreads(dataSize.value)
     buildThreads += buildThreadsValue
 
     // Create the base ColumnarBuildSideRelation first

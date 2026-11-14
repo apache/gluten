@@ -18,15 +18,15 @@ package org.apache.spark.sql.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.columnarbatch.ColumnarBatches
-import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.execution.BroadcastHashJoinContext
 import org.apache.gluten.expression.ConverterUtils
 import org.apache.gluten.expression.ExpressionUtils
 import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
-import org.apache.gluten.runtime.Runtimes
+import org.apache.gluten.runtime.{Runtime, Runtimes}
 import org.apache.gluten.utils.{ArrowAbiUtil, SubstraitUtil}
-import org.apache.gluten.vectorized.{ColumnarBatchSerializerJniWrapper, HashJoinBuilder, NativeColumnarToRowInfo, NativeColumnarToRowJniWrapper}
+import org.apache.gluten.vectorized.{ColumnarBatchInIterator, ColumnarBatchSerializerJniWrapper, HashJoinBuilder, NativeColumnarToRowInfo, NativeColumnarToRowJniWrapper}
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
@@ -45,7 +45,7 @@ import java.util.Collections
 
 import scala.collection.JavaConverters._
 import scala.collection.JavaConverters.asScalaIteratorConverter
-import scala.collection.mutable.{ArrayBuffer, Map}
+import scala.collection.mutable.Map
 
 object ColumnarBuildSideRelation {
   // Keep constructor with BroadcastMode for compatibility
@@ -127,6 +127,10 @@ case class ColumnarBuildSideRelation(
         "BuildSideRelation#deserialized",
         Collections.singletonMap(GlutenConfig.COLUMNAR_CUDF_ENABLED.key, cudfEnabled.toString)
       )
+    deserialized(runtime)
+  }
+
+  private def deserialized(runtime: Runtime): Iterator[ColumnarBatch] = {
     val jniWrapper = ColumnarBatchSerializerJniWrapper.create(runtime)
     val serializeHandle: Long = {
       val allocator = ArrowBufferAllocators.contextInstance()
@@ -171,131 +175,35 @@ case class ColumnarBuildSideRelation(
   private val hashTableData = Map.empty[Boolean, Long]
 
   def buildHashTable(
-      broadcastContext: BroadcastHashJoinContext)
-      : (Long, ColumnarBuildSideRelation, Boolean) =
-    synchronized {
-      val droppedDuplicates = broadcastContext.droppedDuplicates
-      if (!hashTableData.contains(droppedDuplicates)) {
-        val startTime = System.nanoTime()
-        val runtime = Runtimes.contextInstance(
-          BackendsApiManager.getBackendName,
-          "ColumnarBuildSideRelation#buildHashTable")
-        val jniWrapper = ColumnarBatchSerializerJniWrapper.create(runtime)
-        val serializeHandle: Long = {
-          val allocator = ArrowBufferAllocators.contextInstance()
-          val cSchema = ArrowSchema.allocateNew(allocator)
-          val arrowSchema = SparkArrowUtil.toArrowSchema(
-            ExpressionUtils.structFromAttributes(output),
-            SQLConf.get.sessionLocalTimeZone)
-          ArrowAbiUtil.exportSchema(allocator, arrowSchema, cSchema)
-          val handle = jniWrapper
-            .init(cSchema.memoryAddress())
-          cSchema.close()
-          handle
-        }
+      broadcastContext: BroadcastHashJoinContext): (Long, ColumnarBuildSideRelation, Boolean) =
+    buildHashTableInternal(
+      broadcastContext,
+      Runtimes.contextInstance(
+        BackendsApiManager.getBackendName,
+        "ColumnarBuildSideRelation#buildHashTable"
+      )
+    )
 
-        val batchArray = new ArrayBuffer[Long]
-
-        var batchId = 0
-        while (batchId < batches.size) {
-          batchArray.append(jniWrapper.deserialize(serializeHandle, batches(batchId)))
-          batchId += 1
-        }
-
-        logDebug(
-          s"BHJ value size: " +
-            s"${broadcastContext.buildHashTableId} = ${batches.length}")
-
-        val (keys, newOutput) = if (newBuildKeys.isEmpty) {
-          (
-            broadcastContext.buildSideJoinKeys.asJava,
-            broadcastContext.buildSideStructure.asJava
-          )
-        } else {
-          (
-            newBuildKeys.asJava,
-            output.asJava
-          )
-        }
-
-        val outputByExprId = newOutput.asScala.map(attr => attr.exprId -> attr).toMap
-        val joinKeys = keys.asScala.map {
-          key =>
-            val attr = ConverterUtils.getAttrFromExpr(key)
-            val outputAttr = outputByExprId.getOrElse(attr.exprId, attr)
-            ConverterUtils.genColumnNameWithExprId(outputAttr)
-        }.toArray
-
-        val hashJoinBuilder = HashJoinBuilder.create(runtime)
-
-        try {
-          // Build the hash table
-          hashTableData(droppedDuplicates) = hashJoinBuilder
-            .nativeBuild(
-              broadcastContext.buildHashTableId,
-              batchArray.toArray,
-              joinKeys,
-              broadcastContext.filterBuildColumns,
-              broadcastContext.filterPropagatesNulls,
-              broadcastContext.substraitJoinType.ordinal(),
-              broadcastContext.hasMixedFiltCondition,
-              broadcastContext.isExistenceJoin,
-              SubstraitUtil.toNameStruct(newOutput).toByteArray,
-              broadcastContext.isNullAwareAntiJoin,
-              broadcastContext.bloomFilterPushdownSize,
-              buildThreads
-            )
-        } finally {
-          jniWrapper.close(serializeHandle)
-        }
-
-        // Update build hash table time metric
-        val elapsedTime = System.nanoTime() - startTime
-        broadcastContext.buildHashTableTimeMetric.foreach(_ += elapsedTime / 1000000)
-
-        (hashTableData(droppedDuplicates), this, droppedDuplicates)
-      } else {
-        (
-          HashJoinBuilder.cloneHashTable(
-            broadcastContext.buildHashTableId,
-            hashTableData(droppedDuplicates)),
-          null,
-          droppedDuplicates)
-      }
-    }
-
-  /**
-   * Build hash table with provided runtime (for driver-side build). This version doesn't rely on
-   * TaskContext and can be called from the driver.
-   */
+  /** Build hash table with provided runtime (for driver-side build). */
   def buildHashTableWithRuntime(
       broadcastContext: BroadcastHashJoinContext,
-      runtime: org.apache.gluten.runtime.Runtime): (Long, ColumnarBuildSideRelation, Boolean) =
+      runtime: Runtime): (Long, ColumnarBuildSideRelation, Boolean) =
+    buildHashTableInternal(broadcastContext, runtime)
+
+  private def buildHashTableInternal(
+      broadcastContext: BroadcastHashJoinContext,
+      runtime: => Runtime): (Long, ColumnarBuildSideRelation, Boolean) =
     synchronized {
       val droppedDuplicates = broadcastContext.droppedDuplicates
       if (!hashTableData.contains(droppedDuplicates)) {
         val startTime = System.nanoTime()
-        val jniWrapper = ColumnarBatchSerializerJniWrapper.create(runtime)
-        val serializeHandle: Long = {
-          val allocator = ArrowBufferAllocators.globalInstance()
-          val cSchema = ArrowSchema.allocateNew(allocator)
-          val arrowSchema = SparkArrowUtil.toArrowSchema(
-            ExpressionUtils.structFromAttributes(output),
-            SQLConf.get.sessionLocalTimeZone)
-          ArrowAbiUtil.exportSchema(allocator, arrowSchema, cSchema)
-          val handle = jniWrapper
-            .init(cSchema.memoryAddress())
-          cSchema.close()
-          handle
-        }
-
-        val batchArray = new ArrayBuffer[Long]
-
-        var batchId = 0
-        while (batchId < batches.size) {
-          batchArray.append(jniWrapper.deserialize(serializeHandle, batches(batchId)))
-          batchId += 1
-        }
+        val buildRuntime = runtime
+        val streamBuildInput = VeloxConfig.get.broadcastBuildInputStreamingEnabled
+        // Streaming input is consumed by a single builder. `buildThreads` was computed when this
+        // relation was created on the driver, while the streaming flag is a session-level conf that
+        // can be flipped afterwards, so the two may disagree for a reused relation. Always derive
+        // the thread count from the flag that the native build will actually see.
+        val numBuildThreads = if (streamBuildInput) 1 else buildThreads
 
         logDebug(
           s"BHJ value size: " +
@@ -321,28 +229,30 @@ case class ColumnarBuildSideRelation(
             ConverterUtils.genColumnNameWithExprId(outputAttr)
         }.toArray
 
-        val hashJoinBuilder = HashJoinBuilder.create(runtime)
+        val hashJoinBuilder = HashJoinBuilder.create(buildRuntime)
 
-        try {
-          // Build the hash table
-          hashTableData(droppedDuplicates) = hashJoinBuilder
-            .nativeBuild(
-              broadcastContext.buildHashTableId,
-              batchArray.toArray,
-              joinKeys,
-              broadcastContext.filterBuildColumns,
-              broadcastContext.filterPropagatesNulls,
-              broadcastContext.substraitJoinType.ordinal(),
-              broadcastContext.hasMixedFiltCondition,
-              broadcastContext.isExistenceJoin,
-              SubstraitUtil.toNameStruct(newOutput).toByteArray,
-              broadcastContext.isNullAwareAntiJoin,
-              broadcastContext.bloomFilterPushdownSize,
-              buildThreads
-            )
-        } finally {
-          jniWrapper.close(serializeHandle)
-        }
+        val batchIterator =
+          new ColumnarBatchInIterator(
+            BackendsApiManager.getBackendName,
+            deserialized(buildRuntime).asJava)
+
+        // Build the hash table
+        hashTableData(droppedDuplicates) = hashJoinBuilder
+          .nativeBuild(
+            broadcastContext.buildHashTableId,
+            batchIterator,
+            streamBuildInput,
+            joinKeys,
+            broadcastContext.filterBuildColumns,
+            broadcastContext.filterPropagatesNulls,
+            broadcastContext.substraitJoinType.ordinal(),
+            broadcastContext.hasMixedFiltCondition,
+            broadcastContext.isExistenceJoin,
+            SubstraitUtil.toNameStruct(newOutput).toByteArray,
+            broadcastContext.isNullAwareAntiJoin,
+            broadcastContext.bloomFilterPushdownSize,
+            numBuildThreads
+          )
 
         // Update build hash table time metric
         val elapsedTime = System.nanoTime() - startTime

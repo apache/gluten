@@ -70,6 +70,17 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def broadcastBuildMergeBatches: Boolean =
     getConf(VELOX_BROADCAST_BUILD_MERGE_BATCHES)
 
+  def broadcastBuildInputStreamingEnabled: Boolean =
+    getConf(VELOX_BROADCAST_BUILD_INPUT_STREAMING_ENABLED)
+
+  def broadcastHashTableBuildThreads(dataSize: Long): Int = {
+    if (broadcastBuildInputStreamingEnabled) {
+      1
+    } else {
+      math.max(1, math.ceil(dataSize.toDouble / veloxBroadcastHashTableBuildTargetBytes).toInt)
+    }
+  }
+
   // A hash table built once per executor reaches the native join through a process local cache
   // rather than through the build side input iterator, so a dumped stage could not be replayed by
   // the micro benchmark. Dumping therefore always builds the hash table per task.
@@ -810,6 +821,15 @@ object VeloxConfig extends ConfigRegistry {
           "HashBuild operator. This can significantly improve BHJ performance when " +
           "the broadcast table has many small batches, but may increase driver-side " +
           "peak memory and is not suitable for very large broadcasts.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val VELOX_BROADCAST_BUILD_INPUT_STREAMING_ENABLED =
+    buildConf("spark.gluten.velox.broadcastBuild.inputStreaming.enabled")
+      .doc(
+        "If enabled, deserialize broadcast build input batches on demand and pass each batch to " +
+          "addInput instead of preloading all batches. Forces a single build thread; final " +
+          "join-table preparation is unchanged.")
       .booleanConf
       .createWithDefault(false)
 

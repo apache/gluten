@@ -973,7 +973,8 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
     JNIEnv* env,
     jobject wrapper,
     jstring tableId,
-    jlongArray batchHandles,
+    jobject batchIterator,
+    jboolean streamBuildInput,
     jobjectArray joinKeys,
     jobjectArray filterBuildColumns,
     jboolean filterPropagatesNulls,
@@ -1036,16 +1037,32 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
     names.emplace_back(name);
   }
 
-  std::vector<std::shared_ptr<ColumnarBatch>> cb;
-  int handleCount = env->GetArrayLength(batchHandles);
-  auto safeArray = getLongArrayElementsSafe(env, batchHandles);
-  for (int i = 0; i < handleCount; ++i) {
-    int64_t handle = safeArray.elems()[i];
-    cb.push_back(ObjectStore::retrieve<ColumnarBatch>(handle));
+  // Streaming input is consumed by a single builder. The requested thread count is computed on the
+  // driver when the build side relation is created, so it may disagree with the streaming flag that
+  // is read at build time. Fall back to a single thread instead of failing the query.
+  if (streamBuildInput && numThreads != 1) {
+    LOG(WARNING) << "Streaming broadcast build input requires a single build thread, ignoring the " << numThreads
+                 << " requested build threads.";
+    numThreads = 1;
+  }
+  auto input = makeJniColumnarBatchIterator(env, batchIterator, ctx);
+  std::vector<std::shared_ptr<ColumnarBatch>> batches;
+  if (!streamBuildInput) {
+    while (auto batch = input->next()) {
+      batches.push_back(std::move(batch));
+    }
   }
 
   auto* executor = VeloxBackend::get()->broadcastHashTableBuildExecutor();
   if (numThreads == 1 || executor == nullptr) {
+    size_t batchIndex = 0;
+    auto nextBatch = [&]() -> std::shared_ptr<ColumnarBatch> {
+      if (streamBuildInput) {
+        return input->next();
+      }
+      return batchIndex < batches.size() ? batches[batchIndex++] : nullptr;
+    };
+
     // Allocate the hash table from the backend-global memory pool because it may outlive the runtime that initiated the
     // build. Driver-side builds are serialized for broadcast, while executor-side builds may be cached and reused
     // across tasks.
@@ -1066,7 +1083,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
         joinBuildVectorHasherMaxNumDistinct,
         abandonHashBuildDedupMinRows,
         abandonHashBuildDedupMinPct,
-        cb,
+        nextBatch,
         memoryPool);
 
     auto mainTable = builder->uniqueTable();
@@ -1096,16 +1113,15 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
   futures.reserve(numThreads);
 
   for (size_t t = 0; t < numThreads; ++t) {
-    size_t start = (handleCount * t) / numThreads;
-    size_t end = (handleCount * (t + 1)) / numThreads;
+    size_t start = (batches.size() * t) / numThreads;
+    size_t end = (batches.size() * (t + 1)) / numThreads;
 
     // Submit task to thread pool
     auto future = folly::via(executor, [&, t, start, end]() {
-      std::vector<std::shared_ptr<gluten::ColumnarBatch>> threadBatches;
-      threadBatches.reserve(end - start);
-      for (size_t i = start; i < end; ++i) {
-        threadBatches.push_back(cb[i]);
-      }
+      size_t batchIndex = start;
+      auto nextBatch = [&]() -> std::shared_ptr<ColumnarBatch> {
+        return batchIndex < end ? batches[batchIndex++] : nullptr;
+      };
 
       // Allocate the hash table from the backend-global memory pool because it may outlive the runtime that initiated
       // the build. Driver-side builds are serialized for broadcast, while executor-side builds may be cached and reused
@@ -1127,7 +1143,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
           joinBuildVectorHasherMaxNumDistinct,
           abandonHashBuildDedupMinRows,
           abandonHashBuildDedupMinPct,
-          threadBatches,
+          nextBatch,
           threadMemoryPool);
 
       hashTableBuilders[t] = std::move(builder);

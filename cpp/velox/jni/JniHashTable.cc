@@ -79,7 +79,7 @@ std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
     uint32_t joinBuildVectorHasherMaxNumDistinct,
     uint32_t abandonHashBuildDedupMinRows,
     uint32_t abandonHashBuildDedupMinPct,
-    std::vector<std::shared_ptr<ColumnarBatch>>& batches,
+    const std::function<std::shared_ptr<ColumnarBatch>()>& nextBatch,
     std::shared_ptr<facebook::velox::memory::MemoryPool> memoryPool) {
   auto rowType = std::make_shared<facebook::velox::RowType>(std::move(names), std::move(veloxTypeList));
 
@@ -156,8 +156,8 @@ std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
       abandonHashBuildDedupMinRows,
       abandonHashBuildDedupMinPct);
 
-  for (auto i = 0; i < batches.size(); i++) {
-    auto rowVector = VeloxColumnarBatch::from(memoryPool.get(), batches[i])->getRowVector();
+  while (auto batch = nextBatch()) {
+    auto rowVector = VeloxColumnarBatch::from(memoryPool.get(), batch)->getRowVector();
     hashTableBuilder->addInput(rowVector);
     if (hashTableBuilder->noMoreInput()) {
       break;
