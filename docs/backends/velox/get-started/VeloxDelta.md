@@ -194,7 +194,7 @@ metadata. Enabling the feature does not rewrite older files. Column mapping and 
 still fall back as described above.
 
 Using the native writer for default partitioned tables also exposes existing limitations that
-fallback previously hid: CHECK and NOT NULL violations can lose Delta's exception type across
+fallback previously hid: CHECK and `replaceWhere` violations can lose Delta's exception type across
 JNI, and paths unsupported by the native writer can fail at task time. Constraints are still
 enforced and rejected writes commit nothing. See [Error types](#error-types) and
 [Write problems](#write-problems); native write can be disabled for affected workloads.
@@ -520,7 +520,7 @@ These operations fail as in Delta Lake, with a different exception type or error
 For errors raised on the JVM, the message of the exception raised in the task stays in the `GlutenException` message. For a `replaceWhere` violation, that is the CHECK constraint message. The `DELTA_REPLACE_WHERE_MISMATCH` line that Delta Lake puts before it, `Written data does not conform to partial table overwrite condition or constraint`, is missing. The lost exception types are tracked in [#11912](https://github.com/apache/gluten/issues/11912). On unpartitioned `save(path)` writes without optimized write, CHECK and NOT NULL violations keep Delta Lake's exception types. NOT NULL violations keep it on partitioned and optimized writes too: Gluten finds the violation's text in the `GlutenException` message and raises Delta Lake's exception. Gluten's tests check this when Gluten checks the Velox batches (Spark 3.5 to 4.2). When Delta checks the rows, it was seen on 4.1. Gluten's tests check NOT NULL on Spark 3.5 and 4.0, and Delta Lake's NOT NULL tests pass (seen on 4.1). The CHECK case is from code.
 
 Default Delta 4.4 partitioned writes now use the native path when otherwise eligible, so these
-CHECK and NOT NULL exception-type differences apply without explicitly enabling a table feature.
+CHECK and `replaceWhere` exception-type differences apply without explicitly enabling a table feature.
 The generic JNI exception-preservation fix is tracked in
 [#13133](https://github.com/apache/gluten/pull/13133); materialization does not bypass constraint
 checks or allow invalid rows to commit.
