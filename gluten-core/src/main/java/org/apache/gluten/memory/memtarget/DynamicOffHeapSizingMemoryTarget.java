@@ -140,12 +140,13 @@ public class DynamicOffHeapSizingMemoryTarget implements MemoryTarget, KnownName
   // Test only.
   private static final AtomicLong TOTAL_EXPLICIT_GC_COUNT = new AtomicLong(0L);
 
-  // Package-private test hooks — the ledger-correctness tests need to observe the static
-  // counter that gates exceedsMaxMemoryUsage(), and to reset it between test methods to avoid
-  // order-dependent state leakage. Not for production use; @VisibleForTesting flags any accidental
-  // same-package caller.
+  // Test hooks — the ledger-correctness tests need to observe the static counter that gates
+  // exceedsMaxMemoryUsage(), and to reset it between test methods to avoid order-dependent state
+  // leakage. Not for production use; @VisibleForTesting flags any accidental non-test caller.
+  // The getter is public because some tests must live in org.apache.spark.* packages (Spark's
+  // MemoryManager is private[spark]) and therefore cannot reach a package-private member.
   @VisibleForTesting
-  static long usedOffHeapBytesForTesting() {
+  public static long usedOffHeapBytesForTesting() {
     return USED_OFF_HEAP_BYTES.get();
   }
 
