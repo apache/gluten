@@ -1046,6 +1046,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude(
       "SPARK-54918: array_union normalizes -0.0 to +0.0 - literals"
     ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
+    // TODO: remove after https://github.com/apache/gluten/pull/13565
+    .exclude("SPARK-54918: arrays_overlap normalizes -0.0 to +0.0")
   enableSuite[GlutenDataFrameHintSuite]
   enableSuite[GlutenDataFrameImplicitsSuite]
   enableSuite[GlutenDataFrameJoinSuite]

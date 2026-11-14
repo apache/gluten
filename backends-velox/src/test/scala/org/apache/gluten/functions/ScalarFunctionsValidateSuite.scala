@@ -1262,6 +1262,23 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  // TODO: remove the Spark 4.1 limit after https://github.com/apache/gluten/pull/13565
+  testWithMaxSparkVersion("arrays_overlap with signed zeros", "4.1") {
+    withTempPath {
+      path =>
+        Seq[(Seq[Double], Seq[Double])]((Seq(-0.0), Seq(0.0)), (Seq(-0.0, 1.0), Seq(0.0, 1.0)))
+          .toDF("v1", "v2")
+          .write
+          .parquet(path.getCanonicalPath)
+
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("double_array_tbl")
+
+        runQueryAndCompare("select arrays_overlap(v1, v2) from double_array_tbl;") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+    }
+  }
+
   test("levenshtein") {
     runQueryAndCompare("select levenshtein(c_comment, c_address) from customer limit 50") {
       checkGlutenPlan[ProjectExecTransformer]
