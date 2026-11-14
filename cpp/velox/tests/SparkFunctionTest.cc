@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "operators/functions/RegistrationAllFunctions.h"
+#include "substrait/SubstraitToVeloxPlanValidator.h"
 #include "velox/common/base/tests/GTestUtils.h"
 #include "velox/core/Expressions.h"
 #include "velox/functions/sparksql/SparkQueryConfig.h"
@@ -123,6 +124,80 @@ TEST_F(SparkFunctionTest, roundWithDecimal) {
   runRoundWithDecimalTest<int32_t>(testRoundWithDecIntegralData<int32_t>());
   runRoundWithDecimalTest<int16_t>(testRoundWithDecIntegralData<int16_t>());
   runRoundWithDecimalTest<int8_t>(testRoundWithDecIntegralData<int8_t>());
+}
+
+TEST_F(SparkFunctionTest, integralRoundUsesSessionAnsi) {
+  const auto input = makeRowVector({makeNullableFlatVector<int8_t>({127, -128, 25, -25, std::nullopt})});
+  for (const auto ansi : {false, true}) {
+    queryCtx_->testingOverrideConfigUnsafe({{sparkAnsiEnabledConfigKey(), ansi ? "true" : "false"}});
+    const auto expression = "round(c0, cast(-1 as integer))";
+    if (ansi) {
+      VELOX_ASSERT_USER_THROW(evaluate(expression, input), "Arithmetic overflow: round(");
+      facebook::velox::test::assertEqualVectors(
+          makeNullableFlatVector<int8_t>({std::nullopt, std::nullopt, 30, -30, std::nullopt}),
+          evaluate("try(round(c0, cast(-1 as integer)))", input));
+    } else {
+      facebook::velox::test::assertEqualVectors(
+          makeNullableFlatVector<int8_t>({-126, 126, 30, -30, std::nullopt}), evaluate(expression, input));
+    }
+  }
+}
+
+TEST_F(SparkFunctionTest, integralRoundNullScaleSkipsChild) {
+  queryCtx_->testingOverrideConfigUnsafe({{sparkAnsiEnabledConfigKey(), "true"}});
+  const auto input = makeRowVector({makeNullableFlatVector<int8_t>({127, -128, 25, std::nullopt})});
+  facebook::velox::test::assertEqualVectors(
+      makeNullableFlatVector<int8_t>({std::nullopt, std::nullopt, std::nullopt, std::nullopt}),
+      evaluate("round(round(c0, cast(-1 as integer)), cast(null as integer))", input));
+}
+
+TEST_F(SparkFunctionTest, integralRoundScaleValidation) {
+  const auto validate = [&](std::optional<int32_t> scale, bool castInput) {
+    ::substrait::Expression expression;
+    auto* function = expression.mutable_scalar_function();
+    function->set_function_reference(1);
+    auto* value = function->add_arguments()->mutable_value();
+    if (castInput) {
+      auto* cast = value->mutable_cast();
+      cast->mutable_type()->mutable_i8()->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+      value = cast->mutable_input();
+    }
+    value->mutable_selection()->mutable_direct_reference()->mutable_struct_field()->set_field(0);
+    auto* literal = function->add_arguments()->mutable_value()->mutable_literal();
+    if (scale.has_value()) {
+      literal->set_i32(scale.value());
+    } else {
+      literal->mutable_null()->mutable_i32()->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+    }
+    function->mutable_output_type()->mutable_i8()->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+    gluten::SubstraitToVeloxPlanValidator validator(pool());
+    TypePtr inputType = TINYINT();
+    if (castInput) {
+      inputType = VARCHAR();
+    }
+    return validator.validate(expression, ROW({"value"}, {inputType}), {{1, "round:opt_i8_i32"}});
+  };
+
+  for (const auto scale : {0, 1, 400, 401, std::numeric_limits<int32_t>::max()}) {
+    SCOPED_TRACE(scale);
+    EXPECT_TRUE(validate(scale, false));
+  }
+  EXPECT_TRUE(validate(std::nullopt, false));
+  EXPECT_TRUE(validate(std::nullopt, true));
+  for (const auto scale : {std::numeric_limits<int32_t>::min(), -401, -1}) {
+    SCOPED_TRACE(scale);
+    EXPECT_FALSE(validate(scale, false));
+  }
+
+  ::substrait::Expression expression;
+  auto* function = expression.mutable_scalar_function();
+  function->set_function_reference(1);
+  function->add_arguments();
+  function->add_arguments()->mutable_value()->mutable_literal()->mutable_null()->mutable_i32()->set_nullability(
+      ::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+  function->mutable_output_type()->mutable_i8()->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+  gluten::SubstraitToVeloxPlanValidator validator(pool());
+  EXPECT_FALSE(validator.validate(expression, ROW({"value"}, {TINYINT()}), {{1, "round:opt_i8_i32"}}));
 }
 
 TEST_F(SparkFunctionTest, expressionLevelAnsiCastIgnoresSessionAnsiOff) {
