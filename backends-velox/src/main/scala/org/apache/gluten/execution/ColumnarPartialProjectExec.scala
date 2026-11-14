@@ -231,9 +231,15 @@ case class ColumnarPartialProjectExec(projectList: Seq[Expression], child: Spark
 
     val schema =
       ExpressionUtils.structFromAttributes(replacedAlias.map(_.toAttribute))
-    val targetBatch = ArrowColumnVectors.fromRows(
-      schema,
-      (0 until numRows).iterator.map(i => proj(sparkColumnarBatch.getRow(i))))
+    val rows = (0 until numRows).iterator.map(sparkColumnarBatch.getRow)
+    val inputRows = if (replacedAlias.exists(_.exists(_.isInstanceOf[LambdaFunction]))) {
+      // Lambda evaluation needs null-aware array access, which ColumnarArray.get lacks.
+      // TODO: Remove this conversion once all supported Spark versions handle null elements
+      // correctly in ColumnarArray.get.
+      val toUnsafe = UnsafeProjection.create(projectAttributes.toSeq, projectAttributes.toSeq)
+      rows.map(toUnsafe)
+    } else rows
+    val targetBatch = ArrowColumnVectors.fromRows(schema, inputRows.map(proj))
     val start2 = System.currentTimeMillis()
     val veloxBatch = VeloxColumnarBatches.toVeloxBatch(
       ColumnarBatches.offload(ArrowBufferAllocators.contextInstance(), targetBatch))
@@ -278,8 +284,7 @@ object ColumnarPartialProjectExec {
   val dummyPrefix = "_dummy"
 
   def validateExpression(expr: Expression): Boolean = {
-    expr.deterministic && !expr.isInstanceOf[LambdaFunction] && expr.children
-      .forall(validateExpression)
+    expr.deterministic
   }
 
   /** Check if it's a hive udf but not transformable */
@@ -297,6 +302,7 @@ object ColumnarPartialProjectExec {
       case _: ScalaUDF => true
       case h if containsUnsupportedHiveUDF(h) => true
       case e if isBlacklistExpression(e) => true
+      case e if e.children.exists(_.isInstanceOf[LambdaFunction]) => true
       case p => p.children.exists(c => containsUDFOrBlacklistExpression(c))
     }
   }
@@ -328,6 +334,9 @@ object ColumnarPartialProjectExec {
       case h if containsUnsupportedHiveUDF(h) =>
         replaceByAlias(h, replacedAlias)
       case e if isBlacklistExpression(e) =>
+        replaceByAlias(e, replacedAlias)
+      case e if e.children.exists(_.isInstanceOf[LambdaFunction]) =>
+        // Keep the lambda and its variable bindings together, including nested lambdas.
         replaceByAlias(e, replacedAlias)
       case au @ Alias(_: ScalaUDF, _) =>
         val replaceIndex = replacedAlias.indexWhere(r => r.exprId == au.exprId)
