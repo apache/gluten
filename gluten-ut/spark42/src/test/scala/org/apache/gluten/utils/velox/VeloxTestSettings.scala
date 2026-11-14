@@ -81,6 +81,39 @@ class VeloxTestSettings extends BackendTestSettings {
     // Rewritten
     .exclude("Fallback Parquet V2 to V1")
   enableSuite[GlutenKeyGroupedPartitioningSuite]
+    // Spark 4.2.1 SPJ tests check vanilla plans (VeloxColumnarToRow is not SafeForKWayMerge, no reported partitioning in the plan).
+    .exclude(
+      "SPARK-59688: an identity side and a compatible transform whose reported keys coincide")
+    .exclude("SPARK-59121: a union does not merge an already reduced partitioning")
+    .exclude("SPARK-59887: a side shuffled onto a transform of an expression is not paired as it is (p.b + 1)")
+    .exclude("SPARK-59887: a side is not shuffled onto a transform of an expression (p.b + 1)")
+    .exclude(
+      "SPARK-59887: a broadcast join's layout over a join key is not paired as it is (p.b + 1)")
+    .exclude(
+      "SPARK-59887: a side shuffled onto a transform of an expression is not paired as it is (-p.b)")
+    .exclude("SPARK-59887: a side is not shuffled onto a transform of an expression (-p.b)")
+    .exclude("SPARK-59887: a broadcast join's layout over a join key is not paired as it is (-p.b)")
+    .exclude("SPARK-59187: a shuffled side keeps its own struct field names over shared empty keys")
+    .exclude("SPARK-59899: a scan's reported ordering keeps only partition key sort orders past a pruned column")
+    .exclude(
+      "SPARK-58996: partially clustered join keeps its row count when EnsureRequirements re-runs")
+    .exclude("SPARK-58996: partially clustered join keeps its replicate-side choice when EnsureRequirements re-runs")
+    .exclude("SPARK-58996: partially clustered subset-key join keeps its join key positions when EnsureRequirements re-runs")
+    .exclude("SPARK-59905: ORDER BY a join-key expression a join reports as a partition expression")
+    .exclude("SPARK-56164: Reducers with different result types to original keys")
+    .exclude(
+      "SPARK-59995: a scan's output ordering drops sort orders that hold a partition transform")
+    .exclude("SPARK-59995: k-way merge over a reported ordering with a partition transform")
+    .exclude("SPARK-59995: k-way merge over an ordering derived from a partition transform key")
+    .exclude("SPARK-59279: a planned k-way merge survives a later config change")
+    .exclude("SPARK-60044: a planned k-way merge keeps its ordering after a later config change")
+    .exclude("SPARK-60044: the debug() helper runs a planned k-way merge")
+    .exclude(
+      "SPARK-59050: SPJ: marker clearing reaches a nested all-marked collection built by SQL")
+    .excludeGlutenTest(
+      "SPARK-55715: preserve outputOrdering when coalescing partitions with sorted merge")
+    .excludeGlutenTest(
+      "SPARK-55715: preserve outputOrdering when coalescing transform-partitioned splits")
     // NEW SUITE: disable as they check vanilla spark plan
     .exclude("partitioned join: number of buckets mismatch should trigger shuffle")
     .exclude("partitioned join: only one side reports partitioning")
@@ -142,10 +175,23 @@ class VeloxTestSettings extends BackendTestSettings {
     // Excluded in favour of the GlutenCastWithAnsiOffSuite rewrite, which drops the Long.MinValue
     // assertion: collect() -> toJavaTimestamp -> rebaseGregorianToJulianMicros overflows.
     .exclude("cast from timestamp II")
+    // New in Spark 4.2.1: huge-exponent decimal strings crash Velox's
+    // DecimalUtil::parseStringToDecimalComponents (SIGSEGV) or give a wrong result.
+    .exclude("SPARK-60118: cast string of zero with a large exponent to decimal")
+    .exclude("SPARK-60119: cast string with a huge negative exponent to decimal")
+    .exclude("SPARK-60119: cast string with a huge exponent to decimal with negative scale allowed")
+    // Spark 4.2.1 added the 1e2147483647 assertions, which crash Velox (SIGSEGV).
+    .exclude("Fast fail for cast string type to decimal type")
   enableSuite[GlutenTryCastSuite]
     .exclude(
       "Process Infinity, -Infinity, NaN in case insensitive manner" // +inf not supported in folly.
     )
+    // New in Spark 4.2.1: huge-exponent decimal strings crash Velox's
+    // DecimalUtil::parseStringToDecimalComponents (SIGSEGV) or give a wrong result.
+    .exclude("SPARK-60118: cast string of zero with a large exponent to decimal")
+    .exclude("SPARK-60119: cast string with a huge negative exponent to decimal")
+    .exclude("SPARK-60119: cast string with a huge exponent to decimal with negative scale allowed")
+    .exclude("Fast fail for cast string type to decimal type in ansi mode")
     .exclude("cast from timestamp II") // Rewrite test for Gluten not supported with ANSI mode
     // Set timezone through config.
     .exclude("data type casting")
@@ -154,6 +200,9 @@ class VeloxTestSettings extends BackendTestSettings {
     // TODO: fix after https://github.com/facebookincubator/velox/pull/14910
     .exclude("SPARK-39749: cast Decimal to string")
   enableSuite[GlutenCollectionExpressionsSuite]
+    // SPARK-59602 (Spark 4.2.1): array set results are normalized for -0.0 and NaN; Velox does not yet.
+    .exclude("SPARK-59602: array set operations normalize special floating-point values")
+    .exclude("SPARK-59602: array set operations normalize nested floating-point values")
     // Rewrite in Gluten to replace Seq with Array
     .exclude("Shuffle")
     .excludeGlutenTest("Shuffle")
@@ -245,6 +294,12 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenSortShuffleSuite]
   enableSuite[GlutenSortOrderExpressionsSuite]
   enableSuite[GlutenStringExpressionsSuite]
+    // Spark 4.2.1 overlay / lpad / rpad length and position fixes (SPARK-58708, SPARK-58713); Velox behavior differs.
+    .exclude("overlay for string")
+    .exclude("SPARK-58713: overlay position arithmetic is collation-independent")
+    .exclude("overlay for byte array")
+    .exclude("LPAD/RPAD")
+    .exclude("SPARK-58708: LPAD/RPAD length handling is collation-independent")
   enableSuite[GlutenTimeExpressionsSuite]
   enableSuite[GlutenTryEvalSuite]
   // Generated suites for org.apache.spark.sql.catalyst.expressions
@@ -257,6 +312,13 @@ class VeloxTestSettings extends BackendTestSettings {
     enableSuite[GlutenCastWithAnsiOnSuite]
       .exclude("data type casting")
       .exclude("cast string to timestamp")
+      // New in Spark 4.2.1: huge-exponent decimal strings crash Velox's
+      // DecimalUtil::parseStringToDecimalComponents (SIGSEGV) or give a wrong result.
+      .exclude("SPARK-60118: cast string of zero with a large exponent to decimal")
+      .exclude("SPARK-60119: cast string with a huge negative exponent to decimal")
+      .exclude(
+        "SPARK-60119: cast string with a huge exponent to decimal with negative scale allowed")
+      .exclude("Fast fail for cast string type to decimal type in ansi mode")
   }
   enableSuite[GlutenCodeGenerationSuite]
   enableSuite[GlutenCodeGeneratorWithInterpretedFallbackSuite]
@@ -515,6 +577,10 @@ class VeloxTestSettings extends BackendTestSettings {
       "SPARK-55857: Enabling/disabling ignoreMissingFiles"
     ) // GLUTEN-12569 Spark 4.2 UT enablement (CI-confirmed)
   enableSuite[GlutenOrcSourceSuite]
+    // New in Spark 4.2.1: Spark fails reading an ORC TIMESTAMP as TIMESTAMP_NTZ
+    // (UNSUPPORTED_FEATURE.ORC_TYPE_CAST); Velox reads it without an error. Covered by the ORC
+    // TimestampNTZ scan fallback in #13590; can be re-enabled after it lands.
+    .exclude("SPARK-60400: ORC TIMESTAMP is inferred as TIMESTAMP_LTZ regardless of spark.sql.timestampType")
     // Rewrite to disable Spark's columnar reader.
     // date result miss match
     .exclude("SPARK-31238: compatibility with Spark 2.4 in reading dates")
@@ -584,6 +650,11 @@ class VeloxTestSettings extends BackendTestSettings {
     // Disabled because Velox does not implement Spark's legacy Impala INT96 timestamp conversion semantics.
     .exclude("parquet timestamp conversion")
   enableSuite[GlutenParquetIOSuite]
+    // New in Spark 4.2.1: Velox reports corrupt page data as its own VeloxRuntimeError
+    // (INVALID_STATE) inside a GlutenException, not Spark's ParquetDecodingException.
+    .exclude("SPARK-59832: vectorized reader fails on truncated definition levels")
+    .exclude("SPARK-59832: invalid definition level length reports the column")
+    .exclude("SPARK-59832: invalid length of RLE booleans in a V2 page reports the column")
     // Velox doesn't write file metadata into parquet file.
     .exclude("Write Spark version into Parquet metadata")
     // Exception.
@@ -781,6 +852,11 @@ class VeloxTestSettings extends BackendTestSettings {
   disableSuite[GlutenWholeStageCodegenSparkSubmitSuite](
     "The SparkSubmit test launches Spark's main class without the Gluten plugin")
   enableSuite[GlutenWholeStageCodegenSuite]
+    // New in Spark 4.2.1: check Spark's generated WholeStageCodegen code, which Gluten replaces.
+    .exclude(
+      "SPARK-60398: Expand compiles with its switch case functions spilled to nested classes")
+    .exclude("SPARK-60403: full outer joins compile with their functions spilled to nested classes")
+    .exclude("SPARK-60403: MergeRows compiles with its function spilled to a nested class")
     // Rewrite with Gluten-aware native whole-stage plan assertions.
     .exclude("range/filter should be combined")
     .exclude("HashAggregate should be included in WholeStageCodegen")
@@ -1016,6 +1092,9 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenDataFrameAsOfJoinSuite]
   enableSuite[GlutenDataFrameComplexTypeSuite]
   enableSuite[GlutenDataFrameFunctionsSuite]
+    // New in Spark 4.2.1: -0.0 inside nested arrays is not normalized to +0.0 by Velox's
+    // array_distinct. Tracked by facebookincubator/velox#20180 (draft until Gluten is on 4.2.1/4.3).
+    .exclude("SPARK-59602: array_distinct normalizes nested floating-point values")
     // Rewrite this test because Velox sorts rows by key for primitive data types, which disrupts the original row sequence.
     .exclude("map_zip_with function - map of primitive types")
     // Vanilla spark throw SparkRuntimeException, gluten throw SparkException.
@@ -1057,6 +1136,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenDataFrameSelfJoinSuite]
   enableSuite[GlutenDataFrameSessionWindowingSuite]
   enableSuite[GlutenDataFrameSetOperationsSuite]
+    // SPARK-59141 (Spark 4.2.1) checks the vanilla columnar union plan; Gluten plans ColumnarUnionExec.
+    .exclude("SPARK-59141: columnar union interleaves the partitions it reports as co-located")
     // Ignore because it checks Spark's physical operators not  ColumnarUnionExec
     .exclude("SPARK-37371: UnionExec should support columnar if all children support columnar")
     // Result depends on the implementation for nondeterministic expression rand.
@@ -1183,6 +1264,9 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("Merge runtime bloom filters")
   enableSuite[GlutenIntervalFunctionsSuite]
   enableSuite[GlutenJoinSuite]
+    // New in Spark 4.2.1: the answer check passes; the assertion that fails expects Spark's
+    // BroadcastHashJoinExec (null-aware anti join), which Gluten replaces.
+    .exclude("SPARK-36082: NAAJ hash join preserves floating-point equality")
     // exclude as it check spark plan
     .exclude("SPARK-36794: Ignore duplicated key when building relation for semi/anti hash join")
     // TODO: fix on Spark-4.1 introduced by https://github.com/apache/spark/pull/47856
