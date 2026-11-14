@@ -1456,6 +1456,21 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
             ExpressionConverter.replaceWithExpressionTransformer(rf.child, attributeSeq),
             rf,
             rf.scale))
+      case bc: BitwiseCount
+          if bc.child.dataType == ByteType || bc.child.dataType == ShortType ||
+            bc.child.dataType == IntegerType =>
+        // Spark counts the set bits of the value sign-extended to a long, so bit_count(-1) is 64
+        // for every integral type. Velox counts only as many bits as the input type is wide (8, 16
+        // or 32), so widen byte, short and int inputs to long first. The widening cast never fails.
+        // The rewritten expression is passed as `original` so that the function signature is built
+        // from the widened child type.
+        val widened = Cast(bc.child, LongType)
+        val rewritten = bc.withNewChildren(Seq(widened))
+        Some(
+          GenericExpressionTransformer(
+            substraitExprName,
+            ExpressionConverter.replaceWithExpressionTransformer(widened, attributeSeq),
+            rewritten))
       case _ => None
     }
   }

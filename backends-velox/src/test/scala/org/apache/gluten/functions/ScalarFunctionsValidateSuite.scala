@@ -57,6 +57,36 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("bit_count on negative tinyint, smallint and int") {
+    // Spark counts the bits of the value sign-extended to a long, so a negative byte, short or int
+    // has its upper bits set: bit_count(cast(-1 as tinyint)) is 64, not 8. Cover the boundary
+    // values of every integral type, negative and non-negative, plus null. The bigint column was
+    // already correct and guards against the widening cast changing it.
+    withTempPath {
+      path =>
+        Seq[(java.lang.Byte, java.lang.Short, java.lang.Integer, java.lang.Long)](
+          (-1.toByte, -1.toShort, -1, -1L),
+          (-7.toByte, -7.toShort, -7, -7L),
+          (Byte.MinValue, Short.MinValue, Int.MinValue, Long.MinValue),
+          (Byte.MaxValue, Short.MaxValue, Int.MaxValue, Long.MaxValue),
+          (0.toByte, 0.toShort, 0, 0L),
+          (7.toByte, 7.toShort, 7, 7L),
+          (null, null, null, null)
+        )
+          .toDF("c_tinyint", "c_smallint", "c_int", "c_bigint")
+          .write
+          .parquet(path.getCanonicalPath)
+
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("bit_count_tbl")
+
+        runQueryAndCompare(
+          "SELECT bit_count(c_tinyint), bit_count(c_smallint), bit_count(c_int), " +
+            "bit_count(c_bigint) FROM bit_count_tbl") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+    }
+  }
+
   test("bit_get and getbit") {
     runQueryAndCompare("SELECT bit_get(l_partkey, 0) from lineitem limit 1") {
       checkGlutenPlan[ProjectExecTransformer]
