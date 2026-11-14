@@ -843,6 +843,21 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  testWithMinSparkVersion("try_url_decode falls back", "4.0") {
+    withTempPath {
+      path =>
+        Seq("https%3A%2F%2Fspark.apache.org", "http%3A%2F%2spark.apache.org", "abc%2", null)
+          .toDF("a")
+          .write
+          .parquet(path.getCanonicalPath)
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("url_tbl")
+        // Spark returns NULL for the invalid escapes; Velox url_decode would throw.
+        runQueryAndCompare("select try_url_decode(a) from url_tbl") {
+          checkSparkPlan[ProjectExec]
+        }
+    }
+  }
+
   test("url_encode") {
     withTempPath {
       path =>
