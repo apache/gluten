@@ -17,11 +17,12 @@
 
 #pragma once
 
+#include <folly/Executor.h>
 #include <jni.h>
 #include <optional>
 #include "memory/ColumnarBatch.h"
 #include "memory/VeloxMemoryManager.h"
-#include "operators/hashjoin/HashTableBuilder.h"
+#include "operators/hashjoin/BroadcastHashTable.h"
 #include "utils/ObjectStore.h"
 #include "velox/exec/HashTable.h"
 
@@ -59,6 +60,11 @@ class JniHashTableContext {
   // and the native unit tests, where JNI_OnLoad never runs.
   std::optional<jlong> callJavaGet(const std::string& id) const;
 
+  // Returns the key the JVM side VeloxBroadcastBuildSideCache uses for the hash table of
+  // 'hashTableId' in the SQL execution of the current task, or std::nullopt when no JVM is
+  // attached to this process.
+  std::optional<std::string> callJavaCacheKey(const std::string& hashTableId) const;
+
  private:
   JniHashTableContext() : hashTableObjStore_(ObjectStore::create()) {}
 
@@ -73,10 +79,14 @@ class JniHashTableContext {
   std::unique_ptr<ObjectStore> hashTableObjStore_;
   jclass jniVeloxBroadcastBuildSideCache_{nullptr};
   jmethodID jniGet_{nullptr};
+  jmethodID jniTaskCacheKey_{nullptr};
 };
 
-// Return the hash table builder address.
-std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
+// Builds the hash table by running Velox HashBuild in a dedicated task, see
+// buildHashTableWithTask(). The table is also added to HashTableCache under
+// 'hashTableId'. 'memoryPool' converts 'batches' to Velox vectors.
+std::shared_ptr<BroadcastHashTable> nativeHashTableBuild(
+    const std::string& hashTableId,
     const std::vector<std::string>& joinKeys,
     const std::vector<std::string>& filterBuildColumns,
     bool filterPropagatesNulls,
@@ -92,23 +102,29 @@ std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
     uint32_t abandonHashBuildDedupMinRows,
     uint32_t abandonHashBuildDedupMinPct,
     std::vector<std::shared_ptr<ColumnarBatch>>& batches,
+    uint32_t numThreads,
+    folly::Executor* executor,
+    std::shared_ptr<facebook::velox::memory::MemoryPool> queryPool,
     std::shared_ptr<facebook::velox::memory::MemoryPool> memoryPool);
 
-// Returns the handle of the pre-built hash table registered for the given id, or 0 if there is
-// none. Safe to call from a process with no JVM attached, in which case it always returns 0.
-long getJoin(const std::string& hashTableId);
+// Returns the cache key of the hash table of the join with 'hashTableId' in the SQL execution of
+// the current task. Runs of the same plan share 'hashTableId', so the key also names the execution
+// to keep the tables of different runs apart. Returns 'hashTableId' when no JVM is attached.
+std::string getJoinCacheKey(const std::string& hashTableId);
+
+// Returns the handle of the pre-built hash table registered under 'cacheKey', see
+// getJoinCacheKey(), or 0 if there is none. Safe to call from a process with no JVM attached, in
+// which case it always returns 0.
+long getJoin(const std::string& cacheKey);
 
 // Return the exact serialized hash table size for direct buffer allocation.
-size_t serializedHashTableSize(std::shared_ptr<HashTableBuilder> builder);
-
-// Return retained bytes for the hash table, including parallel-build subtables.
-int64_t hashTableMemoryUsage(std::shared_ptr<HashTableBuilder> builder);
+size_t serializedHashTableSize(const BroadcastHashTable& hashTable);
 
 // Serialize hash table directly to a caller-provided buffer.
-void serializeHashTableTo(std::shared_ptr<HashTableBuilder> builder, uint8_t* data, size_t size);
+void serializeHashTableTo(const BroadcastHashTable& hashTable, uint8_t* data, size_t size);
 
 // Deserialize hash table from broadcast data with explicit ignoreNullKeys parameter
-std::shared_ptr<HashTableBuilder>
+std::shared_ptr<BroadcastHashTable>
 deserializeHashTable(const uint8_t* data, size_t size, bool ignoreNullKeys, bool joinHasNullKeys = false);
 
 // Initialize the JNI hash table context

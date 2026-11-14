@@ -48,6 +48,9 @@ class GlutenDriverEndpoint extends IsolatedRpcEndpoint with Logging {
       }
 
     case GlutenOnExecutionEnd(executionId) =>
+      logWarning(
+        s"[BHJ-DEBUG] driver execution end: executionId=$executionId, " +
+          s"resources=${GlutenDriverEndpoint.executionResourceRelation.getIfPresent(executionId)}")
       GlutenDriverEndpoint.executionResourceRelation.invalidate(executionId)
 
     case GlutenExecutorRemoved(executorId) =>
@@ -118,7 +121,11 @@ object GlutenDriverEndpoint extends Logging
   def collectResources(executionId: String, resourceId: String): Unit = {
     val resources = executionResourceRelation
       .get(executionId, (_: String) => java.util.concurrent.ConcurrentHashMap.newKeySet[String]())
-    resources.add(resourceId)
+    if (resources.add(resourceId)) {
+      logWarning(
+        s"[BHJ-DEBUG] driver collect resource: executionId=$executionId, " +
+          s"resourceId=$resourceId, thread=${Thread.currentThread().getName}")
+    }
   }
 
   def invalidateResourceRelation(executionId: String): Unit = {
@@ -129,6 +136,9 @@ object GlutenDriverEndpoint extends Logging
       key: String,
       value: util.Set[String],
       cause: RemovalCause): Unit = {
+    logWarning(
+      s"[BHJ-DEBUG] driver send clean: executionId=$key, resources=$value, cause=$cause, " +
+        s"thread=${Thread.currentThread().getName}")
     executorDataMap.forEach(
       (_, executor) => executor.executorEndpointRef.send(GlutenCleanExecutionResource(key, value)))
   }
