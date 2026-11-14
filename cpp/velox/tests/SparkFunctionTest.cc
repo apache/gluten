@@ -157,14 +157,25 @@ TEST_F(SparkFunctionTest, decimalRoundScaleValidation) {
     return validator.validate(
         expression, ROW({"value"}, {castInput ? VARCHAR() : DECIMAL(38, 0)}), {{1, "round:opt_dec<38,0>_i32"}});
   };
-  for (const auto scale : {-400, -39, -38, -1, 0, 38, 400}) {
+  for (const auto scale :
+       {std::numeric_limits<int32_t>::min() + 2,
+        -401,
+        -400,
+        -39,
+        -38,
+        -1,
+        0,
+        38,
+        400,
+        401,
+        std::numeric_limits<int32_t>::max()}) {
     SCOPED_TRACE(scale);
     EXPECT_TRUE(validate(scale, false));
   }
   EXPECT_TRUE(validate(std::nullopt, false));
   EXPECT_TRUE(validate(-1, true));
   EXPECT_TRUE(validate(std::nullopt, true));
-  for (const auto scale : {std::numeric_limits<int32_t>::min(), -401, 401, std::numeric_limits<int32_t>::max()}) {
+  for (const auto scale : {std::numeric_limits<int32_t>::min(), std::numeric_limits<int32_t>::min() + 1}) {
     SCOPED_TRACE(scale);
     EXPECT_FALSE(validate(scale, false));
   }

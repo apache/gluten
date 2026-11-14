@@ -18,6 +18,7 @@
 #include "SubstraitToVeloxPlanValidator.h"
 #include <google/protobuf/wrappers.pb.h>
 #include <re2/re2.h>
+#include <limits>
 #include <string>
 #include "TypeUtils.h"
 #include "udf/UdfLoader.h"
@@ -158,10 +159,11 @@ bool SubstraitToVeloxPlanValidator::validateRound(
     if (scale.has_null() && scale.null().has_i32()) {
       return true;
     }
-    if (scale.has_i32() && scale.i32() >= -400 && scale.i32() <= 400) {
+    if (scale.has_i32() && scale.i32() != std::numeric_limits<int32_t>::min() &&
+        scale.i32() != std::numeric_limits<int32_t>::min() + 1) {
       return true;
     }
-    LOG_VALIDATION_MSG("Decimal ROUND requires an INTEGER scale in [-400, 400] or NULL.");
+    LOG_VALIDATION_MSG("Decimal ROUND does not support INTEGER scales INT_MIN and INT_MIN + 1.");
     return false;
   }
 

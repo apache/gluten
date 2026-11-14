@@ -35,7 +35,9 @@ abstract class GlutenDecimalRoundSuiteBase extends GlutenSQLTestsTrait {
       GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false") {
       withTempPath {
         path =>
-          spark.createDataFrame(rows.asJava, schema).coalesce(1).write.parquet(path.toString)
+          withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+            spark.createDataFrame(rows.asJava, schema).coalesce(1).write.parquet(path.toString)
+          }
           withTempView("decimal_round_input") {
             spark.read.parquet(path.toString).createOrReplaceTempView("decimal_round_input")
             f
@@ -82,7 +84,8 @@ abstract class GlutenDecimalRoundSuiteBase extends GlutenSQLTestsTrait {
       withInput(dataType, values) {
         for (ansi <- Seq("false", "true")) {
           withSQLConf(SQLConf.ANSI_ENABLED.key -> ansi) {
-            Seq(-400, -39, -1, 0, 1, 38, 400).foreach(scale => checkRound(scale.toString))
+            Seq(-401, -400, -39, -1, 0, 1, 38, 400, 401, Int.MaxValue)
+              .foreach(scale => checkRound(scale.toString))
             checkRound("-1 + 0")
           }
         }
@@ -149,14 +152,13 @@ abstract class GlutenDecimalRoundSuiteBase extends GlutenSQLTestsTrait {
     }
   }
 
-  testGluten("decimal ROUND debug mode bypasses compatibility fallback") {
+  testGluten("decimal ROUND excludes Spark metadata-overflow scales") {
     withInput(DecimalType(3, 1), Seq("2.5", "-2.5", "0")) {
-      withSQLConf(
-        GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> "false",
-        SQLConf.OPTIMIZER_EXCLUDED_RULES.key -> NullPropagation.ruleName) {
-        checkRound("CAST(NULL AS INT)")
-        checkRound("-401")
-        checkRound("401")
+      withSQLConf(GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> "true") {
+        for (scale <- Seq(Int.MinValue, Int.MinValue + 1)) {
+          val df = sql(s"SELECT round(value, CAST($scale AS INT)) FROM decimal_round_input")
+          assertExecution(df, native = false)
+        }
       }
     }
   }
@@ -179,13 +181,8 @@ abstract class GlutenDecimalRoundSuiteBase extends GlutenSQLTestsTrait {
           checkRound("-200 - 200")
           checkRound("200 + 200")
           checkRound("CAST(NULL AS INT)")
-          if (nativeValidation == "true") {
-            checkRound("400 + 1", native = false)
-            checkRound("-400 - 1", native = false)
-          } else {
-            checkRound("400 + 1")
-            checkRound("-400 - 1")
-          }
+          checkRound("400 + 1")
+          checkRound("-400 - 1")
         }
       }
     }
