@@ -233,7 +233,7 @@ object GlutenShuffleManagerSuite {
       delegate.unregisterShuffle(shuffleId)
     }
 
-    override def shuffleBlockResolver: ShuffleBlockResolver = {
+    def shuffleBlockResolver: ShuffleBlockResolver = {
       counter.increment("shuffleBlockResolver")
       delegate.shuffleBlockResolver
     }
@@ -287,7 +287,7 @@ object GlutenShuffleManagerSuite {
       delegate.unregisterShuffle(shuffleId)
     }
 
-    override def shuffleBlockResolver: ShuffleBlockResolver = {
+    def shuffleBlockResolver: ShuffleBlockResolver = {
       counter.increment("shuffleBlockResolver")
       delegate.shuffleBlockResolver
     }

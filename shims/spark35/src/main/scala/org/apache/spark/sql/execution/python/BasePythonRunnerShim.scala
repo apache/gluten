@@ -40,6 +40,9 @@ abstract class BasePythonRunnerShim(
   // ensuring code compatibility with both Spark 4.0 and earlier versions.
   type Writer = WriterThread
   type PythonWorker = Socket
+  // The worker handle passed to newReaderIterator: Spark 4.3 replaced the pid with a
+  // PythonWorkerHandle.
+  type WorkerHandle = Option[Int]
 
   protected def createNewWriter(
       env: SparkEnv,

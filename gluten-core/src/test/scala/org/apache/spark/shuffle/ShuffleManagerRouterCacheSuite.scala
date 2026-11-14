@@ -57,7 +57,7 @@ class ShuffleManagerRouterCacheSuite extends SharedSparkSession {
   test("unregisterShuffle tolerates a shuffleId never registered on this router") {
     // On a multi-executor cluster, Spark broadcasts RemoveShuffle to every executor, so a
     // router that never registered/served this shuffleId still receives unregisterShuffle.
-    val gm = spark.sparkContext.env.shuffleManager
+    val gm = spark.sparkContext.env.shuffleManager.asInstanceOf[GlutenShuffleManager]
     // Force the router to build before exercising it.
     gm.shuffleBlockResolver
 
@@ -69,7 +69,7 @@ class ShuffleManagerRouterCacheSuite extends SharedSparkSession {
   test("concurrent first-touch of a new shuffleId does not fail tasks") {
     // On a multi-core executor, N tasks of the same new shuffleId call getReader/getWriter
     // concurrently. The cache is populated lazily, so they race to register the manager.
-    val gm = spark.sparkContext.env.shuffleManager
+    val gm = spark.sparkContext.env.shuffleManager.asInstanceOf[GlutenShuffleManager]
     gm.shuffleBlockResolver // force build
 
     val concurrency = 4
@@ -145,7 +145,7 @@ object ShuffleManagerRouterCacheSuite {
 
     override def unregisterShuffle(shuffleId: Int): Boolean = true
 
-    override def shuffleBlockResolver: ShuffleBlockResolver = {
+    def shuffleBlockResolver: ShuffleBlockResolver = {
       null.asInstanceOf[ShuffleBlockResolver]
     }
 

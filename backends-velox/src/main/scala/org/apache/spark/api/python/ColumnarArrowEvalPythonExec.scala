@@ -82,11 +82,11 @@ class ColumnarArrowPythonRunner(
       startTime: Long,
       env: SparkEnv,
       worker: PythonWorker,
-      pid: scala.Option[scala.Int],
+      handle: WorkerHandle,
       releasedOrClosed: AtomicBoolean,
       context: TaskContext): Iterator[ColumnarBatch] = {
 
-    new ReaderIterator(stream, writer, startTime, env, worker, pid, releasedOrClosed, context) {
+    new ReaderIterator(stream, writer, startTime, env, worker, handle, releasedOrClosed, context) {
       private val allocator = ArrowBufferAllocators.contextInstance()
 
       private var reader: ArrowStreamReader = _
