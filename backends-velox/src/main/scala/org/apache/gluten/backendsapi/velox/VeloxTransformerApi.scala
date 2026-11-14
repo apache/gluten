@@ -193,7 +193,8 @@ class VeloxTransformerApi extends TransformerApi with Logging {
         val shortName = "parquet"
         val writeOptions = Option(write.session).map {
           session =>
-            val hadoopConf = session.sessionState.newHadoopConfWithOptions(write.options)
+            val hadoopConf =
+              session.sessionState.newHadoopConfWithOptions(write.caseInsensitiveOptions)
             CaseInsensitiveMap(hadoopConf.iterator().asScala.map(
               entry => entry.getKey -> entry.getValue).toMap)
         }.getOrElse(write.caseInsensitiveOptions)

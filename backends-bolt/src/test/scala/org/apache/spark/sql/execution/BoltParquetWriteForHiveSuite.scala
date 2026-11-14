@@ -282,7 +282,11 @@ class BoltParquetWriteForHiveSuite extends GlutenQueryTest with SQLTestUtils wit
                 reader =>
                   val column = reader.getFooter.getBlocks.get(0).getColumns.get(0)
                   // native writer and vanilla spark hive writer should be consistent
-                  "zstd".equalsIgnoreCase(column.getCodec.toString)
+                  assert(
+                    "zstd".equalsIgnoreCase(column.getCodec.toString),
+                    s"expected zstd but got ${column.getCodec} in ${files.head.getPath}, " +
+                      s"nativeWriteEnabled=$enableNativeWrite"
+                  )
               }
             }
           }
