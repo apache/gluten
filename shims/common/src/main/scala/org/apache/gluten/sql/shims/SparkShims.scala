@@ -264,4 +264,12 @@ trait SparkShims {
 
   def getShuffleBlockFetcherIterator(params: ShuffleBlockFetcherIteratorParams)
       : GlutenShuffleBlockFetcherIteratorBase
+
+  /**
+   * Returns the exception Spark throws when a char or varchar value is longer than its declared
+   * length, with the native error as its cause. Spark 3.5 and later override this with the
+   * EXCEED_LIMIT_LENGTH error.
+   */
+  def charVarcharLengthExceededError(limit: Int, cause: Throwable): RuntimeException =
+    new RuntimeException(s"Exceeds char/varchar type length limitation: $limit", cause)
 }
