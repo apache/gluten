@@ -18,6 +18,7 @@
 #include "SubstraitToVeloxPlanValidator.h"
 #include <google/protobuf/wrappers.pb.h>
 #include <re2/re2.h>
+#include <limits>
 #include <string>
 #include "TypeUtils.h"
 #include "udf/UdfLoader.h"
@@ -141,7 +142,7 @@ bool SubstraitToVeloxPlanValidator::flattenDualLevel(const TypePtr& type, std::v
 
 bool SubstraitToVeloxPlanValidator::validateRound(
     const ::substrait::Expression::ScalarFunction& scalarFunction,
-    const RowTypePtr& inputType) {
+    const std::vector<core::TypedExprPtr>& params) {
   const auto& arguments = scalarFunction.arguments();
   if (arguments.size() < 2) {
     return false;
@@ -149,6 +150,20 @@ bool SubstraitToVeloxPlanValidator::validateRound(
 
   if (!arguments[1].value().has_literal()) {
     LOG_VALIDATION_MSG("Round scale is expected.");
+    return false;
+  }
+
+  const auto& valueType = params[0]->type();
+  if (valueType->isDecimal()) {
+    const auto& scale = arguments[1].value().literal();
+    if (scale.has_null() && scale.null().has_i32()) {
+      return true;
+    }
+    if (scale.has_i32() && scale.i32() != std::numeric_limits<int32_t>::min() &&
+        scale.i32() != std::numeric_limits<int32_t>::min() + 1) {
+      return true;
+    }
+    LOG_VALIDATION_MSG("Decimal ROUND does not support INTEGER scales INT_MIN and INT_MIN + 1.");
     return false;
   }
 
@@ -260,7 +275,7 @@ bool SubstraitToVeloxPlanValidator::validateScalarFunction(
   std::vector<std::string> types = SubstraitParser::getSubFunctionTypes(function);
 
   if (name == "round") {
-    return validateRound(scalarFunction, inputType);
+    return validateRound(scalarFunction, params);
   }
   if (name == "extract") {
     return validateExtractExpr(params);

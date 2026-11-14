@@ -20,7 +20,7 @@ import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.exception.GlutenNotSupportException
 
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.types.{DataType, DecimalType}
+import org.apache.spark.sql.types.{DataType, DecimalType, IntegerType}
 
 case class DecimalRoundTransformer(
     substraitExprName: String,
@@ -28,7 +28,8 @@ case class DecimalRoundTransformer(
     original: Round)
   extends BinaryExpressionTransformer {
 
-  val toScale: Int = original.scale.eval(EmptyRow).asInstanceOf[Int]
+  private val scaleValue = original.scale.eval(EmptyRow)
+  val toScale: Int = if (scaleValue == null) 0 else scaleValue.asInstanceOf[Int]
 
   // Use the same result type for different Spark versions in velox.
   // The same result type with spark in ch.
@@ -43,5 +44,6 @@ case class DecimalRoundTransformer(
   }
 
   override def left: ExpressionTransformer = child
-  override def right: ExpressionTransformer = LiteralTransformer(toScale)
+  override def right: ExpressionTransformer =
+    LiteralTransformer(Literal.create(scaleValue, IntegerType))
 }
