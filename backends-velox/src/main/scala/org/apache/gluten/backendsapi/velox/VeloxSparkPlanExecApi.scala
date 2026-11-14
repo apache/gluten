@@ -204,6 +204,47 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
     else { name }
   }
 
+  override def genDecimalArithmeticTransformer(
+      substraitExprName: String,
+      left: ExpressionTransformer,
+      right: ExpressionTransformer,
+      original: BinaryArithmetic): ExpressionTransformer = {
+    original match {
+      case p: Pmod =>
+        if (p.evalMode != EvalMode.ANSI && p.evalMode != EvalMode.LEGACY) {
+          throw new GlutenNotSupportException(
+            s"Decimal pmod with evaluation mode ${p.evalMode} is not supported.")
+        }
+        // Velox reads the session's ANSI setting, so a different captured mode must run in Spark.
+        if ((p.evalMode == EvalMode.ANSI) != SQLConf.get.ansiEnabled) {
+          throw new GlutenNotSupportException(
+            "Decimal pmod's captured ANSI mode differs from the session.")
+        }
+        // Spark evaluates the divisor first and can skip the dividend for a null/zero divisor.
+        // An eager native function is equivalent only when neither child can raise an error.
+        // Restrict this initial implementation to values whose evaluation cannot throw.
+        if (
+          !p.children.forall {
+            case _: AttributeReference | _: BoundReference | _: Literal => true
+            case _ => false
+          }
+        ) {
+          throw new GlutenNotSupportException(
+            "Decimal pmod with computed operands is not supported.")
+        }
+        // Use Spark's resolved decimal type, including the precision check needed after
+        // adjusting a negative remainder. Velox handles both ANSI and legacy errors itself.
+        DecimalArithmeticExpressionTransformer(
+          substraitExprName,
+          left,
+          right,
+          p.dataType.asInstanceOf[DecimalType],
+          p)
+      case _ =>
+        super.genDecimalArithmeticTransformer(substraitExprName, left, right, original)
+    }
+  }
+
   /** Transform map_entries to Substrait. */
   override def genMapEntriesTransformer(
       substraitExprName: String,

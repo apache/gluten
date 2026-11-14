@@ -62,9 +62,8 @@ object DecimalArithmeticUtil {
           resultPrecision = intDig + decDig
           resultScale = decDig
         }
-      // Remainder and Pmod land here: isDecimalArithmetic admits them but no result type is
-      // derived above. On the transformCheckOverflow path this throw is what makes decimal % and
-      // pmod fall back.
+      // The default backend path rejects Remainder and Pmod. A backend can support either through
+      // SparkPlanExecApi.genDecimalArithmeticTransformer without enabling other backends.
       case other =>
         throw new GlutenNotSupportException(s"$other is not supported.")
     }
@@ -81,9 +80,8 @@ object DecimalArithmeticUtil {
     DecimalType(Math.min(precision, MAX_PRECISION), Math.min(scale, MAX_SCALE))
   }
 
-  // Whether the expression is an arithmetic over two decimals. Remainder and Pmod are admitted on
-  // purpose even though getResultType rejects them: dropping them here would send both through the
-  // generic arm and offload them. See the comment on that rejection in getResultType.
+  // Remainder and Pmod must reach the backend's decimal result-type validation. Dropping them here
+  // would send both through the generic arm and bypass that validation.
   def isDecimalArithmetic(b: BinaryArithmetic): Boolean = {
     if (
       b.left.dataType.isInstanceOf[DecimalType] &&
