@@ -525,6 +525,8 @@ object GlutenConfig extends ConfigRegistry {
     "spark.io.compression.codec",
     "spark.sql.decimalOperations.allowPrecisionLoss",
     "spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing",
+    // Spark 4.0+.
+    "spark.sql.binaryOutputStyle",
     // s3 config
     SPARK_S3_ACCESS_KEY,
     SPARK_S3_SECRET_KEY,
