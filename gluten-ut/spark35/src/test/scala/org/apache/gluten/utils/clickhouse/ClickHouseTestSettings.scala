@@ -1054,6 +1054,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .exclude("SPARK-39557 INSERT INTO statements with tables with map defaults")
     .excludeCH("Gluten - insert partition table")
     .excludeCH("Gluten - remove v1writes sort and project")
+    .excludeCH("Gluten - offload empty2null when v1writes fallback")
     .excludeCH("Gluten - remove v1writes sort")
     .excludeCH("Gluten - do not remove non-v1writes sort and project")
     .excludeCH(
