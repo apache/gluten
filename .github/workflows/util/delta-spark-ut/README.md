@@ -56,6 +56,10 @@ working directory. Missing patches, incompatible source context, or unexpected
 counts fail setup explicitly. Run through `setup-delta.sh` to reset the Delta
 checkout before applying the patches again.
 
+Validate patched Scala sources with Delta's `spark/testScalastyle` task as well
+as targeted `spark/testOnly` runs. `spark/test` invokes this style gate, but
+`testOnly` does not.
+
 The `dv-2b-row-fail-fast.patch` keeps the two memory-hog DV tests failing
 immediately rather than skipping them. Their known-failure entries remain
 enforced until the underlying native-memory issue is fixed.

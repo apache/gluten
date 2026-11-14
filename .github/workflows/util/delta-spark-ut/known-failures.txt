@@ -80,8 +80,6 @@ org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch1Suite#SC-8810: skipping de
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch1Suite#deleted files cause failure by default
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch2Suite#SC-8810: skipping deleted file still throws on corrupted file
 org.apache.spark.sql.delta.DeltaWithCatalogOwnedBatch2Suite#deleted files cause failure by default
-org.apache.spark.sql.delta.DescribeDeltaHistorySuite#operation metrics - merge
-org.apache.spark.sql.delta.DescribeDeltaHistoryWithCatalogOwnedBatch100Suite#operation metrics - merge
 org.apache.spark.sql.delta.FeatureEnablementConcurrencySuite#Enable column mapping feature - txnInterleaved: true
 org.apache.spark.sql.delta.HDFSLogStoreSuite#No AbstractFileSystem - end to end test using data frame
 org.apache.spark.sql.delta.ImplicitMergeCastingSuite#MERGE overflow in WHEN MATCHED THEN UPDATE SET t.value = s.value sourceType: ARRAY<BIGINT>, targetType: ARRAY<INT> followAnsiEnabled: true, ansiEnabled: true, storeAssignmentPolicy: ANSI
@@ -172,8 +170,6 @@ org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithC
 org.apache.spark.sql.delta.generatedsuites.dataskipping.DataSkippingDeltaV1WithCatalogOwnedBatch2Suite#data skipping flags - old behavior with DataFrame schema
 org.apache.spark.sql.delta.generatedsuites.delete.RowTrackingDeleteSuiteBaseCDCOnDVOffSuite#DELETE with optimized writes preserves Row ID, isPartitioned=true
 org.apache.spark.sql.delta.generatedsuites.delete.RowTrackingDeleteSuiteBaseDVOffSuite#DELETE with optimized writes preserves Row ID, isPartitioned=true
-org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoDVsSQLPathBasedCDCOnDVsPredPushOffSuite#Merge with DVs metrics - Incremental Updates
-org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoDVsSQLPathBasedCDCOnDVsPredPushOnSuite#Merge with DVs metrics - Incremental Updates
 org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoExtendedSyntaxSQLInMemoryTableNameBasedSuite#extended syntax - conditional update + conditional delete + conditional insert with multiple matches
 org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoExtendedSyntaxSQLInMemoryTableNameBasedSuite#extended syntax - conditional update + conditional delete with multiple matches
 org.apache.spark.sql.delta.generatedsuites.merge.MergeIntoExtendedSyntaxSQLInMemoryTableNameBasedSuite#extended syntax - only conditional delete with multiple matches
