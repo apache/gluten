@@ -54,5 +54,8 @@ public class VeloxDataSourceJniWrapper implements RuntimeAware {
   public native void writeBatch(long dsHandle, long batchHandle);
 
   public native BlockStripes splitBlockByPartitionAndBucket(
-      long blockAddress, int[] partitionColIndice, boolean hasBucket);
+      long blockAddress,
+      int[] partitionColIndice,
+      boolean hasBucket,
+      boolean reservePartitionColumns);
 }
