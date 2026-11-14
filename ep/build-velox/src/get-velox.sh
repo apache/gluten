@@ -24,8 +24,9 @@ VELOX_HOME=""
 RUN_SETUP_SCRIPT=ON
 ENABLE_ENHANCED_FEATURES=OFF
 
-# Developer use only for testing Velox PR.
-UPSTREAM_VELOX_PR_ID=""
+# Temporary backport of https://github.com/facebookincubator/velox/pull/20084.
+# Clear this once the pinned Velox versions include that fix.
+UPSTREAM_VELOX_PR_ID="20084"
 
 OS=`uname -s`
 
@@ -143,12 +144,12 @@ function apply_provided_velox_patch {
      local patch_name="$UPSTREAM_VELOX_PR_ID.patch"
      pushd $VELOX_HOME
      rm -f $patch_name
-     wget -nv "https://patch-diff.githubusercontent.com/raw/facebookincubator/velox/pull/$UPSTREAM_VELOX_PR_ID.patch" \
-       -O "$patch_name" || {
+     curl -fsSL "https://patch-diff.githubusercontent.com/raw/facebookincubator/velox/pull/$UPSTREAM_VELOX_PR_ID.patch" \
+       -o "$patch_name" || {
        echo "Failed to download the Velox patch from GitHub"
        exit 1
      }
-     (git apply --check $patch_name && git apply $patch_name) || {
+     (git apply --check "$@" "$patch_name" && git apply "$@" "$patch_name") || {
        echo "Failed to apply the provided Velox patch"
        exit 1
      }
@@ -232,7 +233,10 @@ if [[ "$RUN_SETUP_SCRIPT" == "ON" ]]; then
   apply_setup_fixes
 fi
 
-apply_provided_velox_patch
+# The PR's newer test fixture is not in the pinned Velox versions. Backport only
+# the production change; Gluten retains its own deletion-count regression test.
+# Remove this filter when clearing UPSTREAM_VELOX_PR_ID after a Velox update.
+apply_provided_velox_patch --include=velox/connectors/hive/iceberg/IcebergSplitReader.cpp
 
 
 echo "Finished getting Velox code"
