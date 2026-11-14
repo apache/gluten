@@ -16,8 +16,11 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
+import org.apache.gluten.tags.AnsiTest
+
 import org.apache.spark.sql.GlutenExpressionOffloadTracker
 
+@AnsiTest
 class GlutenTryEvalSuite extends TryEvalSuite with GlutenExpressionOffloadTracker {
   override protected def offloadCategory: String = "arithmetic"
   override protected def panoramaMeta(expression: Expression): Map[String, String] =

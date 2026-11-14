@@ -16,8 +16,11 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
+import org.apache.gluten.tags.AnsiTest
+
 import org.apache.spark.sql.GlutenExpressionOffloadTracker
 
+@AnsiTest
 class GlutenIntervalExpressionsSuite
   extends IntervalExpressionsSuite
   with GlutenExpressionOffloadTracker {

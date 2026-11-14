@@ -20,6 +20,7 @@ import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.{BatchScanExecTransformer, ColumnarPartialProjectExec, FilterExecTransformer, ProjectExecTransformer}
 import org.apache.gluten.expression.FormatNumberRestrictions
 import org.apache.gluten.extension.columnar.FallbackTags
+import org.apache.gluten.tags.AnsiTest
 
 import org.apache.spark.SparkException
 import org.apache.spark.sql.{DataFrame, Row}
@@ -28,6 +29,7 @@ import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
+@AnsiTest
 class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
 
   disableFallbackCheck

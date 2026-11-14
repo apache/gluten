@@ -18,6 +18,7 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.extension.columnar.validator.FallbackInjects
+import org.apache.gluten.tags.AnsiTest
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.catalyst.expressions.aggregate.{Final, Partial, PartialMerge}
@@ -1241,6 +1242,7 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
   }
 }
 
+@AnsiTest
 class VeloxAggregateFunctionsDefaultSuite extends VeloxAggregateFunctionsSuite {
   override protected def sparkConf: SparkConf = {
     super.sparkConf
@@ -1262,6 +1264,7 @@ class VeloxAggregateFunctionsDefaultSuite extends VeloxAggregateFunctionsSuite {
   }
 }
 
+@AnsiTest
 class VeloxAggregateFunctionsFlushSuite extends VeloxAggregateFunctionsSuite {
   override protected def sparkConf: SparkConf = {
     super.sparkConf

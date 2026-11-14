@@ -16,6 +16,8 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
+import org.apache.gluten.tags.AnsiTest
+
 import org.apache.spark.sql.GlutenExpressionOffloadTracker
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeProjection
@@ -33,6 +35,7 @@ import java.time.{LocalDateTime, ZoneId}
 import java.util.{Calendar, Locale, TimeZone}
 import java.util.concurrent.TimeUnit._
 
+@AnsiTest
 class GlutenDateExpressionsSuite extends DateExpressionsSuite with GlutenExpressionOffloadTracker {
   override protected def offloadCategory: String = "datetime"
   override def testIntegralInput(testFunc: Number => Unit): Unit = {

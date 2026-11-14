@@ -18,11 +18,13 @@ package org.apache.gluten.functions
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.ProjectExecTransformer
+import org.apache.gluten.tags.AnsiTest
 
 import org.apache.spark.SparkConf
 import org.apache.spark.SparkException
 import org.apache.spark.sql.internal.SQLConf
 
+@AnsiTest
 class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
 
   disableFallbackCheck
