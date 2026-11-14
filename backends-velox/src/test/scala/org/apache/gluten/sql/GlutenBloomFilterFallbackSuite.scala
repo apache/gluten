@@ -18,35 +18,37 @@ package org.apache.gluten.sql
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.execution.{FilterExecTransformerBase, WholeStageTransformerSuite}
+import org.apache.gluten.execution.{FilterExecTransformerBase, HashAggregateExecBaseTransformer, WholeStageTransformerSuite}
 import org.apache.gluten.expression.VeloxBloomFilterMightContain
 import org.apache.gluten.expression.aggregate.VeloxBloomFilterAggregate
+import org.apache.gluten.extension.BloomFilterMightContainJointRewriteRule
 
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.FunctionIdentifier
-import org.apache.spark.sql.catalyst.expressions.BloomFilterMightContain
-import org.apache.spark.sql.catalyst.expressions.ExpressionInfo
+import org.apache.spark.sql.catalyst.expressions.{Alias, BloomFilterMightContain, ExpressionInfo, Literal}
 import org.apache.spark.sql.catalyst.expressions.aggregate.BloomFilterAggregate
+import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.execution.aggregate.{BaseAggregateExec, ObjectHashAggregateExec}
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.util.sketch.BloomFilter
+
+import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
 
 /**
- * Regression tests for https://github.com/apache/gluten/issues/12013.
+ * Regression tests for https://github.com/apache/gluten/issues/12013 and
+ * https://github.com/apache/gluten/issues/13489.
  *
  * Verifies that the bloom-filter producer (`bloom_filter_agg`) and consumer (`might_contain`)
  * always stay on a consistent serialized byte format.
  *
- * `BloomFilterMightContainJointRewriteRule` rewrites both sides unconditionally, so they agree by
- * construction. The fix for GLUTEN-12013 is that the rule is registered at `injectPre` instead of
- * `injectPreTransform`: `injectPre` runs before `HeuristicApplier` captures the plan that
- * `ExpandFallbackPolicy` reverts to, so a whole-stage fallback can no longer strip the rewrite from
- * one stage and leave it mismatched against another. Covered here:
- *   - user-facing pairs across whole-stage fallback of one or both stages;
- *   - literal-valued pairs (SPARK-54336);
- *   - runtime-filter pairs injected by `InjectRuntimeFilter`, which must offload natively and
- *     survive whole-stage reversion of a single stage;
- *   - `DataFrame.stat.bloomFilter()`, which must keep Spark-native bytes (the rule is skipped for
- *     it via `CallerInfo.isBloomFilterStatFunction`).
+ * `BloomFilterMightContainJointRewriteRule.Logical` rewrites verified `(might_contain,
+ * bloom_filter_agg)` scalar-subquery pairs with supported integral input types to their Velox forms
+ * at Pre-CBO, and tags unpaired or unsupported expressions with `KEEP_VANILLA_BLOOM_FILTER_TAG` so
+ * they stay on vanilla Spark. For runtime bloom filters injected later by Spark's
+ * `InjectRuntimeFilter` (GLUTEN-12013), the physical `BloomFilterMightContainJointRewriteRule`
+ * registered at `injectPre` rewrites both untagged `XxHash64`-wrapped sides before
+ * `HeuristicApplier` captures the plan that `ExpandFallbackPolicy` reverts to, so a whole-stage
+ * fallback can no longer strip the rewrite from one stage and leave it mismatched against another.
  */
 class GlutenBloomFilterFallbackSuite extends WholeStageTransformerSuite {
   protected val resourcePath: String = null
@@ -247,9 +249,9 @@ class GlutenBloomFilterFallbackSuite extends WholeStageTransformerSuite {
   // the aggregate node executes in JVM mode (ObjectHashAggregateExec).
   //
   // When hash-aggregate offloading is disabled, the subquery runs as
-  // ObjectHashAggregateExec(VeloxBloomFilterAggregate).  VeloxBloomFilterAggregate.eval() calls
-  // serialize(buffer) directly without a cardinality guard, so it always produces Velox-format
-  // (version=1) bytes.  VeloxBloomFilterMightContain on the outer side reads those bytes correctly.
+  // ObjectHashAggregateExec(VeloxBloomFilterAggregate). For non-empty inputs,
+  // VeloxBloomFilterAggregate.eval() produces Velox-format (version=1) bytes, and
+  // VeloxBloomFilterMightContain on the outer side reads those bytes correctly.
   test("GLUTEN-12013: VeloxBloomFilterAggregate in JVM subquery produces correct Velox bytes") {
     if (BackendsApiManager.getSettings.requireBloomFilterAggMightContainJointFallback()) {
       val table = "bloom_filter_test"
@@ -482,6 +484,279 @@ class GlutenBloomFilterFallbackSuite extends WholeStageTransformerSuite {
           )
           // Must not throw kBloomFilterV1 == version (1 vs. 0); 0L was inserted, so it is present.
           checkAnswer(df, Row(true))
+        }
+      }
+    }
+  }
+
+  // Gated to Spark 3.5+: Spark's BloomFilterAggregate only supports StringType starting in
+  // Spark 3.5 (SPARK-43726); on Spark 3.4 CheckAnalysis rejects bloom_filter_agg(string) with
+  // DATATYPE_MISMATCH.BLOOM_FILTER_WRONG_TYPE before Optimizer/Gluten rules run.
+  testWithMinSparkVersion(
+    "GLUTEN-13489: bloom_filter_agg on string column falls back to vanilla Spark",
+    "3.5") {
+    if (BackendsApiManager.getSettings.requireBloomFilterAggMightContainJointFallback()) {
+      val table = "bloom_filter_str_test"
+      withTempView(table) {
+        Seq("a", "b", "c").toDF("s").createOrReplaceTempView(table)
+        val aggDf = spark.sql(s"SELECT bloom_filter_agg(s) AS bf FROM $table")
+        val bytes = aggDf.collect().head.getAs[Array[Byte]]("bf")
+        assert(!aggDf.queryExecution.executedPlan.toString.contains("velox_bloom_filter_agg"))
+        val bf = BloomFilter.readFrom(new ByteArrayInputStream(bytes))
+        assert(bf.mightContainString("a"))
+        assert(!bf.mightContainString("z"))
+
+        val df = spark.sql(
+          s"""
+             |SELECT might_contain((SELECT bloom_filter_agg(s) FROM $table), xxhash64(s))
+             |FROM $table
+             |""".stripMargin)
+        checkAnswer(df, Seq(Row(false), Row(false), Row(false)))
+        val plan = df.queryExecution.executedPlan.toString
+        assert(!plan.contains("velox_might_contain"))
+        assert(!plan.contains("velox_bloom_filter_agg"))
+      }
+    }
+  }
+
+  test("GLUTEN-13489: bloom_filter_agg on nullable column filters out nulls and runs natively") {
+    if (BackendsApiManager.getSettings.requireBloomFilterAggMightContainJointFallback()) {
+      val table = "bloom_filter_nullable_test"
+      withTempView(table) {
+        Seq[java.lang.Long](1L, null, 2L, 3L).toDF("col").createOrReplaceTempView(table)
+        val df = spark.sql(
+          s"""
+             |SELECT col
+             |FROM $table
+             |WHERE might_contain((SELECT bloom_filter_agg(col) FROM $table), col)
+             |""".stripMargin)
+        checkAnswer(df, Seq(Row(1L), Row(2L), Row(3L)))
+        val nativeAggs = collectWithSubqueries(df.queryExecution.executedPlan) {
+          case h: HashAggregateExecBaseTransformer => h
+        }
+        assert(nativeAggs.size == 2, df.queryExecution.executedPlan.toString)
+
+        val filteredDf = spark.sql(
+          s"""
+             |SELECT col
+             |FROM $table
+             |WHERE might_contain(
+             |  (SELECT bloom_filter_agg(col) FILTER (WHERE col IS NULL OR col > 1L) FROM $table),
+             |  col)
+             |""".stripMargin)
+        checkAnswer(filteredDf, Seq(Row(2L), Row(3L)))
+        val filteredNativeAggs = collectWithSubqueries(filteredDf.queryExecution.executedPlan) {
+          case h: HashAggregateExecBaseTransformer => h
+        }
+        assert(filteredNativeAggs.size == 2, filteredDf.queryExecution.executedPlan.toString)
+      }
+
+      val allNullTable = "bloom_filter_all_null_test"
+      withTempView(allNullTable) {
+        Seq[java.lang.Long](null, null).toDF("col").createOrReplaceTempView(allNullTable)
+        val df = spark.sql(
+          s"SELECT might_contain((SELECT bloom_filter_agg(col) FROM $allNullTable), 1L)")
+        checkAnswer(df, Seq(Row(null)))
+        val allNullNativeAggs = collectWithSubqueries(df.queryExecution.executedPlan) {
+          case h: HashAggregateExecBaseTransformer => h
+        }
+        assert(allNullNativeAggs.size == 2, df.queryExecution.executedPlan.toString)
+
+        withSQLConf(GlutenConfig.COLUMNAR_HASHAGG_ENABLED.key -> "false") {
+          val jvmDf = spark.sql(
+            s"SELECT might_contain((SELECT bloom_filter_agg(col) FROM $allNullTable), 1L)")
+          checkAnswer(jvmDf, Seq(Row(null)))
+          val jvmVeloxAggs = collectWithSubqueries(jvmDf.queryExecution.executedPlan) {
+            case agg: ObjectHashAggregateExec
+                if agg.aggregateExpressions.exists(
+                  _.aggregateFunction.isInstanceOf[VeloxBloomFilterAggregate]) =>
+              agg
+          }
+          assert(jvmVeloxAggs.nonEmpty, jvmDf.queryExecution.executedPlan.toString)
+        }
+      }
+    }
+  }
+
+  test("GLUTEN-13489: might_contain with non-bloom_filter_agg first arg stays on vanilla Spark") {
+    if (BackendsApiManager.getSettings.requireBloomFilterAggMightContainJointFallback()) {
+      val table = "bloom_filter_const_bytes_test"
+      val bytesTable = "bloom_filter_bytes_holder"
+      withTempView(table, bytesTable) {
+        Seq(201L, 999L).toDF("col").createOrReplaceTempView(table)
+        val bf = BloomFilter.create(1000, 8000)
+        bf.putLong(201L)
+        val out = new ByteArrayOutputStream()
+        bf.writeTo(out)
+        val sparkBfHex = out.toByteArray.map("%02X".format(_)).mkString
+
+        val literalDf = spark.sql(
+          s"SELECT col, might_contain(X'$sparkBfHex', col) FROM $table")
+        checkAnswer(literalDf, Seq(Row(201L, true), Row(999L, false)))
+        assert(!literalDf.queryExecution.executedPlan.toString.contains("velox_might_contain"))
+
+        val literalXxHashDf = spark.sql(
+          s"SELECT col, might_contain(X'$sparkBfHex', xxhash64(col)) FROM $table")
+        checkAnswer(literalXxHashDf, Seq(Row(201L, false), Row(999L, false)))
+        assert(
+          !literalXxHashDf.queryExecution.executedPlan.toString.contains("velox_might_contain"))
+
+        Seq(out.toByteArray).toDF("bf").createOrReplaceTempView(bytesTable)
+        val nonAggSubqueryDf = spark.sql(
+          s"""
+             |SELECT col, might_contain((SELECT bf FROM $bytesTable LIMIT 1), col)
+             |FROM $table
+             |""".stripMargin)
+        checkAnswer(nonAggSubqueryDf, Seq(Row(201L, true), Row(999L, false)))
+        assert(
+          !nonAggSubqueryDf.queryExecution.executedPlan.toString.contains("velox_might_contain"))
+
+        val otherAggSubqueryDf = spark.sql(
+          s"""
+             |SELECT col, might_contain((SELECT first(bf) FROM $bytesTable), col)
+             |FROM $table
+             |""".stripMargin)
+        checkAnswer(otherAggSubqueryDf, Seq(Row(201L, true), Row(999L, false)))
+        assert(
+          !otherAggSubqueryDf.queryExecution.executedPlan.toString.contains("velox_might_contain"))
+
+        val groupByAttrSubqueryDf = spark.sql(
+          s"""
+             |SELECT col, might_contain((SELECT bf FROM $bytesTable GROUP BY bf), col)
+             |FROM $table
+             |""".stripMargin)
+        checkAnswer(groupByAttrSubqueryDf, Seq(Row(201L, true), Row(999L, false)))
+        assert(
+          !groupByAttrSubqueryDf.queryExecution.executedPlan.toString
+            .contains("velox_might_contain"))
+
+        val groupByAliasSubqueryDf = spark.sql(
+          s"""
+             |SELECT col, might_contain(
+             |  (SELECT coalesce(bf, bf) AS bf_alias FROM $bytesTable GROUP BY bf), col)
+             |FROM $table
+             |""".stripMargin)
+        checkAnswer(groupByAliasSubqueryDf, Seq(Row(201L, true), Row(999L, false)))
+        assert(
+          !groupByAliasSubqueryDf.queryExecution.executedPlan.toString
+            .contains("velox_might_contain"))
+
+        val cteFilterInSubqueryDf = spark.sql(
+          s"""
+             |WITH bf_cte AS (
+             |  SELECT bloom_filter_agg(col) AS bf FROM $table WHERE col = 201L
+             |)
+             |SELECT col, might_contain((SELECT bf FROM bf_cte WHERE bf IS NOT NULL), col)
+             |FROM $table
+             |""".stripMargin)
+        checkAnswer(cteFilterInSubqueryDf, Seq(Row(201L, true), Row(999L, false)))
+        assert(
+          !cteFilterInSubqueryDf.queryExecution.executedPlan.toString
+            .contains("velox_might_contain"))
+        assert(
+          !cteFilterInSubqueryDf.queryExecution.executedPlan.toString
+            .contains("velox_bloom_filter_agg"))
+
+        val ctePairedSubqueryDf = spark.sql(
+          s"""
+             |WITH bf_cte AS (
+             |  SELECT bloom_filter_agg(col) AS bf FROM $table WHERE col = 201L
+             |)
+             |SELECT col, might_contain((SELECT bf FROM bf_cte), col)
+             |FROM $table
+             |""".stripMargin)
+        checkAnswer(ctePairedSubqueryDf, Seq(Row(201L, true), Row(999L, false)))
+        assert(
+          ctePairedSubqueryDf.queryExecution.executedPlan.toString.contains("velox_might_contain"))
+        assert(
+          ctePairedSubqueryDf.queryExecution.executedPlan.toString
+            .contains("velox_bloom_filter_agg"))
+
+        val cteInInSubqueryDf = spark.sql(
+          s"""
+             |WITH filtered_cte AS (
+             |  SELECT col FROM $table WHERE might_contain(X'$sparkBfHex', col)
+             |)
+             |SELECT col FROM $table WHERE col IN (SELECT col FROM filtered_cte)
+             |""".stripMargin)
+        checkAnswer(cteInInSubqueryDf, Seq(Row(201L)))
+        assert(
+          !cteInInSubqueryDf.queryExecution.executedPlan.toString.contains("velox_might_contain"))
+      }
+    }
+  }
+
+  test("GLUTEN-13489: standalone SQL bloom_filter_agg produces Spark-readable bytes") {
+    if (BackendsApiManager.getSettings.requireBloomFilterAggMightContainJointFallback()) {
+      val table = "bloom_filter_standalone_sql_test"
+      withTempView(table) {
+        (1L to 100L).toDF("col").createOrReplaceTempView(table)
+        val df = spark.sql(s"SELECT bloom_filter_agg(col) AS bf FROM $table")
+        val bytes = df.collect().head.getAs[Array[Byte]]("bf")
+        assert(!df.queryExecution.executedPlan.toString.contains("velox_bloom_filter_agg"))
+        val bf = BloomFilter.readFrom(new ByteArrayInputStream(bytes))
+        assert(bf.mightContainLong(50L))
+        assert(!bf.mightContainLong(500L))
+
+        val xxHashDf = spark.sql(s"SELECT bloom_filter_agg(xxhash64(col)) AS bf FROM $table")
+        val xxHashBytes = xxHashDf.collect().head.getAs[Array[Byte]]("bf")
+        assert(!xxHashDf.queryExecution.executedPlan.toString.contains("velox_bloom_filter_agg"))
+        assert(BloomFilter.readFrom(new ByteArrayInputStream(xxHashBytes)).cardinality() > 0L)
+
+        // Even if a rule rebuilds expressions and drops TreeNodeTags, the physical rule must not
+        // rewrite non-XxHash64 user-written BloomFilterAggregate or BloomFilterMightContain calls.
+        val scanPlan = spark.sql(s"SELECT col FROM $table").queryExecution.sparkPlan
+        val colAttr = scanPlan.output.head
+        val untaggedPlan = ProjectExec(
+          Seq(
+            Alias(new BloomFilterAggregate(colAttr), "bf")(),
+            Alias(BloomFilterMightContain(Literal(Array[Byte](1)), colAttr), "mc")()
+          ),
+          scanPlan
+        )
+        val afterPhysicalRule =
+          BloomFilterMightContainJointRewriteRule(spark, isBloomFilterStatFunction = false)
+            .apply(untaggedPlan)
+        assert(!afterPhysicalRule.toString.contains("velox_bloom_filter_agg"))
+        assert(!afterPhysicalRule.toString.contains("velox_might_contain"))
+      }
+    }
+  }
+
+  // Gated to Spark 3.5+: Spark's BloomFilterAggregate only supports ByteType, ShortType, and
+  // IntegerType starting in Spark 3.5 (SPARK-41982); on Spark 3.4 only LongType is accepted.
+  testWithMinSparkVersion(
+    "GLUTEN-13489: bloom_filter_agg on byte, short, and int columns offloads natively",
+    "3.5") {
+    if (BackendsApiManager.getSettings.requireBloomFilterAggMightContainJointFallback()) {
+      val table = "bloom_filter_small_ints_test"
+      withTempView(table) {
+        Seq((1.toByte, 10.toShort, 100), (2.toByte, 20.toShort, 200), (3.toByte, 30.toShort, 300))
+          .toDF("b", "s", "i")
+          .createOrReplaceTempView(table)
+        Seq(
+          ("b", Seq(Row(2.toByte), Row(3.toByte))),
+          ("s", Seq(Row(20.toShort), Row(30.toShort))),
+          ("i", Seq(Row(200), Row(300)))
+        ).foreach {
+          case (colName, expectedRows) =>
+            val df = spark.sql(
+              s"""
+                 |SELECT $colName
+                 |FROM $table
+                 |WHERE might_contain(
+                 |  (SELECT bloom_filter_agg($colName) FROM $table WHERE b > 1),
+                 |  cast($colName as long))
+                 |""".stripMargin)
+            checkAnswer(df, expectedRows)
+            val nativeAggs = collectWithSubqueries(df.queryExecution.executedPlan) {
+              case h: HashAggregateExecBaseTransformer => h
+            }
+            assert(
+              nativeAggs.size == 2,
+              s"Expected native HashAggregateExecBaseTransformer for column $colName, plan:\n" +
+                s"${df.queryExecution.executedPlan}"
+            )
         }
       }
     }
