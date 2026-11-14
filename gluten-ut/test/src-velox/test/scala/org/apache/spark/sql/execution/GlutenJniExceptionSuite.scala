@@ -153,15 +153,21 @@ class GlutenJniExceptionSuite extends GlutenQueryTest with SharedSparkSession {
 
   test("nested native iterators retain the actual Java cause") {
     val original = new ArithmeticException("original arithmetic error")
-    withNativeIterator(failingInput(original, failInHasNext = true)) {
-      inner =>
-        withNativeIterator(inner) {
-          outer =>
-            val actual = intercept[GlutenException] {
-              outer.hasNext()
+    val translated = new GlutenException(original)
+    Seq(original, translated).foreach {
+      inputError =>
+        withNativeIterator(failingInput(inputError, failInHasNext = true)) {
+          inner =>
+            withNativeIterator(inner) {
+              outer =>
+                val actual = intercept[GlutenException] {
+                  outer.hasNext()
+                }
+                assert(actual.getCause eq original)
+                if (inputError eq translated) {
+                  assert(actual eq translated)
+                }
             }
-            assert(actual.getCause.isInstanceOf[GlutenException])
-            assert(actual.getCause.getCause eq original)
         }
     }
   }
