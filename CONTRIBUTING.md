@@ -78,7 +78,7 @@ To check CI failure for Velox backend, please go into the GitHub action page fro
 
 For a pull request from a fork, the Velox x86, ARM and Kafka workflows (`velox_backend_x86.yml`, `velox_backend_arm.yml` and `velox_kafka.yml`) run in your fork each time you push the PR branch, not in apache/gluten. To make that work:
 
-- Enable GitHub Actions in the Actions tab of your fork.
+- Enable GitHub Actions in the Actions tab of your fork, and allow all actions in Settings > Actions > General. The workflows use actions from other owners, such as `actions/checkout`.
 - Open the pull request from a branch other than your fork's `main`.
 
 Each run tests your branch merged onto the current apache/gluten `main`, but it runs the workflow files from your branch. After a CI change lands on `main`, merge or rebase onto `main` and push to pick it up.

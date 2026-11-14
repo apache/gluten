@@ -65,20 +65,23 @@ function attemptOf(check) {
   return p ? `${p.run_id}/${p.run_attempt || 1}` : null;
 }
 
-// The check status (and conclusion) for a run's current state and its failed jobs.
-function stateOf(run, failedJobs) {
-  if (failedJobs.length) return { status: 'completed', conclusion: 'failure' };
+// The check status (and conclusion) for a run's current state and its jobs. GitHub
+// reports a run as queued while any job waits for a runner, so a run with a job that
+// has started counts as in progress.
+function stateOf(run, jobs) {
+  if (jobs.some((j) => FAILED.includes(j.conclusion))) return { status: 'completed', conclusion: 'failure' };
   if (run.status == 'completed') {
     return { status: 'completed', conclusion: CONCLUSIONS.includes(run.conclusion) ? run.conclusion : 'failure' };
   }
-  return { status: run.status == 'in_progress' ? 'in_progress' : 'queued' };
+  const started = run.status == 'in_progress' || jobs.some((j) => j.status == 'in_progress' || j.status == 'completed');
+  return { status: started ? 'in_progress' : 'queued' };
 }
 
 function noRunSummary(w, sha) {
   return [
     `${w.file} runs in your fork on each push to a branch other than main. No run was found for ${sha}.`,
     '',
-    '1. Enable GitHub Actions in the Actions tab of your fork, then push again. See [Managing GitHub Actions settings for a repository](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository).',
+    '1. Enable GitHub Actions in the Actions tab of your fork and allow all actions in Settings > Actions > General, then push again. See [Managing GitHub Actions settings for a repository](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository).',
     '2. If your branch predates fork runs, rebase it on the latest apache/gluten main and push again.',
     "3. If this pull request comes from your fork's main branch, push it to another branch and open the pull request from there.",
   ].join('\n');
@@ -115,22 +118,22 @@ module.exports = async ({ github, context, core }) => {
     return runs;
   };
 
-  // Jobs of the run's latest attempt that failed. Read only while the run is going or
-  // when it didn't pass.
-  const failedJobsOf = async (pr, run) => {
+  // Jobs of the run's latest attempt. Read only while the run is going or when it
+  // didn't pass.
+  const jobsOf = async (pr, run) => {
     if (run.status == 'completed' && ['success', 'skipped', 'neutral'].includes(run.conclusion)) return [];
-    const jobs = await github.paginate('GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs', {
+    return github.paginate('GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs', {
       owner: pr.head.repo.owner.login,
       repo: pr.head.repo.name,
       run_id: run.id,
       filter: 'latest',
       per_page: 100,
     });
-    return jobs.filter((j) => FAILED.includes(j.conclusion));
   };
 
   const checkFor = async (pr, run) => {
-    const failedJobs = await failedJobsOf(pr, run);
+    const jobs = await jobsOf(pr, run);
+    const failedJobs = jobs.filter((j) => FAILED.includes(j.conclusion));
     const done = run.status == 'completed';
     const count = failedJobs.length == 1 ? '1 job failed' : `${failedJobs.length} jobs failed`;
     const lines = [
@@ -142,7 +145,7 @@ module.exports = async ({ github, context, core }) => {
       for (const j of failedJobs) lines.push(`- [${j.name}](${j.html_url})`);
     }
     return {
-      ...stateOf(run, failedJobs),
+      ...stateOf(run, jobs),
       output: {
         title: failedJobs.length ? count + (done ? '' : ', run still going') : 'Fork run',
         summary: lines.join('\n'),
