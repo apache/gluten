@@ -1267,7 +1267,7 @@ class VeloxTestSettings extends BackendTestSettings {
   // TODO: 4.x enableSuite[GlutenPythonDataSourceSuite]
   // TODO: 4.x enableSuite[GlutenPythonUDFSuite]
   // TODO: 4.x enableSuite[GlutenPythonUDTFSuite]
-  // TODO: 4.x enableSuite[GlutenRowQueueSuite]
+  enableSuite[GlutenRowQueueSuite]
   enableSuite[GlutenBatchEvalPythonExecSuite]
     // Replaced with other tests that check for native operations
     .exclude("Python UDF: push down deterministic FilterExec predicates")
