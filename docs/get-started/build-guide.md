@@ -19,7 +19,7 @@ Please set them via `--`, e.g. `--build_type=Release`.
 | enable_gcs             | Build with GCS support.                                                                       | OFF     |
 | enable_hdfs            | Build with HDFS support.                                                                      | OFF     |
 | enable_abfs            | Build with ABFS support.                                                                      | OFF     |
-| enable_kafka           | Build with Kafka streaming read support. Automatically installs librdkafka.                   | OFF     |
+| enable_kafka           | Build with native Kafka support and install librdkafka. See [Kafka support](VeloxKafka.md) for JVM setup. | OFF     |
 | enable_vcpkg           | Enable vcpkg for static build.                                                                | OFF     |
 | run_setup_script       | Run setup script to install Velox dependencies.                                               | ON      |
 | velox_repo             | Specify your own Velox repo to build.                                                         | ""      |
@@ -66,6 +66,7 @@ The below parameters can be set via `-P` for mvn.
 | delta               | Build Gluten with Delta Lake support. | disabled      |
 | iceberg             | Build Gluten with Iceberg support.    | disabled      |
 | hudi                | Build Gluten with Hudi support.       | disabled      |
+| kafka               | Build JVM Kafka integration. See [Kafka support](VeloxKafka.md) for Velox prerequisites. | disabled      |
 | spark-3.4           | Build Gluten for Spark 3.4.           | disabled      |
 | spark-3.5           | Build Gluten for Spark 3.5.           | enabled      |
 | spark-4.0           | Build Gluten for Spark 4.0. Requires JDK 17+ and Scala 2.13. | disabled      |
