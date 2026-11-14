@@ -44,7 +44,7 @@ void VeloxParquetDataSource::initSink(const std::unordered_map<std::string, std:
 
 void VeloxParquetDataSource::init(const std::unordered_map<std::string, std::string>& sparkConfs) {
   initSink(sparkConfs);
-  auto schema = gluten::fromArrowSchema(schema_);
+  auto schema = gluten::makeParquetWriteSchema(schema_);
   const auto writeOption = gluten::makeParquetWriteOption(sparkConfs);
   parquetWriter_ = std::make_unique<velox::parquet::Writer>(std::move(sink_), *writeOption, pool_, asRowType(schema));
 }
@@ -76,7 +76,7 @@ void VeloxParquetDataSource::close() {
 void VeloxParquetDataSource::write(const std::shared_ptr<ColumnarBatch>& cb) {
   auto veloxBatch = std::dynamic_pointer_cast<VeloxColumnarBatch>(cb);
   VELOX_DCHECK(veloxBatch != nullptr, "Write batch should be VeloxColumnarBatch");
-  parquetWriter_->write(veloxBatch->getFlattenedRowVector());
+  parquetWriter_->write(prepareParquetWriteInput(veloxBatch->getFlattenedRowVector()));
 }
 
 } // namespace gluten

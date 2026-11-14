@@ -17,15 +17,20 @@
 
 #include "utils/VeloxWriterUtils.h"
 
+#include <arrow/type.h>
 #include <boost/algorithm/string.hpp>
+#include <algorithm>
 
 #include "config/GlutenConfig.h"
 #include "utils/ConfigExtractor.h"
 #include "utils/Exception.h"
+#include "utils/VeloxArrowUtils.h"
 
 #include "memory/VeloxMemoryManager.h"
 #include "velox/common/compression/Compression.h"
 #include "velox/type/Type.h"
+#include "velox/vector/DecodedVector.h"
+#include "velox/vector/FlatVector.h"
 
 namespace gluten {
 
@@ -36,6 +41,94 @@ using namespace facebook::velox::common;
 namespace {
 const int32_t kGzipWindowBits4k = 12;
 const int32_t kZSTDDefaultCompressionLevel = 3;
+
+TypePtr parquetWriteType(const TypePtr& type, const ::arrow::DataType& arrowType) {
+  switch (arrowType.id()) {
+    case ::arrow::Type::TIMESTAMP: {
+      const auto& timestamp = static_cast<const ::arrow::TimestampType&>(arrowType);
+      if (timestamp.timezone().empty()) {
+        return TIMESTAMP_UTC();
+      }
+      return TIMESTAMP();
+    }
+    case ::arrow::Type::STRUCT: {
+      std::vector<TypePtr> children;
+      children.reserve(type->size());
+      for (auto i = 0; i < type->size(); ++i) {
+        children.push_back(parquetWriteType(type->childAt(i), *arrowType.field(i)->type()));
+      }
+      return ROW(asRowType(type)->names(), std::move(children));
+    }
+    case ::arrow::Type::LIST: {
+      const auto& list = static_cast<const ::arrow::ListType&>(arrowType);
+      return ARRAY(parquetWriteType(type->childAt(0), *list.value_type()));
+    }
+    case ::arrow::Type::MAP: {
+      const auto& map = static_cast<const ::arrow::MapType&>(arrowType);
+      return MAP(
+          parquetWriteType(type->childAt(0), *map.key_type()), parquetWriteType(type->childAt(1), *map.item_type()));
+    }
+    default:
+      return type;
+  }
+}
+
+bool hasNullStructs(const VectorPtr& vector) {
+  switch (vector->encoding()) {
+    case VectorEncoding::Simple::ROW: {
+      const auto* row = vector->asUnchecked<RowVector>();
+      if (row->mayHaveNulls() && BaseVector::countNulls(row->nulls(), row->size()) != 0) {
+        return true;
+      }
+      return std::any_of(row->children().begin(), row->children().end(), hasNullStructs);
+    }
+    case VectorEncoding::Simple::ARRAY:
+      return hasNullStructs(vector->asUnchecked<ArrayVector>()->elements());
+    case VectorEncoding::Simple::MAP: {
+      const auto* map = vector->asUnchecked<MapVector>();
+      return hasNullStructs(map->mapKeys()) || hasNullStructs(map->mapValues());
+    }
+    case VectorEncoding::Simple::FLAT:
+      return false;
+    default:
+      return !vector->isScalar();
+  }
+}
+
+void propagateStructNulls(const VectorPtr& vector) {
+  switch (vector->encoding()) {
+    case VectorEncoding::Simple::ROW: {
+      auto* row = vector->asUnchecked<RowVector>();
+      const SelectivityVector allRows(row->size());
+      for (auto& child : row->children()) {
+        child->addNulls(row->rawNulls(), allRows);
+        propagateStructNulls(child);
+      }
+      break;
+    }
+    case VectorEncoding::Simple::ARRAY:
+    case VectorEncoding::Simple::MAP: {
+      auto* array = vector->asUnchecked<ArrayVectorBase>();
+      for (auto row = 0; row < array->size(); ++row) {
+        if (array->isNullAt(row)) {
+          array->setOffsetAndSize(row, 0, 0);
+        }
+      }
+      if (vector->encoding() == VectorEncoding::Simple::ARRAY) {
+        propagateStructNulls(vector->asUnchecked<ArrayVector>()->elements());
+      } else {
+        auto* map = vector->asUnchecked<MapVector>();
+        propagateStructNulls(map->mapKeys());
+        propagateStructNulls(map->mapValues());
+      }
+      break;
+    }
+    case VectorEncoding::Simple::FLAT:
+      break;
+    default:
+      VELOX_FAIL("Expected a materialized Parquet input, got {}", vector->encoding());
+  }
+}
 } // namespace
 
 std::shared_ptr<dwio::common::FormatSpecificOptions> GlutenParquetWriterFactory::createFormatOptions(
@@ -154,6 +247,64 @@ std::shared_ptr<facebook::velox::dwio::common::WriterOptions> makeParquetWriteOp
   parquetOptions->sizeStatisticsLevel = parquet::arrow::SizeStatisticsLevel::kNone;
   writeOption->formatSpecificOptions = std::move(parquetOptions);
   return writeOption;
+}
+
+RowTypePtr makeParquetWriteSchema(const std::shared_ptr<::arrow::Schema>& schema) {
+  // Arrow's C++ map import drops key-field metadata. Spark writer schemas still
+  // identify NTZ unambiguously through the Arrow timestamp's empty timezone.
+  return asRowType(parquetWriteType(fromArrowSchema(schema), *::arrow::struct_(schema->fields())));
+}
+
+RowVectorPtr prepareParquetWriteInput(const RowVectorPtr& input) {
+  auto children = input->children();
+  bool changed = false;
+  for (auto& child : children) {
+    if (!hasNullStructs(child)) {
+      continue;
+    }
+    // Arrow conversion visits child payloads even underneath null structs.
+    // Materialize only affected columns, then mask their unreachable children.
+    auto materialized = BaseVector::create(child->type(), child->size(), input->pool());
+    materialized->copy(child.get(), 0, 0, child->size());
+    propagateStructNulls(materialized);
+    child = std::move(materialized);
+    changed = true;
+  }
+  if (!changed) {
+    return input;
+  }
+  return std::make_shared<RowVector>(input->pool(), input->type(), input->nulls(), input->size(), std::move(children));
+}
+
+RowVectorPtr makePartitionIdInput(const RowVectorPtr& input, const std::vector<uint32_t>& partitionChannels) {
+  const auto rowType = asRowType(input->type());
+  auto types = rowType->children();
+  auto children = input->children();
+  bool changed = false;
+  for (auto channel : partitionChannels) {
+    if (!types.at(channel)->isTimestamp()) {
+      continue;
+    }
+    // PartitionIdGenerator only accepts millisecond timestamps. Use Spark's exact
+    // microseconds for IDs, retaining the original vectors for files and paths.
+    DecodedVector decoded(*children.at(channel));
+    auto micros = BaseVector::create<FlatVector<int64_t>>(BIGINT(), input->size(), input->pool());
+    for (auto row = 0; row < input->size(); ++row) {
+      if (decoded.isNullAt(row)) {
+        micros->setNull(row, true);
+      } else {
+        micros->set(row, decoded.valueAt<Timestamp>(row).toMicros());
+      }
+    }
+    types[channel] = BIGINT();
+    children[channel] = std::move(micros);
+    changed = true;
+  }
+  if (!changed) {
+    return input;
+  }
+  return std::make_shared<RowVector>(
+      input->pool(), ROW(rowType->names(), std::move(types)), input->nulls(), input->size(), std::move(children));
 }
 
 } // namespace gluten

@@ -247,21 +247,63 @@ class GlutenDeltaNativeWriteGateSuite extends SharedSparkSession {
         .isDefined)
   }
 
-  test("VOID and TIMESTAMP_NTZ columns fall back, at any depth") {
+  test("VOID columns fall back, at any depth") {
     assert(GlutenDeltaNativeWriteGate.unsupportedSchema(plainSchema).isEmpty)
     for (
       dataType <- Seq(
         NullType,
         new StructType().add("v", NullType),
         ArrayType(NullType),
-        TimestampNTZType,
-        new StructType().add("t", TimestampNTZType),
-        MapType(StringType, TimestampNTZType)
+        MapType(StringType, NullType)
       )
     ) {
       val schema = plainSchema.add("c", dataType)
       assert(GlutenDeltaNativeWriteGate.unsupportedSchema(schema).isDefined, dataType)
       assert(unsupported(schema = schema).isDefined, dataType)
+    }
+  }
+
+  test("TIMESTAMP_NTZ is written natively at any depth, independently of LTZ encoding") {
+    for (
+      dataType <- Seq(
+        TimestampNTZType,
+        new StructType().add("t", TimestampNTZType),
+        ArrayType(TimestampNTZType),
+        MapType(TimestampNTZType, TimestampNTZType)
+      );
+      timestampType <- Seq("INT96", "TIMESTAMP_MILLIS", "TIMESTAMP_MICROS");
+      rebaseMode <- Seq("LEGACY", "EXCEPTION", "CORRECTED")
+    ) {
+      val schema = plainSchema.add("c", dataType)
+      withSQLConf(
+        SQLConf.PARQUET_OUTPUT_TIMESTAMP_TYPE.key -> timestampType,
+        SQLConf.PARQUET_REBASE_MODE_IN_WRITE.key -> rebaseMode) {
+        assert(GlutenDeltaNativeWriteGate.unsupportedSchema(schema).isEmpty, dataType)
+        assert(unsupported(schema = schema).isEmpty, dataType)
+        val mixed = schema.add("ltz", TimestampType)
+        assert(
+          unsupported(schema = mixed).isEmpty ==
+            (timestampType == "TIMESTAMP_MICROS" && rebaseMode == "CORRECTED"),
+          s"$dataType, $timestampType, $rebaseMode")
+      }
+    }
+
+  }
+
+  test("TIMESTAMP_NTZ still falls back when native type validation rejects it") {
+    withSQLConf(
+      "spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation" -> "true") {
+      for (
+        dataType <- Seq(
+          TimestampNTZType,
+          new StructType().add("t", TimestampNTZType),
+          ArrayType(TimestampNTZType),
+          MapType(TimestampNTZType, TimestampNTZType))
+      ) {
+        val schema = plainSchema.add("c", dataType)
+        assert(GlutenDeltaNativeWriteGate.unsupportedSchema(schema).isDefined, dataType)
+        assert(unsupported(schema = schema).isDefined, dataType)
+      }
     }
   }
 }

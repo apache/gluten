@@ -19,7 +19,10 @@
 
 #pragma once
 
+#include <arrow/type_fwd.h>
+
 #include "velox/dwio/parquet/writer/Writer.h"
+#include "velox/vector/ComplexVector.h"
 
 namespace gluten {
 
@@ -32,5 +35,13 @@ class GlutenParquetWriterFactory : public facebook::velox::parquet::ParquetWrite
 
 std::shared_ptr<facebook::velox::dwio::common::WriterOptions> makeParquetWriteOption(
     const std::unordered_map<std::string, std::string>& sparkConfs);
+
+facebook::velox::RowTypePtr makeParquetWriteSchema(const std::shared_ptr<::arrow::Schema>& schema);
+
+facebook::velox::RowVectorPtr prepareParquetWriteInput(const facebook::velox::RowVectorPtr& input);
+
+facebook::velox::RowVectorPtr makePartitionIdInput(
+    const facebook::velox::RowVectorPtr& input,
+    const std::vector<uint32_t>& partitionChannels);
 
 } // namespace gluten
