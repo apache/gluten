@@ -36,6 +36,9 @@ object FromJsonRestrictions extends ExpressionRestrictions {
     s"${ExpressionNames.FROM_JSON} with duplicate keys is not supported in Velox"
   val NOT_SUPPORT_COLUMN_CORRUPT_RECORD: String =
     s"${ExpressionNames.FROM_JSON} with column corrupt record is not supported in Velox"
+  val NOT_SUPPORT_YEAR_MONTH_INTERVAL: String =
+    s"${ExpressionNames.FROM_JSON} with a year-month interval in the schema is not supported in " +
+      s"Velox, which parses it as an integer instead of an ANSI interval string"
 
   override val functionName: String = ExpressionNames.FROM_JSON
 
@@ -44,7 +47,8 @@ object FromJsonRestrictions extends ExpressionRestrictions {
     NOT_SUPPORT_WITH_OPTIONS,
     NOT_SUPPORT_CASE_SENSITIVE,
     NOT_SUPPORT_DUPLICATE_KEYS,
-    NOT_SUPPORT_COLUMN_CORRUPT_RECORD
+    NOT_SUPPORT_COLUMN_CORRUPT_RECORD,
+    NOT_SUPPORT_YEAR_MONTH_INTERVAL
   )
 }
 
@@ -56,10 +60,14 @@ object ToJsonRestrictions extends ExpressionRestrictions {
     s"When 'spark.sql.caseSensitive = false', ${ExpressionNames.TO_JSON} produces unexpected" +
       s" result for struct field with uppercase name"
 
+  val NOT_SUPPORT_YEAR_MONTH_INTERVAL: String =
+    s"${ExpressionNames.TO_JSON} with a year-month interval in the input is not supported in " +
+      s"Velox, which writes it as an integer instead of an ANSI interval string"
+
   override val functionName: String = ExpressionNames.TO_JSON
 
   override val restrictionMessages: Array[String] =
-    Array(NOT_SUPPORT_WITH_OPTIONS, NOT_SUPPORT_UPPERCASE_STRUCT)
+    Array(NOT_SUPPORT_WITH_OPTIONS, NOT_SUPPORT_UPPERCASE_STRUCT, NOT_SUPPORT_YEAR_MONTH_INTERVAL)
 }
 
 object Unbase64Restrictions extends ExpressionRestrictions {

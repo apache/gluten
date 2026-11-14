@@ -17,9 +17,9 @@
 package org.apache.gluten.functions
 
 import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
-import org.apache.gluten.execution.{BatchScanExecTransformer, ProjectExecTransformer}
+import org.apache.gluten.execution.{BatchScanExecTransformer, FilterExecTransformer, HashJoinLikeExecTransformer, ProjectExecTransformer}
 
-import org.apache.spark.SparkConf
+import org.apache.spark.{SparkConf, SparkException}
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.expressions.{RoundCeil, RoundFloor}
 import org.apache.spark.sql.functions.col
@@ -532,6 +532,62 @@ class MathFunctionsValidateSuite extends FunctionsValidateSuite {
       "select try_subtract(2147483647, cast(l_orderkey as int)), " +
         "try_subtract(-2147483648, cast(l_orderkey as int)) from lineitem") {
       checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  // Year-month intervals in a parquet table, so expressions on them run in Velox. The second
+  // row's sum and the third row's difference overflow the int month count.
+  private def withYmIntervalTable(f: => Unit): Unit = {
+    withTempPath {
+      path =>
+        sql("""SELECT * FROM VALUES
+              |  (1, make_ym_interval(1, 2), make_ym_interval(0, 11)),
+              |  (2, make_ym_interval(178956970, 7), make_ym_interval(0, 1)),
+              |  (3, make_ym_interval(-178956970, -8), make_ym_interval(0, 1)),
+              |  (4, NULL, make_ym_interval(0, 1))
+              |  AS t(id, a, b)""".stripMargin)
+          .write
+          .parquet(path.getCanonicalPath)
+        withTempView("ym_interval_tbl") {
+          spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("ym_interval_tbl")
+          f
+        }
+    }
+  }
+
+  test("year-month interval add and subtract, with and without try") {
+    withYmIntervalTable {
+      val df = runQueryAndCompare(
+        "SELECT id, try_add(a, b), try_subtract(a, b) FROM ym_interval_tbl ORDER BY id") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+      val rows = df.collect()
+      assert(rows(1).isNullAt(1) && !rows(1).isNullAt(2))
+      assert(!rows(2).isNullAt(1) && rows(2).isNullAt(2))
+
+      // Without try, Spark interval arithmetic throws on overflow in both ANSI modes.
+      runQueryAndCompare("SELECT id, a + b, a - b FROM ym_interval_tbl WHERE id IN (1, 4)") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+      intercept[SparkException] {
+        sql("SELECT a + b FROM ym_interval_tbl WHERE id = 2").collect()
+      }
+    }
+  }
+
+  test("year-month interval comparisons, coalesce, hash, negation, filter and join") {
+    withYmIntervalTable {
+      runQueryAndCompare(
+        "SELECT id, a > b, a = b, a < b, coalesce(a, b), hash(a), -b FROM ym_interval_tbl") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+      runQueryAndCompare("SELECT id FROM ym_interval_tbl WHERE a > b") {
+        checkGlutenPlan[FilterExecTransformer]
+      }
+      runQueryAndCompare(
+        "SELECT t1.id, t2.id FROM ym_interval_tbl t1 JOIN ym_interval_tbl t2 ON t1.a = t2.a") {
+        checkGlutenPlan[HashJoinLikeExecTransformer]
+      }
     }
   }
 

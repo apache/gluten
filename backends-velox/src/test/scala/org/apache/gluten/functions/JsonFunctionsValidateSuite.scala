@@ -433,4 +433,41 @@ class JsonFunctionsValidateSuite extends FunctionsValidateSuite {
       }
     }
   }
+
+  test("to_json and from_json with year-month intervals fall back") {
+    withTempPath {
+      path =>
+        Seq(
+          (
+            """{"a":"INTERVAL '1-2' YEAR TO MONTH"}""",
+            """{"a":14}""",
+            """{"a":["INTERVAL '1-2' YEAR TO MONTH"]}"""))
+          .toDF("str", "num", "nested")
+          .selectExpr("1 AS id", "make_ym_interval(1, 2) AS i", "str", "num", "nested")
+          .write
+          .parquet(path.getCanonicalPath)
+        spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("tbl")
+
+        // Velox writes and parses a year-month interval as its month count, while Spark uses the
+        // ANSI interval string.
+        Seq(
+          "SELECT to_json(named_struct('a', i)) FROM tbl",
+          "SELECT to_json(map('key', i)) FROM tbl",
+          "SELECT to_json(named_struct('a', array(i))) FROM tbl",
+          "SELECT from_json(str, 'a INTERVAL YEAR TO MONTH') FROM tbl",
+          "SELECT from_json(num, 'a INTERVAL YEAR TO MONTH') FROM tbl",
+          "SELECT from_json(nested, 'a ARRAY<INTERVAL YEAR TO MONTH>') FROM tbl"
+        ).foreach {
+          query =>
+            runQueryAndCompare(query) {
+              checkSparkPlan[ProjectExec]
+            }
+        }
+
+        runQueryAndCompare(
+          "SELECT to_json(named_struct('a', id)), from_json(num, 'a INT') FROM tbl") {
+          checkGlutenPlan[ProjectExecTransformer]
+        }
+    }
+  }
 }

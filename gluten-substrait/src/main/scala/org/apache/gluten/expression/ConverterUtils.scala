@@ -451,6 +451,7 @@ object ConverterUtils extends Logging {
       case FloatType => "fp32"
       case DoubleType => "fp64"
       case DateType => "date"
+      case YearMonthIntervalType.DEFAULT => "iyear"
       case TimestampType => "ts"
       // Underscores delimit arguments in native function signatures.
       case TimestampNTZType => "tsntz"
