@@ -28,10 +28,7 @@ class VeloxConfigSuite extends AnyFunSuite {
     new VeloxConfig(conf)
   }
 
-  private val buildOncePerExecutor =
-    VeloxConfig.VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR.key
-
-  test("build hash table once per executor is enabled by default") {
+  test("build hash table once per executor by default") {
     val conf = veloxConfig()
     assert(!conf.benchmarkDumpRequested)
     assert(conf.enableBroadcastBuildOncePerExecutor)
@@ -45,13 +42,9 @@ class VeloxConfigSuite extends AnyFunSuite {
       GlutenConfig.BENCHMARK_TASK_TASK_ID.key -> "3"
     ).foreach {
       dumpTrigger =>
-        val conf = veloxConfig(dumpTrigger, buildOncePerExecutor -> "true")
+        val conf = veloxConfig(dumpTrigger)
         assert(conf.benchmarkDumpRequested, dumpTrigger)
         assert(!conf.enableBroadcastBuildOncePerExecutor, dumpTrigger)
     }
-  }
-
-  test("build hash table once per executor can still be disabled explicitly") {
-    assert(!veloxConfig(buildOncePerExecutor -> "false").enableBroadcastBuildOncePerExecutor)
   }
 }
