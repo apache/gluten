@@ -44,13 +44,13 @@ starts failing** (a regression).
 | `java-test-args.sh` | Shared Gluten Spark defaults and JVM flags (`--add-opens` + Netty property). Sourced by `run-delta-tests.sh` and by local runs. |
 | `setup-delta.sh` | Clones Delta, drops in the Gluten bundle, and applies temporary compatibility patches. Takes `<delta_ref> <delta_dir> <gluten_bundle_jar>`. |
 | `apply-delta-test-patches.sh` | Cherry-picks upstream scan fixes, applies the ordered local patch list, and verifies the resulting test sources. Called by `setup-delta.sh` with `<delta_ref> <delta_dir>`. |
-| `patches/*.patch` | Separate patches for CDF plan assertions, mock-S3 fixture writes, the two Parquet row-group fixtures, and 2B-row DV fail-fast behavior. Each patch documents its rationale and removal condition. |
+| `patches/*.patch` | Separate patches for CDF plan assertions, mock-S3 fixture writes, Parquet row-group and MERGE file-count fixtures, and 2B-row DV fail-fast behavior. Each patch documents its rationale and removal condition. |
 
 ## Temporary Delta test patches
 
 Local workarounds live in `patches/`, one file per purpose. The patcher applies
 an explicit ordered list with `git apply` after the upstream cherry-picks,
-then verifies the expected row-count-scope and fail-fast counts.
+then verifies the expected fixture scopes and fail-fast counts.
 Patch paths are resolved relative to the script, independent of the caller's
 working directory. Missing patches, incompatible source context, or unexpected
 counts fail setup explicitly. Run through `setup-delta.sh` to reset the Delta
@@ -59,6 +59,21 @@ checkout before applying the patches again.
 The `dv-2b-row-fail-fast.patch` keeps the two memory-hog DV tests failing
 immediately rather than skipping them. Their known-failure entries remain
 enforced until the underlying native-memory issue is fixed.
+
+## Temporary MERGE file-count fixture workaround
+
+`patches/merge-delete-duplicate-file-layout.patch` scopes
+`spark.sql.files.minPartitionNum=1` to the unpartitioned, CDF-disabled
+`merge-metrics: delete-only with duplicates` case in `MergeIntoMetricsBase`.
+Its three touched native-written files can have equal sizes; scan packing can
+then put the surviving rows in separate tasks and correctly produce two files,
+while the test expects one. For this small fixture, the scoped setting packs
+the touched files together. It is not a general guarantee of one output file.
+
+The patch leaves the explicit input partitions, global default parallelism,
+native execution, metric assertions, and other test variants unchanged. The
+failure remains enforced, not quarantined. Remove the patch when the upstream
+test no longer depends on incidental file-size ordering and scan packing.
 
 ## Temporary CDF plan-assertion workaround
 

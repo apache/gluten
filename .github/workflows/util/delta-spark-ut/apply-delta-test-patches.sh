@@ -91,6 +91,7 @@ for patch in \
   mock-s3-fixture-writer.patch \
   parquet-fixture-row-groups.patch \
   dv-predicate-pushdown-row-groups.patch \
+  merge-delete-duplicate-file-layout.patch \
   dv-2b-row-fail-fast.patch; do
   echo "Applying $patch"
   if ! git -C "$DELTA_DIR" apply "$PATCH_DIR/$patch"; then
@@ -146,6 +147,35 @@ fi
 echo "Capped predicate-pushdown DV fixture row groups at 500,000 rows."
 git -C "$DELTA_DIR" --no-pager diff -- \
   "spark/src/test/scala/org/apache/spark/sql/delta/deletionvectors/DeletionVectorsSuite.scala" || true
+echo "::endgroup::"
+
+echo "::group::Checking duplicate-delete MERGE fixture scan packing"
+MERGE_METRICS="$DELTA_DIR/spark/src/test/scala/org/apache/spark/sql/delta/MergeIntoMetricsBase.scala"
+if [ ! -f "$MERGE_METRICS" ]; then
+  echo "Expected file not found in Delta clone: $MERGE_METRICS" >&2
+  echo "The Delta directory layout for ref '${DELTA_REF}' may have changed." >&2
+  exit 1
+fi
+MERGE_SCAN_GUARDS=$(
+  grep -Fxc \
+    '    val scanConf = if (!testConfig.partitioned && !testConfig.cdfEnabled) {' \
+    "$MERGE_METRICS" || true
+)
+MERGE_SCAN_SETTINGS=$(
+  grep -Fxc '      Seq("spark.sql.files.minPartitionNum" -> "1")' "$MERGE_METRICS" || true
+)
+MERGE_SCAN_SCOPES=$(
+  grep -Fxc '    withSQLConf(scanConf: _*) {' "$MERGE_METRICS" || true
+)
+if [ "$MERGE_SCAN_GUARDS" -ne 1 ] || [ "$MERGE_SCAN_SETTINGS" -ne 1 ] || \
+   [ "$MERGE_SCAN_SCOPES" -ne 1 ]; then
+  echo "ERROR: expected one guarded duplicate-delete MERGE scan scope;" \
+    "found ${MERGE_SCAN_GUARDS} guards, ${MERGE_SCAN_SETTINGS} settings," \
+    "and ${MERGE_SCAN_SCOPES} scopes." >&2
+  echo "MergeIntoMetricsBase may have changed in Delta ref '${DELTA_REF}'." >&2
+  exit 1
+fi
+echo "Scoped the duplicate-delete scan setting to the unpartitioned, CDF-disabled case."
 echo "::endgroup::"
 
 echo "::group::Checking DeletionVectorsSuite 2B-row fail-fast guards"
