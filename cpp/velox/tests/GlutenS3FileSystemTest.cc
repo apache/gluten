@@ -68,5 +68,39 @@ TEST(GlutenS3FileSystemTest, extractsAsyncUploadConfigs) {
   EXPECT_EQ(hiveConfig->get<std::string>(prefix + "upload-threads"), "32");
 }
 
+TEST(GlutenS3FileSystemTest, extractsPerBucketConfigs) {
+  using Keys = filesystems::S3Config::Keys;
+  auto config = std::make_shared<velox::config::ConfigBase>(std::unordered_map<std::string, std::string>{
+      {"spark.hadoop.fs.s3a.bucket.plain-bucket.endpoint", "http://plain:9000"},
+      {"spark.hadoop.fs.s3a.bucket.my.data.bucket.endpoint", "http://dotted:9000"},
+      {"spark.hadoop.fs.s3a.bucket.my.data.bucket.access.key", "dotted-access"},
+      {"spark.hadoop.fs.s3a.bucket.my.data.bucket.endpoint.region", "us-west-2"},
+      {"spark.hadoop.fs.s3a.bucket.my.data.bucket.iam.role.session.name", "dotted-session"},
+      {"spark.hadoop.fs.s3a.bucket.my.data.bucket.unknown.option", "ignored"}});
+
+  const auto hiveConfig = createHiveConnectorConfig(config, FileSystemType::kS3);
+
+  auto bucketValue = [&](Keys key, std::string_view bucket) {
+    return hiveConfig->get<std::string>(filesystems::S3Config::bucketConfigKey(key, bucket));
+  };
+  EXPECT_EQ(bucketValue(Keys::kEndpoint, "plain-bucket"), "http://plain:9000");
+  EXPECT_EQ(bucketValue(Keys::kEndpoint, "my.data.bucket"), "http://dotted:9000");
+  EXPECT_EQ(bucketValue(Keys::kAccessKey, "my.data.bucket"), "dotted-access");
+  EXPECT_EQ(bucketValue(Keys::kEndpointRegion, "my.data.bucket"), "us-west-2");
+  EXPECT_EQ(bucketValue(Keys::kIamRoleSessionName, "my.data.bucket"), "dotted-session");
+
+  // Nothing is registered under a bucket name truncated at the first dot.
+  EXPECT_FALSE(bucketValue(Keys::kEndpoint, "my").has_value());
+
+  // Only the five recognized options above produce per-bucket Velox configs.
+  size_t numBucketConfigs = 0;
+  for (const auto& [key, value] : hiveConfig->rawConfigs()) {
+    if (key.rfind(filesystems::S3Config::kS3BucketPrefix, 0) == 0) {
+      ++numBucketConfigs;
+    }
+  }
+  EXPECT_EQ(numBucketConfigs, 5);
+}
+
 } // namespace
 } // namespace gluten
