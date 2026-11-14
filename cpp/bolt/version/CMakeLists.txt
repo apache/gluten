@@ -82,4 +82,4 @@ if(NOT GIT_DIFF_RESULT EQUAL 0)
 endif()
 # generate version.h
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/version.h.in"
-               "${CMAKE_CURRENT_SOURCE_DIR}/version.h" @ONLY)
+               "${CMAKE_CURRENT_BINARY_DIR}/version.h" @ONLY)
