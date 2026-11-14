@@ -197,6 +197,10 @@ public class RexCallConverterFactory {
           Map.entry("RTRIM", Arrays.asList(() -> new TrimSeekRexCallConverter("rtrim"))),
           Map.entry("LPAD", Arrays.asList(() -> new DefaultRexCallConverter("lpad"))),
           Map.entry("RPAD", Arrays.asList(() -> new DefaultRexCallConverter("rpad"))),
+          Map.entry("REPLACE", Arrays.asList(() -> new DefaultRexCallConverter("replace"))),
+          Map.entry("FROM_BASE64", Arrays.asList(() -> new DefaultRexCallConverter("from_base64"))),
+          Map.entry("RIGHT", Arrays.asList(() -> new DefaultRexCallConverter("right"))),
+          Map.entry("LIKE", Arrays.asList(() -> new DefaultRexCallConverter("like"))),
           Map.entry("COALESCE", Arrays.asList(() -> new DefaultRexCallConverter("coalesce"))),
           Map.entry("JSON_VALUE", Arrays.asList(() -> new JsonValueRexCallConverter())));
 
