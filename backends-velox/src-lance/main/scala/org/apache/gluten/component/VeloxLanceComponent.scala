@@ -16,16 +16,22 @@
  */
 package org.apache.gluten.component
 
+import org.apache.gluten.backendsapi.arrow.ArrowBatchTypes.ArrowJavaBatchType
 import org.apache.gluten.backendsapi.velox.VeloxBackend
-import org.apache.gluten.extension.OffloadLanceScan
+import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.extension.LanceArrowBatchScan
+import org.apache.gluten.extension.columnar.transition.{Convention, ConventionFunc}
 import org.apache.gluten.extension.injector.Injector
 
+import org.apache.spark.sql.execution.SparkPlan
+import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.util.SparkReflectionUtil
 
 /**
- * Registers the Lance-over-Velox scan offload. Inert unless lance-spark is on the runtime
- * classpath, so the default Velox bundle carries this component without requiring Lance for other
- * workloads.
+ * Offloads Lance scans to Velox. A Lance scan emits Arrow batches ([[LanceArrowBatchScan]]), which
+ * this component declares as Java Arrow batches, so Gluten converts them into Velox batches with
+ * its Arrow transitions. Inert unless lance-spark is on the runtime classpath, so the default Velox
+ * bundle carries this component without requiring Lance for other workloads.
  */
 class VeloxLanceComponent extends Component {
   override def name(): String = "velox-lance"
@@ -36,6 +42,12 @@ class VeloxLanceComponent extends Component {
     SparkReflectionUtil.isClassPresent("org.lance.spark.read.LanceScan")
 
   override def injectRules(injector: Injector): Unit = {
-    OffloadLanceScan.inject(injector)
+    injector.gluten.legacy.injectPreTransform(c => LanceArrowBatchScan(new GlutenConfig(c.sqlConf)))
+  }
+
+  override def convFuncOverride(): ConventionFunc.Override = new ConventionFunc.Override {
+    override def batchTypeOf: PartialFunction[SparkPlan, Convention.BatchType] = {
+      case scan: BatchScanExec if LanceArrowBatchScan.isArrowBatchScan(scan) => ArrowJavaBatchType
+    }
   }
 }

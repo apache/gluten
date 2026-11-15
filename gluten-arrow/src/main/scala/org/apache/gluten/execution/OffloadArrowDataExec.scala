@@ -33,10 +33,47 @@ case class OffloadArrowDataExec(override val child: SparkPlan)
 
   override protected val to: Convention.BatchType = ArrowNativeBatchType
 
-  override protected def mapIterator(in: Iterator[ColumnarBatch]): Iterator[ColumnarBatch] = {
-    in.map(b => ColumnarBatches.offload(ArrowBufferAllocators.contextInstance, b))
+  override protected def mapIterator(in: Iterator[ColumnarBatch]): Iterator[ColumnarBatch] =
+    new OffloadArrowDataIterator(in)
+
+  override protected def closeIterator(out: Iterator[ColumnarBatch]): Unit = out match {
+    case offload: OffloadArrowDataIterator => offload.close()
+    case _ =>
   }
 
   override protected def withNewChildInternal(newChild: SparkPlan): SparkPlan =
     copy(child = newChild)
+}
+
+/**
+ * Offloads each batch of `in`. [[ColumnarBatches.offload]] moves the data of a Gluten batch into
+ * the input batch and returns it, so its producer still closes it. A batch of Spark
+ * `ArrowColumnVector`s instead stays with its producer, and offload returns a new batch: that one
+ * belongs to this iterator, which closes it when the next batch is requested or on [[close]].
+ */
+class OffloadArrowDataIterator(in: Iterator[ColumnarBatch])
+  extends Iterator[ColumnarBatch]
+  with AutoCloseable {
+  private var owned: ColumnarBatch = _
+
+  override def hasNext: Boolean = in.hasNext
+
+  override def next(): ColumnarBatch = {
+    release()
+    val batch = in.next()
+    val offloaded = ColumnarBatches.offload(ArrowBufferAllocators.contextInstance, batch)
+    if (offloaded ne batch) {
+      owned = offloaded
+    }
+    offloaded
+  }
+
+  override def close(): Unit = release()
+
+  private def release(): Unit = {
+    if (owned != null) {
+      owned.close()
+      owned = null
+    }
+  }
 }

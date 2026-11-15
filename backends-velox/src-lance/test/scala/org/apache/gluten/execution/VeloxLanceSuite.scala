@@ -16,18 +16,22 @@
  */
 package org.apache.gluten.execution
 
+import org.apache.gluten.extension.LanceArrowBatchScan
+
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.execution.{ColumnarShuffleExchangeExec, ColumnarToRowExec, InputAdapter, SparkPlan}
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.types._
 
+import org.lance.spark.read.LanceScan
+
 import scala.collection.JavaConverters._
 
 /**
- * Exercises the read-only Lance offload: a columnar Lance scan is handed to Velox through the Arrow
- * C stream ([[LanceScanTransformer]]), while scans that the export path cannot serve (pushed
- * aggregation, full-text query) fall back to vanilla Spark.
+ * Exercises the read-only Lance offload: a Lance scan emits Arrow batches
+ * ([[LanceArrowBatchScan]]), which Gluten offloads to Velox, while scans that cannot emit them (a
+ * pushed aggregation) or whose types Velox does not import stay on vanilla Spark.
  *
  * Requires the lance-spark runtime (and its native library) on the classpath; see
  * docs/backends/velox/get-started/VeloxLance.md for the supported platforms.
@@ -144,9 +148,39 @@ class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
   }
 
   private def isLanceScan(plan: SparkPlan): Boolean = plan match {
-    case _: LanceScanTransformer => true
+    case scan: BatchScanExec => scan.scan.isInstanceOf[LanceScan]
     case InputAdapter(child) => isLanceScan(child)
     case _ => false
+  }
+
+  private def lanceScans(df: DataFrame): Seq[BatchScanExec] =
+    getExecutedPlan(df).collect {
+      case scan: BatchScanExec if scan.scan.isInstanceOf[LanceScan] => scan
+    }
+
+  /** Asserts that the query reads its Lance scans as Arrow batches. */
+  private def assertArrowLanceScan(df: DataFrame): Unit = {
+    val scans = lanceScans(df)
+    assert(
+      scans.nonEmpty && scans.forall(LanceArrowBatchScan.isArrowBatchScan),
+      s"Expected Lance scans reading Arrow batches, got:\n${df.queryExecution.executedPlan}"
+    )
+  }
+
+  /** Asserts that the query reads its Lance scans without Arrow batches, as vanilla Spark does. */
+  private def assertVanillaLanceScan(df: DataFrame): Unit = {
+    val scans = lanceScans(df)
+    assert(
+      scans.nonEmpty && !scans.exists(LanceArrowBatchScan.isArrowBatchScan),
+      s"Expected Lance scans without Arrow batches, got:\n${df.queryExecution.executedPlan}"
+    )
+    assert(
+      !getExecutedPlan(df).exists {
+        case offload: OffloadArrowDataExec => isLanceScan(offload.child)
+        case _ => false
+      },
+      s"Expected no OffloadArrowDataExec over a Lance scan, got:\n${df.queryExecution.executedPlan}"
+    )
   }
 
   /** The operators that directly consume the Lance scan (looking through codegen InputAdapters). */
@@ -164,11 +198,11 @@ class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
     )
   }
 
-  test("lance scan offloads to LanceScanTransformer") {
+  test("lance scan reads Arrow batches") {
     withLanceView("lance_basic", 100) {
       runQueryAndCompare("select id, v, name from lance_basic") {
         df =>
-          checkGlutenPlan[LanceScanTransformer](df)
+          assertArrowLanceScan(df)
           // With no Velox consumer, the Arrow Java batches are converted to rows directly by
           // vanilla ColumnarToRowExec, with no round trip through Velox.
           val parents = lanceScanParents(df)
@@ -188,7 +222,7 @@ class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
         "select id % 10 as k, sum(v) as s, count(*) as c from lance_velox_agg group by id % 10") {
         df =>
           val plan = df.queryExecution.executedPlan
-          checkGlutenPlan[LanceScanTransformer](df)
+          assertArrowLanceScan(df)
           checkGlutenPlan[HashAggregateExecBaseTransformer](df)
           val parents = lanceScanParents(df)
           assert(
@@ -217,7 +251,7 @@ class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
     withLanceView("lance_filtered", 100) {
       runQueryAndCompare("select id, v from lance_filtered where id < 50") {
         df =>
-          checkGlutenPlan[LanceScanTransformer](df)
+          assertArrowLanceScan(df)
           checkAnswer(df, (0 until 50).map(i => Row(i, i * 2)))
       }
     }
@@ -227,7 +261,7 @@ class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
     withLanceView("lance_multi", 1000, Map("max_row_per_file" -> "100")) {
       runQueryAndCompare("select id, v, name from lance_multi") {
         df =>
-          checkGlutenPlan[LanceScanTransformer](df)
+          assertArrowLanceScan(df)
           assert(df.rdd.getNumPartitions > 1, "Expected one partition per Lance fragment")
       }
       // LIMIT stops consuming before the fragments are exhausted, so open scans are released by
@@ -239,14 +273,27 @@ class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
 
   test("lance scan falls back when an aggregation is pushed down") {
     withLanceView("lance_agg", 100) {
-      // A filtered COUNT(*) is pushed into the Lance scan; the Arrow C stream export cannot serve a
-      // pushed aggregation, so the offload guard must leave it on a vanilla BatchScanExec.
+      // A filtered COUNT(*) is pushed into the Lance scan, which then emits no Arrow batches, so the
+      // scan must stay as vanilla Spark reads it.
       val df: DataFrame = spark.sql("select count(*) from lance_agg where id < 50")
       checkSparkPlan[BatchScanExec](df)
-      assert(
-        !getExecutedPlan(df).exists(_.isInstanceOf[LanceScanTransformer]),
-        "Lance scan with a pushed aggregation must not be offloaded")
+      assertVanillaLanceScan(df)
       checkAnswer(df, Seq(Row(50L)))
+    }
+  }
+
+  test("lance scan with a column Velox does not import stays on vanilla Spark") {
+    val data = spark
+      .range(20)
+      .selectExpr(
+        "cast(id as int) as id",
+        "cast(timestamp_seconds(id + 1700000000) as timestamp_ntz) as ts")
+    withLanceView("lance_ntz", data, Map.empty, Map.empty) {
+      runQueryAndCompare("select id, ts from lance_ntz where id < 10") {
+        df =>
+          assertVanillaLanceScan(df)
+          assert(df.collect().length == 10)
+      }
     }
   }
 
@@ -254,7 +301,7 @@ class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
     withLanceVectorView("lance_vectors") {
       runQueryAndCompare("select id, vec, dvec from lance_vectors") {
         df =>
-          checkGlutenPlan[LanceScanTransformer](df)
+          assertArrowLanceScan(df)
           checkAnswer(df, (0 until 10).map(vectorRow).map(r => Row(r(0), r(1), r(2))))
       }
     }
@@ -264,7 +311,7 @@ class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
     withLanceVectorView("lance_nested_vectors") {
       runQueryAndCompare("select id, doc, multi from lance_nested_vectors where id >= 2") {
         df =>
-          checkGlutenPlan[LanceScanTransformer](df)
+          assertArrowLanceScan(df)
           checkAnswer(df, (2 until 10).map(vectorRow).map(r => Row(r(0), r(3), r(4))))
       }
     }
@@ -280,7 +327,7 @@ class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
           |  count(multi) as m, sum(multi[0][1]) as mm
           |from lance_vectors_velox group by id % 2""".stripMargin) {
         df =>
-          checkGlutenPlan[LanceScanTransformer](df)
+          assertArrowLanceScan(df)
           checkGlutenPlan[HashAggregateExecBaseTransformer](df)
           assertScanFeedsVelox(df)
       }
@@ -294,7 +341,7 @@ class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
       runQueryAndCompare(
         "select id, vec, doc, multi from lance_vectors_shuffle where id % 3 != 1 order by id") {
         df =>
-          checkGlutenPlan[LanceScanTransformer](df)
+          assertArrowLanceScan(df)
           assertScanFeedsVelox(df)
           checkGlutenPlan[FilterExecTransformerBase](df)
           checkGlutenPlan[ColumnarShuffleExchangeExec](df)
@@ -319,7 +366,7 @@ class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
         case (query, expected) =>
           runQueryAndCompare(query) {
             df =>
-              checkGlutenPlan[LanceScanTransformer](df)
+              assertArrowLanceScan(df)
               checkAnswer(df, expected)
           }
       }
@@ -334,7 +381,7 @@ class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
       readOptions = Map("batch_size" -> "64")) {
       runQueryAndCompare("select * from lance_vectors_multi") {
         df =>
-          checkGlutenPlan[LanceScanTransformer](df)
+          assertArrowLanceScan(df)
           assert(df.rdd.getNumPartitions > 1, "Expected one partition per Lance fragment")
           checkAnswer(df, (0 until 1000).map(vectorRow))
       }
@@ -342,7 +389,7 @@ class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
         """select count(vec), sum(vec[0]), sum(vec[3]), sum(doc.emb[1]), sum(multi[1][0])
           |from lance_vectors_multi""".stripMargin) {
         df =>
-          checkGlutenPlan[LanceScanTransformer](df)
+          assertArrowLanceScan(df)
           checkGlutenPlan[HashAggregateExecBaseTransformer](df)
           assertScanFeedsVelox(df)
       }
