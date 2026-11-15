@@ -23,6 +23,14 @@ on:
       native_artifact:
         type: string
         default: ''
+      # A fork push passes the commit it squash-merged onto apache/gluten main, and
+      # that main commit. Empty: the event's commit and pull request base.
+      revision:
+        type: string
+        default: ''
+      base_revision:
+        type: string
+        default: ''
   workflow_dispatch:
 
 permissions:
@@ -60,11 +68,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.revision }}
           fetch-depth: 0
       - name: Identify the merged baseline and runtimes
         id: baseline
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ inputs.base_revision || github.event.pull_request.base.sha }}
         run: |
           python3 .github/workflows/util/iceberg-upstream/baseline.py prepare \
             --revision "${BASE_SHA:-$(git rev-parse HEAD^)}" >> "$GITHUB_OUTPUT"
@@ -77,6 +86,8 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          # Baselines are saved by apache/gluten runs; a fork reads them from there.
+          ICEBERG_BASELINE_REPOSITORY: apache/gluten
           BASELINE_KEY: ${{ steps.baseline.outputs.baseline_key }}
           BASE_SHA: ${{ steps.baseline.outputs.base_sha }}
           BASE_BRANCH: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
@@ -101,7 +112,8 @@ jobs:
     needs: prepare
     uses: ./.github/workflows/iceberg_upstream_revision.yml
     with:
-      revision: ${{ github.sha }}
+      revision: ${{ inputs.revision || github.sha }}
+      harness_revision: ${{ inputs.revision }}
       label: head
       native_image: ${{ needs.prepare.outputs.native_image }}
       test_image: ${{ needs.prepare.outputs.test_image }}
@@ -113,6 +125,7 @@ jobs:
     uses: ./.github/workflows/iceberg_upstream_revision.yml
     with:
       revision: ${{ needs.prepare.outputs.base_sha }}
+      harness_revision: ${{ inputs.revision }}
       label: base
       native_image: ${{ needs.prepare.outputs.native_image }}
       test_image: ${{ needs.prepare.outputs.test_image }}
@@ -125,6 +138,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.revision }}
           fetch-depth: 0
       - name: Require complete test runs
         env:
@@ -153,9 +167,10 @@ jobs:
         if: always() && steps.head.outcome == 'success' && needs.iceberg-upstream-test.result == 'success'
         env:
           HEAD_KEY: ${{ needs.prepare.outputs.head_key }}
+          HEAD_SHA: ${{ inputs.revision || github.sha }}
         run: |
           python3 .github/workflows/util/iceberg-upstream/baseline.py record \
-            --directory iceberg-head --key "$HEAD_KEY" --revision "$GITHUB_SHA"
+            --directory iceberg-head --key "$HEAD_KEY" --revision "$HEAD_SHA"
       - name: Save the result for reuse after merge
         if: always() && steps.head-identity.outcome == 'success'
         uses: actions/upload-artifact@v7
