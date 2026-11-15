@@ -75,7 +75,7 @@ class RowConstructorWithNullFunction final : public CudfFunction {
   std::shared_ptr<CudfFunction> rowConstructor_;
 };
 
-bool canEvaluateRowConstructorWithNull(const TypedExprPtr& expr) {
+bool canEvaluateRowConstructorWithNull(const TypedExprPtr& expr, const facebook::velox::core::QueryConfig& /*config*/) {
   return expr->type()->isRow() && !expr->inputs().empty() &&
       std::any_of(
              expr->inputs().begin(), expr->inputs().end(), [](const auto& input) { return !input->isConstantKind(); });
@@ -88,8 +88,9 @@ void registerCudfFunctions() {
       RowConstructorWithNullCallToSpecialForm::kRowConstructorWithNull,
       [](const std::string&,
          const TypedExprPtr& expr,
-         facebook::velox::memory::MemoryPool* pool) -> std::shared_ptr<CudfFunction> {
-        auto rowConstructor = facebook::velox::cudf_velox::createCudfFunction("row_constructor", expr, pool);
+         facebook::velox::memory::MemoryPool* pool,
+         const facebook::velox::core::QueryConfig& config) -> std::shared_ptr<CudfFunction> {
+        auto rowConstructor = facebook::velox::cudf_velox::createCudfFunction("row_constructor", expr, pool, config);
         VELOX_CHECK_NOT_NULL(rowConstructor, "cuDF row_constructor must be registered first");
         return std::make_shared<RowConstructorWithNullFunction>(std::move(rowConstructor));
       },

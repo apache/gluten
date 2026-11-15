@@ -44,7 +44,7 @@ jobs:
       matrix:
         os: [ "centos:8", "quay.io/centos/centos:stream9" ]
     if: ${{ startsWith(github.repository, 'apache/') }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: ${{ matrix.os }}
     steps:
       - name: Checkout repository
@@ -122,7 +122,7 @@ jobs:
       matrix:
         os: [ "ubuntu:22.04", "ubuntu:24.04" ]
     if: ${{ startsWith(github.repository, 'apache/') }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7

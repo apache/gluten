@@ -31,14 +31,14 @@ jobs:
 
   format-check:
     runs-on: ubuntu-latest
-    container: ubuntu:22.04
+    container: ubuntu:24.04
     steps:
       - name: Install tools
         run: |
           apt update -y
           apt install git python3-pip -y
           apt install --no-install-recommends -y clang-format-15
-          pip3 install cmake_format black pyyaml regex
+          pip3 install --break-system-packages cmake_format black pyyaml regex
           update-alternatives --install /usr/bin/clang-format clang-format "$(command -v clang-format-15)" 15
       - uses: actions/checkout@v7
         with:
