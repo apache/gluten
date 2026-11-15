@@ -1,0 +1,52 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# A pull request from a fork runs velox_backend_x86.yml, velox_backend_arm.yml and
+# velox_kafka.yml in the fork, on push. This workflow reports those runs as checks on
+# the pull request, using util/update-fork-build-status.js. It only reads run metadata,
+# so it never runs pull request code and needs no pull_request_target. Adapted from
+# apache/spark's update_build_status.yml (SPARK-60578).
+name: Update fork build status
+
+on:
+  schedule:
+    # Every 5 minutes, off the top of the hour, when GitHub delays scheduled runs most.
+    - cron: '2-57/5 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  update:
+    if: github.repository == 'apache/gluten'
+    runs-on: ubuntu-slim
+    permissions:
+      actions: read
+      checks: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/workflows/util/update-fork-build-status.js
+          sparse-checkout-cone-mode: false
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const script = require(`${process.env.GITHUB_WORKSPACE}/.github/workflows/util/update-fork-build-status.js`)
+            await script({ github, context, core })

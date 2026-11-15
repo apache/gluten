@@ -119,6 +119,18 @@ public class RexCallConverterFactory {
           Map.entry("IS NULL", Arrays.asList(() -> new DefaultRexCallConverter("isnull"))),
           Map.entry(
               "REGEXP_EXTRACT", Arrays.asList(() -> new DefaultRexCallConverter("regexp_extract"))),
+          // Direct name mapping: both arities are covered by the flinksql to_date signatures.
+          Map.entry("TO_DATE", Arrays.asList(() -> new DefaultRexCallConverter("to_date"))),
+          // Direct name mapping: both arities are covered by the flinksql to_timestamp
+          // signatures; the returned TIMESTAMP(3) maps to the velox TimestampType.
+          Map.entry(
+              "TO_TIMESTAMP", Arrays.asList(() -> new DefaultRexCallConverter("to_timestamp"))),
+          // Direct name mapping: the only SQL form is (numeric, precision) — the first
+          // operand's type is routed by the velox signature set, the returned
+          // TIMESTAMP_LTZ(3) maps to the velox TimestampType.
+          Map.entry(
+              "TO_TIMESTAMP_LTZ",
+              Arrays.asList(() -> new DefaultRexCallConverter("to_timestamp_ltz"))),
           Map.entry("LOWER", Arrays.asList(() -> new DefaultRexCallConverter("lower"))),
           // Direct name mapping: the SHA-2 family. The fixed-length spellings
           // are the sha2 core with the length bound on the velox side; the
@@ -130,6 +142,8 @@ public class RexCallConverterFactory {
           Map.entry("SHA256", Arrays.asList(() -> new DefaultRexCallConverter("sha256"))),
           Map.entry("SHA384", Arrays.asList(() -> new DefaultRexCallConverter("sha384"))),
           Map.entry("SHA512", Arrays.asList(() -> new DefaultRexCallConverter("sha512"))),
+          Map.entry("MD5", Arrays.asList(() -> new DefaultRexCallConverter("md5"))),
+          Map.entry("SHA1", Arrays.asList(() -> new DefaultRexCallConverter("sha1"))),
           Map.entry("count_char", Arrays.asList(() -> new DefaultRexCallConverter("count_char"))),
           Map.entry("EXTRACT", Arrays.asList(() -> new DefaultRexCallConverter("extract"))),
           Map.entry("IS TRUE", Arrays.asList(() -> new DefaultRexCallConverter("is_true"))),
@@ -138,6 +152,16 @@ public class RexCallConverterFactory {
           Map.entry(
               "IS NOT FALSE", Arrays.asList(() -> new DefaultRexCallConverter("is_not_false"))),
           Map.entry("NOT", Arrays.asList(() -> new DefaultRexCallConverter("not"))),
+          Map.entry(
+              "LOCALTIMESTAMP", Arrays.asList(() -> new DefaultRexCallConverter("localtimestamp"))),
+          // LOCALTIME maps by name to the flinksql function returning the
+          // INTEGER carrier (milliseconds of day in the session timezone);
+          // the result type goes through toType(TIME(0)) -> IntegerType.
+          Map.entry("LOCALTIME", Arrays.asList(() -> new DefaultRexCallConverter("localtime"))),
+          Map.entry(
+              "CURRENT_TIMESTAMP",
+              Arrays.asList(() -> new DefaultRexCallConverter("current_timestamp"))),
+          Map.entry("NOW", Arrays.asList(() -> new DefaultRexCallConverter("now"))),
           Map.entry("CONCAT", Arrays.asList(() -> new DefaultRexCallConverter("concat"))),
           Map.entry("CONCAT_WS", Arrays.asList(() -> new DefaultRexCallConverter("concat_ws"))),
           // A literal negative length is rejected by SubstringRexCallConverter
@@ -173,7 +197,8 @@ public class RexCallConverterFactory {
           Map.entry("RTRIM", Arrays.asList(() -> new TrimSeekRexCallConverter("rtrim"))),
           Map.entry("LPAD", Arrays.asList(() -> new DefaultRexCallConverter("lpad"))),
           Map.entry("RPAD", Arrays.asList(() -> new DefaultRexCallConverter("rpad"))),
-          Map.entry("COALESCE", Arrays.asList(() -> new DefaultRexCallConverter("coalesce"))));
+          Map.entry("COALESCE", Arrays.asList(() -> new DefaultRexCallConverter("coalesce"))),
+          Map.entry("JSON_VALUE", Arrays.asList(() -> new JsonValueRexCallConverter())));
 
   public static RexCallConverter getConverter(RexCall callNode, RexConversionContext context) {
     String operatorName = callNode.getOperator().getName();
