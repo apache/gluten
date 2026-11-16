@@ -152,7 +152,7 @@ bool SubstraitToVeloxPlanValidator::validateRound(
   }
 
   if (!arguments[1].value().has_literal()) {
-    LOG_VALIDATION_MSG("Round scale is expected.");
+    LOG_VALIDATION_MSG("Round scale must be a literal integer for native execution.");
     return false;
   }
 

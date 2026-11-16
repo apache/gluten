@@ -189,6 +189,32 @@ TEST_F(SparkFunctionTest, integralRoundScaleValidation) {
     EXPECT_FALSE(validate(scale, false));
   }
 
+  {
+    ::substrait::Expression expression;
+    auto* function = expression.mutable_scalar_function();
+    function->set_function_reference(1);
+    function->add_arguments()
+        ->mutable_value()
+        ->mutable_selection()
+        ->mutable_direct_reference()
+        ->mutable_struct_field()
+        ->set_field(0);
+    function->add_arguments()
+        ->mutable_value()
+        ->mutable_selection()
+        ->mutable_direct_reference()
+        ->mutable_struct_field()
+        ->set_field(1);
+    function->mutable_output_type()->mutable_i8()->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+    gluten::SubstraitToVeloxPlanValidator validator(pool());
+    EXPECT_FALSE(
+        validator.validate(expression, ROW({{"value", TINYINT()}, {"scale", INTEGER()}}), {{1, "round:opt_i8_i32"}}));
+    ASSERT_FALSE(validator.getValidateLog().empty());
+    EXPECT_NE(
+        validator.getValidateLog().back().find("Round scale must be a literal integer for native execution."),
+        std::string::npos);
+  }
+
   const auto validateMissingValue = [&](std::optional<int32_t> scale) {
     ::substrait::Expression expression;
     auto* function = expression.mutable_scalar_function();

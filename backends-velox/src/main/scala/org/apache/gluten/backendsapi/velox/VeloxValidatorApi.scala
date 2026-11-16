@@ -28,13 +28,7 @@ import org.apache.gluten.validate.NativePlanValidationInfo
 import org.apache.gluten.vectorized.NativePlanEvaluator
 
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.expressions.{
-  Attribute,
-  Expression,
-  FormatString,
-  Literal,
-  Round
-}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, FormatString, Literal, Round}
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.types._
