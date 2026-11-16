@@ -109,8 +109,25 @@ private:
         strs.emplace("");
         bool nead_right_bracket = false;
 
+        auto copy_current = [&]()
+        {
+            strs.top() += *buf.position();
+            ++buf.position();
+        };
+
         while (!buf.eof())
         {
+            // Keep "\" plus the following character as a single unit, so that escaped brackets such
+            // as "\[" and "\]" (especially "\]" inside a character class, e.g. "[^\.\s\]]") are not
+            // mistaken for character class boundaries. See GLUTEN-13593.
+            if (*buf.position() == '\\')
+            {
+                copy_current();
+                if (!buf.eof())
+                    copy_current();
+                continue;
+            }
+
             if (*buf.position() == '[')
             {
                 strs.emplace("");

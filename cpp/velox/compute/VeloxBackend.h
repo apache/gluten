@@ -27,6 +27,7 @@
 
 #include "velox/common/caching/AsyncDataCache.h"
 #include "velox/common/config/Config.h"
+#include "velox/common/memory/MallocAllocator.h"
 #include "velox/common/memory/MmapAllocator.h"
 #include "velox/connectors/Connector.h"
 
@@ -138,7 +139,7 @@ class VeloxBackend {
   std::unique_ptr<folly::Executor> spillExecutor_;
   std::unique_ptr<folly::Executor> ioExecutor_;
   std::unique_ptr<folly::Executor> ssdCacheExecutor_;
-  std::shared_ptr<facebook::velox::memory::MmapAllocator> cacheAllocator_;
+  std::shared_ptr<facebook::velox::memory::MemoryAllocator> cacheAllocator_;
   std::shared_ptr<facebook::velox::config::ConfigBase> hiveConnectorConfig_;
 
   std::string cachePathPrefix_;

@@ -36,7 +36,7 @@ concurrency:
 jobs:
   cache-native-lib-centos-8-static:
     if: ${{ startsWith(github.repository, 'apache/') }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: apache/gluten:vcpkg-almalinux-8-gcc13
     steps:
       - uses: actions/checkout@v7
@@ -71,7 +71,7 @@ jobs:
     container: apache/gluten:vcpkg-centos-9
     strategy:
       matrix:
-        os: [ ubuntu-22.04, ubuntu-24.04-arm ]
+        os: [ ubuntu-24.04, ubuntu-24.04-arm ]
     steps:
       - uses: actions/checkout@v7
       - name: Get Ccache
@@ -103,7 +103,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ ubuntu-22.04, ubuntu-24.04-arm ]
+        os: [ ubuntu-24.04, ubuntu-24.04-arm ]
     container: apache/gluten:centos-9-jdk8
     steps:
       - uses: actions/checkout@v7
@@ -135,7 +135,7 @@ jobs:
 
   cache-enhanced-native-lib-centos-8-static:
     if: ${{ startsWith(github.repository, 'apache/') }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: apache/gluten:vcpkg-almalinux-8-gcc13
     steps:
       - uses: actions/checkout@v7
@@ -169,7 +169,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ ubuntu-22.04 ]
+        os: [ ubuntu-24.04 ]
     steps:
       - name: "node-cleanup" # by default the free runner does not have enough disk space
         run: |

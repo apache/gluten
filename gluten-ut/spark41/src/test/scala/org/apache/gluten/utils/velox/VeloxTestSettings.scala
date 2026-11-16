@@ -120,7 +120,6 @@ class VeloxTestSettings extends BackendTestSettings {
     // Excluded in favour of the GlutenCastWithAnsiOffSuite rewrite, which drops the Long.MinValue
     // assertion: collect() -> toJavaTimestamp -> rebaseGregorianToJulianMicros overflows.
     .exclude("cast from timestamp II")
-    .exclude("SPARK-39749: cast Decimal to string")
   enableSuite[GlutenTryCastSuite]
     .exclude(
       "Process Infinity, -Infinity, NaN in case insensitive manner" // +inf not supported in folly.
@@ -205,6 +204,7 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("default")
     // FIXME(yma11): ObjectType is not covered in RowEncoder/Serializer in vanilla spark
     .exclude("SPARK-37967: Literal.create support ObjectType")
+  enableSuite[GlutenTimestampNtzLiteralSuite]
   enableSuite[GlutenMathExpressionsSuite]
     // Spark round UT for round(3.1415,3) is not correct.
     .exclude("round/bround/floor/ceil")
@@ -355,8 +355,6 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenJsonParsingOptionsSuite]
   // Generated suites for org.apache.spark.sql.execution.datasources.parquet
   enableSuite[GlutenParquetAvroCompatibilitySuite]
-    // TODO: https://github.com/apache/gluten/issues/11865
-    .exclude("various complex types")
   enableSuite[GlutenParquetCommitterSuite]
   enableSuite[GlutenParquetFieldIdSchemaSuite]
   enableSuite[GlutenParquetTypeWideningSuite]
@@ -818,9 +816,10 @@ class VeloxTestSettings extends BackendTestSettings {
     .excludeByPrefix("bucket coalescing is applied when join expressions match")
   enableSuite[GlutenBucketedWriteWithoutHiveSupportSuite]
   enableSuite[GlutenCreateTableAsSelectSuite]
-    // TODO Gluten can not catch the spark exception in Driver side.
+    // The CTAS writes JSON, which the Velox backend does not write natively (only Parquet is
+    // supported), so the write falls back to Spark's writer. The test also depends on a read-only
+    // directory, which does not stop writes when running as root like Gluten's CI.
     .exclude("CREATE TABLE USING AS SELECT based on the file without write permission")
-    .exclude("create a table, drop it and create another one with the same name")
   enableSuite[GlutenDDLSourceLoadSuite]
   disableSuite[GlutenDisableUnnecessaryBucketedScanWithoutHiveSupportSuite](
     "GLUTEN-4893: Vanilla UT checks scan operator by exactly matching the class type")
@@ -903,7 +902,6 @@ class VeloxTestSettings extends BackendTestSettings {
     // TODO: Velox parquet writer marks all struct fields as OPTIONAL (nullable),
     //  but Spark's variant type requires REQUIRED fields. Needs Velox-side fix.
     .exclude("SPARK-47546: invalid variant binary")
-    .exclude("SPARK-47546: valid variant binary")
   enableSuite[GlutenVariantWriteShreddingSuite]
   enableSuite[GlutenXmlFunctionsSuite]
   enableSuite[GlutenApproxCountDistinctForIntervalsQuerySuite]
@@ -1220,12 +1218,20 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("NOT NULL checks for nested struct fields (byPosition)")
     .exclude("NOT NULL checks for nested structs, arrays, maps (byName)")
     .exclude("NOT NULL checks for nested structs, arrays, maps (byPosition)")
+    // Overridden.
+    .exclude("NOT NULL checks for nullable array with required element (byName)")
+    // Overridden.
     .exclude("NOT NULL checks for nullable array with required element (byPosition)")
+    // Overridden.
+    .exclude("NOT NULL checks for fields inside nullable array (byName)")
+    // Overridden.
     .exclude("not null checks for fields inside nullable array (byPosition)")
     // Overridden.
     .exclude("NOT NULL checks for nullable map with required values (byName)")
     // Overridden.
     .exclude("NOT NULL checks for nullable map with required values (byPosition)")
+    // Overridden.
+    .exclude("NOT NULL checks for fields inside nullable maps (byName)")
     // Overridden.
     .exclude("NOT NULL checks for fields inside nullable maps (byPosition)")
   enableSuite[GlutenTableOptionsConstantFoldingSuite]

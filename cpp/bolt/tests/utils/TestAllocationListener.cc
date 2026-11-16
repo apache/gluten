@@ -19,6 +19,10 @@
 #include "bolt/common/base/SuccinctPrinter.h"
 
 #include <fmt/format.h>
+#include <glog/logging.h>
+
+#include "utils/Exception.h"
+#include "utils/Macros.h"
 
 namespace gluten {
 

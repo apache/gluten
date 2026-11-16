@@ -148,6 +148,10 @@ std::shared_ptr<facebook::velox::dwio::common::WriterOptions> makeParquetWriteOp
     enableWritePageIndex = boost::iequals(it->second, "true");
   }
   parquetOptions->enableWritePageIndex = enableWritePageIndex;
+  // Velox's writer emits Parquet size statistics by default, which parquet-mr
+  // used by Spark 3.x does not write. Disable them to keep file output (and the
+  // size-based planning that depends on it) unchanged.
+  parquetOptions->sizeStatisticsLevel = parquet::arrow::SizeStatisticsLevel::kNone;
   writeOption->formatSpecificOptions = std::move(parquetOptions);
   return writeOption;
 }
