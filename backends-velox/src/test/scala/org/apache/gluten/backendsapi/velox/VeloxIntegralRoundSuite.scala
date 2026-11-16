@@ -49,7 +49,7 @@ class VeloxIntegralRoundSuite extends AnyFunSuite {
     }
   }
 
-  test("negative integral ROUND preserves Spark's captured overflow mode") {
+  test("negative integral ROUND is always ineligible for native execution") {
     val conf = new SQLConf
     SQLConf.withExistingConf(conf) {
       val validator = new VeloxValidatorApi

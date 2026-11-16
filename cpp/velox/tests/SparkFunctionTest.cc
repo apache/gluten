@@ -152,7 +152,7 @@ TEST_F(SparkFunctionTest, integralRoundNullScaleSkipsChild) {
 }
 
 TEST_F(SparkFunctionTest, integralRoundScaleValidation) {
-  const auto validate = [&](std::optional<int32_t> scale, bool castInput) {
+  const auto validate = [&](std::optional<int32_t> scale, bool castInput, const char* expectedReason = nullptr) {
     ::substrait::Expression expression;
     auto* function = expression.mutable_scalar_function();
     function->set_function_reference(1);
@@ -175,19 +175,28 @@ TEST_F(SparkFunctionTest, integralRoundScaleValidation) {
     if (castInput) {
       inputType = VARCHAR();
     }
-    return validator.validate(expression, ROW({"value"}, {inputType}), {{1, "round:opt_i8_i32"}});
+    const auto supported = validator.validate(expression, ROW({"value"}, {inputType}), {{1, "round:opt_i8_i32"}});
+    if (expectedReason != nullptr) {
+      EXPECT_FALSE(validator.getValidateLog().empty());
+      if (!validator.getValidateLog().empty()) {
+        EXPECT_NE(validator.getValidateLog().back().find(expectedReason), std::string::npos);
+      }
+    }
+    return supported;
   };
 
-  for (const auto scale : {0, 1, 400, 401, std::numeric_limits<int32_t>::max()}) {
+  for (const auto scale : {0, 1, 400}) {
     SCOPED_TRACE(scale);
     EXPECT_TRUE(validate(scale, false));
   }
   EXPECT_TRUE(validate(std::nullopt, false));
   EXPECT_TRUE(validate(std::nullopt, true));
-  for (const auto scale : {std::numeric_limits<int32_t>::min(), -401, -1}) {
+  for (const auto scale : {std::numeric_limits<int32_t>::min(), -401, -400, -1}) {
     SCOPED_TRACE(scale);
     EXPECT_FALSE(validate(scale, false));
   }
+  EXPECT_FALSE(validate(401, false, "Integral ROUND scale must be in [0, 400]"));
+  EXPECT_FALSE(validate(std::numeric_limits<int32_t>::max(), false));
 
   {
     ::substrait::Expression expression;
