@@ -23,6 +23,7 @@ import org.apache.gluten.test.VeloxBackendTestBase;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.IntVector;
+import org.apache.arrow.vector.NullVector;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
 import org.apache.spark.sql.types.Decimal;
@@ -104,6 +105,34 @@ public class ArrowColumnVectorTest extends VeloxBackendTestBase {
                 ColumnarBatches.load(ArrowBufferAllocators.contextInstance(), offloaded);
             for (int i = 0; i < numRows; i++) {
               Assert.assertEquals(i * 3, loaded.column(0).getInt(i));
+            }
+            loaded.close();
+          }
+          return null;
+        });
+  }
+
+  @Test
+  public void testOffloadSparkArrowBatchWithNullColumn() {
+    TaskResources$.MODULE$.runUnsafe(
+        () -> {
+          final int numRows = 10;
+          try (BufferAllocator foreign = new RootAllocator(Long.MAX_VALUE);
+              IntVector ints = new IntVector("a", foreign);
+              NullVector nulls = new NullVector("n", numRows)) {
+            fill(ints, numRows);
+            // A NullVector has no allocator, so adopting it cannot compare allocator roots.
+            final ColumnarBatch input =
+                new ColumnarBatch(
+                    new ColumnVector[] {new ArrowColumnVector(ints), new ArrowColumnVector(nulls)},
+                    numRows);
+            final ColumnarBatch loaded =
+                ColumnarBatches.load(
+                    ArrowBufferAllocators.contextInstance(),
+                    ColumnarBatches.offload(ArrowBufferAllocators.contextInstance(), input));
+            for (int i = 0; i < numRows; i++) {
+              Assert.assertEquals(i * 3, loaded.column(0).getInt(i));
+              Assert.assertTrue(loaded.column(1).isNullAt(i));
             }
             loaded.close();
           }

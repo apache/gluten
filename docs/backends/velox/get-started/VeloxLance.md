@@ -62,11 +62,11 @@ Spark reads it (fallback, not an error) when it can't be offloaded:
 | Pushed-down aggregation (e.g. `COUNT(*)`) | Fallback |
 | A column type Velox does not import | Fallback |
 
-Velox imports booleans, signed integers, floats and doubles, strings and binaries, decimals, dates,
-timestamps with a time zone, and lists, structs and maps of them. Lance stores vector columns as
-Arrow `FixedSizeList`s; lance-spark's Arrow batches carry them as variable-size lists, the
-`ArrayType` it exposes for them, without copying the values. Other columns, such as
-`TIMESTAMP_NTZ`, null or interval columns, leave the scan on vanilla Spark.
+Velox imports nulls, booleans, signed integers, floats and doubles, strings and binaries,
+decimals, dates, `TIMESTAMP` and `TIMESTAMP_NTZ`, and lists, structs and maps of them. Lance stores
+vector columns as Arrow `FixedSizeList`s; lance-spark's Arrow batches carry them as variable-size
+lists, the `ArrayType` it exposes for them, without copying the values. Other columns, such as
+interval columns, leave the scan on vanilla Spark.
 
 When a Velox operator consumes the scan, Gluten plans `BatchScanExec` → `OffloadArrowDataExec` →
 `ArrowColumnarToVeloxColumnarExec`. A row-based consumer reads the Arrow batches through

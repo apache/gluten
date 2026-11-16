@@ -25,7 +25,7 @@ import org.apache.spark.sql.utils.{SparkArrowUtil, SparkSchemaUtil}
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
 
 import org.apache.arrow.memory.BufferAllocator
-import org.apache.arrow.vector.{FieldVector, ValueVector, VectorSchemaRoot}
+import org.apache.arrow.vector.{FieldVector, NullVector, ValueVector, VectorSchemaRoot}
 import org.apache.arrow.vector.util.VectorAppender
 
 import scala.collection.JavaConverters._
@@ -77,7 +77,10 @@ object ArrowColumnVectors {
    * across allocator roots, e.g. from vectors allocated by Spark).
    */
   def adopt(vector: ValueVector, allocator: BufferAllocator): FieldVector = {
-    if (vector.getAllocator.getRoot == allocator.getRoot) {
+    if (vector.isInstanceOf[NullVector]) {
+      // A NullVector holds no buffers, and has no allocator to compare with.
+      copy(vector, allocator)
+    } else if (vector.getAllocator.getRoot == allocator.getRoot) {
       val pair = vector.getTransferPair(allocator)
       pair.transfer()
       pair.getTo.asInstanceOf[FieldVector]
@@ -87,7 +90,12 @@ object ArrowColumnVectors {
   }
 
   /** Copies `vector` into a new vector in `allocator`, leaving `vector` unchanged. */
-  def copy(vector: ValueVector, allocator: BufferAllocator): FieldVector = {
+  def copy(vector: ValueVector, allocator: BufferAllocator): FieldVector = vector match {
+    case nulls: NullVector => new NullVector(nulls.getField, nulls.getValueCount)
+    case _ => copyData(vector, allocator)
+  }
+
+  private def copyData(vector: ValueVector, allocator: BufferAllocator): FieldVector = {
     val target = vector.getField.createVector(allocator)
     target.allocateNew()
     vector.accept(new VectorAppender(target), null)
