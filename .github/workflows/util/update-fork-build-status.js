@@ -180,16 +180,15 @@ module.exports = async ({ github, context, core }) => {
         const next = statusOf(run, await jobsOf(pr, run));
         const same = current && ['state', 'description', 'target_url'].every((k) => current[k] == next[k]);
         if (!same) await setStatus(pr, w, next);
-      } else if (!current && !legacyOf(w).some((c) => c.conclusion == 'action_required')) {
+      } else if (!current) {
         await setStatus(pr, w, { state: 'error', target_url: SETUP_URL, description: NO_RUN });
       }
     }
-    // A legacy check would show next to the status with an older result. One that says
-    // there is no run stays until there is one, standing in for the status.
+    // A legacy check would show next to the status with an older result. The status
+    // above is written first, so a pass stopped here leaves the commit with a result.
     for (const w of WORKFLOWS) {
-      const hasRun = runs.some((r) => r.path == runPath(w));
       for (const c of legacyOf(w)) {
-        if (c.conclusion == 'neutral' || (c.conclusion == 'action_required' && !hasRun)) continue;
+        if (c.conclusion == 'neutral') continue;
         console.log(`#${pr.number}: retiring check ${c.id} (${c.name})`);
         await github.request('PATCH /repos/{owner}/{repo}/check-runs/{check_run_id}', {
           ...repo,
