@@ -152,8 +152,8 @@ jobs:
     outputs:
       # false only on a fork run that changes nothing in the `paths:` list above.
       relevant: ${{ needs.merge-upstream.outputs.relevant }}
-      # The commit the other jobs check out: the merged commit on a fork run, otherwise
-      # empty, which keeps actions/checkout's default.
+      # The commit the other jobs check out: the merged commit on a relevant fork run,
+      # otherwise empty, which keeps actions/checkout's default.
       revision: ${{ needs.merge-upstream.outputs.revision }}
       base_sha: ${{ needs.merge-upstream.outputs.base_sha }}
       full_run: ${{ steps.filter.outputs.full_run }}
