@@ -76,7 +76,11 @@ TEST(GlutenS3FileSystemTest, extractsPerBucketConfigs) {
       {"spark.hadoop.fs.s3a.bucket.my.data.bucket.access.key", "dotted-access"},
       {"spark.hadoop.fs.s3a.bucket.my.data.bucket.endpoint.region", "us-west-2"},
       {"spark.hadoop.fs.s3a.bucket.my.data.bucket.iam.role.session.name", "dotted-session"},
-      {"spark.hadoop.fs.s3a.bucket.my.data.bucket.unknown.option", "ignored"}});
+      {"spark.hadoop.fs.s3a.bucket.my.data.bucket.unknown.option", "ignored"},
+      // Malformed keys are ignored too: no bucket name, empty bucket name, no dot before the option.
+      {"spark.hadoop.fs.s3a.bucket.endpoint", "ignored"},
+      {"spark.hadoop.fs.s3a.bucket..endpoint", "ignored"},
+      {"spark.hadoop.fs.s3a.bucket.myendpoint", "ignored"}});
 
   const auto hiveConfig = createHiveConnectorConfig(config, FileSystemType::kS3);
 
