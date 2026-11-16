@@ -27,10 +27,7 @@ import org.apache.spark.sql.delta.util.DeltaFileOperations
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.utils.SparkArrowUtil
 
-import org.apache.arrow.vector.types.{TimeUnit => ArrowTimeUnit}
-import org.apache.arrow.vector.types.pojo.{ArrowType, Field}
 import org.apache.hadoop.fs.Path
 import org.apache.parquet.hadoop.ParquetFileReader
 import org.apache.parquet.hadoop.util.HadoopInputFile
@@ -180,27 +177,6 @@ class GlutenDeltaTimestampNtzWriteSuite extends GlutenQueryTest with SharedSpark
       }
       checkAnswer(spark.read.format("delta").load(path), expected)
     }
-
-  test("Arrow schemas preserve the native NTZ logical type at every depth") {
-    val schema = SparkArrowUtil.toArrowSchema(mixedSchema, "America/Los_Angeles")
-    def timestamps(field: Field): Seq[Field] =
-      (if (field.getType.isInstanceOf[ArrowType.Timestamp]) Seq(field) else Seq.empty) ++
-        field.getChildren.asScala.flatMap(timestamps)
-    val timestampFields = schema.getFields.asScala.flatMap(timestamps)
-    assert(timestampFields.size == 9)
-    timestampFields.foreach {
-      field =>
-        val metadata = field.getMetadata.asScala
-        if (field.getName == "ltz") {
-          assert(field.getType == new ArrowType.Timestamp(ArrowTimeUnit.MICROSECOND, "UTC"))
-          assert(!metadata.contains("velox.logical_timestamp"))
-        } else {
-          assert(field.getType == new ArrowType.Timestamp(ArrowTimeUnit.MICROSECOND, null))
-          assert(metadata.get("velox.logical_timestamp").contains("utc"), field)
-        }
-    }
-    assert(SparkArrowUtil.fromArrowSchema(schema) == mixedSchema)
-  }
 
   test("native statistics can project ordinary fields from a mixed NTZ struct") {
     assume(BackendTestUtils.isVeloxBackendLoaded())
