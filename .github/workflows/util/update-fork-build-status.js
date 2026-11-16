@@ -16,17 +16,25 @@
  */
 
 // Run by update_fork_build_status.yml. For each open pull request from a fork, reports
-// the fork's push run of each workflow below as the check named next to it.
+// the fork's push run of each workflow below as the commit status named next to it.
+// A check run would join the check suite of some other workflow run on the commit, and
+// the pull request page stops listing it once that workflow runs again.
 
 const WORKFLOWS = [
-  { file: 'velox_backend_x86.yml', check: 'Velox Backend (x86) in fork' },
-  { file: 'velox_backend_arm.yml', check: 'Velox Backend (ARM) in fork' },
-  { file: 'velox_kafka.yml', check: 'Velox Kafka in fork' },
+  { file: 'velox_backend_x86.yml', context: 'Velox Backend (x86) in fork' },
+  { file: 'velox_backend_arm.yml', context: 'Velox Backend (ARM) in fork' },
+  { file: 'velox_kafka.yml', context: 'Velox Kafka in fork' },
 ];
 
-// Check runs accept fewer conclusions than a workflow run reports; anything else
-// means the run produced no result.
-const CONCLUSIONS = ['success', 'failure', 'neutral', 'cancelled', 'timed_out', 'action_required', 'skipped'];
+// Job conclusions that make the run fail. No job in these workflows sets
+// continue-on-error, so a status can turn red before the run ends.
+const FAILED = ['failure', 'timed_out'];
+const PASSED = ['success', 'skipped', 'neutral'];
+
+const MAX_DESCRIPTION = 140;
+const SETUP_URL = 'https://github.com/apache/gluten/blob/main/CONTRIBUTING.md#velox-backend-ci';
+const NO_RUN = 'No run in your fork for this commit. Enable Actions, allow all actions, rebase on main and push.';
+const UNLISTED = 'The run failed. Its failed jobs could not be read yet.';
 
 // Rate limiting, which GitHub reports as 429 or as 403 with rate-limit headers.
 function isRateLimited(e) {
@@ -43,55 +51,60 @@ function isTransient(e) {
 
 const runPath = (w) => '.github/workflows/' + w.file;
 
-// Job conclusions that make the run fail. No job in these workflows sets
-// continue-on-error, so a check can turn red before the run ends.
-const FAILED = ['failure', 'timed_out'];
+// The fork run attempt a status links to, or null.
+function attemptOf(s) {
+  const m = /\/actions\/runs\/(\d+)\/attempts\/(\d+)$/.exec((s && s.target_url) || '');
+  return m ? { id: Number(m[1]), attempt: Number(m[2]) } : null;
+}
 
-// What a check records in its output text about its fork run, or null.
-function recordOf(check) {
-  if (check.conclusion == 'action_required') return null;
-  try {
-    const p = JSON.parse(check.output.text);
-    return p && p.run_id ? p : null;
-  } catch (e) {
-    return null;
+// A status that later passes leave alone: its run has ended and all its failed jobs are listed.
+const isFinal = (s) => s.state != 'pending' && !s.description.includes(' so far') && s.description != UNLISTED;
+
+const truncate = (s) => (s.length <= MAX_DESCRIPTION ? s : s.slice(0, MAX_DESCRIPTION - 1) + '…');
+
+// The status for a run and the jobs of its latest attempt, or null jobs when they
+// couldn't be read. GitHub reports a run as queued while any job waits for a runner,
+// so a run with a job that has started counts as running.
+function statusOf(run, jobs) {
+  const target_url = `${run.html_url}/attempts/${run.run_attempt}`;
+  const done = run.status == 'completed';
+  const failed = (jobs || []).filter((j) => FAILED.includes(j.conclusion)).map((j) => j.name);
+  if (failed.length) {
+    const count = failed.length == 1 ? '1 job failed' : `${failed.length} jobs failed`;
+    const description = truncate(`${count}${done ? '' : ' so far'}: ${failed.join(', ')}`);
+    return { state: 'failure', target_url, description };
   }
-}
-
-// The fork run attempt a check points at, as "run_id/attempt", or null. Checks
-// written before attempts were recorded count as attempt 1.
-function attemptOf(check) {
-  const p = recordOf(check);
-  return p ? `${p.run_id}/${p.run_attempt || 1}` : null;
-}
-
-// The check status (and conclusion) for a run's current state and its jobs. GitHub
-// reports a run as queued while any job waits for a runner, so a run with a job that
-// has started counts as in progress.
-function stateOf(run, jobs) {
-  if (jobs.some((j) => FAILED.includes(j.conclusion))) return { status: 'completed', conclusion: 'failure' };
-  if (run.status == 'completed') {
-    return { status: 'completed', conclusion: CONCLUSIONS.includes(run.conclusion) ? run.conclusion : 'failure' };
+  if (!done) {
+    const started =
+      run.status == 'in_progress' || (jobs || []).some((j) => j.status == 'in_progress' || j.status == 'completed');
+    return { state: 'pending', target_url, description: started ? 'Running in the fork' : 'Queued in the fork' };
   }
-  const started = run.status == 'in_progress' || jobs.some((j) => j.status == 'in_progress' || j.status == 'completed');
-  return { status: started ? 'in_progress' : 'queued' };
-}
-
-function noRunSummary(w, sha) {
-  return [
-    `${w.file} runs in your fork on each push to a branch other than main. No run was found for ${sha}.`,
-    '',
-    '1. Enable GitHub Actions in the Actions tab of your fork and allow all actions in Settings > Actions > General, then push again. See [Managing GitHub Actions settings for a repository](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository).',
-    '2. If your branch predates fork runs, rebase it on the latest apache/gluten main and push again.',
-    "3. If this pull request comes from your fork's main branch, push it to another branch and open the pull request from there.",
-  ].join('\n');
+  if (PASSED.includes(run.conclusion)) return { state: 'success', target_url, description: 'Passed in the fork' };
+  if (run.conclusion == 'cancelled') return { state: 'error', target_url, description: 'Cancelled in the fork' };
+  const description = jobs ? `The run ended with conclusion ${run.conclusion}` : UNLISTED;
+  return { state: 'failure', target_url, description };
 }
 
 module.exports = async ({ github, context, core }) => {
   const repo = { owner: context.repo.owner, repo: context.repo.repo };
+  const contexts = WORKFLOWS.map((w) => w.context);
 
-  const listChecks = (sha) =>
-    github.paginate('GET /repos/{owner}/{repo}/commits/{ref}/check-runs', { ...repo, ref: sha, filter: 'all', per_page: 100 });
+  // The latest status of each context on the commit.
+  const listStatuses = async (sha) =>
+    (await github.request('GET /repos/{owner}/{repo}/commits/{ref}/status', { ...repo, ref: sha, per_page: 100 })).data
+      .statuses;
+
+  // Check runs that earlier versions of this script wrote. Remove once no open pull
+  // request has them.
+  const listLegacyChecks = async (sha) =>
+    (
+      await github.paginate('GET /repos/{owner}/{repo}/commits/{ref}/check-runs', {
+        ...repo,
+        ref: sha,
+        filter: 'all',
+        per_page: 100,
+      })
+    ).filter((c) => contexts.includes(c.name));
 
   // The fork's push runs for the pull request's head commit. Re-polled until every
   // workflow in `wanted` has one, because a run can take a few seconds to register.
@@ -118,93 +131,75 @@ module.exports = async ({ github, context, core }) => {
     return runs;
   };
 
-  // Jobs of the run's latest attempt. Read only while the run is going or when it
-  // didn't pass.
+  // Jobs of the run's latest attempt, or null if they can't be read. Not read for a run
+  // that passed. Small pages: a page of 100 jobs can take longer than GitHub's 10-second
+  // gateway timeout.
   const jobsOf = async (pr, run) => {
-    if (run.status == 'completed' && ['success', 'skipped', 'neutral'].includes(run.conclusion)) return [];
-    return github.paginate('GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs', {
-      owner: pr.head.repo.owner.login,
-      repo: pr.head.repo.name,
-      run_id: run.id,
-      filter: 'latest',
-      per_page: 100,
-    });
-  };
-
-  const checkFor = async (pr, run) => {
-    const jobs = await jobsOf(pr, run);
-    const failedJobs = jobs.filter((j) => FAILED.includes(j.conclusion));
-    const done = run.status == 'completed';
-    const count = failedJobs.length == 1 ? '1 job failed' : `${failedJobs.length} jobs failed`;
-    const lines = [
-      `[See the run in ${pr.head.repo.full_name}](${run.html_url}). ` +
-        'Rerun failed jobs there if the failure is unrelated to this pull request.',
-    ];
-    if (failedJobs.length) {
-      lines.push('', done ? 'Failed jobs:' : 'Failed jobs so far (the run is still going):');
-      for (const j of failedJobs) lines.push(`- [${j.name}](${j.html_url})`);
+    if (run.status == 'completed' && PASSED.includes(run.conclusion)) return [];
+    try {
+      return await github.paginate('GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs', {
+        owner: pr.head.repo.owner.login,
+        repo: pr.head.repo.name,
+        run_id: run.id,
+        filter: 'latest',
+        per_page: 30,
+      });
+    } catch (e) {
+      if (isRateLimited(e)) throw e;
+      console.log(`#${pr.number}: could not read the jobs of ${run.html_url}: ${e.status || e.message}`);
+      return null;
     }
-    return {
-      ...stateOf(run, jobs),
-      output: {
-        title: failedJobs.length ? count + (done ? '' : ', run still going') : 'Fork run',
-        summary: lines.join('\n'),
-        // `done` stops further reads of a check whose run has ended.
-        text: JSON.stringify({
-          owner: pr.head.repo.owner.login,
-          repo: pr.head.repo.name,
-          run_id: run.id,
-          run_attempt: run.run_attempt,
-          done,
-        }),
-      },
-    };
   };
 
-  const syncCheck = async (pr, w, check, run) => {
-    if (recordOf(check).done) return;
-    const next = await checkFor(pr, run);
-    const same = (k) => (check.output[k] || '') == next.output[k];
-    if (
-      check.status == next.status &&
-      check.conclusion == (next.conclusion || null) &&
-      same('title') &&
-      same('summary') &&
-      same('text')
-    ) {
-      return;
+  const setStatus = (pr, w, s) => {
+    console.log(`#${pr.number} ${w.file}: ${s.state} ${s.description}`);
+    return github.request('POST /repos/{owner}/{repo}/statuses/{sha}', {
+      ...repo,
+      sha: pr.head.sha,
+      context: w.context,
+      ...s,
+    });
+  };
+
+  const syncPull = async (pr) => {
+    const statuses = await listStatuses(pr.head.sha);
+    const legacy = await listLegacyChecks(pr.head.sha);
+    const statusOfContext = (w) => statuses.find((s) => s.context == w.context);
+    const legacyOf = (w) => legacy.filter((c) => c.name == w.context);
+    // Only a workflow with nothing reported yet can have a run that hasn't registered.
+    const fresh = WORKFLOWS.filter((w) => !statusOfContext(w) && legacyOf(w).length == 0);
+    const runs = await listForkRuns(pr, fresh, fresh.length ? 3 : 1);
+    for (const w of WORKFLOWS) {
+      const current = statusOfContext(w);
+      const run = runs.filter((r) => r.path == runPath(w)).sort((a, b) => b.id - a.id)[0];
+      if (run) {
+        const at = attemptOf(current);
+        // Two branches can share a head commit; the newer run keeps the status.
+        if (at && at.id > run.id) continue;
+        if (at && at.id == run.id && at.attempt == run.run_attempt && isFinal(current)) continue;
+        const next = statusOf(run, await jobsOf(pr, run));
+        const same = current && ['state', 'description', 'target_url'].every((k) => current[k] == next[k]);
+        if (!same) await setStatus(pr, w, next);
+      } else if (!current && !legacyOf(w).some((c) => c.conclusion == 'action_required')) {
+        await setStatus(pr, w, { state: 'error', target_url: SETUP_URL, description: NO_RUN });
+      }
     }
-    console.log(`#${pr.number} ${w.file}: ${next.status} ${next.conclusion || ''} ${next.output.title}`);
-    // An update without `output` clears its text, which is how the next pass finds this check.
-    return github.request('PATCH /repos/{owner}/{repo}/check-runs/{check_run_id}', {
-      ...repo,
-      check_run_id: check.id,
-      details_url: run.html_url,
-      ...next,
-    });
-  };
-
-  const createRunCheck = async (pr, w, run) => {
-    console.log(`#${pr.number} ${w.file}: tracking ${run.html_url}`);
-    return github.rest.checks.create({
-      ...repo,
-      name: w.check,
-      head_sha: pr.head.sha,
-      details_url: run.html_url,
-      ...(await checkFor(pr, run)),
-    });
-  };
-
-  const createNoRunCheck = (pr, w) => {
-    console.log(`#${pr.number} ${w.file}: no fork run`);
-    return github.rest.checks.create({
-      ...repo,
-      name: w.check,
-      head_sha: pr.head.sha,
-      status: 'completed',
-      conclusion: 'action_required',
-      output: { title: 'No run found in your fork', summary: noRunSummary(w, pr.head.sha) },
-    });
+    // A legacy check would show next to the status with an older result. One that says
+    // there is no run stays until there is one, standing in for the status.
+    for (const w of WORKFLOWS) {
+      const hasRun = runs.some((r) => r.path == runPath(w));
+      for (const c of legacyOf(w)) {
+        if (c.conclusion == 'neutral' || (c.conclusion == 'action_required' && !hasRun)) continue;
+        console.log(`#${pr.number}: retiring check ${c.id} (${c.name})`);
+        await github.request('PATCH /repos/{owner}/{repo}/check-runs/{check_run_id}', {
+          ...repo,
+          check_run_id: c.id,
+          status: 'completed',
+          conclusion: 'neutral',
+          output: { title: 'Replaced', summary: `The result is now the commit status "${c.name}".` },
+        });
+      }
+    }
   };
 
   const failed = [];
@@ -219,23 +214,7 @@ module.exports = async ({ github, context, core }) => {
       // Branches of this repository (Dependabot) run upstream; skip deleted forks.
       if (!pr.head.repo || pr.head.repo.full_name == `${repo.owner}/${repo.repo}`) continue;
       try {
-        const checks = await listChecks(pr.head.sha);
-        const checksOf = (w) => checks.filter((c) => c.name == w.check);
-        // Only a workflow without any check yet can have a run that hasn't registered.
-        const fresh = WORKFLOWS.filter((w) => checksOf(w).length == 0);
-        const runs = await listForkRuns(pr, fresh, fresh.length ? 3 : 1);
-        for (const w of WORKFLOWS) {
-          const run = runs.filter((r) => r.path == runPath(w)).sort((a, b) => b.id - a.id)[0];
-          if (run) {
-            // A newer run or attempt than any check points at (a rerun, or a push back to
-            // an earlier commit) gets a check of its own, so a rerun shows as in progress
-            // instead of keeping the previous attempt's result.
-            const check = checksOf(w).find((c) => attemptOf(c) == `${run.id}/${run.run_attempt}`);
-            await (check ? syncCheck(pr, w, check, run) : createRunCheck(pr, w, run));
-          } else if (!checksOf(w).some((c) => c.conclusion == 'action_required')) {
-            await createNoRunCheck(pr, w);
-          }
-        }
+        await syncPull(pr);
       } catch (e) {
         // Stop the pass instead of sending more requests; the next pass picks up here.
         if (isRateLimited(e)) {
@@ -243,8 +222,8 @@ module.exports = async ({ github, context, core }) => {
           rateLimited = true;
           break;
         }
+        console.log(`#${pr.number}: ${e.status || ''} ${e.message}`);
         if (isTransient(e)) continue;
-        console.error(`#${pr.number}: ${e.message}`);
         failed.push(pr.number);
       }
     }
