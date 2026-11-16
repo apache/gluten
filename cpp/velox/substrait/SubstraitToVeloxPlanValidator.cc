@@ -146,6 +146,10 @@ bool SubstraitToVeloxPlanValidator::validateRound(
   if (arguments.size() < 2) {
     return false;
   }
+  if (params.empty() || !params[0]) {
+    LOG_VALIDATION_MSG("Round value expression is unavailable.");
+    return false;
+  }
 
   if (!arguments[1].value().has_literal()) {
     LOG_VALIDATION_MSG("Round scale is expected.");
