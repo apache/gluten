@@ -120,15 +120,25 @@ public final class ColumnarBatches {
       uses.merge(((ArrowColumnVector) input.column(i)).getValueVector(), 1, Integer::sum);
     }
     ColumnVector[] columns = new ColumnVector[input.numCols()];
-    for (int i = 0; i < input.numCols(); i++) {
-      ColumnVector column = input.column(i);
-      ValueVector vector = ((ArrowColumnVector) column).getValueVector();
-      boolean shared = column instanceof RefCountedArrowColumnVector || uses.get(vector) > 1;
-      FieldVector adopted =
-          shared
-              ? ArrowColumnVectors.copy(vector, allocator)
-              : ArrowColumnVectors.adopt(vector, allocator);
-      columns[i] = new RefCountedArrowColumnVector(adopted);
+    try {
+      for (int i = 0; i < input.numCols(); i++) {
+        ColumnVector column = input.column(i);
+        ValueVector vector = ((ArrowColumnVector) column).getValueVector();
+        boolean shared = column instanceof RefCountedArrowColumnVector || uses.get(vector) > 1;
+        FieldVector adopted =
+            shared
+                ? ArrowColumnVectors.copy(vector, allocator)
+                : ArrowColumnVectors.adopt(vector, allocator);
+        columns[i] = new RefCountedArrowColumnVector(adopted);
+      }
+    } catch (Throwable t) {
+      // Release the vectors taken before the failure.
+      for (ColumnVector column : columns) {
+        if (column != null) {
+          column.close();
+        }
+      }
+      throw t;
     }
     return new ColumnarBatch(columns, input.numRows());
   }
@@ -270,7 +280,14 @@ public final class ColumnarBatches {
       // A batch of Spark ArrowColumnVectors (e.g. the output of a Spark Arrow operator) is owned
       // by its producer and only valid until the next one is requested: take ownership of its
       // vectors in a Gluten batch and offload that one, leaving the input to its producer.
-      return offload(allocator, adopt(allocator, input));
+      ColumnarBatch adopted = adopt(allocator, input);
+      try {
+        return offload(allocator, adopted);
+      } catch (Throwable t) {
+        // The offload takes over the adopted batch only when it succeeds.
+        adopted.close();
+        throw t;
+      }
     }
     if (isZeroColumnBatch(input)) {
       return input;
