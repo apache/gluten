@@ -282,17 +282,26 @@ class VeloxLanceSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
-  test("lance scan with a column Velox does not import stays on vanilla Spark") {
+  test("lance scan offloads TIMESTAMP_NTZ and null columns") {
     val data = spark
       .range(20)
       .selectExpr(
         "cast(id as int) as id",
-        "cast(timestamp_seconds(id + 1700000000) as timestamp_ntz) as ts")
-    withLanceView("lance_ntz", data, Map.empty, Map.empty) {
-      runQueryAndCompare("select id, ts from lance_ntz where id < 10") {
+        "cast(timestamp_seconds(id + 1700000000) as timestamp_ntz) as ts",
+        "null as n")
+    withLanceView("lance_ntz_null", data, Map.empty, Map.empty) {
+      runQueryAndCompare("select id, ts, n from lance_ntz_null where id < 10") {
         df =>
-          assertVanillaLanceScan(df)
+          assertArrowLanceScan(df)
           assert(df.collect().length == 10)
+      }
+      // Velox sorts the TIMESTAMP_NTZ values and counts the null column.
+      runQueryAndCompare(
+        "select id % 3 as k, max(ts) as t, count(n) as c from lance_ntz_null group by id % 3 " +
+          "order by t") {
+        df =>
+          assertArrowLanceScan(df)
+          assertScanFeedsVelox(df)
       }
     }
   }

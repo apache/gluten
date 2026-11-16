@@ -75,20 +75,20 @@ object LanceArrowBatchScan {
   /**
    * Whether Velox's Arrow import reads `field` as the type Spark reads it as. Spark's
    * `ArrowColumnVector` already rules out unsigned integers, `Float16`, fixed-size binaries and
-   * lists, and other date and time units. Null and interval columns, timestamps without a time zone
-   * and dictionary-encoded columns are left to vanilla Spark.
+   * lists, and other date and time units. Interval and dictionary-encoded columns are left to
+   * vanilla Spark.
    */
   private def importsToVelox(field: Field): Boolean =
     field.getDictionary == null && (field.getType match {
-      case _: ArrowType.Bool => true
+      case _: ArrowType.Null | _: ArrowType.Bool => true
       case int: ArrowType.Int => int.getIsSigned
       case float: ArrowType.FloatingPoint => float.getPrecision != FloatingPointPrecision.HALF
       case _: ArrowType.Utf8 | _: ArrowType.LargeUtf8 => true
       case _: ArrowType.Binary | _: ArrowType.LargeBinary => true
       case decimal: ArrowType.Decimal => decimal.getBitWidth == 128
       case date: ArrowType.Date => date.getUnit == DateUnit.DAY
-      case timestamp: ArrowType.Timestamp =>
-        timestamp.getUnit == TimeUnit.MICROSECOND && timestamp.getTimezone != null
+      // With a time zone for TIMESTAMP, without one for TIMESTAMP_NTZ.
+      case timestamp: ArrowType.Timestamp => timestamp.getUnit == TimeUnit.MICROSECOND
       case _: ArrowType.List | _: ArrowType.Struct | _: ArrowType.Map =>
         field.getChildren.asScala.forall(importsToVelox)
       case _ => false
