@@ -55,6 +55,7 @@ class VeloxTestSettings extends BackendTestSettings {
     // Spark's self-join input-row totals have the same unsupported progress attribution.
     // The Gluten replacement retains output, offset-log, exchange-reuse and native-scan checks.
     .exclude("ensure stream-stream self-join generates only one offset in log and correct metrics")
+  enableSuite("org.apache.spark.sql.kafka010.GlutenKafkaHybridSourceSuite")
   // @DoNotDiscover keeps the longer stress run separate; CI selects it explicitly.
   enableSuite("org.apache.spark.sql.kafka010.GlutenKafkaSourceStressSuite")
   enableSuite[GlutenStringFunctionsSuite]

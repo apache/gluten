@@ -16,10 +16,12 @@
  */
 package org.apache.spark.sql.execution.benchmark
 
+import org.apache.gluten.execution.{MicroBatchScanExecTransformer, OffloadKafkaScan, ProjectExecTransformerBase, RowToColumnarExecBase}
 import org.apache.gluten.execution.kafka.KafkaTestUtils
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.execution.{ProjectExec, SparkPlan}
 import org.apache.spark.sql.execution.datasources.v2.MicroBatchScanExec
 import org.apache.spark.sql.streaming.{StreamingQuery, StreamingQueryListener, StreamingQueryProgress, Trigger}
 
@@ -35,8 +37,8 @@ import scala.collection.JavaConverters._
 
 /**
  * A bounded rate -> Kafka -> console pipeline. The producer always uses Spark; the consumer
- * compares Spark with a required native Gluten Kafka scan. Console rendering is included in the
- * measured micro-batch duration.
+ * compares Spark, a Spark Kafka scan feeding Gluten operators, and a native Gluten Kafka scan.
+ * Console rendering is included in the measured micro-batch duration.
  */
 object RateMicroBatchBenchmark extends SqlBasedBenchmark {
   private def prefix: String = "spark.gluten.benchmark.rate."
@@ -72,12 +74,18 @@ object RateMicroBatchBenchmark extends SqlBasedBenchmark {
     val timeoutMs = conf.getLong(prefix + "timeoutMs", 60000L)
     val iterations = conf.getInt(prefix + "iterations", 3)
     val engine = conf.get(prefix + "engine", "spark")
-    require(Set("spark", "gluten", "both").contains(engine), "Engine must be spark, gluten or both")
+    val engines = engine match {
+      case "all" => Seq("spark", "hybrid", "gluten")
+      case "both" => Seq("spark", "gluten")
+      case "spark" | "hybrid" | "gluten" => Seq(engine)
+      case _ =>
+        throw new IllegalArgumentException("Engine must be spark, hybrid, gluten, both or all")
+    }
     require(rowsPerSecond > 0 && partitions > 0, "Rate and partition count must be positive")
     require(triggerMs >= 0 && warmupMs >= 0, "Trigger and warm-up must be nonnegative")
     require(durationMs > triggerMs, "Measurement duration must exceed the trigger interval")
     require(timeoutMs > 0 && iterations > 0, "Timeout and iteration count must be positive")
-    val engines = if (engine == "both") Seq(false, true) else Seq(engine == "gluten")
+    var nativeProjectionSignature: Option[Seq[Seq[String]]] = None
 
     val properties = new Properties()
     properties.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, broker)
@@ -93,10 +101,15 @@ object RateMicroBatchBenchmark extends SqlBasedBenchmark {
             s"triggerMs=$triggerMs warmupMs=$warmupMs durationMs=$durationMs iterations=$iterations")
         outputLine("engine\titeration\trows\trows/s\tbatches\twindowMs\tmeanBatchMs\tp95BatchMs")
         engines.foreach {
-          enabled =>
+          mode =>
             (1 to iterations).foreach {
               iteration =>
-                withSQLConf("spark.gluten.enabled" -> enabled.toString) {
+                withSQLConf(
+                  "spark.gluten.enabled" -> (mode != "spark").toString,
+                  OffloadKafkaScan.ENABLED.key -> (mode == "gluten").toString,
+                  "spark.sql.json.enablePartialResults" -> "true",
+                  "spark.sql.caseSensitive" -> "false"
+                ) {
                   withTempPath {
                     checkpoint =>
                       val name = "rate_benchmark_" + UUID.randomUUID().toString.replace("-", "")
@@ -172,24 +185,31 @@ object RateMicroBatchBenchmark extends SqlBasedBenchmark {
                           endMs,
                           elapsedMs)
                         val plan = KafkaTestUtils.executedPlan(query)
-                        val nativeScans = plan.collect {
-                          case p
-                              if p.getClass.getName ==
-                                "org.apache.gluten.execution.MicroBatchScanExecTransformer" => p
+                        val label = mode match {
+                          case "spark" => "Spark"
+                          case "hybrid" => "Gluten (Spark Kafka scan + R2C)"
+                          case "gluten" => "Gluten (native Kafka scan)"
                         }
-                        val sparkScans = plan.collect { case p: MicroBatchScanExec => p }
-                        try {
-                          KafkaBenchmarkResult.validateScanCounts(
-                            nativeScans.size,
-                            sparkScans.size,
-                            enabled)
-                        } catch {
-                          case e: IllegalArgumentException =>
-                            throw new IllegalStateException(
-                              s"Unexpected Kafka scan:\n${plan.treeString}",
-                              e)
+                        outputLine(s"PLAN engine=$mode iteration=$iteration\n${plan.treeString}")
+                        val projections = validatePlan(mode, plan)
+                        if (mode != "spark") {
+                          nativeProjectionSignature.foreach {
+                            expected =>
+                              require(
+                                projections == expected,
+                                "Native downstream projections differ between runs; " +
+                                  "do not compare these timings")
+                          }
+                          nativeProjectionSignature = Some(projections)
                         }
-                        val label = if (enabled) "Gluten (native Kafka scan)" else "Spark"
+                        // These task-aggregated metrics describe only the last executed batch.
+                        // They are not full-window totals or wall-clock latency.
+                        val conversions = plan.collect { case p: RowToColumnarExecBase => p }
+                        outputLine(
+                          s"LAST_BATCH engine=$mode iteration=$iteration " +
+                            s"batchId=${KafkaTestUtils.executedBatchId(query)} " +
+                            s"r2cRows=${conversions.map(_.metrics("numInputRows").value).sum} " +
+                            s"r2cTaskTimeMs=${conversions.map(_.metrics("convertTime").value).sum}")
                         outputLine(
                           f"$label%s\t$iteration%d\t${result.rows}%d\t${result.rowsPerSecond}%.2f\t" +
                             f"${result.batches}%d\t${result.elapsedMs}%.2f\t" +
@@ -215,6 +235,39 @@ object RateMicroBatchBenchmark extends SqlBasedBenchmark {
     } finally {
       admin.close(Duration.ofSeconds(5))
     }
+  }
+
+  private def validatePlan(mode: String, plan: SparkPlan): Seq[Seq[String]] = {
+    val nativeScans = plan.collect { case p: MicroBatchScanExecTransformer => p }
+    val sparkScans = plan.collect { case p: MicroBatchScanExec => p }
+    KafkaBenchmarkResult.validateScanCounts(nativeScans.size, sparkScans.size, mode == "gluten")
+    val projects = plan.collect { case p: ProjectExecTransformerBase => p }
+    val conversions = plan.collect { case p: RowToColumnarExecBase => p }
+    if (mode == "spark") {
+      require(
+        projects.isEmpty && conversions.isEmpty,
+        "Spark baseline unexpectedly contains native projections or R2C")
+    } else {
+      require(
+        projects.nonEmpty && !plan.exists(_.isInstanceOf[ProjectExec]),
+        "Expected all downstream projections, including JSON decoding, to run natively")
+      if (mode == "hybrid") {
+        require(
+          conversions.size == 1 && projects.exists {
+            _.exists {
+              case conversion: RowToColumnarExecBase =>
+                conversion.child.exists(_.isInstanceOf[MicroBatchScanExec])
+              case _ => false
+            }
+          },
+          "Hybrid plan must contain Spark Kafka scan -> R2C -> native projection"
+        )
+      } else {
+        require(conversions.isEmpty, "Native Kafka pipeline unexpectedly contains R2C")
+      }
+    }
+    // SQL rendering omits query-specific expression IDs while retaining the projection expressions.
+    projects.map(_.list.map(_.sql))
   }
 
   private def outputLine(line: String): Unit = {
