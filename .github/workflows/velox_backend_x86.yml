@@ -344,6 +344,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-changes.outputs.revision }}
+      - name: Cache Maven distribution
+        uses: ./.github/actions/cache-maven
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -476,6 +478,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-changes.outputs.revision }}
+      - name: Cache Maven distribution
+        uses: ./.github/actions/cache-maven
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -558,6 +562,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-changes.outputs.revision }}
+      - name: Cache Maven distribution
+        uses: ./.github/actions/cache-maven
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -678,6 +684,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-changes.outputs.revision }}
+      - name: Cache Maven distribution
+        uses: ./.github/actions/cache-maven
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -722,6 +730,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-changes.outputs.revision }}
+      - name: Cache Maven distribution
+        uses: ./.github/actions/cache-maven
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -781,6 +791,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-changes.outputs.revision }}
+      - name: Cache Maven distribution
+        uses: ./.github/actions/cache-maven
       - name: Download All Native Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -858,6 +870,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-changes.outputs.revision }}
+      - name: Cache Maven distribution
+        uses: ./.github/actions/cache-maven
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -931,6 +945,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-changes.outputs.revision }}
+      - name: Cache Maven distribution
+        uses: ./.github/actions/cache-maven
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -984,6 +1000,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-changes.outputs.revision }}
+      - name: Cache Maven distribution
+        uses: ./.github/actions/cache-maven
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -1059,6 +1077,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-changes.outputs.revision }}
+      - name: Cache Maven distribution
+        uses: ./.github/actions/cache-maven
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -1124,6 +1144,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-changes.outputs.revision }}
+      - name: Cache Maven distribution
+        uses: ./.github/actions/cache-maven
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -1176,6 +1198,8 @@ jobs:
           # 'check.py tidy commit' diffs HEAD^..HEAD, which a depth-1 clone lacks: the
           # diff comes back empty and the check passes without inspecting anything.
           fetch-depth: 2
+      - name: Cache Maven distribution
+        uses: ./.github/actions/cache-maven
       - name: Install Stash restore dependencies # the stash action needs gh and jq, absent from this container
         run: |
           case "$(uname -m)" in
@@ -1338,6 +1362,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-changes.outputs.revision }}
+      - name: Cache Maven distribution
+        uses: ./.github/actions/cache-maven
       - name: Get Ccache from Apache Stash
         id: ccache-stash
         uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b
@@ -1403,6 +1429,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-changes.outputs.revision }}
+      - name: Cache Maven distribution
+        uses: ./.github/actions/cache-maven
       - name: Build with fast-build profile (Spark 4.0, Java 17)
         run: |
           cd $GITHUB_WORKSPACE/
@@ -1420,6 +1448,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-changes.outputs.revision }}
+      - name: Cache Maven distribution
+        uses: ./.github/actions/cache-maven
       - name: Build Spark 4.2 Velox (Java 17, Scala 2.13)
         run: |
           cd $GITHUB_WORKSPACE/
@@ -1443,6 +1473,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-changes.outputs.revision }}
+      - name: Cache Maven distribution
+        uses: ./.github/actions/cache-maven
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -1511,6 +1543,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-changes.outputs.revision }}
+      - name: Cache Maven distribution
+        uses: ./.github/actions/cache-maven
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -1570,6 +1604,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-changes.outputs.revision }}
+      - name: Cache Maven distribution
+        uses: ./.github/actions/cache-maven
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -1644,6 +1680,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-changes.outputs.revision }}
+      - name: Cache Maven distribution
+        uses: ./.github/actions/cache-maven
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -1703,6 +1741,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-changes.outputs.revision }}
+      - name: Cache Maven distribution
+        uses: ./.github/actions/cache-maven
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -1780,6 +1820,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-changes.outputs.revision }}
+      - name: Cache Maven distribution
+        uses: ./.github/actions/cache-maven
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:

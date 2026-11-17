@@ -1,0 +1,35 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Cache Maven distribution
+description: Cache the build/mvn distribution without caching Maven dependencies.
+runs:
+  using: composite
+  steps:
+    - name: Read pinned Maven version
+      id: maven
+      shell: bash
+      run: |
+        version=$(awk -F '[<>]' '/<maven[.]version>/ { print $3; exit }' pom.xml)
+        if [ -z "$version" ]; then
+          echo "::error::Could not read maven.version from pom.xml"
+          exit 1
+        fi
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+    - name: Cache Maven distribution
+      uses: actions/cache@v4
+      with:
+        path: build/.mvn
+        key: maven-distribution-v1-${{ steps.maven.outputs.version }}-${{ runner.os }}-${{ runner.arch }}

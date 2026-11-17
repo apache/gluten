@@ -24,6 +24,18 @@ Arrow libs are pre-installed in the Docker image, since they don't change often 
 ## .M2 Cache
 Dependency libraries are pre-installed into `/root/.m2` via `mvn dependency:go-offline`. Spark is set to 3.5 by default.
 
+## Maven Distribution Cache
+All Maven-using jobs defined directly in `velox_backend_x86.yml` use
+`.github/actions/cache-maven` after checkout: TPC tests (including chaos and shuffle
+variants), Spark tests and build checks, C++ JNI/UDF tests, and the cuDF build.
+Native-only jobs and jobs delegated to other workflows are unchanged.
+
+The action reads `<maven.version>` from `pom.xml` without invoking Maven and caches
+`build/.mvn` by that version, runner OS, and runner architecture. It does not restore
+other Maven versions or cache `~/.m2` dependencies. On a miss, `build/mvn` bootstraps
+normally; a successful job saves the distribution for later runs. No Docker image
+changes are needed, and the workspace-relative path also works in job containers.
+
 ## Ccache
 Since the Docker image is rebuilt weekly, the ccache is mostly outdated, so it is removed from the image.
 

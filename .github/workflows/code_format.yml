@@ -19,6 +19,9 @@ on:
     paths:
       - '.github/workflows/code_format.yml'
       - '.github/workflows/**/*.py'
+      - '.github/workflows/velox_backend_x86.yml'
+      - '.github/actions/cache-maven/**'
+      - 'gluten-ut/src-ci/test/python/**'
       - 'tools/**/*.py'
       - 'dev/**/*.py'
       - 'cpp/**'
@@ -43,6 +46,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
             fetch-depth: 0
+      - name: Check Maven distribution caching
+        run: python3 -m unittest discover -s gluten-ut/src-ci/test/python
       - name: Check
         run: |
           git config --global --add safe.directory $GITHUB_WORKSPACE
