@@ -278,7 +278,7 @@ private[ui] class GlutenExecutionDataSource(
   private def ordering(sortColumn: String, desc: Boolean): Ordering[GlutenExecutionTableRowData] = {
     val ordering: Ordering[GlutenExecutionTableRowData] = sortColumn match {
       case "ID" => Ordering.by(_.executionUIData.executionId)
-      case "Description" => Ordering.by(_.executionUIData.fallbackDescription)
+      case "Description" => Ordering.by(_.executionUIData.description)
       case "Num Gluten Nodes" => Ordering.by(_.executionUIData.numGlutenNodes)
       case "Num Fallback Nodes" => Ordering.by(_.executionUIData.numFallbackNodes)
       case unknownColumn => throw QueryExecutionErrors.unknownColumnError(unknownColumn)

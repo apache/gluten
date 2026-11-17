@@ -1,0 +1,81 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Squash-merge onto apache/gluten main
+description: >-
+  In a fork, squash-merge the commit under test onto the current apache/gluten
+  main, which is what a pull request merge ref would hold. If anything in
+  `paths` changed, push the result to a refs/gluten-ci/ ref in the fork, so the
+  workflow's other jobs can check it out by commit. Use it after
+  actions/checkout with fetch-depth 0, in a job with `contents: write`.
+inputs:
+  paths:
+    description: >-
+      Extended regex for the files the workflow covers. A `paths:` filter on push
+      diffs against the branch's previous push, not against main, so fork runs
+      apply the list here.
+    required: true
+  paths-ignore:
+    description: Extended regex for files to leave out before matching `paths`.
+    default: '^$'
+outputs:
+  base_sha:
+    description: The apache/gluten main commit the branch was merged onto.
+    value: ${{ steps.merge.outputs.base_sha }}
+  revision:
+    description: The merged commit.
+    value: ${{ steps.merge.outputs.revision }}
+  relevant:
+    description: "'false' if nothing in `paths` changed."
+    value: ${{ steps.merge.outputs.relevant }}
+runs:
+  using: composite
+  steps:
+    - name: Squash-merge the commit under test
+      id: merge
+      shell: bash
+      env:
+        PATHS: ${{ inputs.paths }}
+        PATHS_IGNORE: ${{ inputs.paths-ignore }}
+      run: |
+        git config user.name 'github-actions[bot]'
+        git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+        git fetch --no-tags https://github.com/apache/gluten.git main
+        base_sha=$(git rev-parse FETCH_HEAD)
+        git checkout --quiet --detach "$base_sha"
+        if ! git merge --squash --no-commit "$GITHUB_SHA"; then
+          echo "::error::$GITHUB_REF_NAME does not merge cleanly into apache/gluten main ($base_sha). Rebase it and push again."
+          exit 1
+        fi
+        git commit --quiet --allow-empty -m "Squash-merge $GITHUB_SHA onto $base_sha"
+        echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+        echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        # Not `grep -q`: it can exit before the upstream grep is done writing, and under
+        # pipefail the SIGPIPE would read as no match.
+        if git diff --name-only "$base_sha" HEAD | grep -vE "$PATHS_IGNORE" | grep -E "$PATHS" > /dev/null; then
+          echo "relevant=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "Nothing this workflow covers changed -- skipping."
+          echo "relevant=false" >> "$GITHUB_OUTPUT"
+        fi
+    # One ref per workflow and branch, overwritten by the next run. Slashes in the
+    # branch name are replaced so that branches `a` and `a/b` don't collide.
+    - name: Publish the merged commit in the fork
+      if: steps.merge.outputs.relevant == 'true'
+      shell: bash
+      run: |
+        workflow=${GITHUB_WORKFLOW_REF%%@*}
+        workflow=${workflow##*/}
+        git push --force origin "HEAD:refs/gluten-ci/${workflow%.*}/${GITHUB_REF_NAME//\//-}"

@@ -49,7 +49,10 @@ class BoltDeltaSuite extends DeltaSuite {
               }.head
               var listings = 0
               val snapshot = log.update()
+              val tableLogPath = log.logPath
               val index = new TahoeFileIndex(spark, log, new Path(path)) {
+                // SnapshotDescriptor requires the log path on Delta 4.x.
+                def logPath: Path = tableLogPath
                 override def version: Long = snapshot.version
                 override def metadata = snapshot.metadata
                 override def protocol = snapshot.protocol
