@@ -84,14 +84,25 @@ void getS3HiveConfig(
       {S3Config::Keys::kIMDSEnabled, std::make_pair("aws.imds.enabled", "true")},
   };
 
-  // get Velox S3 config key from Spark Suffix.
-  auto getVeloxKey = [&](std::string_view suffix) {
+  // Split "<bucket>.<suffix>" into the bucket name and the Velox S3 config key. Bucket names may contain dots,
+  // so match a known Spark suffix at the end instead of splitting at the first dot. The longest matching suffix
+  // wins, e.g. "endpoint.region" over "endpoint".
+  auto parseBucketConfig = [&](std::string_view bucketAndSuffix) {
+    std::optional<std::pair<S3Config::Keys, std::string_view>> result;
+    size_t matchedSuffixSize = 0;
     for (const auto& [key, value] : sparkSuffixes) {
-      if (value.first == suffix) {
-        return std::optional<S3Config::Keys>(key);
+      const std::string_view suffix = value.first;
+      // At least one character for the bucket name plus the separating dot.
+      if (bucketAndSuffix.size() < suffix.size() + 2 || suffix.size() <= matchedSuffixSize) {
+        continue;
+      }
+      const auto dotPos = bucketAndSuffix.size() - suffix.size() - 1;
+      if (bucketAndSuffix[dotPos] == '.' && bucketAndSuffix.substr(dotPos + 1) == suffix) {
+        result = std::make_pair(key, bucketAndSuffix.substr(0, dotPos));
+        matchedSuffixSize = suffix.size();
       }
     }
-    return std::optional<S3Config::Keys>(std::nullopt);
+    return result;
   };
 
   auto sparkBaseConfigValue = [&](S3Config::Keys key) {
@@ -162,14 +173,10 @@ void getS3HiveConfig(
   for (const auto& [key, value] : conf->rawConfigs()) {
     if (key.find(kSparkHadoopS3BucketPrefix) == 0) {
       std::string_view skey = key;
-      auto remaining = skey.substr(kSparkHadoopS3BucketPrefix.size());
-      int dot = remaining.find(".");
-      auto bucketName = remaining.substr(0, dot);
-      auto suffix = remaining.substr(dot + 1);
-      auto veloxKey = getVeloxKey(suffix);
-
-      if (veloxKey.has_value()) {
-        hiveConfMap[S3Config::bucketConfigKey(veloxKey.value(), bucketName)] = value;
+      auto bucketConfig = parseBucketConfig(skey.substr(kSparkHadoopS3BucketPrefix.size()));
+      if (bucketConfig.has_value()) {
+        const auto& [veloxKey, bucketName] = bucketConfig.value();
+        hiveConfMap[S3Config::bucketConfigKey(veloxKey, bucketName)] = value;
       }
     }
   }
