@@ -236,14 +236,18 @@ deserializeHashTable(const uint8_t* data, size_t size, bool ignoreNullKeys, bool
   VELOX_CHECK_NOT_NULL(data, "Serialized data cannot be null");
   VELOX_CHECK_GT(size, 0, "Invalid data size");
 
-  auto pool = defaultLeafVeloxMemoryPool();
+  // Broadcast hash tables are shared by multiple tasks, so use the backend's broadcast pool.
+  // Spark storage accounting is attempted after restoration.
+  auto pool = broadcastLeafVeloxMemoryPool();
+
   std::shared_ptr<facebook::velox::exec::BaseHashTable> hashTable;
   if (ignoreNullKeys) {
     hashTable = HashTableSerializer::deserialize<true>(data, size, pool.get());
   } else {
     hashTable = HashTableSerializer::deserialize<false>(data, size, pool.get());
   }
-  return std::make_shared<BroadcastHashTable>(std::move(hashTable), joinHasNullKeys, 0, std::move(pool));
+  return std::make_shared<BroadcastHashTable>(
+      std::move(hashTable), joinHasNullKeys, hashTable->allocatedBytes(), std::move(pool));
 }
 
 } // namespace gluten

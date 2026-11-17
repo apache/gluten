@@ -159,6 +159,8 @@ void VeloxBackend::init(
   google::InitGoogleLogging("gluten");
 
   globalMemoryManager_ = std::make_unique<VeloxMemoryManager>(kVeloxBackendKind, std::move(listener), *backendConf_);
+  broadcastMemoryManager_ =
+      std::make_unique<VeloxMemoryManager>(kVeloxBackendKind, AllocationListener::noop(), *backendConf_);
 
   // Register factories.
   MemoryManager::registerFactory(kVeloxBackendKind, veloxMemoryManagerFactory, veloxMemoryManagerReleaser);
@@ -507,6 +509,7 @@ void VeloxBackend::tearDown() {
   ioExecutor_.reset();
   ssdCacheExecutor_.reset();
   broadcastHashTableBuildExecutor_.reset();
+  broadcastMemoryManager_.reset();
   globalMemoryManager_.reset();
 
   // dump cache stats on exit if enabled

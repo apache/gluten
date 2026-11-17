@@ -18,6 +18,8 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.backendsapi.velox.VeloxBackendSettings
+import org.apache.gluten.config.GlutenCoreConfig
+import org.apache.gluten.memory.memtarget.MemoryTargets
 import org.apache.gluten.runtime.Runtimes
 import org.apache.gluten.vectorized.HashJoinBuilder
 
@@ -33,10 +35,13 @@ import com.github.benmanes.caffeine.cache.{Cache, Caffeine, RemovalCause, Remova
 
 import java.util.concurrent.TimeUnit
 
+import scala.util.control.NonFatal
+
 case class BroadcastHashTable(
     pointer: Long,
     relation: BuildSideRelation,
-    droppedDuplicates: Boolean)
+    droppedDuplicates: Boolean,
+    reservedBytes: Long = 0L)
 
 /**
  * `VeloxBroadcastBuildSideCache` is used for controlling to build bhj hash table once.
@@ -57,6 +62,26 @@ object VeloxBroadcastBuildSideCache
     VeloxBackendSettings.GLUTEN_VELOX_BROADCAST_CACHE_EXPIRED_TIME,
     VeloxBackendSettings.GLUTEN_VELOX_BROADCAST_CACHE_EXPIRED_TIME_DEFAULT
   )
+
+  // Account for cached broadcast hash tables without rejecting a table when storage is full.
+  private lazy val hashTableMemory = MemoryTargets.global()
+
+  private def reserveStorageMemory(size: Long, broadcastHashTableId: String): Long = {
+    if (GlutenCoreConfig.get.memoryUntracked) {
+      0L
+    } else {
+      try {
+        hashTableMemory.borrow(size)
+      } catch {
+        case NonFatal(e) =>
+          logWarning(
+            s"Failed to reserve storage memory for broadcast $broadcastHashTableId; " +
+              "continuing with the hash table without a reservation",
+            e)
+          0L
+      }
+    }
+  }
 
   // Use for controlling to build bhj hash table once.
   // key: hashtable id, value is hashtable backend pointer(long to string).
@@ -123,10 +148,16 @@ object VeloxBroadcastBuildSideCache
               unsafe.buildHashTable(context)
           }
 
-          broadcastContext.hashTableMemorySizeMetric.foreach(
-            _ += HashJoinBuilder.getHashTableMemoryUsage(pointer))
-
-          BroadcastHashTable(pointer, relation, droppedDuplicates)
+          val size = HashJoinBuilder.getHashTableMemoryUsage(pointer)
+          broadcastContext.hashTableMemorySizeMetric.foreach(_ += size)
+          // Clones share the native table and return a null relation. The original cache entry
+          // owns relation cleanup and storage accounting, so reserve only for that entry.
+          val reservedBytes = if (relation != null) {
+            reserveStorageMemory(size, broadcastContext.buildHashTableId)
+          } else {
+            0L
+          }
+          BroadcastHashTable(pointer, relation, droppedDuplicates, reservedBytes)
         }
       )
   }
@@ -230,10 +261,14 @@ object VeloxBroadcastBuildSideCache
         val hashTableHandle = serialized.deserialize(cacheKey)
         val timeMs = System.currentTimeMillis() - startTime
         deserializeHashTableTimeMetric.foreach(_ += timeMs)
+        val reservedBytes = reserveStorageMemory(
+          HashJoinBuilder.getHashTableMemoryUsage(hashTableHandle),
+          broadcastHashTableId)
         BroadcastHashTable(
           hashTableHandle,
           serialized.buildSideRelation,
-          serialized.droppedDuplicates)
+          serialized.droppedDuplicates,
+          reservedBytes)
       }
     )
   }
@@ -267,16 +302,19 @@ object VeloxBroadcastBuildSideCache
       value: BroadcastHashTable,
       cause: RemovalCause): Unit = {
     synchronized {
-      if (value.relation != null) {
-        value.relation match {
-          case columnar: ColumnarBuildSideRelation =>
-            columnar.reset(value.droppedDuplicates)
-          case unsafe: UnsafeColumnarBuildSideRelation =>
-            unsafe.reset(value.droppedDuplicates)
+      try {
+        if (value.relation != null) {
+          value.relation match {
+            case columnar: ColumnarBuildSideRelation =>
+              columnar.reset(value.droppedDuplicates)
+            case unsafe: UnsafeColumnarBuildSideRelation =>
+              unsafe.reset(value.droppedDuplicates)
+          }
         }
+        HashJoinBuilder.clearHashTable(key, value.pointer)
+      } finally {
+        if (value.reservedBytes > 0) hashTableMemory.repay(value.reservedBytes)
       }
-
-      HashJoinBuilder.clearHashTable(key, value.pointer)
     }
   }
 }
