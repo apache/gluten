@@ -32,6 +32,7 @@ import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.TimeStampMicroVector;
 import org.apache.arrow.vector.TinyIntVector;
+import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.complex.MapVector;
@@ -62,6 +63,7 @@ public abstract class ArrowVectorAccessor {
           Map.entry(Float8Vector.class, vector -> new DoubleVectorAccessor(vector)),
           Map.entry(DecimalVector.class, vector -> new DecimalVectorAccessor(vector)),
           Map.entry(VarCharVector.class, vector -> new VarCharVectorAccessor(vector)),
+          Map.entry(VarBinaryVector.class, vector -> new VarBinaryVectorAccessor(vector)),
           Map.entry(StructVector.class, vector -> new StructVectorAccessor(vector)),
           Map.entry(ListVector.class, vector -> new ListVectorAccessor(vector)),
           Map.entry(DateDayVector.class, vector -> new DateDayVectorAccessor(vector)),
@@ -203,6 +205,17 @@ class VarCharVectorAccessor extends BaseArrowVectorAccessor<VarCharVector> {
   @Override
   protected Object getImpl(int rowIndex) {
     return BinaryStringData.fromBytes(typedVector.get(rowIndex));
+  }
+}
+
+class VarBinaryVectorAccessor extends BaseArrowVectorAccessor<VarBinaryVector> {
+  public VarBinaryVectorAccessor(FieldVector vector) {
+    super(vector);
+  }
+
+  @Override
+  protected Object getImpl(int rowIndex) {
+    return typedVector.get(rowIndex);
   }
 }
 

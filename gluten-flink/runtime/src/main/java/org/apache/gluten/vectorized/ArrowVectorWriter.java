@@ -71,6 +71,10 @@ public abstract class ArrowVectorWriter {
               (fieldType, allocator, vector) ->
                   new VarCharVectorWriter(fieldType, allocator, vector)),
           Map.entry(
+              VarbinaryType.class,
+              (fieldType, allocator, vector) ->
+                  new VarbinaryVectorWriter(fieldType, allocator, vector)),
+          Map.entry(
               TimestampType.class,
               (fieldType, allocator, vector) ->
                   new TimestampVectorWriter(fieldType, allocator, vector)),
@@ -164,6 +168,7 @@ class FieldVectorCreator {
               DoubleType.class,
               (dataType, timeZoneId) -> new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)),
           Map.entry(VarCharType.class, (dataType, timeZoneId) -> ArrowType.Utf8.INSTANCE),
+          Map.entry(VarbinaryType.class, (dataType, timeZoneId) -> ArrowType.Binary.INSTANCE),
           Map.entry(
               TimestampType.class,
               (dataType, timeZoneId) ->
@@ -413,6 +418,28 @@ class VarCharVectorWriter extends BaseVectorWriter<VarCharVector, byte[]> {
   @Override
   protected byte[] getValue(ArrayData arrayData, int index) {
     return arrayData.getString(index).toBytes();
+  }
+
+  @Override
+  protected void setValue(int index, byte[] value) {
+    this.typedVector.setSafe(index, value);
+  }
+}
+
+class VarbinaryVectorWriter extends BaseVectorWriter<VarBinaryVector, byte[]> {
+
+  public VarbinaryVectorWriter(Type fieldType, BufferAllocator allocator, FieldVector vector) {
+    super(vector);
+  }
+
+  @Override
+  protected byte[] getValue(RowData rowData, int fieldIndex) {
+    return rowData.getBinary(fieldIndex);
+  }
+
+  @Override
+  protected byte[] getValue(ArrayData arrayData, int index) {
+    return arrayData.getBinary(index);
   }
 
   @Override
