@@ -69,7 +69,7 @@ object RateMicroBatchBenchmark extends SqlBasedBenchmark {
     val triggerMs = conf.getLong(prefix + "triggerMs", 0L)
     val warmupMs = conf.getLong(prefix + "warmupMs", 5000L)
     val durationMs = conf.getLong(prefix + "durationMs", 10000L)
-    val timeoutMs = conf.getLong(prefix + "timeoutMs", 10000L)
+    val timeoutMs = conf.getLong(prefix + "timeoutMs", 60000L)
     val iterations = conf.getInt(prefix + "iterations", 3)
     val engine = conf.get(prefix + "engine", "spark")
     require(Set("spark", "gluten", "both").contains(engine), "Engine must be spark, gluten or both")
@@ -82,6 +82,9 @@ object RateMicroBatchBenchmark extends SqlBasedBenchmark {
     val properties = new Properties()
     properties.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, broker)
     properties.put(AdminClientConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, timeoutMs.toString)
+    properties.put(
+      AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG,
+      math.min(timeoutMs, 30000L).toString)
     val admin = AdminClient.create(properties)
     try {
       runBenchmark("Rate -> Kafka -> console") {
