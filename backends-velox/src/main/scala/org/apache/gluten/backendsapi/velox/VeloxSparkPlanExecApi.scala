@@ -1484,7 +1484,10 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
             substraitExprName,
             ExpressionNames.RIGHT,
             ExpressionNames.IS_NULL,
-            ExpressionNames.SUBSTRING)
+            ExpressionNames.NEGATIVE,
+            ExpressionNames.LESS_THAN_OR_EQUAL,
+            ExpressionNames.SUBSTRING
+          )
         if (usedFunctions.exists(blacklist.contains)) {
           None
         } else {

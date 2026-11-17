@@ -745,7 +745,7 @@ class VeloxStringFunctionsSuite extends VeloxWholeStageTransformerSuite {
 
   test("right is not converted when a function it uses is blacklisted") {
     withRightTable {
-      Seq("right", "substring", "is_null", "if").foreach {
+      Seq("right", "substring", "is_null", "if", "negative", "lte").foreach {
         name =>
           withSQLConf(GlutenConfig.EXPRESSION_BLACK_LIST.key -> name) {
             runQueryAndCompare("SELECT id, right(s, n) FROM right_tbl", noFallBack = false) {
