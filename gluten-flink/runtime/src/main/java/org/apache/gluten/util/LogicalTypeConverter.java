@@ -20,6 +20,7 @@ import io.github.zhztheplayer.velox4j.type.Type;
 
 import org.apache.flink.table.types.logical.ArrayType;
 import org.apache.flink.table.types.logical.BigIntType;
+import org.apache.flink.table.types.logical.BinaryType;
 import org.apache.flink.table.types.logical.BooleanType;
 import org.apache.flink.table.types.logical.CharType;
 import org.apache.flink.table.types.logical.DateType;
@@ -35,6 +36,7 @@ import org.apache.flink.table.types.logical.SymbolType;
 import org.apache.flink.table.types.logical.TimeType;
 import org.apache.flink.table.types.logical.TimestampType;
 import org.apache.flink.table.types.logical.TinyIntType;
+import org.apache.flink.table.types.logical.VarBinaryType;
 import org.apache.flink.table.types.logical.VarCharType;
 import org.apache.flink.table.types.logical.YearMonthIntervalType;
 
@@ -67,6 +69,14 @@ public class LogicalTypeConverter {
               logicalType -> new io.github.zhztheplayer.velox4j.type.VarCharType()),
           Map.entry(
               CharType.class, logicalType -> new io.github.zhztheplayer.velox4j.type.VarCharType()),
+          // Flink's BYTES/BINARY are both a byte array at runtime (RowData
+          // getBinary), and velox carries them as VARBINARY.
+          Map.entry(
+              VarBinaryType.class,
+              logicalType -> new io.github.zhztheplayer.velox4j.type.VarbinaryType()),
+          Map.entry(
+              BinaryType.class,
+              logicalType -> new io.github.zhztheplayer.velox4j.type.VarbinaryType()),
           // TODO: may need precision
           Map.entry(
               TimestampType.class,
