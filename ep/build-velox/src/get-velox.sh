@@ -137,6 +137,16 @@ function prepare_velox_source_code {
   git submodule update --init --recursive
 }
 
+function apply_flex_lexer_patch {
+  local patch_name="${CURRENT_DIR}/flex-lexer-yyread.patch"
+  if git -C "$VELOX_HOME" apply --reverse --check "$patch_name" > /dev/null 2>&1; then
+    echo "Flex lexer compatibility patch already applied"
+  else
+    echo "Applying Flex lexer compatibility patch..."
+    git -C "$VELOX_HOME" apply "$patch_name"
+  fi
+}
+
 function apply_provided_velox_patch {
   if [[ -n "$UPSTREAM_VELOX_PR_ID" ]]; then
      echo "Applying patch for PR #$UPSTREAM_VELOX_PR_ID ..."
@@ -227,6 +237,7 @@ function apply_setup_fixes() {
 }
 
 prepare_velox_source_code
+apply_flex_lexer_patch
 
 if [[ "$RUN_SETUP_SCRIPT" == "ON" ]]; then
   apply_setup_fixes

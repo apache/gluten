@@ -1,0 +1,55 @@
+# Copyright (c) Facebook, Inc. and its affiliates.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Lexer-only backport of https://github.com/facebookincubator/velox/pull/20420
+# at 842e138e5cc09e23fa62ffb68a9ab0c076b194f9.
+# Remove when the pinned Velox release includes these changes.
+
+diff --git a/velox/common/base/CMakeLists.txt b/velox/common/base/CMakeLists.txt
+index c6c8b4b08b3..d0d5cdb8b62 100644
+--- a/velox/common/base/CMakeLists.txt
++++ b/velox/common/base/CMakeLists.txt
+@@ -93,6 +93,15 @@ velox_link_libraries(
+   PRIVATE velox_caching velox_common_compression velox_process velox_test_util glog::glog
+ )
+
++# Flex 2.6.5 and later declare a virtual yyFlexLexer::yyread() that
++# YyFlexLexerShim.cpp must define.
++if(EXISTS "${FLEX_INCLUDE_DIRS}/FlexLexer.h")
++  file(STRINGS "${FLEX_INCLUDE_DIRS}/FlexLexer.h" _velox_flex_yyread REGEX "yyread")
++  if(_velox_flex_yyread)
++    velox_compile_definitions(velox_common_base PRIVATE VELOX_FLEX_LEXER_HAS_YYREAD)
++  endif()
++endif()
++
+ if(${VELOX_BUILD_TESTING})
+   add_subdirectory(tests)
+ endif()
+diff --git a/velox/common/base/YyFlexLexerShim.cpp b/velox/common/base/YyFlexLexerShim.cpp
+index 9715b5407db..9c8eae8e51c 100644
+--- a/velox/common/base/YyFlexLexerShim.cpp
++++ b/velox/common/base/YyFlexLexerShim.cpp
+@@ -32,6 +32,12 @@ int yyFlexLexer::yylex() {
+   VELOX_FAIL("Bad call to yyFlexLexer::yylex()");
+ }
+
++#ifdef VELOX_FLEX_LEXER_HAS_YYREAD
++int yyFlexLexer::yyread(char* buf, size_t size) {
++  VELOX_FAIL("Bad call to yyFlexLexer::yyread()");
++}
++#endif
++
+ void yyFlexLexer::yy_switch_to_buffer(yy_buffer_state*) {
+   VELOX_FAIL("Bad call to yyFlexLexer::yy_switch_to_buffer()");
+ }
