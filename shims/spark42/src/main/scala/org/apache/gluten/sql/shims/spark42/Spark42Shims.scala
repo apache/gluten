@@ -63,13 +63,12 @@ class Spark42Shims extends SparkShims {
   override def getKeyGroupedShuffleInfo(
       partitioning: Partitioning): Option[KeyGroupedShuffleInfo] = {
     partitioning match {
-      case p: KeyedPartitioning =>
-        val grouped = p.toGrouped
-        val partitionValues = grouped.partitionKeys.map(_.row)
-        if (partitionValues.isEmpty) {
+      case p: KeyedPartitioning if p.isGrouped && p.partitionKeys.nonEmpty =>
+        // toGrouped also sorts already-grouped keys, which can change reducer IDs.
+        if (p.partitionKeys != p.toGrouped.partitionKeys) {
           None
         } else {
-          Some(KeyGroupedShuffleInfo(grouped, grouped.expressions, partitionValues))
+          Some(KeyGroupedShuffleInfo(p, p.expressions, p.partitionKeys.map(_.row)))
         }
       case _ => None
     }

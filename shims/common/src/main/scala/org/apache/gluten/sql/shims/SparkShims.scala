@@ -112,9 +112,9 @@ trait SparkShims {
   /**
    * Returns key-grouped shuffle metadata when native execution is safe.
    *
-   * Spark 3.4 through 4.1 return the input partitioning only when it already has one distinct
-   * partition value per partition. Spark 4.2 returns `KeyedPartitioning.toGrouped`. `None` means
-   * the caller must retain the vanilla shuffle. Every returned value satisfies
+   * Returns the input partitioning only when it already has one distinct partition value per
+   * partition. Spark 4.2 also rejects layouts whose key order would change when grouped. `None`
+   * means the caller must retain the vanilla shuffle. Every returned value satisfies
    * `partitioning.numPartitions == partitionValues.size`.
    */
   def getKeyGroupedShuffleInfo(partitioning: Partitioning): Option[KeyGroupedShuffleInfo]

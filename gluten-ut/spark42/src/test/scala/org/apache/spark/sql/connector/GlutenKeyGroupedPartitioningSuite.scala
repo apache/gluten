@@ -18,11 +18,14 @@ package org.apache.spark.sql.connector
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.{ShuffledHashJoinExecTransformerBase, SortExecTransformer, SortMergeJoinExecTransformer}
+import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.utils.BackendTestUtils
 
 import org.apache.spark.SparkConf
 import org.apache.spark.rdd.SortedMergeCoalescedRDD
 import org.apache.spark.sql.{DataFrame, GlutenSQLTestsBaseTrait, Row}
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.BoundReference
 import org.apache.spark.sql.catalyst.plans.physical.KeyedPartitioning
 import org.apache.spark.sql.connector.catalog.{Column, Identifier, InMemoryTableCatalog}
 import org.apache.spark.sql.connector.distributions.Distributions
@@ -1153,6 +1156,38 @@ class GlutenKeyGroupedPartitioningSuite
       }
 
       checkAnswer(df, Seq(Row(1, "aa", 40.0, 42.0), Row(3, "bb", 10.0, 19.5)))
+    }
+  }
+
+  testGluten("KeyedPartitioning shuffle preserves an already sorted grouped layout") {
+    val expression = BoundReference(0, IntegerType, nullable = false)
+    val partitionValues = Seq(InternalRow(1), InternalRow(2))
+    val partitioning = KeyedPartitioning(Seq(expression), partitionValues)
+
+    val info = SparkShimLoader.getSparkShims.getKeyGroupedShuffleInfo(partitioning).get
+
+    assert(info.partitioning eq partitioning)
+    assert(info.partitionValues.map(_.getInt(0)) == Seq(1, 2))
+  }
+
+  testGluten("KeyedPartitioning shuffle rejects layouts whose key order would change") {
+    val expression = BoundReference(0, IntegerType, nullable = false)
+    val partitioning = KeyedPartitioning(Seq(expression), Seq(InternalRow(2), InternalRow(1)))
+
+    assert(partitioning.isGrouped)
+    assert(SparkShimLoader.getSparkShims.getKeyGroupedShuffleInfo(partitioning).isEmpty)
+  }
+
+  testGluten("KeyedPartitioning shuffle rejects ungrouped and empty layouts") {
+    val expression = BoundReference(0, IntegerType, nullable = false)
+    val ungrouped =
+      KeyedPartitioning(Seq(expression), Seq(InternalRow(1), InternalRow(1), InternalRow(2)))
+    val empty = KeyedPartitioning(Seq(expression), Seq.empty[InternalRow])
+
+    assert(!ungrouped.isGrouped)
+    Seq(ungrouped, empty).foreach {
+      partitioning =>
+        assert(SparkShimLoader.getSparkShims.getKeyGroupedShuffleInfo(partitioning).isEmpty)
     }
   }
 
