@@ -70,6 +70,10 @@ class VeloxBackend {
     return globalMemoryManager_.get();
   }
 
+  VeloxMemoryManager* getBroadcastMemoryManager() const {
+    return broadcastMemoryManager_.get();
+  }
+
   folly::Executor* executor() const {
     return executor_.get();
   }
@@ -132,6 +136,8 @@ class VeloxBackend {
 
   // A global Velox memory manager for the current process.
   std::unique_ptr<VeloxMemoryManager> globalMemoryManager_;
+  // Broadcast hash table construction and restoration share this manager.
+  std::unique_ptr<VeloxMemoryManager> broadcastMemoryManager_;
   // Instance of AsyncDataCache used for all large allocations.
   std::shared_ptr<facebook::velox::cache::AsyncDataCache> asyncDataCache_;
 

@@ -99,7 +99,7 @@ public class UnsafeByteArray implements Externalizable, KryoSerializable {
     }
 
     // allocate ArrowBuf
-    this.buffer = ArrowBufferAllocators.globalInstance().buffer((int) size);
+    this.buffer = ArrowBufferAllocators.broadcastInstance().buffer((int) size);
 
     // stream bytes into ArrowBuf
     byte[] tmp = chunkBuf();
@@ -143,7 +143,7 @@ public class UnsafeByteArray implements Externalizable, KryoSerializable {
       throw new IllegalArgumentException("UnsafeByteArray size too large: " + size);
     }
 
-    this.buffer = ArrowBufferAllocators.globalInstance().buffer((int) size);
+    this.buffer = ArrowBufferAllocators.broadcastInstance().buffer((int) size);
 
     byte[] tmp = chunkBuf();
 

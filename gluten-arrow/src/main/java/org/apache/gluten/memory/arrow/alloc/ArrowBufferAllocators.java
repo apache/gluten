@@ -37,6 +37,8 @@ import java.util.Vector;
 public class ArrowBufferAllocators {
   private static final SimpleMemoryUsageRecorder GLOBAL_USAGE = new SimpleMemoryUsageRecorder();
   private static final BufferAllocator GLOBAL_INSTANCE;
+  // Broadcast construction and receive buffers are independent of Spark storage memory.
+  private static final BufferAllocator BROADCAST_INSTANCE = new RootAllocator(Long.MAX_VALUE);
 
   static {
     final AllocationListener listener =
@@ -62,6 +64,10 @@ public class ArrowBufferAllocators {
 
   public static BufferAllocator globalInstance() {
     return GLOBAL_INSTANCE;
+  }
+
+  public static BufferAllocator broadcastInstance() {
+    return BROADCAST_INSTANCE;
   }
 
   public static class ArrowBufferAllocatorManager implements TaskResource {

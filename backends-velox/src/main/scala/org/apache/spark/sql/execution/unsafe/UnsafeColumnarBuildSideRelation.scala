@@ -237,7 +237,7 @@ class UnsafeColumnarBuildSideRelation(
         val startTime = System.nanoTime()
         val jniWrapper = ColumnarBatchSerializerJniWrapper.create(runtime)
         val serializeHandle: Long = {
-          val allocator = ArrowBufferAllocators.globalInstance()
+          val allocator = ArrowBufferAllocators.broadcastInstance()
           val cSchema = ArrowSchema.allocateNew(allocator)
           val arrowSchema = SparkArrowUtil.toArrowSchema(
             ExpressionUtils.structFromAttributes(output),

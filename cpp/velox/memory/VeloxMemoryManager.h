@@ -121,4 +121,6 @@ VeloxMemoryManager* getDefaultMemoryManager();
 
 std::shared_ptr<facebook::velox::memory::MemoryPool> defaultLeafVeloxMemoryPool();
 
+std::shared_ptr<facebook::velox::memory::MemoryPool> broadcastLeafVeloxMemoryPool();
+
 } // namespace gluten

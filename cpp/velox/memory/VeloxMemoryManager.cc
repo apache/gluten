@@ -458,4 +458,8 @@ std::shared_ptr<velox::memory::MemoryPool> defaultLeafVeloxMemoryPool() {
   return getDefaultMemoryManager()->getLeafMemoryPool();
 }
 
+std::shared_ptr<velox::memory::MemoryPool> broadcastLeafVeloxMemoryPool() {
+  return VeloxBackend::get()->getBroadcastMemoryManager()->getLeafMemoryPool();
+}
+
 } // namespace gluten
