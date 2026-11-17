@@ -146,7 +146,7 @@ Fallback
 INSERT INTO t VALUES (1, 'a'), (2, 'b'), (3, 'c');
 ```
 
-With the default `spark.gluten.sql.columnar.localTableScan=false`, the `VALUES` scan runs on Spark. Delta's writer writes the files. From code.
+With the default `spark.gluten.sql.columnar.localTableScan=true`, supported local scans can feed native columnar operators. A local scan whose output is immediately converted back to rows stays on Spark, avoiding a redundant conversion and preserving write-path codegen compatibility. Delta's writer still writes the files of this `INSERT`. Set the config to `false` to disable local scan offload. From code.
 
 Offload
 

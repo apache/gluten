@@ -136,6 +136,7 @@ object VeloxRuleApi {
     injector.injectPostTransform(_ => CollectLimitTransformerRule())
     injector.injectPostTransform(_ => CollectTailTransformerRule())
     injector.injectPostTransform(c => InsertTransitions.create(c.outputsColumnar, VeloxBatchType))
+    injector.injectPostTransform(_ => RemoveRedundantLocalTableScan)
 
     // Gluten columnar: Fallback policies.
     injector.injectFallbackPolicy(c => p => ExpandFallbackPolicy(c.caller.isAqe(), p))

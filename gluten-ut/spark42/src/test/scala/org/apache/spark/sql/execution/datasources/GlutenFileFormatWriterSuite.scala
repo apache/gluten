@@ -16,10 +16,9 @@
  */
 package org.apache.spark.sql.execution.datasources
 
-import org.apache.spark.sql.GlutenSQLTestsBaseTrait
 import org.apache.spark.sql.catalyst.plans.CodegenInterpretedPlanTest
 
 class GlutenFileFormatWriterSuite
   extends FileFormatWriterSuite
-  with GlutenSQLTestsBaseTrait
+  with GlutenLocalTableScanWriteTests
   with CodegenInterpretedPlanTest {}
