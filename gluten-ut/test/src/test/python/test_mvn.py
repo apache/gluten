@@ -100,8 +100,9 @@ else:
 lines = []
 if http != "000":
     # A redirect's Retry-After must not leak into the final response's retry delay.
+    status_line = f"HTTP/1.1 {http}" + (" Response" if config["reason_phrase"] else "")
     lines = ["HTTP/1.1 302 Found", "Retry-After: 9999", "",
-             f"HTTP/1.1 {http} Response"]
+             status_line]
     lines.extend(f"{name}: {value}" for name, value in headers.items())
     lines.extend(["", ""])
 if tool == "curl":
@@ -128,6 +129,7 @@ class MavenBootstrapTest(unittest.TestCase):
         date_style="gnu",
         date_values=None,
         date_format="%a, %d %b %Y %H:%M:%S GMT",
+        reason_phrase=True,
     ):
         temporary = tempfile.TemporaryDirectory(prefix="gluten-mvn-test-")
         self.addCleanup(temporary.cleanup)
@@ -189,6 +191,7 @@ class MavenBootstrapTest(unittest.TestCase):
                     "date_style": date_style,
                     "date_values": date_values or {},
                     "date_format": date_format,
+                    "reason_phrase": reason_phrase,
                 }
             )
         )
@@ -248,6 +251,25 @@ class MavenBootstrapTest(unittest.TestCase):
                     result = self.run_wrapper(tool, ((http, status), ("200", 0)))
                     self.assertEqual(0, result.returncode, result.stderr)
                     self.assertEqual(2, len(self.calls(tool)))
+
+    def test_status_without_reason_phrase_preserves_retry_classification(self):
+        for tool, status in (("curl", 22), ("wget", 8)):
+            for http, attempts in (("429", 2), ("503", 2), ("404", 1)):
+                with self.subTest(tool=tool, http=http):
+                    result = self.run_wrapper(
+                        tool, ((http, status), ("200", 0)), reason_phrase=False
+                    )
+                    self.assertEqual(attempts, len(self.calls(tool)), result.stderr)
+                    if attempts == 2:
+                        self.assertEqual(0, result.returncode, result.stderr)
+                        self.assertEqual(
+                            [["3"]], [call["args"] for call in self.calls("sleep")]
+                        )
+                        self.assertTrue(self.local_mvn.is_file())
+                    else:
+                        self.assertNotEqual(0, result.returncode)
+                        self.assertEqual([], self.calls("sleep"))
+                        self.assert_no_distribution()
 
     def test_retry_after_seconds_are_respected(self):
         for tool, status in (("curl", 22), ("wget", 8)):

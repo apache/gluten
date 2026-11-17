@@ -100,7 +100,7 @@ download_mvn() {
         fi
         rm -f "$PARTIAL"
         HTTP_CODE=$(printf '%s\n' "$RESPONSE" | \
-            awk '$1 ~ /^HTTP\/[0-9.]+$/ {code=$2} END {print code}')
+            awk '$1 ~ /^HTTP\/[0-9.]+$/ {code=$2; sub(/\r$/, "", code)} END {print code}')
 
         # Older curl/wget do not retry HTTP 429; keep a single retry budget here.
         case "$TOOL:$STATUS" in
