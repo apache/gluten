@@ -1025,10 +1025,10 @@ object ExpressionConverter extends SQLConfHelper with Logging {
       patternChild: Expression,
       attributeSeq: Seq[Attribute],
       expressionsMap: Map[Class[_], String]): ExpressionTransformer = {
-    BackendsApiManager.getSparkPlanExecApiInstance.rewriteRegexPattern(patternChild) match {
-      case l: Literal => LiteralTransformer(l)
-      case other => replaceWithExpressionTransformer0(other, attributeSeq, expressionsMap)
-    }
+    replaceWithExpressionTransformer0(
+      BackendsApiManager.getSparkPlanExecApiInstance.rewriteRegexPattern(patternChild),
+      attributeSeq,
+      expressionsMap)
   }
 
   /**

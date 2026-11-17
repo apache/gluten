@@ -34,17 +34,19 @@ object Re2PatternUtils {
   /**
    * Implements [[org.apache.gluten.backendsapi.SparkPlanExecApi#rewriteRegexPattern]] for RE2
    * backends. A string literal pattern is translated to RE2 syntax; patterns with constructs that
-   * have no RE2 equivalent (lookaheads, lookbehinds, backreferences, unpaired surrogates) throw
-   * [[GlutenNotSupportException]] to trigger fallback. Non-literal patterns are returned unchanged.
+   * have no RE2 equivalent (lookaheads, lookbehinds, backreferences, `\0` octal escapes, unpaired
+   * surrogates) throw [[GlutenNotSupportException]], naming the offending construct, to trigger
+   * fallback. Non-literal patterns are returned unchanged.
    */
   def rewriteRegexPattern(pattern: Expression): Expression = pattern match {
     case Literal(p: UTF8String, StringType) =>
-      val translated = translateJavaPatternToRe2(p.toString).getOrElse(
-        throw new GlutenNotSupportException(
-          s"Regex pattern ${describePattern(p.toString)} uses constructs " +
-            "(lookahead/lookbehind/backreference) or unpaired surrogates that RE2 cannot " +
-            "handle. Falling back to Spark."))
-      Literal(UTF8String.fromString(translated), StringType)
+      translateJavaPatternToRe2(p.toString) match {
+        case Right(translated) => Literal(UTF8String.fromString(translated), StringType)
+        case Left(reason) =>
+          throw new GlutenNotSupportException(
+            s"Regex pattern ${describePattern(p.toString)} uses a construct that RE2 cannot " +
+              s"handle: $reason. Falling back to Spark.")
+      }
     case other => other
   }
 
@@ -87,10 +89,11 @@ object Re2PatternUtils {
   /**
    * Attempts to translate a Java regex pattern to RE2-compatible syntax.
    *
-   * Returns Some(translated) if all constructs have RE2 equivalents and the translation is
-   * lossless. Returns None if the pattern contains constructs that RE2 cannot represent
-   * (lookaheads, lookbehinds, backreferences) or an unpaired UTF-16 surrogate escape; the caller
-   * should throw [[org.apache.gluten.exception.GlutenNotSupportException]] to trigger fallback.
+   * Returns Right(translated) if all constructs have RE2 equivalents and the translation is
+   * lossless. Returns Left(reason) if the pattern contains a construct that RE2 cannot represent
+   * (lookaheads, lookbehinds, backreferences, `\0` octal escapes) or an unpaired UTF-16 surrogate
+   * escape; `reason` names the construct, and the caller should throw
+   * [[org.apache.gluten.exception.GlutenNotSupportException]] to trigger fallback.
    *
    * Translation rules:
    *   - backslash-u followed by 4 hex digits becomes `\x{XXXX}`; a high+low surrogate escape pair
@@ -98,12 +101,16 @@ object Re2PatternUtils {
    *   - Escaped characters (e.g. an escaped backslash followed by `u0041`, or an escaped
    *     parenthesis) are copied verbatim and never reinterpreted.
    *   - Lookaround markers are ignored inside character classes, where `(` is a literal.
+   *   - A quoted section, from `\Q` up to the next `\E` (or the end of the pattern), is copied
+   *     verbatim: its content is literal text in both Java and RE2, never regex syntax.
    *   - Every backslash followed by a digit 1-9 is treated as a backreference and rejected (Java
    *     parses it as a group reference, whatever follows), including inside a character class,
    *     where Java itself raises an error.
+   *   - `\0` is rejected: Java reads up to three octal digits after it (and rejects a bare `\0`),
+   *     while RE2 reads it differently, so the two would match different text.
    *   - Named groups `(?<name>...)` are supported by RE2 and are not rejected.
    */
-  def translateJavaPatternToRe2(pattern: String): Option[String] = {
+  def translateJavaPatternToRe2(pattern: String): Either[String, String] = {
     val sb = new StringBuilder(pattern.length)
     val n = pattern.length
     var i = 0
@@ -115,24 +122,37 @@ object Re2PatternUtils {
         if (cp >= 0) {
           if (Character.isHighSurrogate(cp.toChar)) {
             val lo = unicodeEscapeAt(pattern, i + 6)
-            if (lo < 0 || !Character.isLowSurrogate(lo.toChar)) return None
+            if (lo < 0 || !Character.isLowSurrogate(lo.toChar)) {
+              return Left(s"unpaired surrogate escape ${pattern.substring(i, i + 6)}")
+            }
             val full = Character.toCodePoint(cp.toChar, lo.toChar)
             val hex = Integer.toHexString(full).toUpperCase(Locale.ROOT)
             sb.append("\\x{").append(hex).append("}")
             i += 12
           } else if (Character.isLowSurrogate(cp.toChar)) {
-            return None
+            return Left(s"unpaired surrogate escape ${pattern.substring(i, i + 6)}")
           } else {
             sb.append("\\x{").append(pattern.substring(i + 2, i + 6)).append("}")
             i += 6
           }
         } else if (i + 1 < n) {
           val next = pattern.charAt(i + 1)
-          // Backreference. Any 1-9 is rejected, including inside a character class, where Java
-          // itself raises an error; falling back lets Spark report that same error.
-          if (next >= '1' && next <= '9') return None
-          sb.append(c).append(next)
-          i += 2
+          if (next == 'Q') {
+            // Quoted section: copy up to and including the closing \E (or to the end of the
+            // pattern) verbatim, so its content is never scanned as regex syntax.
+            val close = pattern.indexOf("\\E", i + 2)
+            val end = if (close < 0) n else close + 2
+            sb.append(pattern.substring(i, end))
+            i = end
+          } else {
+            // Backreference. Any 1-9 is rejected, including inside a character class, where Java
+            // itself raises an error; falling back lets Spark report that same error.
+            if (next >= '1' && next <= '9') return Left(s"backreference \\$next")
+            // Octal escape: Java and RE2 disagree on how many digits follow \0.
+            if (next == '0') return Left("octal escape \\0")
+            sb.append(c).append(next)
+            i += 2
+          }
         } else {
           sb.append(c)
           i += 1
@@ -158,12 +178,14 @@ object Re2PatternUtils {
         if (c == '(' && i + 2 < n && pattern.charAt(i + 1) == '?') {
           val k = pattern.charAt(i + 2)
           val lookbehind = k == '<' && i + 3 < n && "=!".indexOf(pattern.charAt(i + 3)) >= 0
-          if (k == '=' || k == '!' || lookbehind) return None
+          if (k == '=' || k == '!' || lookbehind) {
+            return Left("lookahead/lookbehind (look-around)")
+          }
         }
         sb.append(c)
         i += 1
       }
     }
-    Some(sb.toString())
+    Right(sb.toString())
   }
 }

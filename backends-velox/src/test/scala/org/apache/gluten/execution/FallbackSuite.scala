@@ -397,15 +397,11 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
           assert(nestedLoopJoin.isDefined)
           val fallbackReasons = events.flatMap(_.fallbackNodeToReason.values)
           assert(fallbackReasons.nonEmpty)
-          // The lookbehind/lookahead pattern is now rejected at the JVM level by
-          // rewriteRegexPattern before the native validator sees it, so the
-          // fallback reason contains the GlutenNotSupportException message instead
-          // of the old native "regexp_extract due to Pattern ..." message.
+          // The lookbehind/lookahead pattern is rejected on the JVM side by
+          // rewriteRegexPattern before the native validator sees it, so the fallback reason is
+          // the GlutenNotSupportException message naming the construct.
           assert(
-            fallbackReasons.exists(
-              r =>
-                r.contains("regexp_extract due to Pattern") ||
-                  r.contains("uses constructs (lookahead/lookbehind/backreference)")),
+            fallbackReasons.exists(_.contains("lookahead/lookbehind")),
             s"Unexpected fallback reasons: $fallbackReasons"
           )
       }
