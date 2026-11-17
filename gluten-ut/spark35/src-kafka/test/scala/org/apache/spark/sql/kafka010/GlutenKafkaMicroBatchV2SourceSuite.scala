@@ -23,18 +23,83 @@ import org.apache.spark.sql.execution.datasources.v2.MicroBatchScanExec
 import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
 import org.apache.spark.sql.execution.streaming.{SerializedOffset, StreamingQueryWrapper}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.streaming.Trigger
+import org.apache.spark.sql.streaming.{StreamingQuery, Trigger}
 
 import org.apache.kafka.common.TopicPartition
 
 import java.io.File
 import java.nio.charset.StandardCharsets.UTF_8
 
+import scala.concurrent.duration._
+
 class GlutenKafkaMicroBatchV2SourceSuite
   extends KafkaMicroBatchV2SourceSuite
   with GlutenKafkaSourceTest {
 
   import testImplicits._
+
+  testGluten("rate rows pass through Kafka to console with a native consumer scan") {
+    val topic = newTopic()
+    testUtils.createTopic(topic, partitions = 2)
+    withTempDir {
+      dir =>
+        val producerSession = spark.newSession()
+        producerSession.conf.set("spark.gluten.enabled", "false")
+        val producer = producerSession.readStream
+          .format("rate")
+          .option("rowsPerSecond", 10)
+          .option("numPartitions", 2)
+          .load()
+          .selectExpr(
+            "CAST(value AS STRING) AS key",
+            "to_json(struct(timestamp, value)) AS value")
+          .writeStream
+          .format("kafka")
+          .option("kafka.bootstrap.servers", testUtils.brokerAddress)
+          .option("topic", topic)
+          .option("checkpointLocation", new File(dir, "producer").getCanonicalPath)
+          .start()
+        var consumer: StreamingQuery = null
+        try {
+          val deadline = 60.seconds.fromNow
+          while (!producer.recentProgress.exists(_.numInputRows > 0) && deadline.hasTimeLeft()) {
+            assert(!producer.awaitTermination(100), "Rate producer terminated before sending rows")
+          }
+          assert(producer.recentProgress.exists(_.numInputRows > 0))
+          producer.stop()
+          val expectedRows = testUtils.getLatestOffsets(Set(topic)).values.sum
+          assert(expectedRows > 0)
+          consumer = spark.readStream
+            .format("kafka")
+            .option("kafka.bootstrap.servers", testUtils.brokerAddress)
+            .option("subscribe", topic)
+            .option("startingOffsets", "earliest")
+            .load()
+            .selectExpr(
+              "from_json(CAST(value AS STRING), " +
+                "'timestamp TIMESTAMP, value BIGINT') AS record")
+            .select("record.*")
+            .writeStream
+            .format("console")
+            .outputMode("append")
+            .option("checkpointLocation", new File(dir, "consumer").getCanonicalPath)
+            .trigger(Trigger.AvailableNow())
+            .start()
+          assert(consumer.awaitTermination(streamingTimeout.toMillis), "Kafka consumer timed out")
+          assert(consumer.recentProgress.map(_.sink.numOutputRows).sum == expectedRows)
+          val execution = consumer.asInstanceOf[StreamingQueryWrapper].streamingQuery
+          assertKafkaScan(execution, requireScan = true)
+          assert(execution.lastExecution.executedPlan
+            .exists(_.isInstanceOf[MicroBatchScanExecTransformer]))
+        } finally {
+          try {
+            if (consumer != null) consumer.stop()
+          } finally {
+            producer.stop()
+          }
+        }
+    }
+  }
 
   testGluten("Kafka stream-stream self-join preserves output and a single source offset") {
     // Preserve Spark's self-join coverage without its unsupported StreamingQueryProgress row
