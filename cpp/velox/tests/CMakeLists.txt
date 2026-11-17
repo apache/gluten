@@ -167,6 +167,9 @@ endif()
 add_velox_test(scoped_timer_test SOURCES ScopedTimerTest.cc)
 add_velox_test(row_based_checksum_test SOURCES RowBasedChecksumTest.cc)
 add_velox_test(jni_hash_table_test SOURCES JniHashTableTest.cc)
+add_velox_test(
+  jni_file_system_test SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../../gluten-ut/native/JniFileSystemTest.cc)
 if(BUILD_EXAMPLES)
   add_velox_test(my_udf_test SOURCES MyUdfTest.cc)
   # UDF loading exercises the production shared library, so use the same

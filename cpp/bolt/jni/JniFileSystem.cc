@@ -91,7 +91,7 @@ class JniReadFile : public bytedance::bolt::ReadFile {
     env->CallVoidMethod(
         obj_, jniReadFilePread, static_cast<jlong>(offset), static_cast<jlong>(length), reinterpret_cast<jlong>(buf));
     checkException(env);
-    return std::string_view(reinterpret_cast<const char*>(buf));
+    return std::string_view(reinterpret_cast<const char*>(buf), length);
   }
 
   bool shouldCoalesce() const override {
