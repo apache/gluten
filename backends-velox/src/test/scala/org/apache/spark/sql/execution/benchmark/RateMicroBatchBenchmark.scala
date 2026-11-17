@@ -29,6 +29,7 @@ import scala.collection.JavaConverters._
 
 /**
  * A bounded rate-source baseline. This benchmark does not read Kafka or prove native scan support.
+ * Console rendering is included in the measured micro-batch duration.
  */
 object RateMicroBatchBenchmark extends SqlBasedBenchmark {
   private def prefix: String = "spark.gluten.benchmark.rate."
@@ -52,7 +53,7 @@ object RateMicroBatchBenchmark extends SqlBasedBenchmark {
     val conf = spark.sparkContext.getConf
     val rowsPerSecond = conf.getLong(prefix + "rowsPerSecond", 10L)
     val partitions = conf.getInt(prefix + "partitions", 2)
-    val triggerMs = conf.getLong(prefix + "triggerMs", 1000L)
+    val triggerMs = conf.getLong(prefix + "triggerMs", 0L)
     val warmupMs = conf.getLong(prefix + "warmupMs", 5000L)
     val durationMs = conf.getLong(prefix + "durationMs", 10000L)
     val timeoutMs = conf.getLong(prefix + "timeoutMs", 10000L)
@@ -60,14 +61,14 @@ object RateMicroBatchBenchmark extends SqlBasedBenchmark {
     val engine = conf.get(prefix + "engine", "spark")
     require(Set("spark", "gluten", "both").contains(engine), "Engine must be spark, gluten or both")
     require(rowsPerSecond > 0 && partitions > 0, "Rate and partition count must be positive")
-    require(triggerMs > 0 && warmupMs >= 0, "Trigger must be positive; warm-up must be nonnegative")
+    require(triggerMs >= 0 && warmupMs >= 0, "Trigger and warm-up must be nonnegative")
     require(durationMs > triggerMs, "Measurement duration must exceed the trigger interval")
     require(timeoutMs > 0 && iterations > 0, "Timeout and iteration count must be positive")
     val engines = if (engine == "both") Seq(false, true) else Seq(engine == "gluten")
 
     runBenchmark("Rate source micro-batch scan") {
       outputLine(
-        s"source=rate sink=noop rowsPerSecond=$rowsPerSecond partitions=$partitions " +
+        s"source=rate sink=console rowsPerSecond=$rowsPerSecond partitions=$partitions " +
           s"triggerMs=$triggerMs warmupMs=$warmupMs durationMs=$durationMs iterations=$iterations")
       outputLine("engine\titeration\trows\trows/s\tbatches\twindowMs\tmeanBatchMs\tp95BatchMs")
       engines.foreach {
@@ -88,7 +89,7 @@ object RateMicroBatchBenchmark extends SqlBasedBenchmark {
                         .option("numPartitions", partitions)
                         .load()
                         .writeStream
-                        .format("noop")
+                        .format("console")
                         .outputMode("append")
                         .queryName(name)
                         .option("checkpointLocation", checkpoint.getCanonicalPath)
