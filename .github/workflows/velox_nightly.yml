@@ -36,7 +36,7 @@ concurrency:
 jobs:
   build-native-lib-x86:
     if: ${{ startsWith(github.repository, 'apache/') }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: apache/gluten:vcpkg-almalinux-8-gcc13
     steps:
       - uses: actions/checkout@v7
@@ -69,7 +69,7 @@ jobs:
   build-bundle-package-centos8-jdk8-x86:
     if: ${{ startsWith(github.repository, 'apache/') }}
     needs: build-native-lib-x86
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: centos:8
     steps:
       - uses: actions/checkout@v7
@@ -106,7 +106,7 @@ jobs:
   build-bundle-package-centos8-jdk17-x86:
     if: ${{ startsWith(github.repository, 'apache/') }}
     needs: build-native-lib-x86
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: centos:8
     steps:
       - uses: actions/checkout@v7
@@ -146,7 +146,7 @@ jobs:
   build-bundle-package-centos9-jdk21-x86:
     if: ${{ startsWith(github.repository, 'apache/') }}
     needs: build-native-lib-x86
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: quay.io/centos/centos:stream9
     steps:
       - uses: actions/checkout@v7
@@ -215,7 +215,7 @@ jobs:
   build-bundle-package-centos8-jdk8-arm64:
     if: ${{ startsWith(github.repository, 'apache/') }}
     needs: build-native-lib-centos-8-arm64
-    runs-on: ubuntu-22.04-arm
+    runs-on: ubuntu-24.04-arm
     container: centos:8
     steps:
       - uses: actions/checkout@v7
@@ -252,7 +252,7 @@ jobs:
   build-bundle-package-centos8-jdk17-arm64:
     if: ${{ startsWith(github.repository, 'apache/') }}
     needs: build-native-lib-centos-8-arm64
-    runs-on: ubuntu-22.04-arm
+    runs-on: ubuntu-24.04-arm
     container: centos:8
     steps:
       - uses: actions/checkout@v7
@@ -292,7 +292,7 @@ jobs:
   build-bundle-package-centos9-jdk21-arm64:
     if: ${{ startsWith(github.repository, 'apache/') }}
     needs: build-native-lib-centos-8-arm64
-    runs-on: ubuntu-22.04-arm
+    runs-on: ubuntu-24.04-arm
     container: quay.io/centos/centos:stream9
     steps:
       - uses: actions/checkout@v7
@@ -329,7 +329,7 @@ jobs:
   upload-jdk8-package:
     if: ${{ startsWith(github.repository, 'apache/') }}
     needs: [build-bundle-package-centos8-jdk8-arm64, build-bundle-package-centos8-jdk8-x86]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Get current date
         id: date
@@ -358,7 +358,7 @@ jobs:
   upload-jdk17-package:
     if: ${{ startsWith(github.repository, 'apache/') }}
     needs: [build-bundle-package-centos8-jdk17-arm64, build-bundle-package-centos8-jdk17-x86]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Get current date
         id: date
@@ -387,7 +387,7 @@ jobs:
   upload-jdk21-package:
     if: ${{ startsWith(github.repository, 'apache/') }}
     needs: [ build-bundle-package-centos9-jdk21-arm64, build-bundle-package-centos9-jdk21-x86 ]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Get current date
         id: date
@@ -417,7 +417,7 @@ jobs:
   # Build velox with enhanced features
   build-native-lib-enhanced:
     if: ${{ startsWith(github.repository, 'apache/') }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - name: Get Ccache
@@ -454,7 +454,7 @@ jobs:
   build-bundle-enhanced-package-centos8-jdk17:
     if: ${{ startsWith(github.repository, 'apache/') }}
     needs: build-native-lib-enhanced
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: centos:8
     steps:
       - uses: actions/checkout@v7
@@ -504,7 +504,7 @@ jobs:
   spark-test-spark35-smj:
     if: ${{ startsWith(github.repository, 'apache/') }}
     needs: build-native-lib-x86
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     env:
       SPARK_TESTING: true
     container: apache/gluten:centos-8-jdk8
@@ -552,7 +552,7 @@ jobs:
   spark-test-spark35-slow-smj:
     if: ${{ startsWith(github.repository, 'apache/') }}
     needs: build-native-lib-x86
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     env:
       SPARK_TESTING: true
       LANG: C.UTF-8 #TODO remove after image update

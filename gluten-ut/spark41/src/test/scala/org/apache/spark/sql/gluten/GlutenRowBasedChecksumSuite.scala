@@ -88,4 +88,38 @@ class GlutenRowBasedChecksumSuite extends GlutenSQLTestsTrait {
       }
     }
   }
+
+  test("Gluten row-based checksum covers the first data column") {
+    withSQLConf(
+      SQLConf.SHUFFLE_ORDER_INDEPENDENT_CHECKSUM_ENABLED.key -> "true",
+      SQLConf.CLASSIC_SHUFFLE_DEPENDENCY_FILE_CLEANUP_ENABLED.key -> "false") {
+      withTable("t_first1", "t_first2") {
+        // Only the first column differs. Rows are partitioned by the second column, so each
+        // row goes to the same partition in both writes.
+        spark
+          .range(500)
+          .selectExpr("id % 7 AS a", "id AS b")
+          .repartition(5, col("b"))
+          .write
+          .mode("overwrite")
+          .saveAsTable("t_first1")
+        val checksums1 = getLatestShuffleChecksumValues()
+
+        spark
+          .range(500)
+          .selectExpr("id % 7 + 1 AS a", "id AS b")
+          .repartition(5, col("b"))
+          .write
+          .mode("overwrite")
+          .saveAsTable("t_first2")
+        val checksums2 = getLatestShuffleChecksumValues()
+
+        assert(
+          checksums1.zip(checksums2).exists { case (a, b) => a != b },
+          "Checksums should differ when only the first column changes: " +
+            s"${checksums1.toSeq} vs ${checksums2.toSeq}"
+        )
+      }
+    }
+  }
 }

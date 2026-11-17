@@ -79,6 +79,9 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def broadcastNestedLoopJoinFullOuterRewriteThreshold: Long =
     getConf(VELOX_BROADCAST_NESTED_LOOP_JOIN_FULL_OUTER_REWRITE_THRESHOLD)
 
+  def optimizeSortMergeJoinStreamedSide: Boolean =
+    getConf(SORT_MERGE_JOIN_OPTIMIZE_STREAMED_SIDE)
+
   def veloxBroadcastHashTableBuildTargetBytes: Long =
     getConf(COLUMNAR_VELOX_BROADCAST_HASH_TABLE_BUILD_TARGET_BYTES)
 
@@ -284,6 +287,16 @@ object VeloxConfig extends ConfigRegistry {
           "threshold. Set to -1 to disable the rewrite.")
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("10MB")
+
+  val SORT_MERGE_JOIN_OPTIMIZE_STREAMED_SIDE =
+    buildConf("spark.gluten.sql.columnar.backend.velox.sortMergeJoin.optimizeStreamedSide")
+      .doc(
+        "Use input size statistics to put the larger input on the streamed left side of " +
+          "native inner and outer sort merge joins. Skew joins and joins without known input " +
+          "sizes keep their original orientation. Velox can buffer matching groups from " +
+          "both sides.")
+      .booleanConf
+      .createWithDefault(false)
 
   val COLUMNAR_VELOX_ASYNC_TIMEOUT_ON_TASK_STOPPING =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.asyncTimeoutOnTaskStopping")
