@@ -18,6 +18,7 @@ package org.apache.spark.sql.connector
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.{ShuffledHashJoinExecTransformerBase, SortExecTransformer, SortMergeJoinExecTransformer}
+import org.apache.gluten.utils.BackendTestUtils
 
 import org.apache.spark.SparkConf
 import org.apache.spark.rdd.SortedMergeCoalescedRDD
@@ -1108,7 +1109,7 @@ class GlutenKeyGroupedPartitioningSuite
   }
 
   testGluten(
-    "GLUTEN-10992: KeyGroupedPartitioning shuffle falls back to vanilla Spark") {
+    "GLUTEN-10992: KeyGroupedPartitioning shuffle uses columnar exchange") {
     val items_partitions = Array(identity("id"))
     createTable(items, itemsColumns, items_partitions)
 
@@ -1124,29 +1125,32 @@ class GlutenKeyGroupedPartitioningSuite
         "(1, 42.0, cast('2020-01-01' as timestamp)), " +
         "(3, 19.5, cast('2020-02-01' as timestamp))")
 
-    // With V2 bucketing shuffle enabled and only one side reporting partitioning, Spark
-    // shuffles the other side with a ShuffleExchangeExec whose output partitioning is
-    // KeyGroupedPartitioning. Gluten native shuffle does not support it, so the exchange
-    // must fall back to vanilla Spark. Offloading it to ColumnarShuffleExchangeExec would
-    // crash with a scala.MatchError in ExecUtil.genShuffleDependency (GLUTEN-10992).
     withSQLConf(SQLConf.V2_BUCKETING_SHUFFLE_ENABLED.key -> "true") {
       val df = createJoinTestDF(Seq("id" -> "item_id"))
       val plan = df.queryExecution.executedPlan
 
-      val keyGroupedShuffles = collect(plan) {
+      val vanillaKeyGroupedShuffles = collect(plan) {
         case s: ShuffleExchangeExec
             if s.outputPartitioning.isInstanceOf[KeyedPartitioning] =>
           s
       }
-      assert(
-        keyGroupedShuffles.nonEmpty,
-        "KeyGroupedPartitioning shuffle should fall back to a vanilla ShuffleExchangeExec")
-
       val columnarKeyGroupedShuffles = collectAllColumnarShuffles(plan)
         .filter(_.outputPartitioning.isInstanceOf[KeyedPartitioning])
-      assert(
-        columnarKeyGroupedShuffles.isEmpty,
-        "KeyGroupedPartitioning must not be offloaded to ColumnarShuffleExchangeExec")
+      if (BackendTestUtils.isVeloxBackendLoaded()) {
+        assert(
+          vanillaKeyGroupedShuffles.isEmpty,
+          "KeyGroupedPartitioning should not fall back to a vanilla ShuffleExchangeExec")
+        assert(
+          columnarKeyGroupedShuffles.nonEmpty,
+          "KeyGroupedPartitioning should be offloaded to ColumnarShuffleExchangeExec")
+      } else {
+        assert(
+          vanillaKeyGroupedShuffles.nonEmpty,
+          "Unsupported backends should retain the vanilla ShuffleExchangeExec")
+        assert(
+          columnarKeyGroupedShuffles.isEmpty,
+          "Unsupported backends must not offload KeyGroupedPartitioning")
+      }
 
       checkAnswer(df, Seq(Row(1, "aa", 40.0, 42.0), Row(3, "bb", 10.0, 19.5)))
     }
@@ -2028,10 +2032,13 @@ class GlutenKeyGroupedPartitioningSuite
               val plan = df.queryExecution.executedPlan
               // 1 shuffle for SORT and 1 shuffle for JOIN are expected.
               assert(collectAllShuffles(plan).length === 2)
-              // The JOIN shuffle has KeyedPartitioning and falls back to vanilla Spark
-              // (GLUTEN-10992). The SORT shuffle is native.
-              assert(collectVanillaShuffles(plan).length === 1)
-              assert(collectAllColumnarShuffles(plan).length === 1)
+              if (BackendTestUtils.isVeloxBackendLoaded()) {
+                assert(collectVanillaShuffles(plan).isEmpty)
+                assert(collectAllColumnarShuffles(plan).length === 2)
+              } else {
+                assert(collectVanillaShuffles(plan).length === 1)
+                assert(collectAllColumnarShuffles(plan).length === 1)
+              }
               // 0 group partitions are expected because both sides of the join are clustered
               assert(collectAllGroupPartitions(plan).isEmpty)
             }
