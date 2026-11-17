@@ -35,6 +35,8 @@ const MAX_DESCRIPTION = 140;
 const SETUP_URL = 'https://github.com/apache/gluten/blob/main/CONTRIBUTING.md#velox-backend-ci';
 const NO_RUN = 'No run in your fork for this commit. Enable Actions, allow all actions, rebase on main and push.';
 const UNLISTED = 'The run failed. Its failed jobs could not be read yet.';
+// Marks a failure list that can still grow.
+const SO_FAR = ' so far';
 
 // Rate limiting, which GitHub reports as 429 or as 403 with rate-limit headers.
 function isRateLimited(e) {
@@ -58,7 +60,7 @@ function attemptOf(s) {
 }
 
 // A status that later passes leave alone: its run has ended and all its failed jobs are listed.
-const isFinal = (s) => s.state != 'pending' && !s.description.includes(' so far') && s.description != UNLISTED;
+const isFinal = (s) => s.state != 'pending' && !s.description.includes(SO_FAR) && s.description != UNLISTED;
 
 const truncate = (s) => (s.length <= MAX_DESCRIPTION ? s : s.slice(0, MAX_DESCRIPTION - 1) + '…');
 
@@ -71,7 +73,7 @@ function statusOf(run, jobs) {
   const failed = (jobs || []).filter((j) => FAILED.includes(j.conclusion)).map((j) => j.name);
   if (failed.length) {
     const count = failed.length == 1 ? '1 job failed' : `${failed.length} jobs failed`;
-    const description = truncate(`${count}${done ? '' : ' so far'}: ${failed.join(', ')}`);
+    const description = truncate(`${count}${done ? '' : SO_FAR}: ${failed.join(', ')}`);
     return { state: 'failure', target_url, description };
   }
   if (!done) {
