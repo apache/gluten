@@ -117,6 +117,8 @@ object VeloxBackendSettings extends BackendSettingsApi {
 
   override def primaryBatchType: Convention.BatchType = VeloxBatchType
 
+  override def supportKeyGroupedShuffleExec(): Boolean = true
+
   override def supportTimestampNtz: Boolean = true
 
   override def validateScanExec(

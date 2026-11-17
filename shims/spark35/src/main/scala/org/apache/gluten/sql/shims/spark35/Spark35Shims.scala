@@ -18,7 +18,7 @@ package org.apache.gluten.sql.shims.spark35
 
 import org.apache.gluten.execution.PartitionedFileUtilShim
 import org.apache.gluten.expression.{ExpressionNames, Sig}
-import org.apache.gluten.sql.shims.SparkShims
+import org.apache.gluten.sql.shims.{KeyGroupedShuffleInfo, SparkShims}
 import org.apache.gluten.utils.ExceptionUtils
 
 import org.apache.spark._
@@ -57,6 +57,20 @@ class Spark35Shims extends SparkShims {
 
   override def isKeyGroupedPartitioning(partitioning: Partitioning): Boolean =
     partitioning.isInstanceOf[KeyGroupedPartitioning]
+
+  override def getKeyGroupedShuffleInfo(
+      partitioning: Partitioning): Option[KeyGroupedShuffleInfo] = {
+    partitioning match {
+      case p: KeyGroupedPartitioning =>
+        val partitionValues = p.uniquePartitionValues
+        if (partitionValues.isEmpty || p.numPartitions != partitionValues.size) {
+          None
+        } else {
+          Some(KeyGroupedShuffleInfo(p, p.expressions, partitionValues))
+        }
+      case _ => None
+    }
+  }
 
   override def scalarExpressionMappings: Seq[Sig] = {
     Seq(
