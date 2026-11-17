@@ -27,6 +27,41 @@ MVN_DOWNLOAD_DIR="${DOWNLOAD_DIR}/.mvn"
 # Global variable for Maven binary path
 MVN_BIN=""
 
+mvn_retry_delay() {
+    local BACKOFF="$1" RETRY_AFTER="$2" NOW=0
+    local RETRY_AT=""
+    local DATE_PATTERN='^([A-Za-z]{3,9},[[:space:]]|[A-Za-z]{3}[[:space:]][A-Za-z]{3}[[:space:]])'
+    case "$RETRY_AFTER" in
+        *[!0-9]*)
+            if [[ "$RETRY_AFTER" =~ $DATE_PATTERN ]]; then
+                RETRY_AT=$(LC_ALL=C date -u -d "$RETRY_AFTER" +%s 2>/dev/null) ||
+                    RETRY_AT=$(LC_ALL=C date -u -j -f '%a, %d %b %Y %H:%M:%S GMT' "$RETRY_AFTER" +%s 2>/dev/null) ||
+                    RETRY_AT=$(LC_ALL=C date -u -j -f '%A, %d-%b-%y %H:%M:%S GMT' "$RETRY_AFTER" +%s 2>/dev/null) ||
+                    RETRY_AT=$(LC_ALL=C date -u -j -f '%a %b %e %H:%M:%S %Y' "$RETRY_AFTER" +%s 2>/dev/null) ||
+                    RETRY_AT=""
+            fi
+            if [ -n "$RETRY_AT" ]; then
+                RETRY_AFTER="$RETRY_AT"
+                if ! NOW=$(date +%s); then
+                    echo "ERROR: Failed to determine current time for Maven Retry-After." >&2
+                    return 1
+                fi
+            else
+                echo "WARNING: Ignoring invalid Retry-After header; using exponential backoff." >&2
+                RETRY_AFTER=0
+            fi
+            ;;
+    esac
+
+    awk -v requested="$RETRY_AFTER" -v now="$NOW" -v backoff="$BACKOFF" '
+        BEGIN {
+            delay = requested - now
+            if (delay < backoff + 0) delay = backoff + 0
+            if (delay > 60) delay = 60
+            printf "%.0f\n", delay
+        }'
+}
+
 download_mvn() {
     local URL="$1"
     local DESTINATION="$2"
@@ -42,19 +77,17 @@ download_mvn() {
     fi
 
     local ATTEMPT=1 MAX_ATTEMPTS=4 RETRY_DELAY=3
-    local STATUS HTTP_CODE RESPONSE
+    local STATUS HTTP_CODE RESPONSE RETRY_AFTER WAIT_DELAY
     while [ "$ATTEMPT" -le "$MAX_ATTEMPTS" ]; do
         STATUS=0
         if [ "$TOOL" = curl ]; then
-            HTTP_CODE=$(curl -f -L --retry 0 --connect-timeout 30 --max-time 600 \
-                -w '%{http_code}' -o "$PARTIAL" "$URL") || STATUS=$?
+            RESPONSE=$(curl -f -L --retry 0 --connect-timeout 30 --max-time 600 \
+                -D - -o "$PARTIAL" "$URL") || STATUS=$?
         else
             RESPONSE=$(wget --no-verbose --server-response --tries=1 \
                 --connect-timeout=30 --read-timeout=600 \
                 -O "$PARTIAL" "$URL" 2>&1) || STATUS=$?
             printf '%s\n' "$RESPONSE" >&2
-            HTTP_CODE=$(printf '%s\n' "$RESPONSE" | \
-                awk '$1 ~ /^HTTP\/[0-9.]+$/ {code=$2} END {print code}')
         fi
 
         if [ "$STATUS" -eq 0 ]; then
@@ -66,6 +99,8 @@ download_mvn() {
             return 1
         fi
         rm -f "$PARTIAL"
+        HTTP_CODE=$(printf '%s\n' "$RESPONSE" | \
+            awk '$1 ~ /^HTTP\/[0-9.]+$/ {code=$2} END {print code}')
 
         # Older curl/wget do not retry HTTP 429; keep a single retry budget here.
         case "$TOOL:$STATUS" in
@@ -82,8 +117,21 @@ download_mvn() {
             break
         fi
 
-        echo "Maven download attempt ${ATTEMPT}/${MAX_ATTEMPTS} failed (${TOOL} exit ${STATUS}, HTTP ${HTTP_CODE:-unknown}); retrying in ${RETRY_DELAY}s..." >&2
-        sleep "$RETRY_DELAY" || return 1
+        RETRY_AFTER=$(printf '%s\n' "$RESPONSE" | awk '
+            $1 ~ /^HTTP\/[0-9.]+$/ {value=""}
+            tolower($0) ~ /^[ \t]*retry-after:/ {
+                sub(/^[^:]*:[ \t]*/, "")
+                sub(/[ \t\r]+$/, "")
+                value=$0
+            }
+            END {print value}')
+        WAIT_DELAY="$RETRY_DELAY"
+        if [ -n "$RETRY_AFTER" ]; then
+            WAIT_DELAY=$(mvn_retry_delay "$RETRY_DELAY" "$RETRY_AFTER") || return 1
+        fi
+
+        echo "Maven download attempt ${ATTEMPT}/${MAX_ATTEMPTS} failed (${TOOL} exit ${STATUS}, HTTP ${HTTP_CODE:-unknown}); retrying in ${WAIT_DELAY}s..." >&2
+        sleep "$WAIT_DELAY" || return 1
         ATTEMPT=$((ATTEMPT + 1))
         RETRY_DELAY=$((RETRY_DELAY * 2))
     done

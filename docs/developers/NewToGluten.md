@@ -40,9 +40,12 @@ Gluten requires Maven  3.6.3 or above.
 Use `./build/mvn` to run the Maven version pinned in `pom.xml`. The wrapper reuses
 a matching system installation or its local installation under `build/.mvn`.
 When a download is needed, rate limits and transient HTTP/network failures are
-retried with at most four download attempts, waiting 3, 6, and 12 seconds between
-attempts. Permanent HTTP, certificate verification, and local file errors fail
-without retrying. Incomplete downloads are not used as Maven archives.
+retried with at most four download attempts. The default backoff is 3, 6, and
+12 seconds; a final response's `Retry-After` header can extend a wait up to
+60 seconds. Both delay-seconds and HTTP-date values are supported. Invalid
+values produce a warning and use the default backoff. Permanent HTTP,
+certificate verification, and local file errors fail without retrying.
+Incomplete downloads are not used as Maven archives.
 
 The bootstrap regression tests use mocked download tools and need only Bash,
 Python 3, and standard Unix utilities, with no network access or JDK:

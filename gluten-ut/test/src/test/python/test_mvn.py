@@ -26,6 +26,7 @@ import unittest
 
 WRAPPER = Path(__file__).resolve().parents[5] / "build/mvn"
 VERSION = "0.0.1"
+NOW = 1700000000
 URL = (
     "https://repo1.maven.org/maven2/org/apache/maven/apache-maven/"
     f"{VERSION}/apache-maven-{VERSION}-bin.tar.gz"
@@ -47,6 +48,21 @@ with (root / "calls.jsonl").open("a") as calls:
                             "maven_opts": os.environ.get("MAVEN_OPTS")}) + "\n")
 if tool == "sleep":
     sys.exit(0)
+if tool == "date":
+    args = sys.argv[1:]
+    if args == ["+%s"]:
+        print(config["now"])
+        sys.exit(0)
+    if "-d" in args and config["date_style"] == "gnu":
+        value = args[args.index("-d") + 1]
+    elif "-f" in args and args[args.index("-f") + 1] == config["date_format"]:
+        value = args[args.index("-f") + 2]
+    else:
+        sys.exit(1)
+    if value not in config["date_values"]:
+        sys.exit(1)
+    print(config["date_values"][value])
+    sys.exit(0)
 if tool == "tar":
     os.execv(config["tar"], [config["tar"]] + sys.argv[1:])
 if tool == "mvn":
@@ -59,7 +75,7 @@ if tool == "mvn":
 # Accept only options supported by old curl/wget, including the original wrapper's options.
 if tool == "curl":
     options, urls = getopt.gnu_getopt(
-        sys.argv[1:], "fLo:w:",
+        sys.argv[1:], "fLD:o:w:",
         ["retry=", "retry-delay=", "connect-timeout=", "max-time="])
     output = dict(options)["-o"]
 else:
@@ -73,16 +89,28 @@ if urls != [config["url"]]:
 counter = root / "attempts"
 attempt = int(counter.read_text()) + 1 if counter.exists() else 1
 counter.write_text(str(attempt))
-http, status = config["responses"][min(attempt - 1, len(config["responses"]) - 1)]
+response = config["responses"][min(attempt - 1, len(config["responses"]) - 1)]
+http, status = response[:2]
+headers = response[2] if len(response) > 2 else {}
 if status == 0:
     shutil.copyfile(root / "distribution.tar.gz", output)
 else:
     Path(output).write_text("partial download, not a valid Maven archive")
     print(f"Mock {tool} failure: HTTP {http}, exit {status}", file=sys.stderr)
+lines = []
+if http != "000":
+    # A redirect's Retry-After must not leak into the final response's retry delay.
+    lines = ["HTTP/1.1 302 Found", "Retry-After: 9999", "",
+             f"HTTP/1.1 {http} Response"]
+    lines.extend(f"{name}: {value}" for name, value in headers.items())
+    lines.extend(["", ""])
 if tool == "curl":
-    sys.stdout.write(http)
-elif http != "000":
-    print(f"  HTTP/1.1 302 Found\n  HTTP/1.1 {http} Response", file=sys.stderr)
+    if "-D" in dict(options):
+        sys.stdout.write("\r\n".join(lines))
+    if "-w" in dict(options):
+        sys.stdout.write(http)
+else:
+    print("\n".join("  " + line for line in lines), file=sys.stderr)
 sys.exit(status)
 """
 
@@ -97,6 +125,9 @@ class MavenBootstrapTest(unittest.TestCase):
         cached_archive=False,
         maven_exit=0,
         maven_opts=None,
+        date_style="gnu",
+        date_values=None,
+        date_format="%a, %d %b %Y %H:%M:%S GMT",
     ):
         temporary = tempfile.TemporaryDirectory(prefix="gluten-mvn-test-")
         self.addCleanup(temporary.cleanup)
@@ -129,7 +160,7 @@ class MavenBootstrapTest(unittest.TestCase):
             "rm",
         ):
             (tools / name).symlink_to(shutil.which(name))
-        for name in ("sleep", "tar") + ((tool,) if tool else ()):
+        for name in ("date", "sleep", "tar") + ((tool,) if tool else ()):
             (tools / name).symlink_to(mock)
         if system_version is not None:
             (tools / "mvn").symlink_to(mock)
@@ -154,6 +185,10 @@ class MavenBootstrapTest(unittest.TestCase):
                     "maven_exit": maven_exit,
                     "tar": shutil.which("tar"),
                     "url": URL,
+                    "now": NOW,
+                    "date_style": date_style,
+                    "date_values": date_values or {},
+                    "date_format": date_format,
                 }
             )
         )
@@ -213,6 +248,98 @@ class MavenBootstrapTest(unittest.TestCase):
                     result = self.run_wrapper(tool, ((http, status), ("200", 0)))
                     self.assertEqual(0, result.returncode, result.stderr)
                     self.assertEqual(2, len(self.calls(tool)))
+
+    def test_retry_after_seconds_are_respected(self):
+        for tool, status in (("curl", 22), ("wget", 8)):
+            for http in ("429", "503"):
+                with self.subTest(tool=tool, http=http):
+                    result = self.run_wrapper(
+                        tool,
+                        ((http, status, {"rEtRy-aFtEr": " 024 \t"}), ("200", 0)),
+                    )
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    self.assertEqual(2, len(self.calls(tool)))
+                    self.assertEqual(
+                        [["24"]], [call["args"] for call in self.calls("sleep")]
+                    )
+
+    def test_retry_after_http_dates_support_gnu_and_bsd_date(self):
+        dates = (
+            ("Tue, 14 Nov 2023 22:13:44 GMT", "%a, %d %b %Y %H:%M:%S GMT"),
+            ("Tuesday, 14-Nov-23 22:13:44 GMT", "%A, %d-%b-%y %H:%M:%S GMT"),
+            ("Tue Nov 14 22:13:44 2023", "%a %b %e %H:%M:%S %Y"),
+        )
+        for tool, status in (("curl", 22), ("wget", 8)):
+            for style in ("gnu", "bsd"):
+                for value, date_format in dates:
+                    with self.subTest(tool=tool, style=style, value=value):
+                        result = self.run_wrapper(
+                            tool,
+                            (("429", status, {"Retry-After": value}), ("200", 0)),
+                            date_style=style,
+                            date_values={value: NOW + 24},
+                            date_format=date_format,
+                        )
+                        self.assertEqual(0, result.returncode, result.stderr)
+                        self.assertEqual(
+                            [["24"]], [call["args"] for call in self.calls("sleep")]
+                        )
+                        self.assertNotIn("WARNING:", result.stderr)
+
+    def test_retry_after_is_capped_without_extending_the_attempt_budget(self):
+        for tool, status in (("curl", 22), ("wget", 8)):
+            with self.subTest(tool=tool):
+                result = self.run_wrapper(
+                    tool, (("429", status, {"Retry-After": "9" * 40}),)
+                )
+                self.assertNotEqual(0, result.returncode)
+                self.assertEqual(4, len(self.calls(tool)))
+                self.assertEqual(
+                    [["60"], ["60"], ["60"]],
+                    [call["args"] for call in self.calls("sleep")],
+                )
+                self.assert_no_distribution()
+
+    def test_short_retry_after_does_not_reduce_exponential_backoff(self):
+        for tool, status in (("curl", 22), ("wget", 8)):
+            for value in ("0", "1"):
+                with self.subTest(tool=tool, value=value):
+                    response = ("429", status, {"Retry-After": value})
+                    result = self.run_wrapper(tool, (response, response, ("200", 0)))
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    self.assertEqual(
+                        [["3"], ["6"]], [call["args"] for call in self.calls("sleep")]
+                    )
+
+    def test_invalid_retry_after_warns_and_uses_exponential_backoff(self):
+        for tool, status in (("curl", 22), ("wget", 8)):
+            for value in ("-1", "1.5", "not-a-date"):
+                with self.subTest(tool=tool, value=value):
+                    result = self.run_wrapper(
+                        tool, (("429", status, {"Retry-After": value}), ("200", 0))
+                    )
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    self.assertEqual(
+                        [["3"]], [call["args"] for call in self.calls("sleep")]
+                    )
+                    self.assertIn(
+                        "WARNING: Ignoring invalid Retry-After", result.stderr
+                    )
+
+    def test_past_retry_after_date_uses_exponential_backoff(self):
+        value = "Tue, 14 Nov 2023 22:13:19 GMT"
+        for tool, status in (("curl", 22), ("wget", 8)):
+            with self.subTest(tool=tool):
+                result = self.run_wrapper(
+                    tool,
+                    (("429", status, {"Retry-After": value}), ("200", 0)),
+                    date_values={value: NOW - 1},
+                )
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertEqual(
+                    [["3"]], [call["args"] for call in self.calls("sleep")]
+                )
+                self.assertNotIn("WARNING:", result.stderr)
 
     def test_network_and_partial_download_failures_are_retried(self):
         for tool, errors in (
