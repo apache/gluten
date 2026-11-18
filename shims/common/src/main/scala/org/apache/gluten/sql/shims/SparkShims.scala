@@ -186,6 +186,13 @@ trait SparkShims {
    */
   def getLocalTableScanStream(plan: LocalTableScanExec): Option[SparkDataStream] = None
 
+  /**
+   * Whether the given plan is Spark 4.1+'s `OneRowRelationExec`. Earlier Spark versions do not
+   * define this node and retain the default `false`; callers should use this hook only for exact
+   * plan recognition and must not infer zero-input semantics from `false`.
+   */
+  def isOneRowRelationExec(plan: SparkPlan): Boolean = false
+
   def isParquetFileEncrypted(footer: ParquetMetadata): Boolean
 
   def shouldFallbackForParquetVariantAnnotation(footer: ParquetMetadata): Boolean = false

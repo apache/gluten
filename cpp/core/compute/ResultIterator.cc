@@ -22,7 +22,7 @@ namespace gluten {
 
 Metrics* ResultIterator::getMetrics() {
   if (runtime_) {
-    return runtime_->getMetrics(getInputIter(), exportNanos_);
+    return runtime_->getMetrics(getInputIter());
   }
   return nullptr;
 }

@@ -1,0 +1,32 @@
+VeloxColumnarToRow
+  TakeOrderedAndProjectExecTransformer [revenue,o_orderdate,l_orderkey,o_shippriority]
+    WholeStageCodegenTransformer (4)
+      ProjectExecTransformer [l_orderkey,sum((l_extendedprice * (1 - l_discount))),o_orderdate,o_shippriority]
+        RegularHashAggregateExecTransformer [l_orderkey,o_orderdate,o_shippriority,sum,isEmpty] [sum((l_extendedprice * (1 - l_discount))),sum,isEmpty]
+          InputIteratorTransformer
+            InputAdapter
+              ColumnarExchange [l_orderkey,o_orderdate,o_shippriority,sum,isEmpty] #1
+                VeloxResizeBatches
+                  WholeStageCodegenTransformer (3)
+                    ProjectExecTransformer [l_orderkey,o_orderdate,o_shippriority,sum,isEmpty]
+                      FlushableHashAggregateExecTransformer [l_orderkey,o_orderdate,o_shippriority,_pre_x] [sum,isEmpty,sum,isEmpty,sum,isEmpty]
+                        ProjectExecTransformer [o_orderdate,o_shippriority,l_orderkey,l_extendedprice,l_discount]
+                          BroadcastHashJoinExecTransformer [o_orderkey,l_orderkey]
+                            ProjectExecTransformer [o_orderkey,o_orderdate,o_shippriority]
+                              BroadcastHashJoinExecTransformer [c_custkey,o_custkey]
+                                ProjectExecTransformer [c_custkey]
+                                  FilterExecTransformer [c_mktsegment,c_custkey]
+                                    FileSourceScanExecTransformer parquet spark_catalog.default.customer [c_custkey,c_mktsegment]
+                                InputIteratorTransformer
+                                  InputAdapter
+                                    ColumnarBroadcastExchange #2
+                                      WholeStageCodegenTransformer (1)
+                                        FilterExecTransformer [o_orderdate,o_custkey,o_orderkey]
+                                          FileSourceScanExecTransformer parquet spark_catalog.default.orders [o_orderkey,o_custkey,o_orderdate,o_shippriority]
+                            InputIteratorTransformer
+                              InputAdapter
+                                ColumnarBroadcastExchange #3
+                                  WholeStageCodegenTransformer (2)
+                                    ProjectExecTransformer [l_orderkey,l_extendedprice,l_discount]
+                                      FilterExecTransformer [l_shipdate,l_orderkey]
+                                        FileSourceScanExecTransformer parquet spark_catalog.default.lineitem [l_orderkey,l_extendedprice,l_discount,l_shipdate]

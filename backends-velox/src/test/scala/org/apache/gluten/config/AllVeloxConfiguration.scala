@@ -23,7 +23,8 @@ import java.nio.file.Paths
 class AllVeloxConfiguration extends AnyFunSuite {
   private val glutenHome: String =
     AllGlutenConfiguration.getCodeSourceLocation(this.getClass).split("backends-velox")(0)
-  private val markdown = Paths.get(glutenHome, "docs", "velox-configuration.md").toAbsolutePath
+  private val markdown =
+    Paths.get(glutenHome, "docs", "backends", "velox", "velox-configuration.md").toAbsolutePath
 
   test("Check velox backend configs") {
     val builder = MarkdownBuilder(getClass.getName)
@@ -42,7 +43,9 @@ class AllVeloxConfiguration extends AnyFunSuite {
       s"""
          |## Gluten Velox backend configurations
          |
-         | Key | Modifiability | Default | Description
+         |${AllGlutenConfiguration.configTypeLegend}
+         |
+         | Key | Type | Default | Description
          | --- | --- | --- | ---
          |"""
 
@@ -65,7 +68,9 @@ class AllVeloxConfiguration extends AnyFunSuite {
       s"""
          |## Gluten Velox backend *experimental* configurations
          |
-         | Key | Modifiability | Default | Description
+         |${AllGlutenConfiguration.configTypeLegend}
+         |
+         | Key | Type | Default | Description
          | --- | --- | --- | ---
          |"""
 

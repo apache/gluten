@@ -332,6 +332,9 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "abandonedPartialAggregationRows" -> SQLMetrics.createMetric(
         sparkContext,
         "number of rows after partial aggregation abandonment"),
+      "toIntermediateFastPathCalls" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of toIntermediate fast path calls"),
       "loadedToValueHook" -> SQLMetrics.createMetric(
         sparkContext,
         "number of pushdown aggregations"),
@@ -553,6 +556,22 @@ class VeloxMetricsApi extends MetricsApi with Logging {
 
   override def genSortTransformerMetricsUpdater(metrics: Map[String, SQLMetric]): MetricsUpdater =
     new SortMetricsUpdater(metrics)
+
+  override def genTopNTransformerMetrics(sparkContext: SparkContext): Map[String, SQLMetric] =
+    Map(
+      "numOutputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"),
+      "outputVectors" -> SQLMetrics.createMetric(sparkContext, "number of output vectors"),
+      "outputBytes" -> SQLMetrics.createSizeMetric(sparkContext, "number of output bytes"),
+      "wallNanos" -> SQLMetrics.createNanoTimingMetric(sparkContext, "time of top-n"),
+      "cpuCount" -> SQLMetrics.createMetric(sparkContext, "cpu wall time count"),
+      "peakMemoryBytes" -> SQLMetrics.createSizeMetric(sparkContext, "peak memory bytes"),
+      "numMemoryAllocations" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of memory allocations")
+    )
+
+  override def genTopNTransformerMetricsUpdater(metrics: Map[String, SQLMetric]): MetricsUpdater =
+    new TopNMetricsUpdater(metrics)
 
   override def genSortMergeJoinTransformerMetrics(
       sparkContext: SparkContext): Map[String, SQLMetric] =

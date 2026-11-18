@@ -1,0 +1,38 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+diff --git a/cpp/cmake_modules/ThirdpartyToolchain.cmake b/cpp/cmake_modules/ThirdpartyToolchain.cmake
+--- a/cpp/cmake_modules/ThirdpartyToolchain.cmake
++++ b/cpp/cmake_modules/ThirdpartyToolchain.cmake
+@@ -1267,15 +1267,12 @@ endif()
+ # - Gandiva has a compile-time (header-only) dependency on Boost, not runtime.
+ # - Tests need Boost at runtime.
+ # - S3FS and Flight benchmarks need Boost at runtime.
+-# - arrow_testing uses boost::filesystem. So arrow_testing requires
+-#   Boost library. (boost::filesystem isn't header-only.) But if we
+-#   use arrow_testing as a static library without
+-#   using arrow::util::Process, we don't need boost::filesystem.
++# - arrow_testing directly links Boost::filesystem and Boost::system.
+ if(ARROW_BUILD_INTEGRATION
+    OR ARROW_BUILD_TESTS
+    OR (ARROW_FLIGHT AND (ARROW_TESTING OR ARROW_BUILD_BENCHMARKS))
+    OR (ARROW_S3 AND ARROW_BUILD_BENCHMARKS)
+-   OR (ARROW_TESTING AND ARROW_BUILD_SHARED))
++   OR ARROW_TESTING)
+   set(ARROW_USE_BOOST TRUE)
+   set(ARROW_BOOST_REQUIRE_LIBRARY TRUE)
+ elseif(ARROW_GANDIVA

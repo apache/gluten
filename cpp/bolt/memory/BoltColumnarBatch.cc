@@ -20,7 +20,6 @@
 #include "bolt/vector/FlatVector.h"
 #include "compute/BoltRuntime.h"
 #include "utils/BoltArrowUtils.h"
-#include "utils/Timer.h"
 
 namespace gluten {
 
@@ -49,7 +48,6 @@ void BoltColumnarBatch::ensureFlattened() {
   if (flattened_) {
     return;
   }
-  ScopedTimer timer(&exportNanos_);
   for (auto& child : rowVector_->children()) {
     bytedance::bolt::BaseVector::flattenVector(child);
     if (child->isLazy()) {
@@ -98,8 +96,13 @@ std::shared_ptr<BoltColumnarBatch> BoltColumnarBatch::from(
   if (cb->getType() == "bolt") {
     return std::dynamic_pointer_cast<BoltColumnarBatch>(cb);
   }
-  auto vp = bolt::importFromArrowAsOwner(
-      *cb->exportArrowSchema(), *cb->exportArrowArray(), ArrowUtils::getBridgeOptions(), pool);
+  auto options = ArrowUtils::getBridgeOptions();
+  // Arrow NullType columns contain no buffers. In Bolt's Arrow importer this option
+  // only changes UNKNOWN handling (including nested children): it materializes null
+  // constants before inspecting a validity buffer. Buffer layouts for other imported
+  // types are unchanged; the other IPC option branches belong to Arrow export.
+  options.exportToArrowIPC = true;
+  auto vp = bolt::importFromArrowAsOwner(*cb->exportArrowSchema(), *cb->exportArrowArray(), options, pool);
   return std::make_shared<BoltColumnarBatch>(std::dynamic_pointer_cast<bolt::RowVector>(vp));
 }
 

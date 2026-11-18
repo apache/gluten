@@ -1,0 +1,56 @@
+VeloxColumnarToRow
+  WholeStageCodegenTransformer (8)
+    ProjectExecTransformer [avg(ss_quantity),avg(UnscaledValue(ss_ext_sales_price)),avg(UnscaledValue(ss_ext_wholesale_cost)),sum(UnscaledValue(ss_ext_wholesale_cost))]
+      RegularHashAggregateExecTransformer [sum,count,sum,count,sum,count,sum] [avg(ss_quantity),avg(UnscaledValue(ss_ext_sales_price)),avg(UnscaledValue(ss_ext_wholesale_cost)),sum(UnscaledValue(ss_ext_wholesale_cost)),sum,count,sum,count,sum,count,sum]
+        InputIteratorTransformer
+          InputAdapter
+            ColumnarExchange #1
+              VeloxResizeBatches
+                WholeStageCodegenTransformer (7)
+                  FlushableHashAggregateExecTransformer [ss_quantity,_pre_x,_pre_x] [sum,count,sum,count,sum,count,sum,sum,count,sum,count,sum,count,sum,sum,count,sum,count,sum]
+                    ProjectExecTransformer [ss_quantity,ss_ext_sales_price,ss_ext_wholesale_cost]
+                      BroadcastHashJoinExecTransformer [ss_hdemo_sk,hd_demo_sk,cd_marital_status,cd_education_status,ss_sales_price,hd_dep_count]
+                        ProjectExecTransformer [ss_hdemo_sk,ss_quantity,ss_sales_price,ss_ext_sales_price,ss_ext_wholesale_cost,cd_marital_status,cd_education_status]
+                          BroadcastHashJoinExecTransformer [ss_cdemo_sk,cd_demo_sk,cd_marital_status,cd_education_status,ss_sales_price]
+                            ProjectExecTransformer [ss_cdemo_sk,ss_hdemo_sk,ss_quantity,ss_sales_price,ss_ext_sales_price,ss_ext_wholesale_cost]
+                              BroadcastHashJoinExecTransformer [ss_sold_date_sk,d_date_sk]
+                                ProjectExecTransformer [ss_cdemo_sk,ss_hdemo_sk,ss_quantity,ss_sales_price,ss_ext_sales_price,ss_ext_wholesale_cost,ss_sold_date_sk]
+                                  BroadcastHashJoinExecTransformer [ss_addr_sk,ca_address_sk,ca_state,ss_net_profit]
+                                    ProjectExecTransformer [ss_cdemo_sk,ss_hdemo_sk,ss_addr_sk,ss_quantity,ss_sales_price,ss_ext_sales_price,ss_ext_wholesale_cost,ss_net_profit,ss_sold_date_sk]
+                                      BroadcastHashJoinExecTransformer [ss_store_sk,s_store_sk]
+                                        FilterExecTransformer [ss_store_sk,ss_addr_sk,ss_cdemo_sk,ss_hdemo_sk,ss_net_profit,ss_sales_price]
+                                          FileSourceScanExecTransformer parquet spark_catalog.default.store_sales [ss_cdemo_sk,ss_hdemo_sk,ss_addr_sk,ss_store_sk,ss_quantity,ss_sales_price,ss_ext_sales_price,ss_ext_wholesale_cost,ss_net_profit,ss_sold_date_sk]
+                                            ColumnarSubqueryBroadcast [d_date_sk] #1
+                                              ColumnarBroadcastExchange #2
+                                                WholeStageCodegenTransformer (1)
+                                                  ProjectExecTransformer [d_date_sk]
+                                                    FilterExecTransformer [d_year,d_date_sk]
+                                                      FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_date_sk,d_year]
+                                        InputIteratorTransformer
+                                          InputAdapter
+                                            ColumnarBroadcastExchange #3
+                                              WholeStageCodegenTransformer (2)
+                                                FilterExecTransformer [s_store_sk]
+                                                  FileSourceScanExecTransformer parquet spark_catalog.default.store [s_store_sk]
+                                    InputIteratorTransformer
+                                      InputAdapter
+                                        ColumnarBroadcastExchange #4
+                                          WholeStageCodegenTransformer (3)
+                                            ProjectExecTransformer [ca_address_sk,ca_state]
+                                              FilterExecTransformer [ca_country,ca_address_sk,ca_state]
+                                                FileSourceScanExecTransformer parquet spark_catalog.default.customer_address [ca_address_sk,ca_state,ca_country]
+                                InputIteratorTransformer
+                                  InputAdapter
+                                    ReusedExchange [d_date_sk] #2
+                            InputIteratorTransformer
+                              InputAdapter
+                                ColumnarBroadcastExchange #5
+                                  WholeStageCodegenTransformer (5)
+                                    FilterExecTransformer [cd_demo_sk,cd_marital_status,cd_education_status]
+                                      FileSourceScanExecTransformer parquet spark_catalog.default.customer_demographics [cd_demo_sk,cd_marital_status,cd_education_status]
+                        InputIteratorTransformer
+                          InputAdapter
+                            ColumnarBroadcastExchange #6
+                              WholeStageCodegenTransformer (6)
+                                FilterExecTransformer [hd_demo_sk,hd_dep_count]
+                                  FileSourceScanExecTransformer parquet spark_catalog.default.household_demographics [hd_demo_sk,hd_dep_count]

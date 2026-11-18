@@ -25,7 +25,6 @@ namespace gluten {
 
 struct Metrics {
   unsigned int numMetrics = 0;
-  long veloxToArrow = 0;
 
   // Structured metrics payload produced by the backend and decoded on JVM side.
   std::string json;

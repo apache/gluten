@@ -35,14 +35,23 @@ bool ensureRegexIsCompatible(const std::string& pattern, std::string& error) {
       if (charClassStart != pattern.cend()) {
         error =
             "Not support character class union, intersection, "
-            "or difference ([a[b]], [a&&[b]], [a&&[^b]])";
+            "or difference ([a[b]], [a&&b], [a&&[b]], [a&&[^b]])";
         return false;
       }
       charClassStart = c;
-      // A ] immediately after a [ does not end the character class, and is
+      // A ] immediately after a [ or [^ does not end the character class, and
       // instead adds the character ].
-    } else if (*c == ']' && charClassStart != pattern.cend() && charClassStart + 1 != c) {
+    } else if (
+        *c == ']' && charClassStart != pattern.cend() && charClassStart + 1 != c &&
+        !(charClassStart + 2 == c && *(charClassStart + 1) == '^')) {
       charClassStart = pattern.cend();
+    } else if (*c == '&' && c + 1 < pattern.cend() && *(c + 1) == '&' && charClassStart != pattern.cend()) {
+      // Java reads "&&" inside a class as set intersection while RE2 reads it as
+      // two literal ampersands, so results diverge; fall back instead.
+      error =
+          "Not support character class union, intersection, "
+          "or difference ([a[b]], [a&&b], [a&&[b]], [a&&[^b]])";
+      return false;
     }
   }
   return true;

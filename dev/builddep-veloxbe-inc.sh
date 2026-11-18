@@ -130,19 +130,7 @@ if [ "$UPDATE_VCPKG" = "ON" ]; then
     echo "[Step 1/4] vcpkg dependencies updated."
 else
     step 1 "Skipping vcpkg check (use --update_vcpkg to update)"
-    VCPKG_ROOT="$GLUTEN_DIR/dev/vcpkg/.vcpkg"
-    export VCPKG_ROOT
-
-    if [ "${CPU_TARGET:-}" = "aarch64" ]; then
-        export VCPKG_TRIPLET="arm64-linux-neon"
-    else
-        export VCPKG_TRIPLET="x64-linux-avx"
-    fi
-
-    export VCPKG_TRIPLET_INSTALL_DIR="$GLUTEN_DIR/dev/vcpkg/vcpkg_installed/${VCPKG_TRIPLET}"
-    export CMAKE_TOOLCHAIN_FILE="$GLUTEN_DIR/dev/vcpkg/toolchain.cmake"
-    export PKG_CONFIG_PATH="${VCPKG_TRIPLET_INSTALL_DIR}/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
-    export GLUTEN_VCPKG_ENABLED="${VCPKG_ROOT}"
+    source "$GLUTEN_DIR/dev/vcpkg/env.sh" --skip-install
 fi
 
 # Step 2: Build Velox

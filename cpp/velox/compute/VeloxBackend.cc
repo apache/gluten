@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <algorithm>
 #include <filesystem>
 
 #include "VeloxBackend.h"
@@ -26,10 +27,15 @@
 #include "operators/plannodes/RowVectorStream.h"
 #include "utils/ConfigExtractor.h"
 
+#ifdef ENABLE_KAFKA
+#include "operators/reader/KafkaConnector.h"
+#endif
+
 #ifdef GLUTEN_ENABLE_QAT
 #include "utils/qat/QatCodec.h"
 #endif
 #ifdef GLUTEN_ENABLE_GPU
+#include "cudf/CudfFunctions.h"
 #include "cudf/GpuLock.h"
 #include "operators/plannodes/CudfVectorStream.h"
 #include "velox/experimental/cudf/CudfConfig.h"
@@ -51,9 +57,10 @@
 #include "shuffle/ArrowShuffleDictionaryWriter.h"
 #include "udf/UdfLoader.h"
 #include "utils/Exception.h"
+#include "utils/VeloxWriterUtils.h"
 #include "velox/common/caching/SsdCache.h"
 #include "velox/common/file/FileSystems.h"
-#include "velox/connectors/hive/BufferedInputBuilder.h"
+#include "velox/connectors/common/BufferedInputBuilder.h"
 #include "velox/connectors/hive/HiveConnector.h"
 #include "velox/connectors/hive/HiveDataSource.h"
 #include "velox/connectors/hive/iceberg/IcebergConnector.h"
@@ -63,7 +70,6 @@
 #include "velox/connectors/hive/storage_adapters/hdfs/RegisterHdfsFileSystem.h" // @manual
 #include "velox/dwio/orc/reader/OrcReader.h"
 #include "velox/dwio/parquet/RegisterParquetReader.h"
-#include "velox/dwio/parquet/RegisterParquetWriter.h"
 #include "velox/serializers/PrestoSerializer.h"
 
 DECLARE_bool(velox_exception_user_stacktrace_enabled);
@@ -222,6 +228,7 @@ void VeloxBackend::init(
       velox::exec::Operator::registerOperator(std::make_unique<CudfVectorStreamOperatorTranslator>());
       velox::cudf_velox::registerSparkFunctions("");
       velox::cudf_velox::registerSparkAggregateFunctions("");
+      registerCudfFunctions();
     } else {
       LOG(WARNING) << "No Cuda device found. Skip Cudf initialization.";
     }
@@ -254,15 +261,27 @@ void VeloxBackend::init(
         std::make_unique<folly::CPUThreadPoolExecutor>(ioThreads, folly::CPUThreadPoolExecutor::makeLifoSemQueue());
   }
 
+  const int32_t broadcastHashTableBuildThreads = std::max<int32_t>(1, [&]() {
+    if (!backendConf_->valueExists(kBroadcastHashTableBuildThreads)) {
+      LOG(WARNING) << kBroadcastHashTableBuildThreads << " is not set. Falling back to " << kNumTaskSlotsPerExecutor
+                   << " (" << numTaskSlotsPerExecutor << ").";
+      return numTaskSlotsPerExecutor;
+    }
+    return backendConf_->get<int32_t>(kBroadcastHashTableBuildThreads).value();
+  }());
+  if (broadcastHashTableBuildThreads > 1) {
+    broadcastHashTableBuildExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(broadcastHashTableBuildThreads);
+  }
+
   initJolFilesystem();
 
   velox::dwio::common::registerFileSinks();
   velox::parquet::registerParquetReaderFactory();
-  velox::parquet::registerParquetWriterFactory();
+  velox::dwio::common::registerWriterFactory(std::make_shared<GlutenParquetWriterFactory>());
   velox::orc::registerOrcReaderFactory();
   velox::exec::ExprToSubfieldFilterParser::registerParser(std::make_unique<SparkExprToSubfieldFilterParser>(
       backendConf_->get<bool>(kScanBloomFilterPushdownEnabled, kScanBloomFilterPushdownEnabledDefault)));
-  velox::connector::hive::BufferedInputBuilder::registerBuilder(std::make_shared<GlutenBufferedInputBuilder>());
+  velox::connector::BufferedInputBuilder::registerBuilder(std::make_shared<GlutenBufferedInputBuilder>());
 
   // Register Velox functions
   registerAllFunctions();
@@ -378,9 +397,17 @@ void VeloxBackend::initCache() {
     uint64_t memCacheSize = backendConf_->get<uint64_t>(kVeloxMemCacheSize, kVeloxMemCacheSizeDefault);
     uint64_t ssdCacheSize = backendConf_->get<uint64_t>(kVeloxSsdCacheSize, kVeloxSsdCacheSizeDefault);
 
-    velox::memory::MmapAllocator::Options options;
+    velox::memory::MemoryAllocator::Options options;
     options.capacity = memCacheSize;
-    cacheAllocator_ = std::make_shared<velox::memory::MmapAllocator>(options);
+    // MmapAllocator tracks memory in 4 KB pages and refuses to start when the system page size differs (e.g. 64 KB
+    // pages on aarch64 kernels); fall back to MallocAllocator there.
+    if (velox::memory::MmapAllocator::isPageSizeSupported()) {
+      cacheAllocator_ = std::make_shared<velox::memory::MmapAllocator>(options);
+    } else {
+      LOG(WARNING) << "System page size " << velox::memory::MmapAllocator::systemPageSize()
+                   << " is not supported by MmapAllocator; using MallocAllocator for AsyncDataCache";
+      cacheAllocator_ = std::make_shared<velox::memory::MallocAllocator>(options);
+    }
     if (ssdCacheSize == 0) {
       LOG(INFO) << "AsyncDataCache will do memory caching only as ssd cache size is 0";
       // TODO: this is not tracked by Spark.
@@ -420,6 +447,13 @@ std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createValue
     bool dynamicFilterEnabled) const {
   return std::make_shared<ValueStreamConnector>(connectorId, hiveConnectorConfig_, dynamicFilterEnabled);
 }
+
+#ifdef ENABLE_KAFKA
+std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createKafkaConnector(
+    const std::string& connectorId) const {
+  return std::make_shared<KafkaConnector>(connectorId, hiveConnectorConfig_);
+}
+#endif
 
 #ifdef GLUTEN_ENABLE_GPU
 std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createCudfHiveConnector(
@@ -472,6 +506,7 @@ void VeloxBackend::tearDown() {
   spillExecutor_.reset();
   ioExecutor_.reset();
   ssdCacheExecutor_.reset();
+  broadcastHashTableBuildExecutor_.reset();
   globalMemoryManager_.reset();
 
   // dump cache stats on exit if enabled

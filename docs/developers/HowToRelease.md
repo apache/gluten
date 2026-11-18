@@ -74,7 +74,7 @@ being added to `NOTICE-binary`.
 
 ```bash
 # Requires the `regex` Python package: pip install regex
-python3 dev/check.py header main
+python3 .github/workflows/util/check.py header main
 ```
 
 Reviewers also run [Apache RAT](https://creadur.apache.org/rat/) against the source archive. Note
@@ -91,8 +91,8 @@ Pull and download the build environment docker image. The docker image is period
 built and uploaded to DockerHub by scheduled GitHub Actions jobs.
 
 ```bash
-docker pull apache/gluten:vcpkg-centos-7-gcc13
-docker run -it apache/gluten:vcpkg-centos-7-gcc13 bash
+docker pull apache/gluten:vcpkg-almalinux-8-gcc13
+docker run -it apache/gluten:vcpkg-almalinux-8-gcc13 bash
 ```
 
 ### Clone the repository

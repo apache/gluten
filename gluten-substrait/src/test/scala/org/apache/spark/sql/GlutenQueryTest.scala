@@ -30,7 +30,7 @@ import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.util._
 import org.apache.spark.sql.classic.ClassicConversions._
 import org.apache.spark.sql.execution.{CommandResultExec, SparkPlan, SQLExecution, UnaryExecNode, WholeStageCodegenExec}
-import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, ShuffleQueryStageExec}
+import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, BroadcastQueryStageExec, ShuffleQueryStageExec}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.execution.columnar.InMemoryRelation
 import org.apache.spark.storage.StorageLevel
@@ -345,6 +345,8 @@ abstract class GlutenQueryTest extends QueryTest with AdaptiveSparkPlanHelper {
         getExecutedPlan(cmd.commandPhysicalPlan)
       case s: ShuffleQueryStageExec =>
         getExecutedPlan(s.plan)
+      case b: BroadcastQueryStageExec =>
+        getExecutedPlan(b.plan)
       case plan =>
         plan.children.flatMap(getExecutedPlan)
     }

@@ -5,6 +5,18 @@
 --CONFIG_DIM1 spark.sql.codegen.wholeStage=false,spark.sql.codegen.factoryMode=CODEGEN_ONLY
 --CONFIG_DIM1 spark.sql.codegen.wholeStage=false,spark.sql.codegen.factoryMode=NO_CODEGEN
 
+-- GlutenSQLQueryTestSuite excludes ConvertToLocalRelation, ConstantFolding and
+-- NullPropagation by default to force queries through Gluten's offload paths.
+-- However, EXISTS+OFFSET queries hit Spark's LimitPushDown rule which produces
+-- `LocalLimit(Add(limit, offset), ...)` and assumes ConstantFolding will fold
+-- the Add. Without ConstantFolding the planner fails with
+-- `AssertionError: No plan for LocalLimit (1 + 2)` because BasicOperators only
+-- matches LocalLimit(IntegerLiteral, _). Re-enable ConstantFolding (and
+-- NullPropagation, which the test framework's --SET parser would split on
+-- the comma) for this file by keeping only ConvertToLocalRelation excluded.
+-- Tracked upstream as SPARK-57125.
+--SET spark.sql.optimizer.excludedRules=org.apache.spark.sql.catalyst.optimizer.ConvertToLocalRelation
+
 --ONLY_IF spark
 CREATE TEMPORARY VIEW EMP AS SELECT * FROM VALUES
   (100, "emp 1", date "2005-01-01", 100.00D, 10),

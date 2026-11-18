@@ -20,6 +20,7 @@ import org.apache.gluten.config.BoltConfig
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.types._
 
 class BoltWindowExpressionSuite extends WholeStageTransformerSuite {
@@ -169,6 +170,42 @@ class BoltWindowExpressionSuite extends WholeStageTransformerSuite {
           checkGlutenPlan[HashAggregateExecTransformer]
         }
       }
+    }
+  }
+
+  testWithMinSparkVersion("range frame with a day interval bound on a date key falls back", "4.0") {
+    // Spark 4.0 also accepts a day-time interval bound on a date key.
+    runQueryAndCompare(
+      "select l_commitdate, count(*) over (order by l_commitdate " +
+        "RANGE BETWEEN INTERVAL '1' DAY PRECEDING AND CURRENT ROW) from lineitem",
+      noFallBack = false
+    ) {
+      checkSparkPlan[WindowExec]
+    }
+  }
+
+  test("range frame with an interval bound on a date key falls back") {
+    Seq(
+      "RANGE BETWEEN INTERVAL '1' MONTH PRECEDING AND CURRENT ROW",
+      "RANGE BETWEEN CURRENT ROW AND INTERVAL '1' YEAR FOLLOWING"
+    ).foreach {
+      frame =>
+        runQueryAndCompare(
+          s"select l_commitdate, count(*) over (order by l_commitdate $frame) from lineitem",
+          noFallBack = false) {
+          checkSparkPlan[WindowExec]
+        }
+    }
+    // The integral bound triggers the pre-compute rewrite for the whole operator; the interval
+    // bound in the same operator must still make it fall back.
+    runQueryAndCompare(
+      "select l_commitdate, " +
+        "count(*) over (order by l_commitdate RANGE BETWEEN 1 PRECEDING AND CURRENT ROW), " +
+        "count(*) over (order by l_commitdate " +
+        "RANGE BETWEEN INTERVAL '1' MONTH PRECEDING AND CURRENT ROW) from lineitem",
+      noFallBack = false
+    ) {
+      checkSparkPlan[WindowExec]
     }
   }
 }

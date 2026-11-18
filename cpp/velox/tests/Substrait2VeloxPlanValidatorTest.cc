@@ -17,6 +17,9 @@
 
 #include "FilePathGenerator.h"
 #include "JsonToProtoConverter.h"
+#ifdef ENABLE_KAFKA
+#include "kafka.pb.h"
+#endif
 
 #include "memory/VeloxMemoryManager.h"
 #include "substrait/SubstraitToVeloxPlan.h"
@@ -82,6 +85,17 @@ TEST_F(Substrait2VeloxPlanValidatorTest, group) {
 
   ASSERT_FALSE(validatePlan(substraitPlan));
 }
+
+#ifdef ENABLE_KAFKA
+TEST_F(Substrait2VeloxPlanValidatorTest, kafkaReadRequiresNativeSupport) {
+  ::substrait::Plan plan;
+  auto* read = plan.add_relations()->mutable_rel()->mutable_read();
+  read->mutable_extension_table()->mutable_detail()->PackFrom(StreamKafka{}, "");
+  read->mutable_base_schema()->add_names("offset");
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
+  EXPECT_TRUE(validatePlan(plan));
+}
+#endif
 
 TEST_F(Substrait2VeloxPlanValidatorTest, expandSelectionMustBeTopLevelField) {
   const auto makePlan = [](bool nestedSelection) {

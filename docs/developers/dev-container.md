@@ -197,7 +197,7 @@ Published images are available on
 [Docker Hub](https://hub.docker.com/r/apache/gluten/tags); their Dockerfiles
 live in [`dev/docker/`](https://github.com/apache/gluten/tree/main/dev/docker)
 and are described in
-[Velox Backend CI](./velox-backend-CI.md#docker-build).
+[Velox Backend CI](../backends/velox/developers/velox-backend-CI.md#docker-build).
 
 To use the images outside a Dev Container, see
-[Build Gluten Velox backend in docker](./velox-backend-build-in-docker.md).
+[Build Gluten Velox backend in docker](../backends/velox/developers/velox-backend-build-in-docker.md).

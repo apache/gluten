@@ -103,7 +103,7 @@ import static org.apache.flink.util.Preconditions.checkState;
  * AbstractStreamOperatorV2}. However as {@link AbstractStreamOperatorV2} is currently experimental,
  * {@link AbstractStreamOperator} has not been deprecated just yet.
  *
- * <p>This class is a Gluten-local copy of Flink 1.19.2 {@link AbstractStreamOperator}. Gluten needs
+ * <p>This class is a Gluten-local copy of Flink 1.19.3 {@link AbstractStreamOperator}. Gluten needs
  * this fork because Flink's watermark status entrypoints are final in both operator base classes:
  * {@code AbstractStreamOperator.processWatermarkStatus1/2(...)} and {@code
  * AbstractStreamOperatorV2.processWatermarkStatus(...)}. Those methods route two-input {@code
@@ -113,7 +113,7 @@ import static org.apache.flink.util.Preconditions.checkState;
  * base class would prevent {@code GlutenTwoInputOperator} from overriding the status handling,
  * while not using a base class at all would lose the runtime, state, key-context, timer, latency,
  * and checkpoint behavior implemented by {@code AbstractStreamOperator}. Keep this file aligned
- * with Flink 1.19.2 except for making {@code processWatermarkStatus1/2(...)} overridable.
+ * with Flink 1.19.3 except for making {@code processWatermarkStatus1/2(...)} overridable.
  *
  * @param <OUT> The output type of the operator.
  */
@@ -147,7 +147,7 @@ public abstract class GlutenAbstractStreamOperator<OUT>
   // Concrete two-input subclasses (e.g. GlutenTwoInputOperator) override those entrypoints to
   // forward each input's watermark/status directly to native, bypassing this Java-side combined
   // watermark. The field and the private indexed overloads are kept to stay aligned with Flink
-  // 1.19.2's AbstractStreamOperator and to serve any future subclass that wants the default
+  // 1.19.3's AbstractStreamOperator and to serve any future subclass that wants the default
   // behavior; they are effectively dead code for the current Gluten operators.
   private transient IndexedCombinedWatermarkStatus combinedWatermark;
 

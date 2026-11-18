@@ -23,7 +23,7 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, AggregateFunction, Complete, Partial}
 import org.apache.spark.sql.execution.aggregate._
 import org.apache.spark.sql.execution.window.WindowExec
-import org.apache.spark.sql.types.{ByteType, DateType, IntegerType, LongType, ShortType}
+import org.apache.spark.sql.types.{ByteType, DataType, DateType, IntegerType, LongType, ShortType}
 
 import java.sql.Date
 import java.util.concurrent.atomic.AtomicInteger
@@ -194,10 +194,8 @@ trait PullOutProjectHelper {
     w.windowExpression.exists(_.find {
       case we: WindowExpression =>
         we.windowSpec.frameSpecification match {
-          case swf: SpecifiedWindowFrame
-              if needPreComputeRangeFrame(swf) && supportPreComputeRangeFrame(
-                we.windowSpec.orderSpec) =>
-            true
+          case swf: SpecifiedWindowFrame =>
+            canPreComputeRangeFrame(swf, we.windowSpec.orderSpec)
           case _ => false
         }
       case _ => false
@@ -209,15 +207,25 @@ trait PullOutProjectHelper {
     (needPreComputeRangeFrameBoundary(swf.lower) || needPreComputeRangeFrameBoundary(swf.upper))
   }
 
-  protected def supportPreComputeRangeFrame(sortOrders: Seq[SortOrder]): Boolean = {
-    sortOrders.forall {
-      _.dataType match {
-        case ByteType | ShortType | IntegerType | LongType | DateType => true
-        // Only integral type & date type are supported for sort key with Range Frame
-        case _ => false
-      }
-    }
+  // The pre-computed boundary is the order key plus the bound, so the bound has to be of an
+  // integral type too. A date key with an interval bound, for one, stays as it is and falls back.
+  private def canPreComputeRangeFrame(
+      swf: SpecifiedWindowFrame,
+      sortOrders: Seq[SortOrder]): Boolean = {
+    def integralBound(bound: Expression): Boolean =
+      !needPreComputeRangeFrameBoundary(bound) || isIntegralType(bound.dataType)
+    needPreComputeRangeFrame(swf) && supportPreComputeRangeFrame(sortOrders) &&
+    integralBound(swf.lower) && integralBound(swf.upper)
   }
+
+  private def isIntegralType(dataType: DataType): Boolean = dataType match {
+    case ByteType | ShortType | IntegerType | LongType => true
+    case _ => false
+  }
+
+  // Only integral and date sort keys are supported for a range frame.
+  protected def supportPreComputeRangeFrame(sortOrders: Seq[SortOrder]): Boolean =
+    sortOrders.forall(o => isIntegralType(o.dataType) || o.dataType == DateType)
 
   /**
    * Convert DateType to IntType for orderSpec if needPreComputeRangeFrame, because spark's frame
@@ -265,7 +273,7 @@ trait PullOutProjectHelper {
     }
 
     val newWindowSpec = we.windowSpec.frameSpecification match {
-      case swf: SpecifiedWindowFrame if needPreComputeRangeFrame(swf) =>
+      case swf: SpecifiedWindowFrame if canPreComputeRangeFrame(swf, orderSpecs) =>
         val orderSpec = orderSpecs.head
         val lowerFrameCol = preComputeRangeFrameBoundary(swf.lower, orderSpec, expressionMap)
         val upperFrameCol = preComputeRangeFrameBoundary(swf.upper, orderSpec, expressionMap)

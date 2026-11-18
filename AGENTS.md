@@ -8,9 +8,10 @@ that are easy to get wrong.
 
 - [New to Gluten](docs/developers/NewToGluten.md)
 - [Contributing Guide](CONTRIBUTING.md)
-- [Build Guide (Velox backend)](docs/get-started/Velox.md)
-- [Build Guide (ClickHouse backend)](docs/get-started/ClickHouse.md)
+- [Build Guide (Velox backend)](docs/backends/velox/get-started/Velox.md)
+- [Build Guide (ClickHouse backend)](docs/backends/clickhouse/get-started/ClickHouse.md)
 - [C++ Coding Style](docs/developers/CppCodingStyle.md)
+- [Updating the Function Support Docs](docs/backends/velox/developers/UpdateFunctionSupportDocs.md)
 
 ## Build Order (Important)
 
@@ -35,8 +36,8 @@ bash ./ep/build-clickhouse/src/build-clickhouse.sh
 ```
 
 For incremental builds, cloud-FS flags, the Spark/Scala/JDK matrix, table-format
-and shuffle profiles, see [docs/get-started/Velox.md](docs/get-started/Velox.md)
-and [docs/get-started/ClickHouse.md](docs/get-started/ClickHouse.md).
+and shuffle profiles, see [docs/backends/velox/get-started/Velox.md](docs/backends/velox/get-started/Velox.md)
+and [docs/backends/clickhouse/get-started/ClickHouse.md](docs/backends/clickhouse/get-started/ClickHouse.md).
 
 ## Bolt Local Workflow
 
@@ -96,7 +97,7 @@ You MUST run the following checks and fix any issues before committing.
 
 ```bash
 # Requires the `regex` Python package: pip install regex
-./dev/check.py header main --fix
+./.github/workflows/util/check.py header main --fix
 ```
 
 Do not commit code that fails CI checks.

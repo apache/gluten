@@ -159,6 +159,11 @@ class SubstraitToVeloxPlanConverter {
   // Construct a cuDF value stream node.
   core::PlanNodePtr constructCudfValueStreamNode(const ::substrait::ReadRel& sRead, int32_t streamIdx);
 
+#ifdef ENABLE_KAFKA
+  // Construct a Kafka stream node for reading from Kafka topics.
+  core::PlanNodePtr constructKafkaStreamNode(const ::substrait::ReadRel& sRead);
+#endif
+
   // This is only used in benchmark and enable query trace, which will load all the data to ValuesNode.
   core::PlanNodePtr constructValuesNode(const ::substrait::ReadRel& sRead, int32_t streamIdx);
 
@@ -201,7 +206,7 @@ class SubstraitToVeloxPlanConverter {
   }
 
   void setSplitInfos(std::vector<std::shared_ptr<SplitInfo>> splitInfos) {
-    splitInfos_ = splitInfos;
+    splitInfos_ = std::move(splitInfos);
   }
 
   /// The input iterators not inlined to VeloxPlan. They should be then manually added to the Velox task
@@ -274,8 +279,11 @@ class SubstraitToVeloxPlanConverter {
       const core::AggregationNode::Step& aggStep);
 
   /// Helper function to convert the input of Substrait Rel to Velox Node.
+  /// Takes the Rel by reference: the protobuf message owns the whole input
+  /// subtree, and passing by value deep-copied it once per node on the chain
+  /// (O(depth^2) total over a plan).
   template <typename T>
-  core::PlanNodePtr convertSingleInput(T rel) {
+  core::PlanNodePtr convertSingleInput(const T& rel) {
     VELOX_CHECK(rel.has_input(), "Child Rel is expected here.");
     return toVeloxPlan(rel.input());
   }

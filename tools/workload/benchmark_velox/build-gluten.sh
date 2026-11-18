@@ -33,7 +33,7 @@ short_version=${spark_version%.*}
 export SPARK_VERSION=$short_version
 
 # Update local docker image to make more cache hit for vcpkg lib binary.
-sudo docker pull apache/gluten:vcpkg-centos-7
+sudo docker pull apache/gluten:vcpkg-almalinux-8-gcc13
 
 sudo docker run --rm \
         -v ${GLUTEN_HOME}:/root/gluten \
@@ -44,6 +44,6 @@ sudo docker run --rm \
         -e https_proxy \
         -e SPARK_VERSION=$short_version \
         --workdir /root/gluten \
-        apache/gluten:vcpkg-centos-7 \
-        ./dev/package-vcpkg.sh
+        apache/gluten:vcpkg-almalinux-8-gcc13 \
+        bash -c "source /opt/rh/gcc-toolset-13/enable && ./dev/package-vcpkg.sh"
 

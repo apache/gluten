@@ -19,15 +19,18 @@ package org.apache.gluten.execution
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.expression.{ConverterUtils, ExpressionConverter}
+import org.apache.gluten.extension.columnar.PushDownInputFileExpression
 import org.apache.gluten.substrait.`type`.ColumnTypeNode
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.extensions.ExtensionBuilder
-import org.apache.gluten.substrait.rel.{ReadRelNode, RelBuilder, SplitInfo}
+import org.apache.gluten.substrait.rel.{ReadRelNode, RelBuilder, RelNode, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.Partition
+import org.apache.spark.sql.catalyst.FileSourceOptions
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.execution.adaptive.InputStats
+import org.apache.spark.sql.internal.SQLConf
 
 import com.google.protobuf.StringValue
 import io.substrait.proto.NamedStruct
@@ -43,22 +46,24 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
       val (_, scanFiltersNotInPushDownFilters) =
         scanFilters.partition(pushDownFilters.get.contains(_))
       // For filters that only exists in scan, we need to check if they are supported.
-      val unsupportedFilters = scanFiltersNotInPushDownFilters.filter(
-        !BackendsApiManager.getSparkPlanExecApiInstance.isSupportedScanFilter(_, this))
+      val unsupportedFilters = scanFiltersNotInPushDownFilters.filterNot(isSupportedScanFilter)
       if (unsupportedFilters.nonEmpty) {
         throw new UnsupportedOperationException(
           "Found unsupported filter in scan " + unsupportedFilters.mkString(", "))
       }
-      val supportedPushDownFilters = pushDownFilters.get
-        .filter(BackendsApiManager.getSparkPlanExecApiInstance.isSupportedScanFilter(_, this))
+      val supportedPushDownFilters = pushDownFilters.get.filter(isSupportedScanFilter)
       FilterHandler.combineFilters(supportedPushDownFilters, scanFiltersNotInPushDownFilters)
     } else {
       // todo: When PushDownFilterToScan is not performed, find a way to throw an
       //  exception to trigger scan fallback when encountering unsupported scan filters,
       //  instead of simply filtering them out.
-      scanFilters.filter(
-        BackendsApiManager.getSparkPlanExecApiInstance.isSupportedScanFilter(_, this))
+      scanFilters.filter(isSupportedScanFilter)
     }
+  }
+
+  private def isSupportedScanFilter(filter: Expression): Boolean = {
+    !filter.references.exists(isRowIndexMetadataColumn) &&
+    BackendsApiManager.getSparkPlanExecApiInstance.isSupportedScanFilter(filter, this)
   }
 
   /** Returns the filters that already exists in scan. */
@@ -79,6 +84,24 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
       s"${getClass.toString} does not support push down filters.")
   }
 
+  /**
+   * Required subfields per top-level column, set by the backend map-key pruning rule. Key is the
+   * normalized column name; values are the paths the query accesses under it, for example
+   * `c.m["k1"].f1`. Serialized into the ReadRel advanced extension so the native reader keeps only
+   * the map entries those paths name.
+   */
+  def requiredMapSubfields: Map[String, Seq[SubfieldPath]] = Map.empty
+
+  /** Whether this scan supports map-key pruning via required subfields. */
+  def supportsMapKeyPruning: Boolean = false
+
+  /** Copy the scan with required subfield paths for map-key pruning. */
+  def withRequiredMapSubfields(
+      subfields: Map[String, Seq[SubfieldPath]]): BasicScanExecTransformer = {
+    throw new UnsupportedOperationException(
+      s"${getClass.toString} does not support map-key pruning.")
+  }
+
   def getMetadataColumns(): Seq[AttributeReference]
 
   /** This can be used to report FileFormat for a file based scan operator. */
@@ -95,7 +118,19 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
   /** Returns the file format properties. */
   def getProperties: Map[String, String] = Map.empty
 
+  /** Returns the options given to this read, e.g. `spark.read.option(...)`. */
+  def getReadOptions: Map[String, String] = Map.empty
+
   def getInputStats: Option[InputStats] = Option.empty
+
+  protected def neededInputFileRelatedMetadataKeys: Seq[String] = {
+    val inputFileRelatedMetadataKeys = Seq(
+      InputFileName().prettyName,
+      InputFileBlockStart().prettyName,
+      InputFileBlockLength().prettyName)
+
+    inputFileRelatedMetadataKeys.filter(k => output.exists(_.name == k))
+  }
 
   override def getSplitInfos: Seq[SplitInfo] = {
     getSplitInfosFromPartitions(getPartitionWithReadFileFormats)
@@ -117,14 +152,6 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
 
     val metadataFromSpark = getMetadataColumns().map(_.name)
 
-    val inputFileRelatedMetadataKeys = Seq(
-      InputFileName().prettyName,
-      InputFileBlockStart().prettyName,
-      InputFileBlockLength().prettyName)
-
-    val neededInputFileRelatedMetadataKeys =
-      inputFileRelatedMetadataKeys.filter(k => output.exists(_.name == k))
-
     val metadataColumnNames = (metadataFromSpark ++ neededInputFileRelatedMetadataKeys).distinct
 
     BackendsApiManager.getIteratorApiInstance
@@ -139,6 +166,27 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
   }
 
   override protected def doValidateInternal(): ValidationResult = {
+    // A collision tag is placed by PushDownInputFileExpression.PreOffload when an injected
+    // input-file attribute would share a normalized name with a user column in this scan.
+    // Velox cannot simultaneously produce two columns with the same normalized name, so we
+    // fail validation here to keep the scan on vanilla Spark where the file-path thread-local
+    // is set by the JVM scan iterator.
+    if (getTagValue(PushDownInputFileExpression.INPUT_FILE_NAME_COLLISION_TAG).getOrElse(false)) {
+      return ValidationResult.failed(
+        "input_file_name() column name collision with a user data column under case-insensitive " +
+          "resolution: native scan cannot produce both simultaneously")
+    }
+
+    // The native scan only gets spark.sql.files.ignoreMissingFiles from the session conf.
+    // Spark also accepts ignoreMissingFiles as a read option, and the option wins over the conf.
+    // When the two differ, the native scan would use the wrong value, so fall back.
+    val ignoreMissingFiles = new FileSourceOptions(getReadOptions).ignoreMissingFiles
+    if (ignoreMissingFiles != SQLConf.get.ignoreMissingFiles) {
+      return ValidationResult.failed(
+        s"The ignoreMissingFiles read option ($ignoreMissingFiles) is different from " +
+          s"${SQLConf.IGNORE_MISSING_FILES.key} (${SQLConf.get.ignoreMissingFiles}).")
+    }
+
     val validationResult = BackendsApiManager.getSettings
       .validateScanExec(
         fileFormat,
@@ -159,10 +207,14 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
     doNativeValidation(substraitContext, relNode)
   }
 
+  protected def isRowIndexMetadataColumn(attr: Attribute): Boolean = {
+    BackendsApiManager.getSparkPlanExecApiInstance.isRowIndexMetadataColumn(attr.name)
+  }
+
   private def makeColumnTypeNode(attr: Attribute): ColumnTypeNode = {
     if (getPartitionSchema.exists(_.name.equals(attr.name))) {
       new ColumnTypeNode(NamedStruct.ColumnType.PARTITION_COL)
-    } else if (BackendsApiManager.getSparkPlanExecApiInstance.isRowIndexMetadataColumn(attr.name)) {
+    } else if (isRowIndexMetadataColumn(attr)) {
       new ColumnTypeNode(NamedStruct.ColumnType.ROWINDEX_COL)
     } else if (attr.isMetadataCol) {
       new ColumnTypeNode(NamedStruct.ColumnType.METADATA_COL)
@@ -172,14 +224,20 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
   }
 
   override protected def doTransform(context: SubstraitContext): TransformContext = {
-    val typeNodes = ConverterUtils.collectAttributeTypeNodes(output)
-    val nameList = ConverterUtils.collectAttributeNamesWithoutExprId(output)
-    val columnTypeNodes = output.map(makeColumnTypeNode).asJava
+    TransformContext(output, makeReadRel(context, output, context.nextOperatorId(this.nodeName)))
+  }
+
+  protected def makeReadRel(
+      context: SubstraitContext,
+      attributes: Seq[Attribute],
+      operatorId: java.lang.Long): RelNode = {
+    val typeNodes = ConverterUtils.collectAttributeTypeNodes(attributes)
+    val nameList = ConverterUtils.collectAttributeNamesWithoutExprId(attributes)
+    val columnTypeNodes = attributes.map(makeColumnTypeNode).asJava
     // Will put all filter expressions into an AND expression
-    val exprNode = filterExprs()
-      .map(ExpressionConverter.replaceAttributeReference)
-      .reduceLeftOption(And)
-      .map(ExpressionConverter.replaceWithExpressionTransformer(_, output))
+    val exprNode = FilterHandler
+      .combineConjuncts(filterExprs().map(ExpressionConverter.replaceAttributeReference))
+      .map(ExpressionConverter.replaceWithExpressionTransformer(_, attributes))
       .map(_.doTransform(context))
       .orNull
 
@@ -188,7 +246,12 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
     val optimization =
       BackendsApiManager.getTransformerApiInstance.packPBMessage(
         StringValue.newBuilder.setValue(s"isMergeTree=$mergeTreeFlag\n").build)
-    val extensionNode = ExtensionBuilder.makeAdvancedExtension(optimization, null)
+    val enhancement = if (requiredMapSubfields.isEmpty) {
+      null
+    } else {
+      BackendsApiManager.getTransformerApiInstance.packRequiredSubfields(requiredMapSubfields)
+    }
+    val extensionNode = ExtensionBuilder.makeAdvancedExtension(optimization, enhancement)
 
     val readNode = RelBuilder.makeReadRel(
       typeNodes,
@@ -197,12 +260,12 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
       columnTypeNodes,
       extensionNode,
       context,
-      context.nextOperatorId(this.nodeName))
+      operatorId)
     getInputStats.foreach(
       inputStats => {
         logInfo(s"hit scan inputStats with $inputStats")
         readNode.asInstanceOf[ReadRelNode].setInputStats(inputStats)
       })
-    TransformContext(output, readNode)
+    readNode
   }
 }

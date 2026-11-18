@@ -1,0 +1,87 @@
+VeloxColumnarToRow
+  WholeStageCodegenTransformer (13)
+    SortExecTransformer [w_warehouse_sk,i_item_sk,d_moy,mean,cov,d_moy,mean,cov]
+      InputIteratorTransformer
+        InputAdapter
+          ColumnarExchange [w_warehouse_sk,i_item_sk,d_moy,mean,cov,d_moy,mean,cov] #1
+            VeloxResizeBatches
+              WholeStageCodegenTransformer (12)
+                BroadcastHashJoinExecTransformer [i_item_sk,w_warehouse_sk,i_item_sk,w_warehouse_sk]
+                  ProjectExecTransformer [w_warehouse_sk,i_item_sk,d_moy,mean,stdev]
+                    FilterExecTransformer [mean,stdev]
+                      ProjectExecTransformer [w_warehouse_sk,i_item_sk,d_moy,stddev_samp(cast(inv_quantity_on_hand as double)),avg(inv_quantity_on_hand)]
+                        RegularHashAggregateExecTransformer [w_warehouse_name,w_warehouse_sk,i_item_sk,d_moy,n,avg,m2,sum,count] [stddev_samp(cast(inv_quantity_on_hand as double)),avg(inv_quantity_on_hand),n,avg,m2,sum,count]
+                          InputIteratorTransformer
+                            InputAdapter
+                              ColumnarExchange [w_warehouse_name,w_warehouse_sk,i_item_sk,d_moy,n,avg,m2,sum,count] #2
+                                VeloxResizeBatches
+                                  WholeStageCodegenTransformer (5)
+                                    ProjectExecTransformer [w_warehouse_name,w_warehouse_sk,i_item_sk,d_moy,n,avg,m2,sum,count]
+                                      FlushableHashAggregateExecTransformer [w_warehouse_name,w_warehouse_sk,i_item_sk,d_moy,_pre_x,inv_quantity_on_hand] [n,avg,m2,sum,count,n,avg,m2,sum,count,n,avg,m2]
+                                        ProjectExecTransformer [inv_quantity_on_hand,i_item_sk,w_warehouse_sk,w_warehouse_name,d_moy]
+                                          BroadcastHashJoinExecTransformer [inv_date_sk,d_date_sk]
+                                            ProjectExecTransformer [inv_quantity_on_hand,inv_date_sk,i_item_sk,w_warehouse_sk,w_warehouse_name]
+                                              BroadcastHashJoinExecTransformer [inv_warehouse_sk,w_warehouse_sk]
+                                                ProjectExecTransformer [inv_warehouse_sk,inv_quantity_on_hand,inv_date_sk,i_item_sk]
+                                                  BroadcastHashJoinExecTransformer [inv_item_sk,i_item_sk]
+                                                    FilterExecTransformer [inv_item_sk,inv_warehouse_sk]
+                                                      FileSourceScanExecTransformer parquet spark_catalog.default.inventory [inv_item_sk,inv_warehouse_sk,inv_quantity_on_hand,inv_date_sk]
+                                                        ColumnarSubqueryBroadcast [d_date_sk] #1
+                                                          ColumnarBroadcastExchange #3
+                                                            WholeStageCodegenTransformer (1)
+                                                              ProjectExecTransformer [d_date_sk,d_moy]
+                                                                FilterExecTransformer [d_year,d_moy,d_date_sk]
+                                                                  FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_date_sk,d_year,d_moy]
+                                                    InputIteratorTransformer
+                                                      InputAdapter
+                                                        ColumnarBroadcastExchange #4
+                                                          WholeStageCodegenTransformer (2)
+                                                            FilterExecTransformer [i_item_sk]
+                                                              FileSourceScanExecTransformer parquet spark_catalog.default.item [i_item_sk]
+                                                InputIteratorTransformer
+                                                  InputAdapter
+                                                    ColumnarBroadcastExchange #5
+                                                      WholeStageCodegenTransformer (3)
+                                                        FilterExecTransformer [w_warehouse_sk]
+                                                          FileSourceScanExecTransformer parquet spark_catalog.default.warehouse [w_warehouse_sk,w_warehouse_name]
+                                            InputIteratorTransformer
+                                              InputAdapter
+                                                ReusedExchange [d_date_sk,d_moy] #3
+                  InputIteratorTransformer
+                    InputAdapter
+                      ColumnarBroadcastExchange #6
+                        WholeStageCodegenTransformer (11)
+                          ProjectExecTransformer [w_warehouse_sk,i_item_sk,d_moy,mean,stdev]
+                            FilterExecTransformer [mean,stdev]
+                              ProjectExecTransformer [w_warehouse_sk,i_item_sk,d_moy,stddev_samp(cast(inv_quantity_on_hand as double)),avg(inv_quantity_on_hand)]
+                                RegularHashAggregateExecTransformer [w_warehouse_name,w_warehouse_sk,i_item_sk,d_moy,n,avg,m2,sum,count] [stddev_samp(cast(inv_quantity_on_hand as double)),avg(inv_quantity_on_hand),n,avg,m2,sum,count]
+                                  InputIteratorTransformer
+                                    InputAdapter
+                                      ColumnarExchange [w_warehouse_name,w_warehouse_sk,i_item_sk,d_moy,n,avg,m2,sum,count] #7
+                                        VeloxResizeBatches
+                                          WholeStageCodegenTransformer (10)
+                                            ProjectExecTransformer [w_warehouse_name,w_warehouse_sk,i_item_sk,d_moy,n,avg,m2,sum,count]
+                                              FlushableHashAggregateExecTransformer [w_warehouse_name,w_warehouse_sk,i_item_sk,d_moy,_pre_x,inv_quantity_on_hand] [n,avg,m2,sum,count,n,avg,m2,sum,count,n,avg,m2]
+                                                ProjectExecTransformer [inv_quantity_on_hand,i_item_sk,w_warehouse_sk,w_warehouse_name,d_moy]
+                                                  BroadcastHashJoinExecTransformer [inv_date_sk,d_date_sk]
+                                                    ProjectExecTransformer [inv_quantity_on_hand,inv_date_sk,i_item_sk,w_warehouse_sk,w_warehouse_name]
+                                                      BroadcastHashJoinExecTransformer [inv_warehouse_sk,w_warehouse_sk]
+                                                        ProjectExecTransformer [inv_warehouse_sk,inv_quantity_on_hand,inv_date_sk,i_item_sk]
+                                                          BroadcastHashJoinExecTransformer [inv_item_sk,i_item_sk]
+                                                            FilterExecTransformer [inv_item_sk,inv_warehouse_sk]
+                                                              FileSourceScanExecTransformer parquet spark_catalog.default.inventory [inv_item_sk,inv_warehouse_sk,inv_quantity_on_hand,inv_date_sk]
+                                                                ColumnarSubqueryBroadcast [d_date_sk] #2
+                                                                  ColumnarBroadcastExchange #8
+                                                                    WholeStageCodegenTransformer (6)
+                                                                      ProjectExecTransformer [d_date_sk,d_moy]
+                                                                        FilterExecTransformer [d_year,d_moy,d_date_sk]
+                                                                          FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_date_sk,d_year,d_moy]
+                                                            InputIteratorTransformer
+                                                              InputAdapter
+                                                                ReusedExchange [i_item_sk] #4
+                                                        InputIteratorTransformer
+                                                          InputAdapter
+                                                            ReusedExchange [w_warehouse_sk,w_warehouse_name] #5
+                                                    InputIteratorTransformer
+                                                      InputAdapter
+                                                        ReusedExchange [d_date_sk,d_moy] #8
