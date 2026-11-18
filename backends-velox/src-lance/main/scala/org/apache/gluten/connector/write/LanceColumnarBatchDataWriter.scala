@@ -200,24 +200,26 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
   private def exportBatch(batch: ColumnarBatch): ExportedBatch = {
     val handle = ColumnarBatches.getNativeHandle(BackendsApiManager.getBackendName, batch)
     val exported = new ExportedBatch(ArrowArray.allocateNew(allocator))
-    val cSchema = ArrowSchema.allocateNew(allocator)
     // An exported batch holds Velox memory, so it must be released on every path.
     try {
-      ColumnarBatchJniWrapper.exportToArrow(
-        handle,
-        cSchema.memoryAddress(),
-        exported.array.memoryAddress())
-      val provider = new CDataDictionaryProvider()
-      // Importing the schema releases and frees the struct, even when it fails.
-      try checkExportedSchema(Data.importSchema(allocator, cSchema, provider))
-      finally provider.close()
+      val cSchema = ArrowSchema.allocateNew(allocator)
+      try {
+        ColumnarBatchJniWrapper.exportToArrow(
+          handle,
+          cSchema.memoryAddress(),
+          exported.array.memoryAddress())
+        val provider = new CDataDictionaryProvider()
+        // Importing the schema releases and frees the struct, even when it fails.
+        try checkExportedSchema(Data.importSchema(allocator, cSchema, provider))
+        finally provider.close()
+      } finally {
+        cSchema.close()
+      }
       exported
     } catch {
       case t: Throwable =>
         exported.close()
         throw t
-    } finally {
-      cSchema.close()
     }
   }
 

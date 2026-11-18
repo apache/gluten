@@ -18,7 +18,10 @@ package org.apache.gluten.connector.write
 
 import org.apache.arrow.vector.{BaseFixedWidthVector, BitVectorHelper, VectorSchemaRoot}
 import org.apache.arrow.vector.complex.{FixedSizeListVector, ListVector}
+import org.apache.arrow.vector.ipc.message.ArrowFieldNode
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType, Schema}
+
+import java.util.Collections
 
 import scala.collection.JavaConverters._
 
@@ -65,8 +68,6 @@ object LanceFixedSizeLists {
   private def copyLists(source: ListVector, target: FixedSizeListVector, rows: Int): Unit = {
     val size = target.getListSize
     target.clear()
-    target.setInitialCapacity(rows)
-    target.allocateNew()
     // When every row holds a list, the elements are one contiguous run and can be moved as is.
     var contiguous = true
     var row = 0
@@ -80,23 +81,47 @@ object LanceFixedSizeLists {
             s"Column ${target.getName} holds lists of $size elements, " +
               s"but row $row has $length elements")
         }
-        target.setNotNull(row)
       }
       row += 1
     }
-    (source.getDataVector, target.getDataVector) match {
-      case (sourceData, targetData) if contiguous =>
-        if (rows > 0) {
-          sourceData
-            .makeTransferPair(targetData)
-            .splitAndTransfer(source.getElementStartIndex(0), rows * size)
+    if (contiguous) {
+      // Only the validity is allocated, as the elements are not copied: a node without nulls
+      // makes the vector build a validity of its own, with every row set.
+      target.loadFieldBuffers(
+        new ArrowFieldNode(rows, 0),
+        Collections.singletonList(target.getAllocator.getEmpty))
+      if (rows > 0) {
+        source.getDataVector
+          .makeTransferPair(target.getDataVector)
+          .splitAndTransfer(source.getElementStartIndex(0), rows * size)
+      }
+    } else {
+      target.setInitialCapacity(rows)
+      target.allocateNew()
+      row = 0
+      while (row < rows) {
+        if (!source.isNull(row)) {
+          target.setNotNull(row)
         }
+        row += 1
+      }
+      copyElements(source, target, rows, size)
+    }
+    target.setValueCount(rows)
+  }
+
+  /** Copies the elements of the rows that hold a list. A null row takes `size` null elements. */
+  private def copyElements(
+      source: ListVector,
+      target: FixedSizeListVector,
+      rows: Int,
+      size: Int): Unit =
+    (source.getDataVector, target.getDataVector) match {
       case (sourceData: BaseFixedWidthVector, targetData: BaseFixedWidthVector)
           if sourceData.getNullCount == 0 =>
         copyRows(source, sourceData, targetData, rows, size)
       case (sourceData, targetData) =>
-        // A null row still takes `size` element slots, left null.
-        row = 0
+        var row = 0
         while (row < rows) {
           if (!source.isNull(row)) {
             val start = source.getElementStartIndex(row)
@@ -109,8 +134,6 @@ object LanceFixedSizeLists {
           row += 1
         }
     }
-    target.setValueCount(rows)
-  }
 
   /**
    * Copies the elements of each row with one memory copy, for elements without nulls. The elements

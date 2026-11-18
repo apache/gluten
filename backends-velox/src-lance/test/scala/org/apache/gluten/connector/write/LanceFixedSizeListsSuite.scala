@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.connector.write
 
-import org.apache.arrow.memory.RootAllocator
+import org.apache.arrow.memory.{AllocationListener, RootAllocator}
 import org.apache.arrow.vector.{Float4Vector, IntVector, VectorSchemaRoot}
 import org.apache.arrow.vector.complex.{FixedSizeListVector, ListVector}
 import org.apache.arrow.vector.types.FloatingPointPrecision
@@ -46,6 +46,9 @@ class LanceFixedSizeListsSuite extends AnyFunSuite {
     assert(v.getChildren == commitSchema.getFields.get(1).getChildren)
   }
 
+  // The bytes the last move() allocated while it moved the rows.
+  private var allocatedByMove = 0L
+
   /**
    * Moves rows whose lists are given as offsets into elements 0 to 9, which hold their own index
    * unless they are in `nullElements`, and returns the fixed-size lists, None for a null row.
@@ -54,7 +57,12 @@ class LanceFixedSizeListsSuite extends AnyFunSuite {
       offsets: Seq[Int],
       nullRows: Set[Int],
       nullElements: Set[Int] = Set.empty): Seq[Option[Seq[Any]]] = {
-    val allocator = new RootAllocator(Long.MaxValue)
+    var moving = false
+    allocatedByMove = 0L
+    val listener = new AllocationListener {
+      override def onAllocation(size: Long): Unit = if (moving) allocatedByMove += size
+    }
+    val allocator = new RootAllocator(listener, Long.MaxValue)
     try {
       val from =
         VectorSchemaRoot.create(LanceFixedSizeLists.exportedSchema(commitSchema), allocator)
@@ -77,7 +85,9 @@ class LanceFixedSizeListsSuite extends AnyFunSuite {
         list.setLastSet(rows - 1)
         from.setRowCount(rows)
 
-        LanceFixedSizeLists.moveInto(from, to)
+        moving = true
+        try LanceFixedSizeLists.moveInto(from, to)
+        finally moving = false
 
         // The exported lists are freed once copied.
         assert(list.getOffsetBuffer.capacity() == 0)
@@ -106,6 +116,8 @@ class LanceFixedSizeListsSuite extends AnyFunSuite {
     assert(move(
       Seq(3, 5, 7, 9),
       Set.empty) == Seq(Some(Seq(3f, 4f)), Some(Seq(5f, 6f)), Some(Seq(7f, 8f))))
+    // Validity bitmaps are all it allocates: no buffer for the 3 lists of 2 floats.
+    assert(allocatedByMove < 3 * 2 * 4, allocatedByMove)
   }
 
   test("copies lists around null rows, which may take no elements") {

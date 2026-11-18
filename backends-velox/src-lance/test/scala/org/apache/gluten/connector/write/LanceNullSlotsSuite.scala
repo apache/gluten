@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.connector.write
 
-import org.apache.arrow.memory.{BufferAllocator, RootAllocator}
+import org.apache.arrow.memory.{BufferAllocator, OutOfMemoryException, RootAllocator}
 import org.apache.arrow.vector.{BaseFixedWidthVector, BigIntVector, BitVector, DecimalVector, IntVector, VectorSchemaRoot}
 import org.apache.arrow.vector.complex.StructVector
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType, Schema}
@@ -103,6 +103,21 @@ class LanceNullSlotsSuite extends AnyFunSuite {
         } finally {
           original.getReferenceManager.release()
         }
+    }
+  }
+
+  test("frees the buffers of a copy that cannot be allocated") {
+    withRoot(field("a", new ArrowType.Int(64, true))) {
+      (root, allocator) =>
+        val vector = root.getVector(0).asInstanceOf[BigIntVector]
+        fill(vector, 1000, Set(3))
+        root.setRowCount(1000)
+        // Room for the validity bitmap of the copy, but not for its 8,000 bytes of values.
+        val limited = allocator.newChildAllocator("limited", 0, 1024)
+        try intercept[OutOfMemoryException](LanceNullSlots.zero(root, limited))
+        // Closing an allocator fails if one of its buffers is still allocated.
+        finally limited.close()
+        assert(!slotIsZero(vector, 3))
     }
   }
 

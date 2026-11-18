@@ -115,7 +115,13 @@ object LanceNullSlots {
     val copy = vector.getField.createVector(allocator).asInstanceOf[BaseFixedWidthVector]
     // Raw buffers rather than allocateNew(), which would zero the data only for it to be copied over.
     val validity = allocator.buffer(bitmapBytes)
-    val data = allocator.buffer(rows * width)
+    val data =
+      try allocator.buffer(rows * width)
+      catch {
+        case t: Throwable =>
+          validity.close()
+          throw t
+      }
     try {
       // Only the values change: a value under a null struct keeps its own validity.
       if (vector.getNullCount > 0) {
