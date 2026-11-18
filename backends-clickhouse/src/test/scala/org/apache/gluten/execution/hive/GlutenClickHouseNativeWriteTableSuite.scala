@@ -230,16 +230,18 @@ class GlutenClickHouseNativeWriteTableSuite
                 .map(f => s"${f._1}")
                 .mkString(",") +
               " from origin_table"
-          withDestinationTable(table_name) {
-            checkInsertQuery(ctas_support_sql, checkNative = true)
-          }
-          withDestinationTable(table_name) {
-            try {
-              // hive format without format name not support
-              checkInsertQuery(ctas_not_support_sql, checkNative = false)
-            } catch {
-              case _: UnsupportedOperationException => // expected
-              case e: Exception => fail("should not throw exception", e)
+          withTable(table_name) {
+            withDestinationTable(table_name) {
+              checkInsertQuery(ctas_support_sql, checkNative = true)
+            }
+            withDestinationTable(table_name) {
+              try {
+                // hive format without format name not support
+                checkInsertQuery(ctas_not_support_sql, checkNative = false)
+              } catch {
+                case _: UnsupportedOperationException => // expected
+                case e: Exception => fail("should not throw exception", e)
+              }
             }
           }
       }
@@ -477,27 +479,29 @@ class GlutenClickHouseNativeWriteTableSuite
           // spark write does not support bucketed table
           // https://issues.apache.org/jira/browse/SPARK-19256
           val table_name = table_name_template.format(format)
-          writeAndCheckRead(origin_table, table_name, fields_.keys.toSeq) {
-            fields =>
-              spark
-                .table("origin_table")
-                .select(fields.head, fields.tail: _*)
-                .write
-                .format(format)
-                .partitionBy("date_field")
-                .bucketBy(2, "byte_field")
-                .saveAsTable(table_name)
-          }
+          withTable(table_name) {
+            writeAndCheckRead(origin_table, table_name, fields_.keys.toSeq) {
+              fields =>
+                spark
+                  .table("origin_table")
+                  .select(fields.head, fields.tail: _*)
+                  .write
+                  .format(format)
+                  .partitionBy("date_field")
+                  .bucketBy(2, "byte_field")
+                  .saveAsTable(table_name)
+            }
 
-          assertResult(2)(
-            new File(getWarehouseDir + "/" + table_name)
-              .listFiles()
-              .filter(_.isDirectory)
-              .filter(!_.getName.equals("date_field=__HIVE_DEFAULT_PARTITION__"))
-              .head
-              .listFiles()
-              .count(!_.isHidden)
-          ) // 2 bucket files
+            assertResult(2)(
+              new File(getWarehouseDir + "/" + table_name)
+                .listFiles()
+                .filter(_.isDirectory)
+                .filter(!_.getName.equals("date_field=__HIVE_DEFAULT_PARTITION__"))
+                .head
+                .listFiles()
+                .count(!_.isHidden)
+            ) // 2 bucket files
+          }
       }
     }
   }
@@ -523,30 +527,33 @@ class GlutenClickHouseNativeWriteTableSuite
         format =>
           val table_name = table_name_template.format(format)
           val testFields = fields.keys.toSeq
-          writeAndCheckRead(origin_table, table_name, testFields) {
-            fields =>
-              spark
-                .table(origin_table)
-                .select(fields.head, fields.tail: _*)
-                .write
-                .format(format)
-                .bucketBy(10, fields.head, fields.tail: _*)
-                .saveAsTable(table_name)
-          }
-          val table_name_vanilla = table_name_vanilla_template.format(format)
-          spark.sql(s"drop table IF EXISTS $table_name_vanilla")
-          withSQLConf((GlutenConfig.NATIVE_WRITER_ENABLED.key, "false")) {
-            withNativeWriteCheck(checkNative = false) {
-              spark
-                .table("origin_table")
-                .select(testFields.head, testFields.tail: _*)
-                .write
-                .format(format)
-                .bucketBy(10, testFields.head, testFields.tail: _*)
-                .saveAsTable(table_name_vanilla)
+          withTable(table_name) {
+            writeAndCheckRead(origin_table, table_name, testFields) {
+              fields =>
+                spark
+                  .table(origin_table)
+                  .select(fields.head, fields.tail: _*)
+                  .write
+                  .format(format)
+                  .bucketBy(10, fields.head, fields.tail: _*)
+                  .saveAsTable(table_name)
+            }
+            val table_name_vanilla = table_name_vanilla_template.format(format)
+            withTable(table_name_vanilla) {
+              withSQLConf((GlutenConfig.NATIVE_WRITER_ENABLED.key, "false")) {
+                withNativeWriteCheck(checkNative = false) {
+                  spark
+                    .table("origin_table")
+                    .select(testFields.head, testFields.tail: _*)
+                    .write
+                    .format(format)
+                    .bucketBy(10, testFields.head, testFields.tail: _*)
+                    .saveAsTable(table_name_vanilla)
+                }
+              }
+              compareWriteFilesSignature(format, table_name, table_name_vanilla, "sum(int_field)")
             }
           }
-          compareWriteFilesSignature(format, table_name, table_name_vanilla, "sum(int_field)")
       }
     }
   }
@@ -574,32 +581,35 @@ class GlutenClickHouseNativeWriteTableSuite
       nativeWrite {
         format =>
           val table_name = table_name_template.format(format)
-          writeAndCheckRead(origin_table, table_name, fields.keys.toSeq) {
-            fields =>
-              spark
-                .table("origin_table")
-                .select(fields.head, fields.tail: _*)
-                .write
-                .format(format)
-                .partitionBy("date_field")
-                .bucketBy(10, "byte_field", "string_field")
-                .saveAsTable(table_name)
-          }
-
-          val table_name_vanilla = table_name_vanilla_template.format(format)
-          spark.sql(s"drop table IF EXISTS $table_name_vanilla")
-          withSQLConf((GlutenConfig.NATIVE_WRITER_ENABLED.key, "false")) {
-            withNativeWriteCheck(checkNative = false) {
-              spark
-                .table("origin_table")
-                .select(fields.keys.toSeq.head, fields.keys.toSeq.tail: _*)
-                .write
-                .format(format)
-                .partitionBy("date_field")
-                .bucketBy(10, "byte_field", "string_field")
-                .saveAsTable(table_name_vanilla)
+          withTable(table_name) {
+            writeAndCheckRead(origin_table, table_name, fields.keys.toSeq) {
+              fields =>
+                spark
+                  .table("origin_table")
+                  .select(fields.head, fields.tail: _*)
+                  .write
+                  .format(format)
+                  .partitionBy("date_field")
+                  .bucketBy(10, "byte_field", "string_field")
+                  .saveAsTable(table_name)
             }
-            compareWriteFilesSignature(format, table_name, table_name_vanilla, "sum(int_field)")
+
+            val table_name_vanilla = table_name_vanilla_template.format(format)
+            withTable(table_name_vanilla) {
+              withSQLConf((GlutenConfig.NATIVE_WRITER_ENABLED.key, "false")) {
+                withNativeWriteCheck(checkNative = false) {
+                  spark
+                    .table("origin_table")
+                    .select(fields.keys.toSeq.head, fields.keys.toSeq.tail: _*)
+                    .write
+                    .format(format)
+                    .partitionBy("date_field")
+                    .bucketBy(10, "byte_field", "string_field")
+                    .saveAsTable(table_name_vanilla)
+                }
+                compareWriteFilesSignature(format, table_name, table_name_vanilla, "sum(int_field)")
+              }
+            }
           }
       }
     }
@@ -609,21 +619,21 @@ class GlutenClickHouseNativeWriteTableSuite
     nativeWrite {
       format =>
         val table_name = table_name_template.format(format)
-        spark.sql(s"drop table IF EXISTS $table_name")
-
-        withNativeWriteCheck(checkNative = true) {
-          // 8096 row per block, so there will be blocks containing all 0 in p, all 1 in p
-          spark
-            .range(30000)
-            .selectExpr("id", "id % 2 as p")
-            .orderBy("p")
-            .write
-            .format(format)
-            .partitionBy("p")
-            .saveAsTable(table_name)
+        withTable(table_name) {
+          withNativeWriteCheck(checkNative = true) {
+            // 8096 row per block, so there will be blocks containing all 0 in p, all 1 in p
+            spark
+              .range(30000)
+              .selectExpr("id", "id % 2 as p")
+              .orderBy("p")
+              .write
+              .format(format)
+              .partitionBy("p")
+              .saveAsTable(table_name)
+          }
+          val ret = spark.sql(s"select sum(id) from $table_name").collect().apply(0).apply(0)
+          assertResult(449985000)(ret)
         }
-        val ret = spark.sql(s"select sum(id) from $table_name").collect().apply(0).apply(0)
-        assertResult(449985000)(ret)
     }
   }
 
@@ -633,17 +643,18 @@ class GlutenClickHouseNativeWriteTableSuite
     nativeWrite {
       format =>
         val table_name = table_name_template.format(format)
-        spark.sql(s"drop table IF EXISTS $table_name")
-        withNativeWriteCheck(checkNative = true) {
-          spark
-            .range(200)
-            .selectExpr("id", " cast((id + rand()) as decimal(23,12)) as p")
-            .write
-            .format(format)
-            .partitionBy("p")
-            .saveAsTable(table_name)
+        withTable(table_name) {
+          withNativeWriteCheck(checkNative = true) {
+            spark
+              .range(200)
+              .selectExpr("id", " cast((id + rand()) as decimal(23,12)) as p")
+              .write
+              .format(format)
+              .partitionBy("p")
+              .saveAsTable(table_name)
+          }
+          val ret = spark.sql(s"select max(p) from $table_name").collect().apply(0).apply(0)
         }
-        val ret = spark.sql(s"select max(p) from $table_name").collect().apply(0).apply(0)
     }
   }
 
@@ -692,31 +703,33 @@ class GlutenClickHouseNativeWriteTableSuite
     nativeWrite {
       format =>
         val table_name = table_name_template.format(format)
-        spark.sql(s"drop table IF EXISTS $table_name")
-        writeAndCheckRead("origin_table", table_name, schema.fieldNames.map(f => s"`$f`")) {
-          _ =>
-            spark
-              .table("origin_table")
-              .write
-              .format(format)
-              .partitionBy("part=col1", "part_col2")
-              .bucketBy(2, "bucket/col")
-              .saveAsTable(table_name)
-        }
-
-        val table_name_vanilla = table_name_vanilla_template.format(format)
-        spark.sql(s"drop table IF EXISTS $table_name_vanilla")
-        withSQLConf((GlutenConfig.NATIVE_WRITER_ENABLED.key, "false")) {
-          withNativeWriteCheck(checkNative = false) {
-            spark
-              .table("origin_table")
-              .write
-              .format(format)
-              .partitionBy("part=col1", "part_col2")
-              .bucketBy(2, "bucket/col")
-              .saveAsTable(table_name_vanilla)
+        withTable(table_name) {
+          writeAndCheckRead("origin_table", table_name, schema.fieldNames.map(f => s"`$f`")) {
+            _ =>
+              spark
+                .table("origin_table")
+                .write
+                .format(format)
+                .partitionBy("part=col1", "part_col2")
+                .bucketBy(2, "bucket/col")
+                .saveAsTable(table_name)
           }
-          compareWriteFilesSignature(format, table_name, table_name_vanilla, "sum(id)")
+
+          val table_name_vanilla = table_name_vanilla_template.format(format)
+          withTable(table_name_vanilla) {
+            withSQLConf((GlutenConfig.NATIVE_WRITER_ENABLED.key, "false")) {
+              withNativeWriteCheck(checkNative = false) {
+                spark
+                  .table("origin_table")
+                  .write
+                  .format(format)
+                  .partitionBy("part=col1", "part_col2")
+                  .bucketBy(2, "bucket/col")
+                  .saveAsTable(table_name_vanilla)
+              }
+              compareWriteFilesSignature(format, table_name, table_name_vanilla, "sum(id)")
+            }
+          }
         }
     }
   }
@@ -725,17 +738,18 @@ class GlutenClickHouseNativeWriteTableSuite
     nativeWrite {
       format =>
         val table_name = table_name_template.format(format)
-        spark.sql(s"drop table IF EXISTS $table_name")
-        withNativeWriteCheck(checkNative = true) {
-          spark
-            .range(10000000)
-            .selectExpr("id", "cast('2020-01-01' as date) as p")
-            .write
-            .format(format)
-            .bucketBy(2, "p")
-            .saveAsTable(table_name)
+        withTable(table_name) {
+          withNativeWriteCheck(checkNative = true) {
+            spark
+              .range(10000000)
+              .selectExpr("id", "cast('2020-01-01' as date) as p")
+              .write
+              .format(format)
+              .bucketBy(2, "p")
+              .saveAsTable(table_name)
+          }
+          assertResult(10000000)(spark.table(table_name).count())
         }
-        assertResult(10000000)(spark.table(table_name).count())
     }
   }
 
@@ -743,17 +757,18 @@ class GlutenClickHouseNativeWriteTableSuite
     nativeWrite {
       format =>
         val table_name = table_name_template.format(format)
-        spark.sql(s"drop table IF EXISTS $table_name")
-        withNativeWriteCheck(checkNative = true) {
-          spark
-            .range(30000)
-            .selectExpr("id", "cast(null as string) as p")
-            .write
-            .format(format)
-            .partitionBy("p")
-            .saveAsTable(table_name)
+        withTable(table_name) {
+          withNativeWriteCheck(checkNative = true) {
+            spark
+              .range(30000)
+              .selectExpr("id", "cast(null as string) as p")
+              .write
+              .format(format)
+              .partitionBy("p")
+              .saveAsTable(table_name)
+          }
+          assertResult(30000)(spark.table(table_name).count())
         }
-        assertResult(30000)(spark.table(table_name).count())
     }
   }
 
@@ -761,17 +776,18 @@ class GlutenClickHouseNativeWriteTableSuite
     nativeWrite {
       format =>
         val table_name = table_name_template.format(format)
-        spark.sql(s"drop table IF EXISTS $table_name")
-        withNativeWriteCheck(checkNative = true) {
-          spark
-            .range(30000)
-            .selectExpr("id", "cast(null as string) as p")
-            .write
-            .format(format)
-            .bucketBy(2, "p")
-            .saveAsTable(table_name)
+        withTable(table_name) {
+          withNativeWriteCheck(checkNative = true) {
+            spark
+              .range(30000)
+              .selectExpr("id", "cast(null as string) as p")
+              .write
+              .format(format)
+              .bucketBy(2, "p")
+              .saveAsTable(table_name)
+          }
+          assertResult(30000)(spark.table(table_name).count())
         }
-        assertResult(30000)(spark.table(table_name).count())
     }
   }
 
@@ -795,20 +811,22 @@ class GlutenClickHouseNativeWriteTableSuite
     nativeWrite {
       format =>
         val table_name = "t_" + format
-        withDestinationTable(
-          table_name,
-          Some(s"create table $table_name (id int, str string) stored as $format")) {
-          checkInsertQuery(
-            s"insert overwrite table $table_name " +
-              "select id, cast(id as string) from range(10) union all " +
-              "select 10, '10' from range(10)",
-            checkNative = true)
-          checkInsertQuery(
-            s"insert overwrite table $table_name " +
-              "select id, cast(id as string) from range(10) union all " +
-              "select 10, cast(id as string) from range(10)",
-            checkNative = true
-          )
+        withTable(table_name) {
+          withDestinationTable(
+            table_name,
+            Some(s"create table $table_name (id int, str string) stored as $format")) {
+            checkInsertQuery(
+              s"insert overwrite table $table_name " +
+                "select id, cast(id as string) from range(10) union all " +
+                "select 10, '10' from range(10)",
+              checkNative = true)
+            checkInsertQuery(
+              s"insert overwrite table $table_name " +
+                "select id, cast(id as string) from range(10) union all " +
+                "select 10, cast(id as string) from range(10)",
+              checkNative = true
+            )
+          }
         }
     }
   }
@@ -885,16 +903,18 @@ class GlutenClickHouseNativeWriteTableSuite
       (table_name, format) => {
         val vanilla_table = s"${table_name}_v"
         val vanilla_create = create(format, Some(vanilla_table))
-        vanillaWrite {
-          withDestinationTable(vanilla_table, Option(vanilla_create)) {
-            checkInsertQuery(insert(format, Some(vanilla_table)), checkNative = false)
+        withTable(vanilla_table) {
+          vanillaWrite {
+            withDestinationTable(vanilla_table, Option(vanilla_create)) {
+              checkInsertQuery(insert(format, Some(vanilla_table)), checkNative = false)
+            }
           }
+          val rowsFromOriginTable =
+            spark.sql(s"select * from $vanilla_table").collect()
+          val dfFromWriteTable =
+            spark.sql(s"select * from $table_name")
+          checkAnswer(dfFromWriteTable, rowsFromOriginTable)
         }
-        val rowsFromOriginTable =
-          spark.sql(s"select * from $vanilla_table").collect()
-        val dfFromWriteTable =
-          spark.sql(s"select * from $table_name")
-        checkAnswer(dfFromWriteTable, rowsFromOriginTable)
       }
     )
   }
@@ -943,16 +963,18 @@ class GlutenClickHouseNativeWriteTableSuite
         (table_name, format) => {
           val vanilla_table = s"${table_name}_v"
           val vanilla_create = create(format, Some(vanilla_table))
-          vanillaWrite {
-            withDestinationTable(vanilla_table, Option(vanilla_create)) {
-              checkInsertQuery(insert(format, Some(vanilla_table)), checkNative = false)
+          withTable(vanilla_table) {
+            vanillaWrite {
+              withDestinationTable(vanilla_table, Option(vanilla_create)) {
+                checkInsertQuery(insert(format, Some(vanilla_table)), checkNative = false)
+              }
             }
+            val rowsFromOriginTable =
+              spark.sql(s"select * from $vanilla_table").collect()
+            val dfFromWriteTable =
+              spark.sql(s"select * from $table_name")
+            checkAnswer(dfFromWriteTable, rowsFromOriginTable)
           }
-          val rowsFromOriginTable =
-            spark.sql(s"select * from $vanilla_table").collect()
-          val dfFromWriteTable =
-            spark.sql(s"select * from $table_name")
-          checkAnswer(dfFromWriteTable, rowsFromOriginTable)
         }
       )
     }

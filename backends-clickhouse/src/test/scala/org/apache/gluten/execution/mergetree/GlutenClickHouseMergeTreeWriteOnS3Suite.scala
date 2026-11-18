@@ -62,68 +62,66 @@ class GlutenClickHouseMergeTreeWriteOnS3Suite extends CreateMergeTreeSuite {
   }
 
   test("test mergetree table write") {
-    spark.sql(s"""
-                 |DROP TABLE IF EXISTS lineitem_mergetree_s3;
-                 |""".stripMargin)
+    withTable("lineitem_mergetree_s3") {
+      spark.sql(s"""
+                   |CREATE TABLE lineitem_mergetree_s3
+                   |(
+                   | l_orderkey      bigint,
+                   | l_partkey       bigint,
+                   | l_suppkey       bigint,
+                   | l_linenumber    bigint,
+                   | l_quantity      double,
+                   | l_extendedprice double,
+                   | l_discount      double,
+                   | l_tax           double,
+                   | l_returnflag    string,
+                   | l_linestatus    string,
+                   | l_shipdate      date,
+                   | l_commitdate    date,
+                   | l_receiptdate   date,
+                   | l_shipinstruct  string,
+                   | l_shipmode      string,
+                   | l_comment       string
+                   |)
+                   |USING clickhouse
+                   |LOCATION 's3a://$BUCKET_NAME/lineitem_mergetree_s3'
+                   |TBLPROPERTIES (storage_policy='__s3_main')
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 |CREATE TABLE IF NOT EXISTS lineitem_mergetree_s3
-                 |(
-                 | l_orderkey      bigint,
-                 | l_partkey       bigint,
-                 | l_suppkey       bigint,
-                 | l_linenumber    bigint,
-                 | l_quantity      double,
-                 | l_extendedprice double,
-                 | l_discount      double,
-                 | l_tax           double,
-                 | l_returnflag    string,
-                 | l_linestatus    string,
-                 | l_shipdate      date,
-                 | l_commitdate    date,
-                 | l_receiptdate   date,
-                 | l_shipinstruct  string,
-                 | l_shipmode      string,
-                 | l_comment       string
-                 |)
-                 |USING clickhouse
-                 |LOCATION 's3a://$BUCKET_NAME/lineitem_mergetree_s3'
-                 |TBLPROPERTIES (storage_policy='__s3_main')
-                 |""".stripMargin)
+      spark.sql(s"""
+                   | insert into table lineitem_mergetree_s3
+                   | select * from lineitem
+                   |""".stripMargin)
+      minioHelper.resetMeta()
 
-    spark.sql(s"""
-                 | insert into table lineitem_mergetree_s3
-                 | select * from lineitem
-                 |""".stripMargin)
-    minioHelper.resetMeta()
+      customCheckQuery(q1("lineitem_mergetree_s3")) {
+        df =>
+          val scanExec = collect(df.queryExecution.executedPlan) {
+            case f: FileSourceScanExecTransformer => f
+          }
+          assertResult(1)(scanExec.size)
 
-    customCheckQuery(q1("lineitem_mergetree_s3")) {
-      df =>
-        val scanExec = collect(df.queryExecution.executedPlan) {
-          case f: FileSourceScanExecTransformer => f
-        }
-        assertResult(1)(scanExec.size)
+          val mergetreeScan = scanExec.head
+          assert(mergetreeScan.nodeName.startsWith("FileSourceScanExecTransformer mergetree"))
 
-        val mergetreeScan = scanExec.head
-        assert(mergetreeScan.nodeName.startsWith("FileSourceScanExecTransformer mergetree"))
-
-        val fileIndex = mergetreeScan.relation.location.asInstanceOf[TahoeFileIndex]
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).clickhouseTableConfigs.nonEmpty)
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).bucketOption.isEmpty)
-        assert(
-          ClickHouseTableV2
-            .getTable(fileIndex.deltaLog)
-            .orderByKey === StorageMeta.DEFAULT_ORDER_BY_KEY)
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).primaryKey.isEmpty)
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).partitionColumns.isEmpty)
-        val addFiles = fileIndex.matchingFiles(Nil, Nil).map(f => f.asInstanceOf[AddMergeTreeParts])
-        assertResult(1)(addFiles.size)
-        assertResult(600572)(addFiles.head.rows)
+          val fileIndex = mergetreeScan.relation.location.asInstanceOf[TahoeFileIndex]
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).clickhouseTableConfigs.nonEmpty)
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).bucketOption.isEmpty)
+          assert(
+            ClickHouseTableV2
+              .getTable(fileIndex.deltaLog)
+              .orderByKey === StorageMeta.DEFAULT_ORDER_BY_KEY)
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).primaryKey.isEmpty)
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).partitionColumns.isEmpty)
+          val addFiles =
+            fileIndex.matchingFiles(Nil, Nil).map(f => f.asInstanceOf[AddMergeTreeParts])
+          assertResult(1)(addFiles.size)
+          assertResult(600572)(addFiles.head.rows)
+      }
+      eventually(timeout(10.seconds), interval(2.seconds)) {
+        verifyS3CompactFileExist("lineitem_mergetree_s3")
+      }
     }
-    eventually(timeout(10.seconds), interval(2.seconds)) {
-      verifyS3CompactFileExist("lineitem_mergetree_s3")
-    }
-    spark.sql("drop table lineitem_mergetree_s3") // clean up
   }
 
   private def verifyS3CompactFileExist(table: String): Unit = {
@@ -162,290 +160,283 @@ class GlutenClickHouseMergeTreeWriteOnS3Suite extends CreateMergeTreeSuite {
   }
 
   test("test mergetree write with orderby keys / primary keys") {
-    spark.sql(s"""
-                 |DROP TABLE IF EXISTS lineitem_mergetree_orderbykey_s3;
-                 |""".stripMargin)
+    withTable("lineitem_mergetree_orderbykey_s3") {
+      spark.sql(s"""
+                   |CREATE TABLE lineitem_mergetree_orderbykey_s3
+                   |(
+                   | l_orderkey      bigint,
+                   | l_partkey       bigint,
+                   | l_suppkey       bigint,
+                   | l_linenumber    bigint,
+                   | l_quantity      double,
+                   | l_extendedprice double,
+                   | l_discount      double,
+                   | l_tax           double,
+                   | l_returnflag    string,
+                   | l_linestatus    string,
+                   | l_shipdate      date,
+                   | l_commitdate    date,
+                   | l_receiptdate   date,
+                   | l_shipinstruct  string,
+                   | l_shipmode      string,
+                   | l_comment       string
+                   |)
+                   |USING clickhouse
+                   |TBLPROPERTIES (storage_policy='__s3_main',
+                   |               orderByKey='l_shipdate,l_orderkey',
+                   |               primaryKey='l_shipdate')
+                   |LOCATION 's3a://$BUCKET_NAME/lineitem_mergetree_orderbykey_s3'
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 |CREATE TABLE IF NOT EXISTS lineitem_mergetree_orderbykey_s3
-                 |(
-                 | l_orderkey      bigint,
-                 | l_partkey       bigint,
-                 | l_suppkey       bigint,
-                 | l_linenumber    bigint,
-                 | l_quantity      double,
-                 | l_extendedprice double,
-                 | l_discount      double,
-                 | l_tax           double,
-                 | l_returnflag    string,
-                 | l_linestatus    string,
-                 | l_shipdate      date,
-                 | l_commitdate    date,
-                 | l_receiptdate   date,
-                 | l_shipinstruct  string,
-                 | l_shipmode      string,
-                 | l_comment       string
-                 |)
-                 |USING clickhouse
-                 |TBLPROPERTIES (storage_policy='__s3_main',
-                 |               orderByKey='l_shipdate,l_orderkey',
-                 |               primaryKey='l_shipdate')
-                 |LOCATION 's3a://$BUCKET_NAME/lineitem_mergetree_orderbykey_s3'
-                 |""".stripMargin)
+      spark.sql(s"""
+                   | insert into table lineitem_mergetree_orderbykey_s3
+                   | select * from lineitem
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 | insert into table lineitem_mergetree_orderbykey_s3
-                 | select * from lineitem
-                 |""".stripMargin)
+      customCheckQuery(q1("lineitem_mergetree_orderbykey_s3")) {
+        df =>
+          val scanExec = collect(df.queryExecution.executedPlan) {
+            case f: FileSourceScanExecTransformer => f
+          }
+          assertResult(1)(scanExec.size)
 
-    customCheckQuery(q1("lineitem_mergetree_orderbykey_s3")) {
-      df =>
-        val scanExec = collect(df.queryExecution.executedPlan) {
-          case f: FileSourceScanExecTransformer => f
-        }
-        assertResult(1)(scanExec.size)
+          val mergetreeScan = scanExec.head
+          assert(mergetreeScan.nodeName.startsWith("FileSourceScanExecTransformer mergetree"))
 
-        val mergetreeScan = scanExec.head
-        assert(mergetreeScan.nodeName.startsWith("FileSourceScanExecTransformer mergetree"))
-
-        val fileIndex = mergetreeScan.relation.location.asInstanceOf[TahoeFileIndex]
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).clickhouseTableConfigs.nonEmpty)
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).bucketOption.isEmpty)
-        assertResult("l_shipdate,l_orderkey")(
-          ClickHouseTableV2
-            .getTable(fileIndex.deltaLog)
-            .orderByKey)
-        assertResult("l_shipdate")(
-          ClickHouseTableV2
-            .getTable(fileIndex.deltaLog)
-            .primaryKey)
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).partitionColumns.isEmpty)
-        val addFiles = fileIndex.matchingFiles(Nil, Nil).map(f => f.asInstanceOf[AddMergeTreeParts])
-        assertResult(1)(addFiles.size)
-        assertResult(600572)(addFiles.head.rows)
+          val fileIndex = mergetreeScan.relation.location.asInstanceOf[TahoeFileIndex]
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).clickhouseTableConfigs.nonEmpty)
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).bucketOption.isEmpty)
+          assertResult("l_shipdate,l_orderkey")(
+            ClickHouseTableV2
+              .getTable(fileIndex.deltaLog)
+              .orderByKey)
+          assertResult("l_shipdate")(
+            ClickHouseTableV2
+              .getTable(fileIndex.deltaLog)
+              .primaryKey)
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).partitionColumns.isEmpty)
+          val addFiles =
+            fileIndex.matchingFiles(Nil, Nil).map(f => f.asInstanceOf[AddMergeTreeParts])
+          assertResult(1)(addFiles.size)
+          assertResult(600572)(addFiles.head.rows)
+      }
     }
-    spark.sql("drop table lineitem_mergetree_orderbykey_s3")
   }
 
   test("test mergetree write with partition") {
-    spark.sql(s"""
-                 |DROP TABLE IF EXISTS lineitem_mergetree_partition_s3;
-                 |""".stripMargin)
+    withTable("lineitem_mergetree_partition_s3") {
+      spark.sql(s"""
+                   |CREATE TABLE lineitem_mergetree_partition_s3
+                   |(
+                   | l_orderkey      bigint,
+                   | l_partkey       bigint,
+                   | l_suppkey       bigint,
+                   | l_linenumber    bigint,
+                   | l_quantity      double,
+                   | l_extendedprice double,
+                   | l_discount      double,
+                   | l_tax           double,
+                   | l_returnflag    string,
+                   | l_linestatus    string,
+                   | l_shipdate      date,
+                   | l_commitdate    date,
+                   | l_receiptdate   date,
+                   | l_shipinstruct  string,
+                   | l_shipmode      string,
+                   | l_comment       string
+                   |)
+                   |USING clickhouse
+                   |PARTITIONED BY (l_returnflag)
+                   |TBLPROPERTIES (storage_policy='__s3_main',
+                   |               orderByKey='l_orderkey',
+                   |               primaryKey='l_orderkey')
+                   |LOCATION 's3a://$BUCKET_NAME/lineitem_mergetree_partition_s3'
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 |CREATE TABLE IF NOT EXISTS lineitem_mergetree_partition_s3
-                 |(
-                 | l_orderkey      bigint,
-                 | l_partkey       bigint,
-                 | l_suppkey       bigint,
-                 | l_linenumber    bigint,
-                 | l_quantity      double,
-                 | l_extendedprice double,
-                 | l_discount      double,
-                 | l_tax           double,
-                 | l_returnflag    string,
-                 | l_linestatus    string,
-                 | l_shipdate      date,
-                 | l_commitdate    date,
-                 | l_receiptdate   date,
-                 | l_shipinstruct  string,
-                 | l_shipmode      string,
-                 | l_comment       string
-                 |)
-                 |USING clickhouse
-                 |PARTITIONED BY (l_returnflag)
-                 |TBLPROPERTIES (storage_policy='__s3_main',
-                 |               orderByKey='l_orderkey',
-                 |               primaryKey='l_orderkey')
-                 |LOCATION 's3a://$BUCKET_NAME/lineitem_mergetree_partition_s3'
-                 |""".stripMargin)
+      // dynamic partitions
+      spark.sql(s"""
+                   | insert into table lineitem_mergetree_partition_s3
+                   | select * from lineitem
+                   |""".stripMargin)
 
-    // dynamic partitions
-    spark.sql(s"""
-                 | insert into table lineitem_mergetree_partition_s3
-                 | select * from lineitem
-                 |""".stripMargin)
+      // write with dataframe api
+      val source = spark.sql(s"""
+                                |select
+                                | l_orderkey      ,
+                                | l_partkey       ,
+                                | l_suppkey       ,
+                                | l_linenumber    ,
+                                | l_quantity      ,
+                                | l_extendedprice ,
+                                | l_discount      ,
+                                | l_tax           ,
+                                | l_returnflag    ,
+                                | l_linestatus    ,
+                                | l_shipdate      ,
+                                | l_commitdate    ,
+                                | l_receiptdate   ,
+                                | l_shipinstruct  ,
+                                | l_shipmode      ,
+                                | l_comment
+                                | from lineitem
+                                | where l_shipdate BETWEEN date'1993-01-01' AND date'1993-01-10'
+                                |""".stripMargin)
 
-    // write with dataframe api
-    val source = spark.sql(s"""
-                              |select
-                              | l_orderkey      ,
-                              | l_partkey       ,
-                              | l_suppkey       ,
-                              | l_linenumber    ,
-                              | l_quantity      ,
-                              | l_extendedprice ,
-                              | l_discount      ,
-                              | l_tax           ,
-                              | l_returnflag    ,
-                              | l_linestatus    ,
-                              | l_shipdate      ,
-                              | l_commitdate    ,
-                              | l_receiptdate   ,
-                              | l_shipinstruct  ,
-                              | l_shipmode      ,
-                              | l_comment
-                              | from lineitem
-                              | where l_shipdate BETWEEN date'1993-01-01' AND date'1993-01-10'
-                              |""".stripMargin)
+      source.write
+        .format("clickhouse")
+        .mode(SaveMode.Append)
+        .insertInto("lineitem_mergetree_partition_s3")
 
-    source.write
-      .format("clickhouse")
-      .mode(SaveMode.Append)
-      .insertInto("lineitem_mergetree_partition_s3")
+      // static partition
+      spark.sql(s"""
+                   | insert into lineitem_mergetree_partition_s3 PARTITION (l_returnflag = 'A')
+                   | (l_shipdate,
+                   |  l_orderkey,
+                   |  l_partkey,
+                   |  l_suppkey,
+                   |  l_linenumber,
+                   |  l_quantity,
+                   |  l_extendedprice,
+                   |  l_discount,
+                   |  l_tax,
+                   |  l_linestatus,
+                   |  l_commitdate,
+                   |  l_receiptdate,
+                   |  l_shipinstruct,
+                   |  l_shipmode,
+                   |  l_comment)
+                   | select
+                   |  l_shipdate,
+                   |  l_orderkey,
+                   |  l_partkey,
+                   |  l_suppkey,
+                   |  l_linenumber,
+                   |  l_quantity,
+                   |  l_extendedprice,
+                   |  l_discount,
+                   |  l_tax,
+                   |  l_linestatus,
+                   |  l_commitdate,
+                   |  l_receiptdate,
+                   |  l_shipinstruct,
+                   |  l_shipmode,
+                   |  l_comment from lineitem
+                   |  where l_returnflag = 'A'
+                   |""".stripMargin)
 
-    // static partition
-    spark.sql(s"""
-                 | insert into lineitem_mergetree_partition_s3 PARTITION (l_returnflag = 'A')
-                 | (l_shipdate,
-                 |  l_orderkey,
-                 |  l_partkey,
-                 |  l_suppkey,
-                 |  l_linenumber,
-                 |  l_quantity,
-                 |  l_extendedprice,
-                 |  l_discount,
-                 |  l_tax,
-                 |  l_linestatus,
-                 |  l_commitdate,
-                 |  l_receiptdate,
-                 |  l_shipinstruct,
-                 |  l_shipmode,
-                 |  l_comment)
-                 | select
-                 |  l_shipdate,
-                 |  l_orderkey,
-                 |  l_partkey,
-                 |  l_suppkey,
-                 |  l_linenumber,
-                 |  l_quantity,
-                 |  l_extendedprice,
-                 |  l_discount,
-                 |  l_tax,
-                 |  l_linestatus,
-                 |  l_commitdate,
-                 |  l_receiptdate,
-                 |  l_shipinstruct,
-                 |  l_shipmode,
-                 |  l_comment from lineitem
-                 |  where l_returnflag = 'A'
-                 |""".stripMargin)
+      customCheckQuery(q1("lineitem_mergetree_partition_s3"), compare = false) {
+        df =>
+          val result = df.collect()
+          assertResult(4)(result.length)
+          assertResult("A")(result(0).getString(0))
+          assertResult("F")(result(0).getString(1))
+          assertResult(7578058.0)(result(0).getDouble(2))
 
-    customCheckQuery(q1("lineitem_mergetree_partition_s3"), compare = false) {
-      df =>
-        val result = df.collect()
-        assertResult(4)(result.length)
-        assertResult("A")(result(0).getString(0))
-        assertResult("F")(result(0).getString(1))
-        assertResult(7578058.0)(result(0).getDouble(2))
+          assertResult("N")(result(2).getString(0))
+          assertResult("O")(result(2).getString(1))
+          assertResult(7454519.0)(result(2).getDouble(2))
 
-        assertResult("N")(result(2).getString(0))
-        assertResult("O")(result(2).getString(1))
-        assertResult(7454519.0)(result(2).getDouble(2))
+          val scanExec = collect(df.queryExecution.executedPlan) {
+            case f: FileSourceScanExecTransformer => f
+          }
+          assertResult(1)(scanExec.size)
 
-        val scanExec = collect(df.queryExecution.executedPlan) {
-          case f: FileSourceScanExecTransformer => f
-        }
-        assertResult(1)(scanExec.size)
+          val mergetreeScan = scanExec.head
+          assert(mergetreeScan.nodeName.startsWith("FileSourceScanExecTransformer mergetree"))
+          assertResult(6)(mergetreeScan.metrics("numFiles").value)
 
-        val mergetreeScan = scanExec.head
-        assert(mergetreeScan.nodeName.startsWith("FileSourceScanExecTransformer mergetree"))
-        assertResult(6)(mergetreeScan.metrics("numFiles").value)
+          val fileIndex = mergetreeScan.relation.location.asInstanceOf[TahoeFileIndex]
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).clickhouseTableConfigs.nonEmpty)
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).bucketOption.isEmpty)
+          assertResult("l_orderkey")(
+            ClickHouseTableV2
+              .getTable(fileIndex.deltaLog)
+              .orderByKey)
+          assertResult("l_orderkey")(
+            ClickHouseTableV2
+              .getTable(fileIndex.deltaLog)
+              .primaryKey)
+          assertResult(1)(ClickHouseTableV2.getTable(fileIndex.deltaLog).partitionColumns.size)
+          assertResult("l_returnflag")(
+            ClickHouseTableV2
+              .getTable(fileIndex.deltaLog)
+              .partitionColumns
+              .head)
+          val addFiles =
+            fileIndex.matchingFiles(Nil, Nil).map(f => f.asInstanceOf[AddMergeTreeParts])
 
-        val fileIndex = mergetreeScan.relation.location.asInstanceOf[TahoeFileIndex]
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).clickhouseTableConfigs.nonEmpty)
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).bucketOption.isEmpty)
-        assertResult("l_orderkey")(
-          ClickHouseTableV2
-            .getTable(fileIndex.deltaLog)
-            .orderByKey)
-        assertResult("l_orderkey")(
-          ClickHouseTableV2
-            .getTable(fileIndex.deltaLog)
-            .primaryKey)
-        assertResult(1)(ClickHouseTableV2.getTable(fileIndex.deltaLog).partitionColumns.size)
-        assertResult("l_returnflag")(
-          ClickHouseTableV2
-            .getTable(fileIndex.deltaLog)
-            .partitionColumns
-            .head)
-        val addFiles = fileIndex.matchingFiles(Nil, Nil).map(f => f.asInstanceOf[AddMergeTreeParts])
-
-        assertResult(6)(addFiles.size)
-        assertResult(750735)(addFiles.map(_.rows).sum)
+          assertResult(6)(addFiles.size)
+          assertResult(750735)(addFiles.map(_.rows).sum)
+      }
     }
-    spark.sql("drop table lineitem_mergetree_partition_s3")
-
   }
 
   ignoreSpark33OnlyCase("test mergetree write with bucket table") {
-    spark.sql(s"""
-                 |DROP TABLE IF EXISTS lineitem_mergetree_bucket_s3;
-                 |""".stripMargin)
+    withTable("lineitem_mergetree_bucket_s3") {
+      spark.sql(s"""
+                   |CREATE TABLE lineitem_mergetree_bucket_s3
+                   |(
+                   | l_orderkey      bigint,
+                   | l_partkey       bigint,
+                   | l_suppkey       bigint,
+                   | l_linenumber    bigint,
+                   | l_quantity      double,
+                   | l_extendedprice double,
+                   | l_discount      double,
+                   | l_tax           double,
+                   | l_returnflag    string,
+                   | l_linestatus    string,
+                   | l_shipdate      date,
+                   | l_commitdate    date,
+                   | l_receiptdate   date,
+                   | l_shipinstruct  string,
+                   | l_shipmode      string,
+                   | l_comment       string
+                   |)
+                   |USING clickhouse
+                   |PARTITIONED BY (l_returnflag)
+                   |CLUSTERED BY (l_orderkey)
+                   |SORTED BY (l_partkey) INTO 4 BUCKETS
+                   |LOCATION 's3a://$BUCKET_NAME/lineitem_mergetree_bucket_s3'
+                   |TBLPROPERTIES (storage_policy='__s3_main')
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 |CREATE TABLE IF NOT EXISTS lineitem_mergetree_bucket_s3
-                 |(
-                 | l_orderkey      bigint,
-                 | l_partkey       bigint,
-                 | l_suppkey       bigint,
-                 | l_linenumber    bigint,
-                 | l_quantity      double,
-                 | l_extendedprice double,
-                 | l_discount      double,
-                 | l_tax           double,
-                 | l_returnflag    string,
-                 | l_linestatus    string,
-                 | l_shipdate      date,
-                 | l_commitdate    date,
-                 | l_receiptdate   date,
-                 | l_shipinstruct  string,
-                 | l_shipmode      string,
-                 | l_comment       string
-                 |)
-                 |USING clickhouse
-                 |PARTITIONED BY (l_returnflag)
-                 |CLUSTERED BY (l_orderkey)
-                 |SORTED BY (l_partkey) INTO 4 BUCKETS
-                 |LOCATION 's3a://$BUCKET_NAME/lineitem_mergetree_bucket_s3'
-                 |TBLPROPERTIES (storage_policy='__s3_main')
-                 |""".stripMargin)
+      spark.sql(s"""
+                   | insert into table lineitem_mergetree_bucket_s3
+                   | select * from lineitem
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 | insert into table lineitem_mergetree_bucket_s3
-                 | select * from lineitem
-                 |""".stripMargin)
+      customCheckQuery(q1("lineitem_mergetree_bucket_s3")) {
+        df =>
+          val scanExec = collect(df.queryExecution.executedPlan) {
+            case f: FileSourceScanExecTransformer => f
+          }
+          assertResult(1)(scanExec.size)
 
-    customCheckQuery(q1("lineitem_mergetree_bucket_s3")) {
-      df =>
-        val scanExec = collect(df.queryExecution.executedPlan) {
-          case f: FileSourceScanExecTransformer => f
-        }
-        assertResult(1)(scanExec.size)
+          val mergetreeScan = scanExec.head
+          assert(mergetreeScan.nodeName.startsWith("FileSourceScanExecTransformer mergetree"))
 
-        val mergetreeScan = scanExec.head
-        assert(mergetreeScan.nodeName.startsWith("FileSourceScanExecTransformer mergetree"))
+          val fileIndex = mergetreeScan.relation.location.asInstanceOf[TahoeFileIndex]
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).clickhouseTableConfigs.nonEmpty)
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).bucketOption.isDefined)
+          assertResult("l_partkey")(
+            ClickHouseTableV2
+              .getTable(fileIndex.deltaLog)
+              .orderByKey)
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).primaryKey.isEmpty)
+          assertResult(1)(ClickHouseTableV2.getTable(fileIndex.deltaLog).partitionColumns.size)
+          assertResult("l_returnflag")(
+            ClickHouseTableV2
+              .getTable(fileIndex.deltaLog)
+              .partitionColumns
+              .head)
+          val addFiles =
+            fileIndex.matchingFiles(Nil, Nil).map(f => f.asInstanceOf[AddMergeTreeParts])
 
-        val fileIndex = mergetreeScan.relation.location.asInstanceOf[TahoeFileIndex]
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).clickhouseTableConfigs.nonEmpty)
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).bucketOption.isDefined)
-        assertResult("l_partkey")(
-          ClickHouseTableV2
-            .getTable(fileIndex.deltaLog)
-            .orderByKey)
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).primaryKey.isEmpty)
-        assertResult(1)(ClickHouseTableV2.getTable(fileIndex.deltaLog).partitionColumns.size)
-        assertResult("l_returnflag")(
-          ClickHouseTableV2
-            .getTable(fileIndex.deltaLog)
-            .partitionColumns
-            .head)
-        val addFiles = fileIndex.matchingFiles(Nil, Nil).map(f => f.asInstanceOf[AddMergeTreeParts])
-
-        assertResult(12)(addFiles.size)
-        assertResult(600572)(addFiles.map(_.rows).sum)
+          assertResult(12)(addFiles.size)
+          assertResult(600572)(addFiles.map(_.rows).sum)
+      }
     }
-    spark.sql("drop table lineitem_mergetree_bucket_s3")
   }
 
   ignoreSpark33OnlyCase("test mergetree write with the path based bucket table") {
@@ -512,123 +503,116 @@ class GlutenClickHouseMergeTreeWriteOnS3Suite extends CreateMergeTreeSuite {
       RuntimeSettings.INSERT_WITHOUT_LOCAL_STORAGE.key -> "true",
       RuntimeSettings.MERGE_AFTER_INSERT.key -> "true"
     ) {
-      spark.sql(s"""
-                   |DROP TABLE IF EXISTS $tableName;
-                   |""".stripMargin)
+      withTable(tableName) {
+        spark.sql(s"""
+                     |CREATE TABLE $tableName
+                     |USING clickhouse
+                     |LOCATION '$dataPath'
+                     | as select * from lineitem
+                     |""".stripMargin)
 
-      spark.sql(s"""
-                   |CREATE TABLE IF NOT EXISTS $tableName
-                   |USING clickhouse
-                   |LOCATION '$dataPath'
-                   | as select * from lineitem
-                   |""".stripMargin)
-
-      val ret = spark.sql(s"select count(*) from $tableName").collect()
-      assertResult(600572)(ret.apply(0).get(0))
-      assert(
-        !new File(s"$CH_DEFAULT_STORAGE_DIR/lineitem_mergetree_insert_optimize_basic").exists())
+        val ret = spark.sql(s"select count(*) from $tableName").collect()
+        assertResult(600572)(ret.apply(0).get(0))
+        assert(
+          !new File(s"$CH_DEFAULT_STORAGE_DIR/lineitem_mergetree_insert_optimize_basic").exists())
+      }
     }
   }
 
   test("test mergetree with primary keys pruning by driver") {
     val tableName = "lineitem_mergetree_pk_pruning_by_driver_s3"
     val dataPath = s"s3a://$BUCKET_NAME/$tableName"
-    spark.sql(s"""
-                 |DROP TABLE IF EXISTS $tableName;
-                 |""".stripMargin)
+    withTable(tableName) {
+      spark.sql(s"""
+                   |CREATE TABLE $tableName
+                   |(
+                   | l_orderkey      bigint,
+                   | l_partkey       bigint,
+                   | l_suppkey       bigint,
+                   | l_linenumber    bigint,
+                   | l_quantity      double,
+                   | l_extendedprice double,
+                   | l_discount      double,
+                   | l_tax           double,
+                   | l_returnflag    string,
+                   | l_linestatus    string,
+                   | l_shipdate      date,
+                   | l_commitdate    date,
+                   | l_receiptdate   date,
+                   | l_shipinstruct  string,
+                   | l_shipmode      string,
+                   | l_comment       string
+                   |)
+                   |USING clickhouse
+                   |TBLPROPERTIES (storage_policy='__s3_main', orderByKey='l_shipdate')
+                   |LOCATION '$dataPath'
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 |CREATE TABLE IF NOT EXISTS $tableName
-                 |(
-                 | l_orderkey      bigint,
-                 | l_partkey       bigint,
-                 | l_suppkey       bigint,
-                 | l_linenumber    bigint,
-                 | l_quantity      double,
-                 | l_extendedprice double,
-                 | l_discount      double,
-                 | l_tax           double,
-                 | l_returnflag    string,
-                 | l_linestatus    string,
-                 | l_shipdate      date,
-                 | l_commitdate    date,
-                 | l_receiptdate   date,
-                 | l_shipinstruct  string,
-                 | l_shipmode      string,
-                 | l_comment       string
-                 |)
-                 |USING clickhouse
-                 |TBLPROPERTIES (storage_policy='__s3_main', orderByKey='l_shipdate')
-                 |LOCATION '$dataPath'
-                 |""".stripMargin)
+      spark.sql(s"""
+                   | insert into table $tableName
+                   | select * from lineitem
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 | insert into table $tableName
-                 | select * from lineitem
-                 |""".stripMargin)
+      minioHelper.resetMeta()
 
-    minioHelper.resetMeta()
+      withSQLConf(CHConfig.runtimeSettings("enabled_driver_filter_mergetree_index") -> "true") {
+        customCheckQuery(q6(tableName)) {
+          df =>
+            val scanExec = collect(df.queryExecution.executedPlan) {
+              case f: FileSourceScanExecTransformer => f
+            }
+            assertResult(1)(scanExec.size)
 
-    withSQLConf(CHConfig.runtimeSettings("enabled_driver_filter_mergetree_index") -> "true") {
-      customCheckQuery(q6(tableName)) {
-        df =>
-          val scanExec = collect(df.queryExecution.executedPlan) {
-            case f: FileSourceScanExecTransformer => f
-          }
-          assertResult(1)(scanExec.size)
+            val mergetreeScan = scanExec.head
+            assert(mergetreeScan.nodeName.startsWith("FileSourceScanExecTransformer mergetree"))
 
-          val mergetreeScan = scanExec.head
-          assert(mergetreeScan.nodeName.startsWith("FileSourceScanExecTransformer mergetree"))
-
-          val plans = collect(df.queryExecution.executedPlan) {
-            case scanExec: BasicScanExecTransformer => scanExec
-          }
-          assertResult(1)(plans.size)
-          assertResult(1)(plans.head.getSplitInfos.size)
+            val plans = collect(df.queryExecution.executedPlan) {
+              case scanExec: BasicScanExecTransformer => scanExec
+            }
+            assertResult(1)(plans.size)
+            assertResult(1)(plans.head.getSplitInfos.size)
+        }
       }
     }
   }
 
   test("GLUTEN-6750: Optimize error if file metadata not exist") {
-    spark.sql(s"""
-                 |DROP TABLE IF EXISTS lineitem_mergetree_bucket_s3;
-                 |""".stripMargin)
+    withTable("lineitem_mergetree_bucket_s3") {
+      spark.sql(s"""
+                   |CREATE TABLE lineitem_mergetree_bucket_s3
+                   |(
+                   | l_orderkey      bigint,
+                   | l_partkey       bigint,
+                   | l_suppkey       bigint,
+                   | l_linenumber    bigint,
+                   | l_quantity      double,
+                   | l_extendedprice double,
+                   | l_discount      double,
+                   | l_tax           double,
+                   | l_returnflag    string,
+                   | l_linestatus    string,
+                   | l_shipdate      date,
+                   | l_commitdate    date,
+                   | l_receiptdate   date,
+                   | l_shipinstruct  string,
+                   | l_shipmode      string,
+                   | l_comment       string
+                   |)
+                   |USING clickhouse
+                   |PARTITIONED BY (l_returnflag)
+                   |CLUSTERED BY (l_orderkey)
+                   |SORTED BY (l_partkey) INTO 4 BUCKETS
+                   |LOCATION 's3a://$BUCKET_NAME/lineitem_mergetree_bucket_s3'
+                   |TBLPROPERTIES (storage_policy='__s3_main')
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 |CREATE TABLE IF NOT EXISTS lineitem_mergetree_bucket_s3
-                 |(
-                 | l_orderkey      bigint,
-                 | l_partkey       bigint,
-                 | l_suppkey       bigint,
-                 | l_linenumber    bigint,
-                 | l_quantity      double,
-                 | l_extendedprice double,
-                 | l_discount      double,
-                 | l_tax           double,
-                 | l_returnflag    string,
-                 | l_linestatus    string,
-                 | l_shipdate      date,
-                 | l_commitdate    date,
-                 | l_receiptdate   date,
-                 | l_shipinstruct  string,
-                 | l_shipmode      string,
-                 | l_comment       string
-                 |)
-                 |USING clickhouse
-                 |PARTITIONED BY (l_returnflag)
-                 |CLUSTERED BY (l_orderkey)
-                 |SORTED BY (l_partkey) INTO 4 BUCKETS
-                 |LOCATION 's3a://$BUCKET_NAME/lineitem_mergetree_bucket_s3'
-                 |TBLPROPERTIES (storage_policy='__s3_main')
-                 |""".stripMargin)
+      spark.sql(s"""
+                   | insert into table lineitem_mergetree_bucket_s3
+                   | select /*+ REPARTITION(3) */ * from lineitem
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 | insert into table lineitem_mergetree_bucket_s3
-                 | select /*+ REPARTITION(3) */ * from lineitem
-                 |""".stripMargin)
-
-    minioHelper.resetMeta()
-    spark.sql("optimize lineitem_mergetree_bucket_s3")
-    spark.sql("drop table lineitem_mergetree_bucket_s3")
+      minioHelper.resetMeta()
+      spark.sql("optimize lineitem_mergetree_bucket_s3")
+    }
   }
 }

@@ -42,43 +42,40 @@ class GlutenClickHouseMergeTreeWriteTaskNotSerializableSuite extends CreateMerge
   }
 
   test("GLUTEN-6470: Fix Task not serializable error when inserting mergetree data") {
+    withTable("lineitem_task_not_serializable") {
+      val externalSortKey = RuntimeSettings.MAX_BYTES_BEFORE_EXTERNAL_SORT.key
+      assertResult(3435973836L)(spark.conf.get(externalSortKey).toLong)
 
-    val externalSortKey = RuntimeSettings.MAX_BYTES_BEFORE_EXTERNAL_SORT.key
-    assertResult(3435973836L)(spark.conf.get(externalSortKey).toLong)
+      spark.sql(s"""
+                   |CREATE TABLE lineitem_task_not_serializable
+                   |(
+                   | l_orderkey      bigint,
+                   | l_partkey       bigint,
+                   | l_suppkey       bigint,
+                   | l_linenumber    bigint,
+                   | l_quantity      double,
+                   | l_extendedprice double,
+                   | l_discount      double,
+                   | l_tax           double,
+                   | l_returnflag    string,
+                   | l_linestatus    string,
+                   | l_shipdate      date,
+                   | l_commitdate    date,
+                   | l_receiptdate   date,
+                   | l_shipinstruct  string,
+                   | l_shipmode      string,
+                   | l_comment       string
+                   |)
+                   |USING clickhouse
+                   |LOCATION '$dataHome/lineitem_task_not_serializable'
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 |DROP TABLE IF EXISTS lineitem_task_not_serializable;
-                 |""".stripMargin)
+      spark.sql(s"""
+                   | insert into table lineitem_task_not_serializable
+                   | select * from lineitem
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 |CREATE TABLE IF NOT EXISTS lineitem_task_not_serializable
-                 |(
-                 | l_orderkey      bigint,
-                 | l_partkey       bigint,
-                 | l_suppkey       bigint,
-                 | l_linenumber    bigint,
-                 | l_quantity      double,
-                 | l_extendedprice double,
-                 | l_discount      double,
-                 | l_tax           double,
-                 | l_returnflag    string,
-                 | l_linestatus    string,
-                 | l_shipdate      date,
-                 | l_commitdate    date,
-                 | l_receiptdate   date,
-                 | l_shipinstruct  string,
-                 | l_shipmode      string,
-                 | l_comment       string
-                 |)
-                 |USING clickhouse
-                 |LOCATION '$dataHome/lineitem_task_not_serializable'
-                 |""".stripMargin)
-
-    spark.sql(s"""
-                 | insert into table lineitem_task_not_serializable
-                 | select * from lineitem
-                 |""".stripMargin)
-
-    checkQuery(q1("lineitem_task_not_serializable"))
+      checkQuery(q1("lineitem_task_not_serializable"))
+    }
   }
 }

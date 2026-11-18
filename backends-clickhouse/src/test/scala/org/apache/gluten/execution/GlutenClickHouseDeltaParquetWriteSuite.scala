@@ -67,14 +67,12 @@ class GlutenClickHouseDeltaParquetWriteSuite extends ParquetTPCHSuite {
        | l_shipmode      string,
        | l_comment       string""".stripMargin
 
-  private def doInsert(drop: String, create: String, insert: String): Unit = {
-    spark.sql(drop)
+  private def doInsert(create: String, insert: String): Unit = {
     spark.sql(create)
     spark.sql(insert)
   }
-  private def drop(table: String): String = s"DROP TABLE IF EXISTS $table"
   private def createLineitem(table: String): String =
-    s"""CREATE TABLE IF NOT EXISTS $table ($q1SchemaString) USING delta
+    s"""CREATE TABLE $table ($q1SchemaString) USING delta
        |TBLPROPERTIES (write.format.default = 'parquet')
        |LOCATION '$dataHome/$table'
        |""".stripMargin
@@ -85,43 +83,47 @@ class GlutenClickHouseDeltaParquetWriteSuite extends ParquetTPCHSuite {
       s"insert into table $table select /*+ REPARTITION(5) */ * from lineitem"
 
     val table = "lineitem_delta_parquet"
-    doInsert(drop(table), createLineitem(table), insert(table))
+    withTable(table) {
+      doInsert(createLineitem(table), insert(table))
 
-    customCheckQuery(q1(table)) {
-      df =>
-        val plans = collect(df.queryExecution.executedPlan) {
-          case f: FileSourceScanExecTransformer => f
-          case w: WholeStageTransformer => w
-        }
-        assert(plans.size === 4)
+      customCheckQuery(q1(table)) {
+        df =>
+          val plans = collect(df.queryExecution.executedPlan) {
+            case f: FileSourceScanExecTransformer => f
+            case w: WholeStageTransformer => w
+          }
+          assert(plans.size === 4)
 
-        val parquetScan = plans(3).asInstanceOf[FileSourceScanExecTransformer]
-        assert(parquetScan.nodeName.startsWith("FileSourceScanExecTransformer parquet "))
+          val parquetScan = plans(3).asInstanceOf[FileSourceScanExecTransformer]
+          assert(parquetScan.nodeName.startsWith("FileSourceScanExecTransformer parquet "))
 
-        val fileIndex = parquetScan.relation.location.asInstanceOf[TahoeFileIndex]
-        val addFiles = fileIndex.matchingFiles(Nil, Nil)
-        assert(addFiles.size === 5)
-    }
-
-    if (spark35) {
-      val vanillaTable = "lineitem_delta_parquet_vanilla"
-      withSQLConf((GlutenConfig.NATIVE_WRITER_ENABLED.key, "false")) {
-        doInsert(drop(vanillaTable), createLineitem(vanillaTable), insert(vanillaTable))
+          val fileIndex = parquetScan.relation.location.asInstanceOf[TahoeFileIndex]
+          val addFiles = fileIndex.matchingFiles(Nil, Nil)
+          assert(addFiles.size === 5)
       }
-      val expected = DeltaStatsUtils
-        .statsDF(
-          spark,
-          s"$dataHome/$vanillaTable/_delta_log/00000000000000000001.json",
-          q1SchemaString)
-        .collect()
 
-      checkAnswer(
-        DeltaStatsUtils.statsDF(
-          spark,
-          s"$dataHome/$table/_delta_log/00000000000000000001.json",
-          q1SchemaString),
-        expected
-      )
+      if (spark35) {
+        val vanillaTable = "lineitem_delta_parquet_vanilla"
+        withTable(vanillaTable) {
+          withSQLConf((GlutenConfig.NATIVE_WRITER_ENABLED.key, "false")) {
+            doInsert(createLineitem(vanillaTable), insert(vanillaTable))
+          }
+          val expected = DeltaStatsUtils
+            .statsDF(
+              spark,
+              s"$dataHome/$vanillaTable/_delta_log/00000000000000000001.json",
+              q1SchemaString)
+            .collect()
+
+          checkAnswer(
+            DeltaStatsUtils.statsDF(
+              spark,
+              s"$dataHome/$table/_delta_log/00000000000000000001.json",
+              q1SchemaString),
+            expected
+          )
+        }
+      }
     }
   }
 
@@ -130,210 +132,205 @@ class GlutenClickHouseDeltaParquetWriteSuite extends ParquetTPCHSuite {
       s"insert into table $table select  * from lineitem"
 
     val table = "lineitem_delta_parquet_insertoverwrite"
-    doInsert(drop(table), createLineitem(table), insert(table))
-    spark.sql(s"""
-                 | insert overwrite table $table
-                 | select * from lineitem where mod(l_orderkey,2) = 1
-                 |""".stripMargin)
+    withTable(table) {
+      doInsert(createLineitem(table), insert(table))
+      spark.sql(s"""
+                   | insert overwrite table $table
+                   | select * from lineitem where mod(l_orderkey,2) = 1
+                   |""".stripMargin)
 
-    // total rows should remain unchanged
-    assert(spark.sql(s"select count(*) from $table").collect().apply(0).get(0) === 300001)
+      // total rows should remain unchanged
+      assert(spark.sql(s"select count(*) from $table").collect().apply(0).get(0) === 300001)
+    }
   }
 
   test("test parquet insert overwrite partitioned table with small table, static with delta") {
     val table = "lineitem_delta_parquet_insertoverwrite2"
-    doInsert(
-      drop(table),
-      s"""
-         |CREATE TABLE IF NOT EXISTS $table ($q1SchemaString) USING delta
-         |PARTITIONED BY (l_shipdate)
-         |LOCATION '$dataHome/$table'
-         |""".stripMargin,
-      s"""
-         | insert into table $table select * from lineitem
-         | where l_shipdate BETWEEN date'1993-01-01' AND date'1993-03-31'
-         |""".stripMargin
-    )
-    spark.sql(s"""
-                 | insert overwrite table $table select * from lineitem
-                 | where l_shipdate BETWEEN date'1993-02-01' AND date'1993-02-10'
-                 |""".stripMargin)
-    // total rows should remain unchanged
-    assert(spark.sql(s"select count(*) from $table").collect().apply(0).get(0) === 2418)
+    withTable(table) {
+      doInsert(
+        s"""
+           |CREATE TABLE $table ($q1SchemaString) USING delta
+           |PARTITIONED BY (l_shipdate)
+           |LOCATION '$dataHome/$table'
+           |""".stripMargin,
+        s"""
+           | insert into table $table select * from lineitem
+           | where l_shipdate BETWEEN date'1993-01-01' AND date'1993-03-31'
+           |""".stripMargin
+      )
+      spark.sql(s"""
+                   | insert overwrite table $table select * from lineitem
+                   | where l_shipdate BETWEEN date'1993-02-01' AND date'1993-02-10'
+                   |""".stripMargin)
+      // total rows should remain unchanged
+      assert(spark.sql(s"select count(*) from $table").collect().apply(0).get(0) === 2418)
+    }
   }
 
   test("test parquet insert overwrite partitioned table with small table, dynamic with delta") {
     withSQLConf(("spark.sql.sources.partitionOverwriteMode", "dynamic")) {
-      spark.sql(s"""
-                   |DROP TABLE IF EXISTS lineitem_delta_parquet_insertoverwrite3 PURGE;
-                   |""".stripMargin)
+      withTable("lineitem_delta_parquet_insertoverwrite3") {
+        spark.sql(s"""
+                     |CREATE TABLE lineitem_delta_parquet_insertoverwrite3
+                     |($q1SchemaString)
+                     |USING delta
+                     |PARTITIONED BY (l_shipdate)
+                     |LOCATION '$dataHome/lineitem_delta_parquet_insertoverwrite3'
+                     |""".stripMargin)
 
-      spark.sql(s"""
-                   |CREATE TABLE IF NOT EXISTS lineitem_delta_parquet_insertoverwrite3
-                   |($q1SchemaString)
-                   |USING delta
-                   |PARTITIONED BY (l_shipdate)
-                   |LOCATION '$dataHome/lineitem_delta_parquet_insertoverwrite3'
-                   |""".stripMargin)
+        spark.sql(s"""
+                     | insert into table lineitem_delta_parquet_insertoverwrite3
+                     | select * from lineitem
+                     | where l_shipdate BETWEEN date'1993-01-01' AND date'1993-03-31'
+                     |""".stripMargin)
 
-      spark.sql(s"""
-                   | insert into table lineitem_delta_parquet_insertoverwrite3
-                   | select * from lineitem
-                   | where l_shipdate BETWEEN date'1993-01-01' AND date'1993-03-31'
-                   |""".stripMargin)
-
-      spark.sql(
-        s"""
-           | insert overwrite table lineitem_delta_parquet_insertoverwrite3
-           | select * from lineitem where l_shipdate BETWEEN date'1993-02-01' AND date'1993-02-10'
-           |""".stripMargin)
-      val sql2 =
-        s"""
-           | select count(*) from lineitem_delta_parquet_insertoverwrite3
-           |
-           |""".stripMargin
-      assert(
-        // total rows should remain unchanged
-        spark.sql(sql2).collect().apply(0).get(0) === 21875
-      )
+        spark.sql(
+          s"""
+             | insert overwrite table lineitem_delta_parquet_insertoverwrite3
+             | select * from lineitem where l_shipdate BETWEEN date'1993-02-01' AND date'1993-02-10'
+             |""".stripMargin)
+        val sql2 =
+          s"""
+             | select count(*) from lineitem_delta_parquet_insertoverwrite3
+             |
+             |""".stripMargin
+        assert(
+          // total rows should remain unchanged
+          spark.sql(sql2).collect().apply(0).get(0) === 21875
+        )
+      }
     }
   }
 
   test("test parquet table update with the delta") {
-    spark.sql(s"""
-                 |DROP TABLE IF EXISTS lineitem_delta_parquet_update;
-                 |""".stripMargin)
+    withTable("lineitem_delta_parquet_update") {
+      spark.sql(s"""
+                   |CREATE TABLE lineitem_delta_parquet_update
+                   |($q1SchemaString)
+                   |USING delta
+                   |LOCATION '$dataHome/lineitem_delta_parquet_update'
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 |CREATE TABLE IF NOT EXISTS lineitem_delta_parquet_update
-                 |($q1SchemaString)
-                 |USING delta
-                 |LOCATION '$dataHome/lineitem_delta_parquet_update'
-                 |""".stripMargin)
+      spark.sql(s"""
+                   | insert into table lineitem_delta_parquet_update
+                   | select /*+ REPARTITION(6) */ * from lineitem
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 | insert into table lineitem_delta_parquet_update
-                 | select /*+ REPARTITION(6) */ * from lineitem
-                 |""".stripMargin)
-
-    spark.sql(
-      s"""
-         | update lineitem_delta_parquet_update set l_returnflag = 'Z' where l_orderkey = 12647
-         |""".stripMargin)
-
-    {
-      val sql1 =
+      spark.sql(
         s"""
-           | select count(*) from lineitem_delta_parquet_update where l_returnflag = 'Z'
+           | update lineitem_delta_parquet_update set l_returnflag = 'Z' where l_orderkey = 12647
+           |""".stripMargin)
+
+      {
+        val sql1 =
+          s"""
+             | select count(*) from lineitem_delta_parquet_update where l_returnflag = 'Z'
+             |
+             |""".stripMargin
+
+        val df = spark.sql(sql1)
+        val result = df.collect()
+        assert(
+          // in test data, there are only 1 row with l_orderkey = 12647
+          result.apply(0).get(0) === 1
+        )
+        val scanExec = collect(df.queryExecution.executedPlan) {
+          case f: FileSourceScanExecTransformer => f
+        }
+        assert(scanExec.size === 1)
+
+        val parquetScan = scanExec.head
+        assert(parquetScan.nodeName.startsWith("FileSourceScanExecTransformer parquet"))
+
+        val fileIndex = parquetScan.relation.location.asInstanceOf[TahoeFileIndex]
+        val addFiles = fileIndex.matchingFiles(Nil, Nil)
+        assert(addFiles.size === 6)
+      }
+
+      val sql2 =
+        s"""
+           | select count(*) from lineitem_delta_parquet_update
            |
            |""".stripMargin
 
-      val df = spark.sql(sql1)
-      val result = df.collect()
-      assert(
-        // in test data, there are only 1 row with l_orderkey = 12647
-        result.apply(0).get(0) === 1
-      )
-      val scanExec = collect(df.queryExecution.executedPlan) {
-        case f: FileSourceScanExecTransformer => f
-      }
-      assert(scanExec.size === 1)
-
-      val parquetScan = scanExec.head
-      assert(parquetScan.nodeName.startsWith("FileSourceScanExecTransformer parquet"))
-
-      val fileIndex = parquetScan.relation.location.asInstanceOf[TahoeFileIndex]
-      val addFiles = fileIndex.matchingFiles(Nil, Nil)
-      assert(addFiles.size === 6)
+      // total rows should remain unchanged
+      assert(spark.sql(sql2).collect().apply(0).get(0) === 600572)
     }
-
-    val sql2 =
-      s"""
-         | select count(*) from lineitem_delta_parquet_update
-         |
-         |""".stripMargin
-
-    // total rows should remain unchanged
-    assert(spark.sql(sql2).collect().apply(0).get(0) === 600572)
   }
 
   test("test parquet table delete with the delta") {
-    spark.sql(s"""
-                 |DROP TABLE IF EXISTS lineitem_delta_parquet_delete;
-                 |""".stripMargin)
-
-    spark.sql(s"""
-                 |CREATE TABLE IF NOT EXISTS lineitem_delta_parquet_delete
-                 |($q1SchemaString)
-                 |USING delta
-                 |LOCATION '$dataHome/lineitem_delta_parquet_delete'
-                 |""".stripMargin)
-
-    spark.sql(s"""
-                 | insert into table lineitem_delta_parquet_delete
-                 | select /*+ REPARTITION(6) */ * from lineitem
-                 |""".stripMargin)
-    val df1 = spark.sql(s"""
-                           | delete from lineitem_delta_parquet_delete where l_orderkey = 12647
-                           |""".stripMargin)
-
-    {
-      val df = spark.sql(s"""
-                            | select sum(l_linenumber) from lineitem_delta_parquet_delete
-                            |""".stripMargin)
-      val result = df.collect()
-      assert(
-        result.apply(0).get(0) === 1802445
-      )
-      val scanExec = collect(df.queryExecution.executedPlan) {
-        case f: FileSourceScanExecTransformer => f
-      }
-      val parquetScan = scanExec.head
-      val fileIndex = parquetScan.relation.location.asInstanceOf[TahoeFileIndex]
-      val addFiles = fileIndex.matchingFiles(Nil, Nil)
-      assert(addFiles.size === 6)
-    }
-
-    {
+    withTable("lineitem_delta_parquet_delete") {
       spark.sql(s"""
-                   | delete from lineitem_delta_parquet_delete where mod(l_orderkey, 3) = 2
+                   |CREATE TABLE lineitem_delta_parquet_delete
+                   |($q1SchemaString)
+                   |USING delta
+                   |LOCATION '$dataHome/lineitem_delta_parquet_delete'
                    |""".stripMargin)
-      val df3 = spark.sql(s"""
-                             | select sum(l_linenumber) from lineitem_delta_parquet_delete
+
+      spark.sql(s"""
+                   | insert into table lineitem_delta_parquet_delete
+                   | select /*+ REPARTITION(6) */ * from lineitem
+                   |""".stripMargin)
+      val df1 = spark.sql(s"""
+                             | delete from lineitem_delta_parquet_delete where l_orderkey = 12647
                              |""".stripMargin)
-      assert(
-        df3.collect().apply(0).get(0) === 1200671
-      )
+
+      {
+        val df = spark.sql(s"""
+                              | select sum(l_linenumber) from lineitem_delta_parquet_delete
+                              |""".stripMargin)
+        val result = df.collect()
+        assert(
+          result.apply(0).get(0) === 1802445
+        )
+        val scanExec = collect(df.queryExecution.executedPlan) {
+          case f: FileSourceScanExecTransformer => f
+        }
+        val parquetScan = scanExec.head
+        val fileIndex = parquetScan.relation.location.asInstanceOf[TahoeFileIndex]
+        val addFiles = fileIndex.matchingFiles(Nil, Nil)
+        assert(addFiles.size === 6)
+      }
+
+      {
+        spark.sql(s"""
+                     | delete from lineitem_delta_parquet_delete where mod(l_orderkey, 3) = 2
+                     |""".stripMargin)
+        val df3 = spark.sql(s"""
+                               | select sum(l_linenumber) from lineitem_delta_parquet_delete
+                               |""".stripMargin)
+        assert(
+          df3.collect().apply(0).get(0) === 1200671
+        )
+      }
     }
   }
 
   test("test parquet table upsert with the delta") {
-    spark.sql(s"""
-                 |DROP TABLE IF EXISTS lineitem_delta_parquet_upsert;
-                 |""".stripMargin)
+    withTable("lineitem_delta_parquet_upsert") {
+      spark.sql(s"""
+                   |CREATE TABLE lineitem_delta_parquet_upsert
+                   |($q1SchemaString)
+                   |USING delta
+                   |LOCATION '$dataHome/lineitem_delta_parquet_upsert'
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 |CREATE TABLE IF NOT EXISTS lineitem_delta_parquet_upsert
-                 |($q1SchemaString)
-                 |USING delta
-                 |LOCATION '$dataHome/lineitem_delta_parquet_upsert'
-                 |""".stripMargin)
+      spark.sql(s"""
+                   | insert into table lineitem_delta_parquet_upsert
+                   | select * from lineitem
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 | insert into table lineitem_delta_parquet_upsert
-                 | select * from lineitem
-                 |""".stripMargin)
+      {
+        val df0 = spark.sql(s"""
+                               | select sum(l_linenumber) from lineitem_delta_parquet_upsert
+                               |""".stripMargin)
+        assert(
+          df0.collect().apply(0).get(0) === 1802446
+        )
+      }
 
-    {
-      val df0 = spark.sql(s"""
-                             | select sum(l_linenumber) from lineitem_delta_parquet_upsert
-                             |""".stripMargin)
-      assert(
-        df0.collect().apply(0).get(0) === 1802446
-      )
+      upsertSourceTableAndCheck("lineitem_delta_parquet_upsert")
     }
-
-    upsertSourceTableAndCheck("lineitem_delta_parquet_upsert")
   }
 
   private def upsertSourceTableAndCheck(tableName: String) = {
@@ -393,160 +390,154 @@ class GlutenClickHouseDeltaParquetWriteSuite extends ParquetTPCHSuite {
   }
 
   test("test parquet write with partition + delta") {
-    spark.sql(s"""
-                 |DROP TABLE IF EXISTS lineitem_delta_parquet_partition;
-                 |""".stripMargin)
+    withTable("lineitem_delta_parquet_partition") {
+      spark.sql(s"""
+                   |CREATE TABLE lineitem_delta_parquet_partition
+                   |($q1SchemaString)
+                   |USING delta
+                   |PARTITIONED BY (l_shipdate, l_returnflag)
+                   |LOCATION '$dataHome/lineitem_delta_parquet_partition'
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 |CREATE TABLE IF NOT EXISTS lineitem_delta_parquet_partition
-                 |($q1SchemaString)
-                 |USING delta
-                 |PARTITIONED BY (l_shipdate, l_returnflag)
-                 |LOCATION '$dataHome/lineitem_delta_parquet_partition'
-                 |""".stripMargin)
+      // dynamic partitions
+      spark.sql(s"""
+                   | insert into table lineitem_delta_parquet_partition
+                   | select * from lineitem
+                   | where l_shipdate BETWEEN date'1993-01-01' AND date'1993-03-31'
+                   |""".stripMargin)
 
-    // dynamic partitions
-    spark.sql(s"""
-                 | insert into table lineitem_delta_parquet_partition
-                 | select * from lineitem
-                 | where l_shipdate BETWEEN date'1993-01-01' AND date'1993-03-31'
-                 |""".stripMargin)
+      // write with dataframe api
+      val source = spark.sql(s"""
+                                |select
+                                | l_orderkey      ,
+                                | l_partkey       ,
+                                | l_suppkey       ,
+                                | l_linenumber    ,
+                                | l_quantity      ,
+                                | l_extendedprice ,
+                                | l_discount      ,
+                                | l_tax           ,
+                                | l_returnflag    ,
+                                | l_linestatus    ,
+                                | l_shipdate      ,
+                                | l_commitdate    ,
+                                | l_receiptdate   ,
+                                | l_shipinstruct  ,
+                                | l_shipmode      ,
+                                | l_comment
+                                | from lineitem
+                                | where l_shipdate BETWEEN date'1993-01-01' AND date'1993-01-10'
+                                |""".stripMargin)
 
-    // write with dataframe api
-    val source = spark.sql(s"""
-                              |select
-                              | l_orderkey      ,
-                              | l_partkey       ,
-                              | l_suppkey       ,
-                              | l_linenumber    ,
-                              | l_quantity      ,
-                              | l_extendedprice ,
-                              | l_discount      ,
-                              | l_tax           ,
-                              | l_returnflag    ,
-                              | l_linestatus    ,
-                              | l_shipdate      ,
-                              | l_commitdate    ,
-                              | l_receiptdate   ,
-                              | l_shipinstruct  ,
-                              | l_shipmode      ,
-                              | l_comment
-                              | from lineitem
-                              | where l_shipdate BETWEEN date'1993-01-01' AND date'1993-01-10'
-                              |""".stripMargin)
+      source.write
+        .format("delta")
+        .mode(SaveMode.Append)
+        .insertInto("lineitem_delta_parquet_partition")
 
-    source.write
-      .format("delta")
-      .mode(SaveMode.Append)
-      .insertInto("lineitem_delta_parquet_partition")
+      // static partition
+      spark.sql(
+        s"""
+           | insert into lineitem_delta_parquet_partition PARTITION (l_shipdate=date'1993-02-21',
+           | l_returnflag = 'A')
+           | (l_orderkey,
+           |  l_partkey,
+           |  l_suppkey,
+           |  l_linenumber,
+           |  l_quantity,
+           |  l_extendedprice,
+           |  l_discount,
+           |  l_tax,
+           |  l_linestatus,
+           |  l_commitdate,
+           |  l_receiptdate,
+           |  l_shipinstruct,
+           |  l_shipmode,
+           |  l_comment)
+           | select l_orderkey,
+           |  l_partkey,
+           |  l_suppkey,
+           |  l_linenumber,
+           |  l_quantity,
+           |  l_extendedprice,
+           |  l_discount,
+           |  l_tax,
+           |  l_linestatus,
+           |  l_commitdate,
+           |  l_receiptdate,
+           |  l_shipinstruct,
+           |  l_shipmode,
+           |  l_comment from lineitem
+           |  where l_shipdate BETWEEN date'1993-02-01' AND date'1993-02-10'
+           |""".stripMargin)
+      customCheckQuery(q1("lineitem_delta_parquet_partition"), compare = false) {
+        df =>
+          val result = df.collect()
+          assert(result.length === 2)
+          assert(result(0).getString(0).equals("A"))
+          assert(result(0).getString(1).equals("F"))
+          assert(result(0).getDouble(2) === 368009.0)
 
-    // static partition
-    spark.sql(
-      s"""
-         | insert into lineitem_delta_parquet_partition PARTITION (l_shipdate=date'1993-02-21',
-         | l_returnflag = 'A')
-         | (l_orderkey,
-         |  l_partkey,
-         |  l_suppkey,
-         |  l_linenumber,
-         |  l_quantity,
-         |  l_extendedprice,
-         |  l_discount,
-         |  l_tax,
-         |  l_linestatus,
-         |  l_commitdate,
-         |  l_receiptdate,
-         |  l_shipinstruct,
-         |  l_shipmode,
-         |  l_comment)
-         | select l_orderkey,
-         |  l_partkey,
-         |  l_suppkey,
-         |  l_linenumber,
-         |  l_quantity,
-         |  l_extendedprice,
-         |  l_discount,
-         |  l_tax,
-         |  l_linestatus,
-         |  l_commitdate,
-         |  l_receiptdate,
-         |  l_shipinstruct,
-         |  l_shipmode,
-         |  l_comment from lineitem
-         |  where l_shipdate BETWEEN date'1993-02-01' AND date'1993-02-10'
-         |""".stripMargin)
-    customCheckQuery(q1("lineitem_delta_parquet_partition"), compare = false) {
-      df =>
-        val result = df.collect()
-        assert(result.length === 2)
-        assert(result(0).getString(0).equals("A"))
-        assert(result(0).getString(1).equals("F"))
-        assert(result(0).getDouble(2) === 368009.0)
+          assert(result(1).getString(0).equals("R"))
+          assert(result(1).getString(1).equals("F"))
+          assert(result(1).getDouble(2) === 312371.0)
 
-        assert(result(1).getString(0).equals("R"))
-        assert(result(1).getString(1).equals("F"))
-        assert(result(1).getDouble(2) === 312371.0)
+          val scanExec = collect(df.queryExecution.executedPlan) {
+            case f: FileSourceScanExecTransformer => f
+          }
+          assert(scanExec.size === 1)
 
-        val scanExec = collect(df.queryExecution.executedPlan) {
-          case f: FileSourceScanExecTransformer => f
-        }
-        assert(scanExec.size === 1)
+          val parquetScan = scanExec.head
+          assert(parquetScan.nodeName.startsWith("FileSourceScanExecTransformer parquet"))
+          assert(parquetScan.metrics("numFiles").value === 201)
 
-        val parquetScan = scanExec.head
-        assert(parquetScan.nodeName.startsWith("FileSourceScanExecTransformer parquet"))
-        assert(parquetScan.metrics("numFiles").value === 201)
+          val fileIndex = parquetScan.relation.location.asInstanceOf[TahoeFileIndex]
+          val addFiles = fileIndex.matchingFiles(Nil, Nil)
 
-        val fileIndex = parquetScan.relation.location.asInstanceOf[TahoeFileIndex]
-        val addFiles = fileIndex.matchingFiles(Nil, Nil)
-
-        assert(addFiles.size === 201)
-        assert(addFiles.count(_.partitionValues("l_shipdate").equals("1993-03-31")) === 2)
-        assert(addFiles.count(_.partitionValues("l_shipdate").equals("1993-01-01")) === 4)
-        assert(addFiles.count(_.partitionValues("l_shipdate").equals("1993-02-21")) === 3)
+          assert(addFiles.size === 201)
+          assert(addFiles.count(_.partitionValues("l_shipdate").equals("1993-03-31")) === 2)
+          assert(addFiles.count(_.partitionValues("l_shipdate").equals("1993-01-01")) === 4)
+          assert(addFiles.count(_.partitionValues("l_shipdate").equals("1993-02-21")) === 3)
+      }
     }
   }
 
   test("test parquet CTAS simple with the delta") {
-    spark.sql(s"""
-                 |DROP TABLE IF EXISTS lineitem_delta_parquet_ctas1;
-                 |""".stripMargin)
+    withTable("lineitem_delta_parquet_ctas1") {
+      spark.sql(s"""
+                   |CREATE TABLE lineitem_delta_parquet_ctas1
+                   |USING delta
+                   |LOCATION '$dataHome/lineitem_delta_parquet_ctas1'
+                   | as select * from lineitem
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 |CREATE TABLE lineitem_delta_parquet_ctas1
-                 |USING delta
-                 |LOCATION '$dataHome/lineitem_delta_parquet_ctas1'
-                 | as select * from lineitem
-                 |""".stripMargin)
+      customCheckQuery(q1("lineitem_delta_parquet_ctas1")) {
+        df =>
+          val scanExec = collect(df.queryExecution.executedPlan) {
+            case f: FileSourceScanExecTransformer => f
+          }
+          assert(scanExec.size === 1)
 
-    customCheckQuery(q1("lineitem_delta_parquet_ctas1")) {
-      df =>
-        val scanExec = collect(df.queryExecution.executedPlan) {
-          case f: FileSourceScanExecTransformer => f
-        }
-        assert(scanExec.size === 1)
+          val parquetScan = scanExec.head
+          assert(parquetScan.nodeName.startsWith("FileSourceScanExecTransformer parquet"))
 
-        val parquetScan = scanExec.head
-        assert(parquetScan.nodeName.startsWith("FileSourceScanExecTransformer parquet"))
-
-        val fileIndex = parquetScan.relation.location.asInstanceOf[TahoeFileIndex]
-        val addFiles = fileIndex.matchingFiles(Nil, Nil)
-        assert(addFiles.size === 1)
+          val fileIndex = parquetScan.relation.location.asInstanceOf[TahoeFileIndex]
+          val addFiles = fileIndex.matchingFiles(Nil, Nil)
+          assert(addFiles.size === 1)
+      }
     }
   }
 
   test("test parquet CTAS complex with the delta") {
-    spark.sql(s"""
-                 |DROP TABLE IF EXISTS lineitem_delta_parquet_ctas2;
-                 |""".stripMargin)
-
-    spark.sql(s"""
-                 |CREATE TABLE IF NOT EXISTS lineitem_delta_parquet_ctas2
-                 |USING delta
-                 |PARTITIONED BY (l_returnflag)
-                 |LOCATION '$dataHome/lineitem_delta_parquet_ctas2'
-                 | as select * from lineitem
-                 |""".stripMargin)
-    checkQuery(q1("lineitem_delta_parquet_ctas2"))
+    withTable("lineitem_delta_parquet_ctas2") {
+      spark.sql(s"""
+                   |CREATE TABLE lineitem_delta_parquet_ctas2
+                   |USING delta
+                   |PARTITIONED BY (l_returnflag)
+                   |LOCATION '$dataHome/lineitem_delta_parquet_ctas2'
+                   | as select * from lineitem
+                   |""".stripMargin)
+      checkQuery(q1("lineitem_delta_parquet_ctas2"))
+    }
   }
 
   test("test path based parquet write with the delta") {
@@ -908,25 +899,23 @@ class GlutenClickHouseDeltaParquetWriteSuite extends ParquetTPCHSuite {
   }
 
   test("test parquet optimize basic") {
-    withSQLConf("spark.databricks.delta.optimize.maxFileSize" -> "20000000") {
-      spark.sql(s"""
-                   |DROP TABLE IF EXISTS lineitem_delta_parquet_optimize;
-                   |""".stripMargin)
+    withTable("lineitem_delta_parquet_optimize") {
+      withSQLConf("spark.databricks.delta.optimize.maxFileSize" -> "20000000") {
+        spark.sql(s"""
+                     |CREATE TABLE lineitem_delta_parquet_optimize
+                     |USING delta
+                     |LOCATION '$dataHome/lineitem_delta_parquet_optimize'
+                     | as select  /*+ REPARTITION(20) */ * from lineitem
+                     |""".stripMargin)
 
-      spark.sql(s"""
-                   |CREATE TABLE IF NOT EXISTS lineitem_delta_parquet_optimize
-                   |USING delta
-                   |LOCATION '$dataHome/lineitem_delta_parquet_optimize'
-                   | as select  /*+ REPARTITION(20) */ * from lineitem
-                   |""".stripMargin)
+        spark.sql("optimize lineitem_delta_parquet_optimize")
+        val ret = spark.sql("select count(*) from lineitem_delta_parquet_optimize").collect()
+        assert(ret.apply(0).get(0) === 600572)
 
-      spark.sql("optimize lineitem_delta_parquet_optimize")
-      val ret = spark.sql("select count(*) from lineitem_delta_parquet_optimize").collect()
-      assert(ret.apply(0).get(0) === 600572)
-
-      assert(
-        countFiles(new File(s"$dataHome/lineitem_delta_parquet_optimize")) === 24
-      )
+        assert(
+          countFiles(new File(s"$dataHome/lineitem_delta_parquet_optimize")) === 24
+        )
+      }
     }
   }
 
@@ -944,60 +933,56 @@ class GlutenClickHouseDeltaParquetWriteSuite extends ParquetTPCHSuite {
   }
 
   test("test parquet optimize partitioned by one low card column") {
-    spark.sql(s"""
-                 |DROP TABLE IF EXISTS lineitem_delta_parquet_optimize_p2;
-                 |""".stripMargin)
-
-    spark.sql(s"""
-                 |CREATE TABLE IF NOT EXISTS lineitem_delta_parquet_optimize_p2
-                 |USING delta
-                 |PARTITIONED BY (l_returnflag)
-                 |LOCATION '$dataHome/lineitem_delta_parquet_optimize_p2'
-                 | as select /*+ REPARTITION(6) */ * from lineitem
-                 |""".stripMargin)
-
-    spark.sparkContext.setJobGroup("test3", "test3")
-    spark.sql("optimize lineitem_delta_parquet_optimize_p2")
-    val job_ids = spark.sparkContext.statusTracker.getJobIdsForGroup("test3")
-    assert(job_ids.length === 8) // WILL trigger actual merge job
-
-    spark.sparkContext.clearJobGroup()
-
-    val ret = spark.sql("select count(*) from lineitem_delta_parquet_optimize_p2").collect()
-    assert(ret.apply(0).get(0) === 600572)
-
-    assert(countFiles(new File(s"$dataHome/lineitem_delta_parquet_optimize_p2")) === 23)
-    spark.sql("VACUUM lineitem_delta_parquet_optimize_p2 RETAIN 0 HOURS")
-    assert(countFiles(new File(s"$dataHome/lineitem_delta_parquet_optimize_p2")) === 7)
-
-    val ret2 = spark.sql("select count(*) from lineitem_delta_parquet_optimize_p2").collect()
-    assert(ret2.apply(0).get(0) === 600572)
-  }
-
-  test("test parquet optimize parallel delete") {
-    withSQLConf("spark.databricks.delta.vacuum.parallelDelete.enabled" -> "true") {
+    withTable("lineitem_delta_parquet_optimize_p2") {
       spark.sql(s"""
-                   |DROP TABLE IF EXISTS lineitem_delta_parquet_optimize_p4;
-                   |""".stripMargin)
-
-      spark.sql(s"""
-                   |CREATE TABLE IF NOT EXISTS lineitem_delta_parquet_optimize_p4
+                   |CREATE TABLE lineitem_delta_parquet_optimize_p2
                    |USING delta
-                   |PARTITIONED BY (l_linenumber,l_returnflag)
-                   |LOCATION '$dataHome/lineitem_delta_parquet_optimize_p4'
+                   |PARTITIONED BY (l_returnflag)
+                   |LOCATION '$dataHome/lineitem_delta_parquet_optimize_p2'
                    | as select /*+ REPARTITION(6) */ * from lineitem
                    |""".stripMargin)
 
-      spark.sql("optimize lineitem_delta_parquet_optimize_p4")
-      val ret = spark.sql("select count(*) from lineitem_delta_parquet_optimize_p4").collect()
+      spark.sparkContext.setJobGroup("test3", "test3")
+      spark.sql("optimize lineitem_delta_parquet_optimize_p2")
+      val job_ids = spark.sparkContext.statusTracker.getJobIdsForGroup("test3")
+      assert(job_ids.length === 8) // WILL trigger actual merge job
+
+      spark.sparkContext.clearJobGroup()
+
+      val ret = spark.sql("select count(*) from lineitem_delta_parquet_optimize_p2").collect()
       assert(ret.apply(0).get(0) === 600572)
 
-      assert(countFiles(new File(s"$dataHome/lineitem_delta_parquet_optimize_p4")) === 149)
-      spark.sql("VACUUM lineitem_delta_parquet_optimize_p4 RETAIN 0 HOURS")
-      assert(countFiles(new File(s"$dataHome/lineitem_delta_parquet_optimize_p4")) === 25)
+      assert(countFiles(new File(s"$dataHome/lineitem_delta_parquet_optimize_p2")) === 23)
+      spark.sql("VACUUM lineitem_delta_parquet_optimize_p2 RETAIN 0 HOURS")
+      assert(countFiles(new File(s"$dataHome/lineitem_delta_parquet_optimize_p2")) === 7)
 
-      val ret2 = spark.sql("select count(*) from lineitem_delta_parquet_optimize_p4").collect()
+      val ret2 = spark.sql("select count(*) from lineitem_delta_parquet_optimize_p2").collect()
       assert(ret2.apply(0).get(0) === 600572)
+    }
+  }
+
+  test("test parquet optimize parallel delete") {
+    withTable("lineitem_delta_parquet_optimize_p4") {
+      withSQLConf("spark.databricks.delta.vacuum.parallelDelete.enabled" -> "true") {
+        spark.sql(s"""
+                     |CREATE TABLE lineitem_delta_parquet_optimize_p4
+                     |USING delta
+                     |PARTITIONED BY (l_linenumber,l_returnflag)
+                     |LOCATION '$dataHome/lineitem_delta_parquet_optimize_p4'
+                     | as select /*+ REPARTITION(6) */ * from lineitem
+                     |""".stripMargin)
+
+        spark.sql("optimize lineitem_delta_parquet_optimize_p4")
+        val ret = spark.sql("select count(*) from lineitem_delta_parquet_optimize_p4").collect()
+        assert(ret.apply(0).get(0) === 600572)
+
+        assert(countFiles(new File(s"$dataHome/lineitem_delta_parquet_optimize_p4")) === 149)
+        spark.sql("VACUUM lineitem_delta_parquet_optimize_p4 RETAIN 0 HOURS")
+        assert(countFiles(new File(s"$dataHome/lineitem_delta_parquet_optimize_p4")) === 25)
+
+        val ret2 = spark.sql("select count(*) from lineitem_delta_parquet_optimize_p4").collect()
+        assert(ret2.apply(0).get(0) === 600572)
+      }
     }
   }
 
@@ -1116,51 +1101,50 @@ class GlutenClickHouseDeltaParquetWriteSuite extends ParquetTPCHSuite {
   // TODO: after rebase-25.12, fix reorg purge command in delta 3.3.1
   ignore("Gluten-9697: Add 'reorg' command ut for delta dv + partition") {
     val tableName = "mergetree_delta_dv_reorg_partition"
-    spark.sql(s"""
-                 |DROP TABLE IF EXISTS $tableName;
-                 |""".stripMargin)
-    spark.sql(s"""
-                 |CREATE TABLE IF NOT EXISTS $tableName
-                 |(${table2columns.get("lineitem").get(true)})
-                 |USING delta
-                 |PARTITIONED BY (l_returnflag)
-                 |TBLPROPERTIES (delta.enableDeletionVectors='true')
-                 |LOCATION '$dataHome/$tableName'
-                 |""".stripMargin)
-    spark.sql(s"""
-                 |insert into table $tableName
-                 | select /*+ REPARTITION(6) */ * from lineitem
-                 |""".stripMargin)
-    spark.sql(s"""
-                 |delete from $tableName
-                 | where mod(l_orderkey, 3) = 1
-                 |""".stripMargin)
-    var df = spark.sql(s"""
-                          |select sum(l_linenumber) from $tableName
-                          |""".stripMargin)
-    var result = df.collect()
-    assert(
-      result(0).get(0) === 1201486
-    )
-    checkFallbackOperators(df, 0)
-    spark.sql(s"""
-                 |REORG TABLE $tableName APPLY (PURGE)
-                 |""".stripMargin)
-    df = spark.sql(s"""
-                      |select sum(l_linenumber) from $tableName
-                      |""".stripMargin)
-    result = df.collect()
-    assert(
-      result(0).get(0) === 1201486
-    )
-    val scanExec = collect(df.queryExecution.executedPlan) {
-      case f: FileSourceScanExecTransformer => f
+    withTable(tableName) {
+      spark.sql(s"""
+                   |CREATE TABLE $tableName
+                   |(${table2columns.get("lineitem").get(true)})
+                   |USING delta
+                   |PARTITIONED BY (l_returnflag)
+                   |TBLPROPERTIES (delta.enableDeletionVectors='true')
+                   |LOCATION '$dataHome/$tableName'
+                   |""".stripMargin)
+      spark.sql(s"""
+                   |insert into table $tableName
+                   | select /*+ REPARTITION(6) */ * from lineitem
+                   |""".stripMargin)
+      spark.sql(s"""
+                   |delete from $tableName
+                   | where mod(l_orderkey, 3) = 1
+                   |""".stripMargin)
+      var df = spark.sql(s"""
+                            |select sum(l_linenumber) from $tableName
+                            |""".stripMargin)
+      var result = df.collect()
+      assert(
+        result(0).get(0) === 1201486
+      )
+      checkFallbackOperators(df, 0)
+      spark.sql(s"""
+                   |REORG TABLE $tableName APPLY (PURGE)
+                   |""".stripMargin)
+      df = spark.sql(s"""
+                        |select sum(l_linenumber) from $tableName
+                        |""".stripMargin)
+      result = df.collect()
+      assert(
+        result(0).get(0) === 1201486
+      )
+      val scanExec = collect(df.queryExecution.executedPlan) {
+        case f: FileSourceScanExecTransformer => f
+      }
+      val parquetScan = scanExec.head
+      val fileIndex = parquetScan.relation.location.asInstanceOf[PreparedDeltaFileIndex]
+      val addFiles = fileIndex.preparedScan.files
+      assert(addFiles.size === 3)
+      assert(addFiles.forall(_.deletionVector === null))
     }
-    val parquetScan = scanExec.head
-    val fileIndex = parquetScan.relation.location.asInstanceOf[PreparedDeltaFileIndex]
-    val addFiles = fileIndex.preparedScan.files
-    assert(addFiles.size === 3)
-    assert(addFiles.forall(_.deletionVector === null))
   }
 }
 // scalastyle:off line.size.limit

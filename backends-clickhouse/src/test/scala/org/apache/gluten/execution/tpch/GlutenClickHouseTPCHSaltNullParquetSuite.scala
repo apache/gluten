@@ -3329,16 +3329,17 @@ class GlutenClickHouseTPCHSaltNullParquetSuite
   }
 
   test("GLUTEN-8253: Fix cast failed when in-filter with tuple values") {
-    spark.sql("drop table if exists test_filter")
-    spark.sql("create table test_filter(c1 string, c2 string) using parquet")
-    spark.sql(s"""
-                 |insert into test_filter values
-                 |('a1', 'b1'), ('a2', 'b2'), ('a3', 'b3'), ('a4', 'b4'), ('a5', 'b5'),
-                 |('a6', 'b6'), ('a7', 'b7'), ('a8', 'b8'), ('a9', 'b9'), ('a10', 'b10'),
-                 |('a11', 'b11'), ('a12', null), (null, 'b13'), (null, null)
-                 |""".stripMargin)
-    val sql = "select * from test_filter where (c1, c2) in (('a1', 'b1'), ('a2', 'b2'))"
-    compareResultsAgainstVanillaSpark(sql, true, { _ => })
+    withTable("test_filter") {
+      spark.sql("create table test_filter(c1 string, c2 string) using parquet")
+      spark.sql(s"""
+                   |insert into test_filter values
+                   |('a1', 'b1'), ('a2', 'b2'), ('a3', 'b3'), ('a4', 'b4'), ('a5', 'b5'),
+                   |('a6', 'b6'), ('a7', 'b7'), ('a8', 'b8'), ('a9', 'b9'), ('a10', 'b10'),
+                   |('a11', 'b11'), ('a12', null), (null, 'b13'), (null, null)
+                   |""".stripMargin)
+      val sql = "select * from test_filter where (c1, c2) in (('a1', 'b1'), ('a2', 'b2'))"
+      compareResultsAgainstVanillaSpark(sql, true, { _ => })
+    }
   }
 
   test("GLUTEN-8343: Cast number to decimal") {

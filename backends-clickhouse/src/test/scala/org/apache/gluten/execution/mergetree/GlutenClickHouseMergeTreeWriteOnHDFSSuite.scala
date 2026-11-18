@@ -61,401 +61,391 @@ class GlutenClickHouseMergeTreeWriteOnHDFSSuite extends CreateMergeTreeSuite {
   }
 
   test("test mergetree table write") {
-    spark.sql(s"""
-                 |DROP TABLE IF EXISTS lineitem_mergetree_hdfs;
-                 |""".stripMargin)
+    withTable("lineitem_mergetree_hdfs") {
+      spark.sql(s"""
+                   |CREATE TABLE lineitem_mergetree_hdfs
+                   |(
+                   | l_orderkey      bigint,
+                   | l_partkey       bigint,
+                   | l_suppkey       bigint,
+                   | l_linenumber    bigint,
+                   | l_quantity      double,
+                   | l_extendedprice double,
+                   | l_discount      double,
+                   | l_tax           double,
+                   | l_returnflag    string,
+                   | l_linestatus    string,
+                   | l_shipdate      date,
+                   | l_commitdate    date,
+                   | l_receiptdate   date,
+                   | l_shipinstruct  string,
+                   | l_shipmode      string,
+                   | l_comment       string
+                   |)
+                   |USING clickhouse
+                   |LOCATION '$remotePath/lineitem_mergetree_hdfs'
+                   |TBLPROPERTIES (storage_policy='__hdfs_main')
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 |CREATE TABLE IF NOT EXISTS lineitem_mergetree_hdfs
-                 |(
-                 | l_orderkey      bigint,
-                 | l_partkey       bigint,
-                 | l_suppkey       bigint,
-                 | l_linenumber    bigint,
-                 | l_quantity      double,
-                 | l_extendedprice double,
-                 | l_discount      double,
-                 | l_tax           double,
-                 | l_returnflag    string,
-                 | l_linestatus    string,
-                 | l_shipdate      date,
-                 | l_commitdate    date,
-                 | l_receiptdate   date,
-                 | l_shipinstruct  string,
-                 | l_shipmode      string,
-                 | l_comment       string
-                 |)
-                 |USING clickhouse
-                 |LOCATION '$remotePath/lineitem_mergetree_hdfs'
-                 |TBLPROPERTIES (storage_policy='__hdfs_main')
-                 |""".stripMargin)
+      spark.sql(s"""
+                   | insert into table lineitem_mergetree_hdfs
+                   | select * from lineitem
+                   |""".stripMargin)
+      hdfsHelper.resetMeta()
 
-    spark.sql(s"""
-                 | insert into table lineitem_mergetree_hdfs
-                 | select * from lineitem
-                 |""".stripMargin)
-    hdfsHelper.resetMeta()
+      customCheckQuery(q1("lineitem_mergetree_hdfs")) {
+        df =>
+          val scanExec = collect(df.queryExecution.executedPlan) {
+            case f: FileSourceScanExecTransformer => f
+          }
+          assertResult(1)(scanExec.size)
 
-    customCheckQuery(q1("lineitem_mergetree_hdfs")) {
-      df =>
-        val scanExec = collect(df.queryExecution.executedPlan) {
-          case f: FileSourceScanExecTransformer => f
-        }
-        assertResult(1)(scanExec.size)
+          val mergetreeScan = scanExec.head
+          assert(mergetreeScan.nodeName.startsWith("FileSourceScanExecTransformer mergetree"))
 
-        val mergetreeScan = scanExec.head
-        assert(mergetreeScan.nodeName.startsWith("FileSourceScanExecTransformer mergetree"))
-
-        val fileIndex = mergetreeScan.relation.location.asInstanceOf[TahoeFileIndex]
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).clickhouseTableConfigs.nonEmpty)
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).bucketOption.isEmpty)
-        assert(
-          ClickHouseTableV2
-            .getTable(fileIndex.deltaLog)
-            .orderByKey === StorageMeta.DEFAULT_ORDER_BY_KEY)
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).primaryKey.isEmpty)
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).partitionColumns.isEmpty)
-        val addFiles = fileIndex.matchingFiles(Nil, Nil).map(f => f.asInstanceOf[AddMergeTreeParts])
-        assertResult(1)(addFiles.size)
-        assertResult(600572)(addFiles.head.rows)
+          val fileIndex = mergetreeScan.relation.location.asInstanceOf[TahoeFileIndex]
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).clickhouseTableConfigs.nonEmpty)
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).bucketOption.isEmpty)
+          assert(
+            ClickHouseTableV2
+              .getTable(fileIndex.deltaLog)
+              .orderByKey === StorageMeta.DEFAULT_ORDER_BY_KEY)
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).primaryKey.isEmpty)
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).partitionColumns.isEmpty)
+          val addFiles =
+            fileIndex.matchingFiles(Nil, Nil).map(f => f.asInstanceOf[AddMergeTreeParts])
+          assertResult(1)(addFiles.size)
+          assertResult(600572)(addFiles.head.rows)
+      }
     }
-    spark.sql("drop table lineitem_mergetree_hdfs")
   }
 
   test("test mergetree write with orderby keys / primary keys") {
-    spark.sql(s"""
-                 |DROP TABLE IF EXISTS lineitem_mergetree_orderbykey_hdfs;
-                 |""".stripMargin)
+    withTable("lineitem_mergetree_orderbykey_hdfs") {
+      spark.sql(s"""
+                   |CREATE TABLE lineitem_mergetree_orderbykey_hdfs
+                   |(
+                   | l_orderkey      bigint,
+                   | l_partkey       bigint,
+                   | l_suppkey       bigint,
+                   | l_linenumber    bigint,
+                   | l_quantity      double,
+                   | l_extendedprice double,
+                   | l_discount      double,
+                   | l_tax           double,
+                   | l_returnflag    string,
+                   | l_linestatus    string,
+                   | l_shipdate      date,
+                   | l_commitdate    date,
+                   | l_receiptdate   date,
+                   | l_shipinstruct  string,
+                   | l_shipmode      string,
+                   | l_comment       string
+                   |)
+                   |USING clickhouse
+                   |TBLPROPERTIES (storage_policy='__hdfs_main',
+                   |               orderByKey='l_shipdate,l_orderkey',
+                   |               primaryKey='l_shipdate')
+                   |LOCATION '$remotePath/lineitem_mergetree_orderbykey_hdfs'
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 |CREATE TABLE IF NOT EXISTS lineitem_mergetree_orderbykey_hdfs
-                 |(
-                 | l_orderkey      bigint,
-                 | l_partkey       bigint,
-                 | l_suppkey       bigint,
-                 | l_linenumber    bigint,
-                 | l_quantity      double,
-                 | l_extendedprice double,
-                 | l_discount      double,
-                 | l_tax           double,
-                 | l_returnflag    string,
-                 | l_linestatus    string,
-                 | l_shipdate      date,
-                 | l_commitdate    date,
-                 | l_receiptdate   date,
-                 | l_shipinstruct  string,
-                 | l_shipmode      string,
-                 | l_comment       string
-                 |)
-                 |USING clickhouse
-                 |TBLPROPERTIES (storage_policy='__hdfs_main',
-                 |               orderByKey='l_shipdate,l_orderkey',
-                 |               primaryKey='l_shipdate')
-                 |LOCATION '$remotePath/lineitem_mergetree_orderbykey_hdfs'
-                 |""".stripMargin)
+      spark.sql(s"""
+                   | insert into table lineitem_mergetree_orderbykey_hdfs
+                   | select * from lineitem
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 | insert into table lineitem_mergetree_orderbykey_hdfs
-                 | select * from lineitem
-                 |""".stripMargin)
+      customCheckQuery(q1("lineitem_mergetree_orderbykey_hdfs")) {
+        df =>
+          val scanExec = collect(df.queryExecution.executedPlan) {
+            case f: FileSourceScanExecTransformer => f
+          }
+          assertResult(1)(scanExec.size)
 
-    customCheckQuery(q1("lineitem_mergetree_orderbykey_hdfs")) {
-      df =>
-        val scanExec = collect(df.queryExecution.executedPlan) {
-          case f: FileSourceScanExecTransformer => f
-        }
-        assertResult(1)(scanExec.size)
+          val mergetreeScan = scanExec.head
+          assert(mergetreeScan.nodeName.startsWith("FileSourceScanExecTransformer mergetree"))
 
-        val mergetreeScan = scanExec.head
-        assert(mergetreeScan.nodeName.startsWith("FileSourceScanExecTransformer mergetree"))
-
-        val fileIndex = mergetreeScan.relation.location.asInstanceOf[TahoeFileIndex]
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).clickhouseTableConfigs.nonEmpty)
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).bucketOption.isEmpty)
-        assertResult("l_shipdate,l_orderkey")(
-          ClickHouseTableV2
-            .getTable(fileIndex.deltaLog)
-            .orderByKey)
-        assertResult("l_shipdate")(
-          ClickHouseTableV2
-            .getTable(fileIndex.deltaLog)
-            .primaryKey)
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).partitionColumns.isEmpty)
-        val addFiles = fileIndex.matchingFiles(Nil, Nil).map(f => f.asInstanceOf[AddMergeTreeParts])
-        assertResult(1)(addFiles.size)
-        assertResult(600572)(addFiles.head.rows)
+          val fileIndex = mergetreeScan.relation.location.asInstanceOf[TahoeFileIndex]
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).clickhouseTableConfigs.nonEmpty)
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).bucketOption.isEmpty)
+          assertResult("l_shipdate,l_orderkey")(
+            ClickHouseTableV2
+              .getTable(fileIndex.deltaLog)
+              .orderByKey)
+          assertResult("l_shipdate")(
+            ClickHouseTableV2
+              .getTable(fileIndex.deltaLog)
+              .primaryKey)
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).partitionColumns.isEmpty)
+          val addFiles =
+            fileIndex.matchingFiles(Nil, Nil).map(f => f.asInstanceOf[AddMergeTreeParts])
+          assertResult(1)(addFiles.size)
+          assertResult(600572)(addFiles.head.rows)
+      }
     }
-    spark.sql("drop table lineitem_mergetree_orderbykey_hdfs")
   }
 
   test("test mergetree write with partition") {
-    spark.sql(s"""
-                 |DROP TABLE IF EXISTS lineitem_mergetree_partition_hdfs;
-                 |""".stripMargin)
+    withTable("lineitem_mergetree_partition_hdfs") {
+      spark.sql(s"""
+                   |CREATE TABLE lineitem_mergetree_partition_hdfs
+                   |(
+                   | l_orderkey      bigint,
+                   | l_partkey       bigint,
+                   | l_suppkey       bigint,
+                   | l_linenumber    bigint,
+                   | l_quantity      double,
+                   | l_extendedprice double,
+                   | l_discount      double,
+                   | l_tax           double,
+                   | l_returnflag    string,
+                   | l_linestatus    string,
+                   | l_shipdate      date,
+                   | l_commitdate    date,
+                   | l_receiptdate   date,
+                   | l_shipinstruct  string,
+                   | l_shipmode      string,
+                   | l_comment       string
+                   |)
+                   |USING clickhouse
+                   |PARTITIONED BY (l_returnflag)
+                   |TBLPROPERTIES (storage_policy='__hdfs_main',
+                   |               orderByKey='l_orderkey',
+                   |               primaryKey='l_orderkey')
+                   |LOCATION '$remotePath/lineitem_mergetree_partition_hdfs'
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 |CREATE TABLE IF NOT EXISTS lineitem_mergetree_partition_hdfs
-                 |(
-                 | l_orderkey      bigint,
-                 | l_partkey       bigint,
-                 | l_suppkey       bigint,
-                 | l_linenumber    bigint,
-                 | l_quantity      double,
-                 | l_extendedprice double,
-                 | l_discount      double,
-                 | l_tax           double,
-                 | l_returnflag    string,
-                 | l_linestatus    string,
-                 | l_shipdate      date,
-                 | l_commitdate    date,
-                 | l_receiptdate   date,
-                 | l_shipinstruct  string,
-                 | l_shipmode      string,
-                 | l_comment       string
-                 |)
-                 |USING clickhouse
-                 |PARTITIONED BY (l_returnflag)
-                 |TBLPROPERTIES (storage_policy='__hdfs_main',
-                 |               orderByKey='l_orderkey',
-                 |               primaryKey='l_orderkey')
-                 |LOCATION '$remotePath/lineitem_mergetree_partition_hdfs'
-                 |""".stripMargin)
+      // dynamic partitions
+      spark.sql(s"""
+                   | insert into table lineitem_mergetree_partition_hdfs
+                   | select * from lineitem
+                   |""".stripMargin)
 
-    // dynamic partitions
-    spark.sql(s"""
-                 | insert into table lineitem_mergetree_partition_hdfs
-                 | select * from lineitem
-                 |""".stripMargin)
+      // write with dataframe api
+      val source = spark.sql(s"""
+                                |select
+                                | l_orderkey      ,
+                                | l_partkey       ,
+                                | l_suppkey       ,
+                                | l_linenumber    ,
+                                | l_quantity      ,
+                                | l_extendedprice ,
+                                | l_discount      ,
+                                | l_tax           ,
+                                | l_returnflag    ,
+                                | l_linestatus    ,
+                                | l_shipdate      ,
+                                | l_commitdate    ,
+                                | l_receiptdate   ,
+                                | l_shipinstruct  ,
+                                | l_shipmode      ,
+                                | l_comment
+                                | from lineitem
+                                | where l_shipdate BETWEEN date'1993-01-01' AND date'1993-01-10'
+                                |""".stripMargin)
 
-    // write with dataframe api
-    val source = spark.sql(s"""
-                              |select
-                              | l_orderkey      ,
-                              | l_partkey       ,
-                              | l_suppkey       ,
-                              | l_linenumber    ,
-                              | l_quantity      ,
-                              | l_extendedprice ,
-                              | l_discount      ,
-                              | l_tax           ,
-                              | l_returnflag    ,
-                              | l_linestatus    ,
-                              | l_shipdate      ,
-                              | l_commitdate    ,
-                              | l_receiptdate   ,
-                              | l_shipinstruct  ,
-                              | l_shipmode      ,
-                              | l_comment
-                              | from lineitem
-                              | where l_shipdate BETWEEN date'1993-01-01' AND date'1993-01-10'
-                              |""".stripMargin)
+      source.write
+        .format("clickhouse")
+        .mode(SaveMode.Append)
+        .insertInto("lineitem_mergetree_partition_hdfs")
 
-    source.write
-      .format("clickhouse")
-      .mode(SaveMode.Append)
-      .insertInto("lineitem_mergetree_partition_hdfs")
+      // static partition
+      spark.sql(s"""
+                   | insert into lineitem_mergetree_partition_hdfs PARTITION (l_returnflag = 'A')
+                   | (l_shipdate,
+                   |  l_orderkey,
+                   |  l_partkey,
+                   |  l_suppkey,
+                   |  l_linenumber,
+                   |  l_quantity,
+                   |  l_extendedprice,
+                   |  l_discount,
+                   |  l_tax,
+                   |  l_linestatus,
+                   |  l_commitdate,
+                   |  l_receiptdate,
+                   |  l_shipinstruct,
+                   |  l_shipmode,
+                   |  l_comment)
+                   | select
+                   |  l_shipdate,
+                   |  l_orderkey,
+                   |  l_partkey,
+                   |  l_suppkey,
+                   |  l_linenumber,
+                   |  l_quantity,
+                   |  l_extendedprice,
+                   |  l_discount,
+                   |  l_tax,
+                   |  l_linestatus,
+                   |  l_commitdate,
+                   |  l_receiptdate,
+                   |  l_shipinstruct,
+                   |  l_shipmode,
+                   |  l_comment from lineitem
+                   |  where l_returnflag = 'A'
+                   |""".stripMargin)
 
-    // static partition
-    spark.sql(s"""
-                 | insert into lineitem_mergetree_partition_hdfs PARTITION (l_returnflag = 'A')
-                 | (l_shipdate,
-                 |  l_orderkey,
-                 |  l_partkey,
-                 |  l_suppkey,
-                 |  l_linenumber,
-                 |  l_quantity,
-                 |  l_extendedprice,
-                 |  l_discount,
-                 |  l_tax,
-                 |  l_linestatus,
-                 |  l_commitdate,
-                 |  l_receiptdate,
-                 |  l_shipinstruct,
-                 |  l_shipmode,
-                 |  l_comment)
-                 | select
-                 |  l_shipdate,
-                 |  l_orderkey,
-                 |  l_partkey,
-                 |  l_suppkey,
-                 |  l_linenumber,
-                 |  l_quantity,
-                 |  l_extendedprice,
-                 |  l_discount,
-                 |  l_tax,
-                 |  l_linestatus,
-                 |  l_commitdate,
-                 |  l_receiptdate,
-                 |  l_shipinstruct,
-                 |  l_shipmode,
-                 |  l_comment from lineitem
-                 |  where l_returnflag = 'A'
-                 |""".stripMargin)
+      customCheckQuery(q1("lineitem_mergetree_partition_hdfs"), compare = false) {
+        df =>
+          val result = df.collect()
+          assertResult(4)(result.length)
+          assertResult("A")(result(0).getString(0))
+          assertResult("F")(result(0).getString(1))
+          assertResult(7578058.0)(result(0).getDouble(2))
 
-    customCheckQuery(q1("lineitem_mergetree_partition_hdfs"), compare = false) {
-      df =>
-        val result = df.collect()
-        assertResult(4)(result.length)
-        assertResult("A")(result(0).getString(0))
-        assertResult("F")(result(0).getString(1))
-        assertResult(7578058.0)(result(0).getDouble(2))
+          assertResult("N")(result(2).getString(0))
+          assertResult("O")(result(2).getString(1))
+          assertResult(7454519.0)(result(2).getDouble(2))
 
-        assertResult("N")(result(2).getString(0))
-        assertResult("O")(result(2).getString(1))
-        assertResult(7454519.0)(result(2).getDouble(2))
+          val scanExec = collect(df.queryExecution.executedPlan) {
+            case f: FileSourceScanExecTransformer => f
+          }
+          assertResult(1)(scanExec.size)
 
-        val scanExec = collect(df.queryExecution.executedPlan) {
-          case f: FileSourceScanExecTransformer => f
-        }
-        assertResult(1)(scanExec.size)
+          val mergetreeScan = scanExec.head
+          assert(mergetreeScan.nodeName.startsWith("FileSourceScanExecTransformer mergetree"))
+          assertResult(6)(mergetreeScan.metrics("numFiles").value)
 
-        val mergetreeScan = scanExec.head
-        assert(mergetreeScan.nodeName.startsWith("FileSourceScanExecTransformer mergetree"))
-        assertResult(6)(mergetreeScan.metrics("numFiles").value)
+          val fileIndex = mergetreeScan.relation.location.asInstanceOf[TahoeFileIndex]
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).clickhouseTableConfigs.nonEmpty)
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).bucketOption.isEmpty)
+          assertResult("l_orderkey")(
+            ClickHouseTableV2
+              .getTable(fileIndex.deltaLog)
+              .orderByKey)
+          val ta = ClickHouseTableV2.getTable(fileIndex.deltaLog)
+          assertResult("l_orderkey")(
+            ClickHouseTableV2
+              .getTable(fileIndex.deltaLog)
+              .primaryKey)
+          assertResult(1)(ta.partitionColumns.size)
+          assertResult("l_returnflag")(
+            ClickHouseTableV2
+              .getTable(fileIndex.deltaLog)
+              .partitionColumns
+              .head)
+          val addFiles =
+            fileIndex.matchingFiles(Nil, Nil).map(f => f.asInstanceOf[AddMergeTreeParts])
 
-        val fileIndex = mergetreeScan.relation.location.asInstanceOf[TahoeFileIndex]
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).clickhouseTableConfigs.nonEmpty)
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).bucketOption.isEmpty)
-        assertResult("l_orderkey")(
-          ClickHouseTableV2
-            .getTable(fileIndex.deltaLog)
-            .orderByKey)
-        val ta = ClickHouseTableV2.getTable(fileIndex.deltaLog)
-        assertResult("l_orderkey")(
-          ClickHouseTableV2
-            .getTable(fileIndex.deltaLog)
-            .primaryKey)
-        assertResult(1)(ta.partitionColumns.size)
-        assertResult("l_returnflag")(
-          ClickHouseTableV2
-            .getTable(fileIndex.deltaLog)
-            .partitionColumns
-            .head)
-        val addFiles = fileIndex.matchingFiles(Nil, Nil).map(f => f.asInstanceOf[AddMergeTreeParts])
-
-        assertResult(6)(addFiles.size)
-        assertResult(750735)(addFiles.map(_.rows).sum)
+          assertResult(6)(addFiles.size)
+          assertResult(750735)(addFiles.map(_.rows).sum)
+      }
     }
-    spark.sql("drop table lineitem_mergetree_partition_hdfs")
   }
 
   test("test partition values with escape chars") {
+    withTable("partition_escape") {
+      val schema = StructType(
+        Seq(
+          StructField.apply("id", IntegerType, nullable = true),
+          StructField.apply("escape", StringType, nullable = true)
+        ))
 
-    val schema = StructType(
-      Seq(
-        StructField.apply("id", IntegerType, nullable = true),
-        StructField.apply("escape", StringType, nullable = true)
-      ))
+      // scalastyle:off nonascii
+      val data: Seq[Row] = Seq(
+        Row(1, "="),
+        Row(2, "/"),
+        Row(3, "#"),
+        Row(4, ":"),
+        Row(5, "\\"),
+        Row(6, "\u0001"),
+        Row(7, "中文"),
+        Row(8, " "),
+        Row(9, "a b")
+      )
+      // scalastyle:on nonascii
 
-    // scalastyle:off nonascii
-    val data: Seq[Row] = Seq(
-      Row(1, "="),
-      Row(2, "/"),
-      Row(3, "#"),
-      Row(4, ":"),
-      Row(5, "\\"),
-      Row(6, "\u0001"),
-      Row(7, "中文"),
-      Row(8, " "),
-      Row(9, "a b")
-    )
-    // scalastyle:on nonascii
+      val df = spark.createDataFrame(spark.sparkContext.parallelize(data), schema)
+      df.createOrReplaceTempView("origin_table")
 
-    val df = spark.createDataFrame(spark.sparkContext.parallelize(data), schema)
-    df.createOrReplaceTempView("origin_table")
+      // spark.conf.set("spark.gluten.enabled", "false")
 
-    // spark.conf.set("spark.gluten.enabled", "false")
-    spark.sql(s"""
-                 |DROP TABLE IF EXISTS partition_escape;
-                 |""".stripMargin)
+      spark.sql(s"""
+                   |CREATE TABLE partition_escape
+                   |(
+                   | c1  int,
+                   | c2  string
+                   |)
+                   |USING clickhouse
+                   |PARTITIONED BY (c2)
+                   |TBLPROPERTIES (storage_policy='__hdfs_main',
+                   |               orderByKey='c1',
+                   |               primaryKey='c1')
+                   |LOCATION '$remotePath/partition_escape'
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 |CREATE TABLE IF NOT EXISTS partition_escape
-                 |(
-                 | c1  int,
-                 | c2  string
-                 |)
-                 |USING clickhouse
-                 |PARTITIONED BY (c2)
-                 |TBLPROPERTIES (storage_policy='__hdfs_main',
-                 |               orderByKey='c1',
-                 |               primaryKey='c1')
-                 |LOCATION '$remotePath/partition_escape'
-                 |""".stripMargin)
-
-    spark.sql("insert into partition_escape select * from origin_table")
-    spark.sql("cache data select * from partition_escape")
-    spark.sql("select * from partition_escape").show()
+      spark.sql("insert into partition_escape select * from origin_table")
+      spark.sql("cache data select * from partition_escape")
+      spark.sql("select * from partition_escape").show()
+    }
   }
 
   ignoreSpark33OnlyCase("test mergetree write with bucket table") {
-    spark.sql(s"""
-                 |DROP TABLE IF EXISTS lineitem_mergetree_bucket_hdfs;
-                 |""".stripMargin)
+    withTable("lineitem_mergetree_bucket_hdfs") {
+      spark.sql(s"""
+                   |CREATE TABLE lineitem_mergetree_bucket_hdfs
+                   |(
+                   | l_orderkey      bigint,
+                   | l_partkey       bigint,
+                   | l_suppkey       bigint,
+                   | l_linenumber    bigint,
+                   | l_quantity      double,
+                   | l_extendedprice double,
+                   | l_discount      double,
+                   | l_tax           double,
+                   | l_returnflag    string,
+                   | l_linestatus    string,
+                   | l_shipdate      date,
+                   | l_commitdate    date,
+                   | l_receiptdate   date,
+                   | l_shipinstruct  string,
+                   | l_shipmode      string,
+                   | l_comment       string
+                   |)
+                   |USING clickhouse
+                   |PARTITIONED BY (l_returnflag)
+                   |CLUSTERED BY (l_orderkey)
+                   |SORTED BY (l_partkey) INTO 4 BUCKETS
+                   |LOCATION '$remotePath/lineitem_mergetree_bucket_hdfs'
+                   |TBLPROPERTIES (storage_policy='__hdfs_main')
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 |CREATE TABLE IF NOT EXISTS lineitem_mergetree_bucket_hdfs
-                 |(
-                 | l_orderkey      bigint,
-                 | l_partkey       bigint,
-                 | l_suppkey       bigint,
-                 | l_linenumber    bigint,
-                 | l_quantity      double,
-                 | l_extendedprice double,
-                 | l_discount      double,
-                 | l_tax           double,
-                 | l_returnflag    string,
-                 | l_linestatus    string,
-                 | l_shipdate      date,
-                 | l_commitdate    date,
-                 | l_receiptdate   date,
-                 | l_shipinstruct  string,
-                 | l_shipmode      string,
-                 | l_comment       string
-                 |)
-                 |USING clickhouse
-                 |PARTITIONED BY (l_returnflag)
-                 |CLUSTERED BY (l_orderkey)
-                 |SORTED BY (l_partkey) INTO 4 BUCKETS
-                 |LOCATION '$remotePath/lineitem_mergetree_bucket_hdfs'
-                 |TBLPROPERTIES (storage_policy='__hdfs_main')
-                 |""".stripMargin)
+      spark.sql(s"""
+                   | insert into table lineitem_mergetree_bucket_hdfs
+                   | select * from lineitem
+                   |""".stripMargin)
 
-    spark.sql(s"""
-                 | insert into table lineitem_mergetree_bucket_hdfs
-                 | select * from lineitem
-                 |""".stripMargin)
+      customCheckQuery(q1("lineitem_mergetree_bucket_hdfs")) {
+        df =>
+          val scanExec = collect(df.queryExecution.executedPlan) {
+            case f: FileSourceScanExecTransformer => f
+          }
+          assertResult(1)(scanExec.size)
 
-    customCheckQuery(q1("lineitem_mergetree_bucket_hdfs")) {
-      df =>
-        val scanExec = collect(df.queryExecution.executedPlan) {
-          case f: FileSourceScanExecTransformer => f
-        }
-        assertResult(1)(scanExec.size)
+          val mergetreeScan = scanExec.head
+          assert(mergetreeScan.nodeName.startsWith("FileSourceScanExecTransformer mergetree"))
 
-        val mergetreeScan = scanExec.head
-        assert(mergetreeScan.nodeName.startsWith("FileSourceScanExecTransformer mergetree"))
+          val fileIndex = mergetreeScan.relation.location.asInstanceOf[TahoeFileIndex]
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).clickhouseTableConfigs.nonEmpty)
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).bucketOption.isDefined)
+          assertResult("l_partkey")(
+            ClickHouseTableV2
+              .getTable(fileIndex.deltaLog)
+              .orderByKey)
+          assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).primaryKey.isEmpty)
+          assertResult(1)(ClickHouseTableV2.getTable(fileIndex.deltaLog).partitionColumns.size)
+          assertResult("l_returnflag")(
+            ClickHouseTableV2
+              .getTable(fileIndex.deltaLog)
+              .partitionColumns
+              .head)
+          val addFiles =
+            fileIndex.matchingFiles(Nil, Nil).map(f => f.asInstanceOf[AddMergeTreeParts])
 
-        val fileIndex = mergetreeScan.relation.location.asInstanceOf[TahoeFileIndex]
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).clickhouseTableConfigs.nonEmpty)
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).bucketOption.isDefined)
-        assertResult("l_partkey")(
-          ClickHouseTableV2
-            .getTable(fileIndex.deltaLog)
-            .orderByKey)
-        assert(ClickHouseTableV2.getTable(fileIndex.deltaLog).primaryKey.isEmpty)
-        assertResult(1)(ClickHouseTableV2.getTable(fileIndex.deltaLog).partitionColumns.size)
-        assertResult("l_returnflag")(
-          ClickHouseTableV2
-            .getTable(fileIndex.deltaLog)
-            .partitionColumns
-            .head)
-        val addFiles = fileIndex.matchingFiles(Nil, Nil).map(f => f.asInstanceOf[AddMergeTreeParts])
-
-        assertResult(12)(addFiles.size)
-        assertResult(600572)(addFiles.map(_.rows).sum)
+          assertResult(12)(addFiles.size)
+          assertResult(600572)(addFiles.map(_.rows).sum)
+      }
     }
-    spark.sql("drop table lineitem_mergetree_bucket_hdfs")
   }
 
   ignoreSpark33OnlyCase("test mergetree write with the path based bucket table") {
@@ -523,24 +513,22 @@ class GlutenClickHouseMergeTreeWriteOnHDFSSuite extends CreateMergeTreeSuite {
       RuntimeSettings.INSERT_WITHOUT_LOCAL_STORAGE.key -> "true",
       RuntimeSettings.MIN_INSERT_BLOCK_SIZE_ROWS.key -> "10000"
     ) {
-      spark.sql(s"""
-                   |DROP TABLE IF EXISTS $tableName;
-                   |""".stripMargin)
+      withTable(tableName) {
+        spark.sql(s"""
+                     |CREATE TABLE $tableName
+                     |USING clickhouse
+                     |LOCATION '$dataPath'
+                     |TBLPROPERTIES (storage_policy='__hdfs_main')
+                     | as select * from lineitem
+                     |""".stripMargin)
 
-      spark.sql(s"""
-                   |CREATE TABLE IF NOT EXISTS $tableName
-                   |USING clickhouse
-                   |LOCATION '$dataPath'
-                   |TBLPROPERTIES (storage_policy='__hdfs_main')
-                   | as select * from lineitem
-                   |""".stripMargin)
+        val ret = spark.sql(s"select count(*) from $tableName").collect()
+        assertResult(600572)(ret.apply(0).get(0))
 
-      val ret = spark.sql(s"select count(*) from $tableName").collect()
-      assertResult(600572)(ret.apply(0).get(0))
-
-      eventually(timeout(60.seconds), interval(2.seconds)) {
-        val files = hdfsHelper.countDir(dataPath)
-        assertResult(4)(files)
+        eventually(timeout(60.seconds), interval(2.seconds)) {
+          val files = hdfsHelper.countDir(dataPath)
+          assertResult(4)(files)
+        }
       }
     }
   }
