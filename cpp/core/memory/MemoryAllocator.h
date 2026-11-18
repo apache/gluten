@@ -36,6 +36,9 @@ class MemoryAllocator {
   virtual bool allocateAligned(uint64_t alignment, int64_t size, void** out) = 0;
 
   virtual bool reallocate(void* p, int64_t size, int64_t newSize, void** out) = 0;
+
+  // On success, *out is non-null and aligned even when newSize is zero, and can be freed or reallocated again.
+  // A zero-size allocation does not contribute to getBytes().
   virtual bool reallocateAligned(void* p, uint64_t alignment, int64_t size, int64_t newSize, void** out) = 0;
 
   virtual bool free(void* p, int64_t size) = 0;
