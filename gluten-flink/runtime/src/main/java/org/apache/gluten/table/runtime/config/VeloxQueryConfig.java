@@ -41,7 +41,7 @@ public class VeloxQueryConfig {
     }
     Configuration config = ((StreamingRuntimeContext) context).getJobConfiguration();
     Map<String, String> configMap = new HashMap<>();
-    configMap.put(keyVeloxAdjustTimestampToSessionTimeZone, "true");
+    configMap.put(keyVeloxAdjustTimestampToSessionTimeZone, "false");
     String localTimeZone = config.get(TableConfigOptions.LOCAL_TIME_ZONE);
     // Flink's `default` value means the JVM default timezone, not UTC; velox
     // must resolve it the same way so CURRENT_DATE/CURRENT_TIME (and every
