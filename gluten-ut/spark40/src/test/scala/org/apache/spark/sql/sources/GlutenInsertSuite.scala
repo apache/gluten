@@ -423,9 +423,9 @@ class GlutenInsertSuite
             sql("insert into t select false")
           }
           sql("alter table t add column s array<int> default array(1, 2)")
-          checkAnswer(spark.table("t"), Row(false, null))
+          checkAnswer(spark.table("t"), Row(false, Seq(1, 2)))
           sql("insert into t(i) values (true)")
-          checkAnswer(spark.table("t"), Seq(Row(false, null), Row(true, Seq(1, 2))))
+          checkAnswer(spark.table("t"), Seq(Row(false, Seq(1, 2)), Row(true, Seq(1, 2))))
         }
     }
     // Negative tests: provided array element types must match their corresponding DEFAULT
@@ -470,9 +470,11 @@ class GlutenInsertSuite
           }
           sql(
             "alter table t add column s struct<x boolean, y string> default struct(true, 'abc')")
-          checkAnswer(spark.table("t"), Row(false, null))
+          checkAnswer(spark.table("t"), Row(false, Row(true, "abc")))
           sql("insert into t(i) values (true)")
-          checkAnswer(spark.table("t"), Seq(Row(false, null), Row(true, Row(true, "abc"))))
+          checkAnswer(
+            spark.table("t"),
+            Seq(Row(false, Row(true, "abc")), Row(true, Row(true, "abc"))))
         }
     }
 
