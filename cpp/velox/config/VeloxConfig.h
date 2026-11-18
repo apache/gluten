@@ -126,6 +126,9 @@ const bool kEnableSystemExceptionStacktraceDefault = true;
 const std::string kMemoryUseHugePages = "spark.gluten.sql.columnar.backend.velox.memoryUseHugePages";
 const bool kMemoryUseHugePagesDefault = false;
 
+const std::string kMallocContiguousEnabled = "spark.gluten.sql.columnar.backend.velox.mallocContiguousEnabled";
+const bool kMallocContiguousEnabledDefault = false;
+
 const std::string kVeloxMemInitCapacity = "spark.gluten.sql.columnar.backend.velox.memInitCapacity";
 const uint64_t kVeloxMemInitCapacityDefault = 8 << 20;
 
