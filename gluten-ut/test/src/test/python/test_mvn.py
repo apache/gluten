@@ -92,11 +92,14 @@ counter.write_text(str(attempt))
 response = config["responses"][min(attempt - 1, len(config["responses"]) - 1)]
 http, status = response[:2]
 headers = response[2] if len(response) > 2 else {}
+curl_http_error = tool == "curl" and status in (0, 22) and http.startswith(("4", "5"))
+exit_status = (22 if "-f" in dict(options) else 0) if curl_http_error else status
 if status == 0:
     shutil.copyfile(root / "distribution.tar.gz", output)
 else:
     Path(output).write_text("partial download, not a valid Maven archive")
-    print(f"Mock {tool} failure: HTTP {http}, exit {status}", file=sys.stderr)
+if exit_status != 0:
+    print(f"Mock {tool} failure: HTTP {http}, exit {exit_status}", file=sys.stderr)
 lines = []
 if http != "000":
     # A redirect's Retry-After must not leak into the final response's retry delay.
@@ -106,13 +109,16 @@ if http != "000":
     lines.extend(f"{name}: {value}" for name, value in headers.items())
     lines.extend(["", ""])
 if tool == "curl":
+    # curl 7.61.1 returns before emitting the error response headers with --fail.
+    if curl_http_error and "-f" in dict(options):
+        lines = []
     if "-D" in dict(options):
         sys.stdout.write("\r\n".join(lines))
     if "-w" in dict(options):
-        sys.stdout.write(http)
+        sys.stdout.write(dict(options)["-w"].replace("%{http_code}", http).replace("\\n", "\n"))
 else:
     print("\n".join("  " + line for line in lines), file=sys.stderr)
-sys.exit(status)
+sys.exit(exit_status)
 """
 
 
@@ -251,6 +257,14 @@ class MavenBootstrapTest(unittest.TestCase):
                     result = self.run_wrapper(tool, ((http, status), ("200", 0)))
                     self.assertEqual(0, result.returncode, result.stderr)
                     self.assertEqual(2, len(self.calls(tool)))
+
+    def test_http_error_body_is_not_installed_when_curl_exits_zero(self):
+        result = self.run_wrapper(responses=(("404", 0),))
+        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(1, len(self.calls("curl")))
+        self.assertEqual([], self.calls("sleep"))
+        self.assertIn("HTTP 404", result.stderr)
+        self.assert_no_distribution()
 
     def test_status_without_reason_phrase_preserves_retry_classification(self):
         for tool, status in (("curl", 22), ("wget", 8)):
@@ -393,12 +407,15 @@ class MavenBootstrapTest(unittest.TestCase):
                     self.assertIn(
                         "ERROR: Failed to download Maven from " + URL, result.stderr
                     )
-                    self.assertIn(f"{tool} exit {response[1]}", result.stderr)
+                    if tool != "curl" or response[1] != 22:
+                        self.assertIn(f"{tool} exit {response[1]}", result.stderr)
+                    if response[0] != "000":
+                        self.assertIn(f"HTTP {response[0]}", result.stderr)
                     self.assert_no_distribution()
 
     def test_permanent_http_tls_and_local_io_failures_are_not_retried(self):
         for tool, responses in (
-            ("curl", (("404", 22), ("501", 22), ("000", 60), ("503", 23))),
+            ("curl", (("404", 22), ("501", 22), ("404", 18), ("000", 60), ("503", 23))),
             ("wget", (("404", 8), ("501", 8), ("000", 5), ("503", 3))),
         ):
             for response in responses:
@@ -407,7 +424,13 @@ class MavenBootstrapTest(unittest.TestCase):
                     self.assertNotEqual(0, result.returncode)
                     self.assertEqual(1, len(self.calls(tool)))
                     self.assertEqual([], self.calls("sleep"))
-                    self.assertIn(f"Mock {tool} failure", result.stderr)
+                    self.assertIn(
+                        "ERROR: Failed to download Maven from " + URL, result.stderr
+                    )
+                    if tool != "curl" or response[1] != 22:
+                        self.assertIn(f"{tool} exit {response[1]}", result.stderr)
+                    if response[0] != "000":
+                        self.assertIn(f"HTTP {response[0]}", result.stderr)
                     self.assert_no_distribution()
 
     def test_matching_system_maven_takes_precedence_over_local_install(self):

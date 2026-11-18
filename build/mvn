@@ -77,20 +77,24 @@ download_mvn() {
     fi
 
     local ATTEMPT=1 MAX_ATTEMPTS=4 RETRY_DELAY=3
-    local STATUS HTTP_CODE RESPONSE RETRY_AFTER WAIT_DELAY
+    local STATUS HTTP_CODE RESPONSE RETRY_AFTER WAIT_DELAY FAILURE
     while [ "$ATTEMPT" -le "$MAX_ATTEMPTS" ]; do
         STATUS=0
         if [ "$TOOL" = curl ]; then
-            RESPONSE=$(curl -f -L --retry 0 --connect-timeout 30 --max-time 600 \
-                -D - -o "$PARTIAL" "$URL") || STATUS=$?
+            # --fail can hide error headers on older curl, including Retry-After.
+            RESPONSE=$(curl -L --retry 0 --connect-timeout 30 --max-time 600 \
+                -D - -w '\n%{http_code}' -o "$PARTIAL" "$URL") || STATUS=$?
+            HTTP_CODE="${RESPONSE##*$'\n'}"
         else
             RESPONSE=$(wget --no-verbose --server-response --tries=1 \
                 --connect-timeout=30 --read-timeout=600 \
                 -O "$PARTIAL" "$URL" 2>&1) || STATUS=$?
             printf '%s\n' "$RESPONSE" >&2
+            HTTP_CODE=$(printf '%s\n' "$RESPONSE" | \
+                awk '$1 ~ /^HTTP\/[0-9.]+$/ {code=$2; sub(/\r$/, "", code)} END {print code}')
         fi
 
-        if [ "$STATUS" -eq 0 ]; then
+        if [ "$STATUS" -eq 0 ] && [[ "$HTTP_CODE" != [4-9][0-9][0-9] ]]; then
             if mv -f "$PARTIAL" "$DESTINATION"; then
                 return 0
             fi
@@ -99,16 +103,19 @@ download_mvn() {
             return 1
         fi
         rm -f "$PARTIAL"
-        HTTP_CODE=$(printf '%s\n' "$RESPONSE" | \
-            awk '$1 ~ /^HTTP\/[0-9.]+$/ {code=$2; sub(/\r$/, "", code)} END {print code}')
+        FAILURE="HTTP ${HTTP_CODE:-unknown}"
+        if [ "$STATUS" -ne 0 ]; then
+            FAILURE="${FAILURE}, ${TOOL} exit ${STATUS}"
+        fi
 
         # Older curl/wget do not retry HTTP 429; keep a single retry budget here.
+        case "$HTTP_CODE" in
+            408|429|500|502|503|504) ;;
+            [4-9][0-9][0-9]) break ;;
+        esac
         case "$TOOL:$STATUS" in
-            curl:22|wget:8)
-                case "$HTTP_CODE" in
-                    408|429|500|502|503|504) ;;
-                    *) break ;;
-                esac
+            curl:0|curl:22|wget:8)
+                [[ "$HTTP_CODE" == [4-9][0-9][0-9] ]] || break
                 ;;
             curl:5|curl:6|curl:7|curl:16|curl:18|curl:28|curl:35|curl:52|curl:55|curl:56|curl:92|wget:4) ;;
             *) break ;;
@@ -130,13 +137,13 @@ download_mvn() {
             WAIT_DELAY=$(mvn_retry_delay "$RETRY_DELAY" "$RETRY_AFTER") || return 1
         fi
 
-        echo "Maven download attempt ${ATTEMPT}/${MAX_ATTEMPTS} failed (${TOOL} exit ${STATUS}, HTTP ${HTTP_CODE:-unknown}); retrying in ${WAIT_DELAY}s..." >&2
+        echo "Maven download attempt ${ATTEMPT}/${MAX_ATTEMPTS} failed (${FAILURE}); retrying in ${WAIT_DELAY}s..." >&2
         sleep "$WAIT_DELAY" || return 1
         ATTEMPT=$((ATTEMPT + 1))
         RETRY_DELAY=$((RETRY_DELAY * 2))
     done
 
-    echo "ERROR: Failed to download Maven from ${URL} (attempt ${ATTEMPT}/${MAX_ATTEMPTS}, ${TOOL} exit ${STATUS}, HTTP ${HTTP_CODE:-unknown})" >&2
+    echo "ERROR: Failed to download Maven from ${URL} (attempt ${ATTEMPT}/${MAX_ATTEMPTS}, ${FAILURE})" >&2
     return 1
 }
 
