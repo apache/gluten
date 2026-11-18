@@ -20,6 +20,7 @@ import org.apache.gluten.backendsapi.BackendsApiManager
 
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DataType, StructType}
+import org.apache.spark.util.SparkVersionUtil
 
 import org.apache.arrow.vector.types.pojo.{Field, Schema}
 
@@ -52,6 +53,7 @@ object SparkSchemaUtil {
   }
 
   def enableLargeVarTypes: Boolean = {
+    SparkVersionUtil.gteSpark35 &&
     SQLConf.get.getConfString("spark.sql.execution.arrow.useLargeVarTypes", "false").toBoolean &&
     BackendsApiManager.getSettings.supportLargeVarTypes
   }

@@ -75,17 +75,7 @@ case class OffloadJoin() extends OffloadSingleNode with LogLevelUtil {
             right,
             plan.isSkewJoin)
       case plan: SortMergeJoinExec =>
-        val left = plan.left
-        val right = plan.right
-        BackendsApiManager.getSparkPlanExecApiInstance
-          .genSortMergeJoinExecTransformer(
-            plan.leftKeys,
-            plan.rightKeys,
-            plan.joinType,
-            plan.condition,
-            left,
-            right,
-            plan.isSkewJoin)
+        BackendsApiManager.getSparkPlanExecApiInstance.genSortMergeJoinExecTransformer(plan)
       case plan: BroadcastHashJoinExec =>
         val left = plan.left
         val right = plan.right
@@ -313,13 +303,15 @@ object OffloadOthers {
           }
         case plan: RangeExec =>
           ColumnarRangeBaseExec.from(plan)
+        case plan if SparkShimLoader.getSparkShims.isOneRowRelationExec(plan) =>
+          BackendsApiManager.getSparkPlanExecApiInstance.genOneRowRelationExecTransformer(plan)
         case plan: SampleExec =>
           val child = plan.child
           BackendsApiManager.getSparkPlanExecApiInstance.genSampleExecTransformer(
             plan.lowerBound,
             plan.upperBound,
             plan.withReplacement,
-            plan.seed,
+            SparkShimLoader.getSparkShims.getSampleSeed(plan),
             child)
         case plan: RDDScanExec if RDDScanTransformer.isSupportRDDScanExec(plan) =>
           RDDScanTransformer.getRDDScanTransform(plan)

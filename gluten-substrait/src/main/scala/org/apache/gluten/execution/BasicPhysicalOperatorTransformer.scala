@@ -39,8 +39,8 @@ import scala.collection.JavaConverters._
 
 abstract class FilterExecTransformerBase(val cond: Expression, val input: SparkPlan)
   extends UnaryTransformSupport
-  with OrderPreservingNodeShim
-  with PartitioningPreservingNodeShim
+  with OrderPreservingUnaryExecNode
+  with PartitioningPreservingUnaryExecNode
   with PredicateHelper
   with Logging {
 
@@ -118,7 +118,7 @@ abstract class FilterExecTransformerBase(val cond: Expression, val input: SparkP
     } else {
       val remainingFilters =
         FilterHandler.subtractFilters(splitConjunctivePredicates(cond), scanFilters)
-      remainingFilters.reduceLeftOption(And).orNull
+      FilterHandler.combineConjuncts(remainingFilters).orNull
     }
   }
 
@@ -168,8 +168,8 @@ abstract class FilterExecTransformerBase(val cond: Expression, val input: SparkP
 
 abstract class ProjectExecTransformerBase(val list: Seq[NamedExpression], val input: SparkPlan)
   extends UnaryTransformSupport
-  with OrderPreservingNodeShim
-  with PartitioningPreservingNodeShim
+  with OrderPreservingUnaryExecNode
+  with PartitioningPreservingUnaryExecNode
   with PredicateHelper
   with Logging {
 
@@ -339,5 +339,13 @@ object FilterHandler extends PredicateHelper {
 
   def combineFilters(left: Seq[Expression], right: Seq[Expression]): Seq[Expression] = {
     (left.toSet ++ right.toSet).toSeq
+  }
+
+  /**
+   * Combines the conjuncts into a balanced And tree. A left-deep tree grows linearly in depth with
+   * the number of conjuncts, which can overflow the stack in the recursive expression conversion.
+   */
+  def combineConjuncts(conjuncts: Seq[Expression]): Option[Expression] = {
+    if (conjuncts.isEmpty) None else Some(buildBalancedPredicate(conjuncts, And))
   }
 }

@@ -189,7 +189,24 @@ class VeloxMetricsSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     }
   }
 
-  test("Hash aggregate metrics include abandoned partial aggregation rows") {
+  test("Metrics of TopN") {
+    runQueryAndCompare("SELECT c1, c2 FROM metrics_t1 ORDER BY c2 LIMIT 5") {
+      df =>
+        // TopNTransformer is synthesized at execution time and is not plan-visible; the native
+        // TopN metrics are reported on the TakeOrderedAndProjectExecTransformer node instead.
+        val topN = find(df.queryExecution.executedPlan) {
+          case _: TakeOrderedAndProjectExecTransformer => true
+          case _ => false
+        }
+        assert(topN.isDefined)
+        val metrics = topN.get.metrics
+        assert(metrics("numOutputRows").value == 5)
+        assert(metrics("outputVectors").value > 0)
+        assert(metrics("outputBytes").value > 0)
+    }
+  }
+
+  test("Hash aggregate metrics include abandoned rows and toIntermediate fast path calls") {
     withSQLConf(
       GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> "10",
       VeloxConfig.ABANDON_PARTIAL_AGGREGATION_MIN_ROWS.key -> "0",
@@ -201,16 +218,56 @@ class VeloxMetricsSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
             case agg: HashAggregateExecBaseTransformer => agg
           }
           assert(aggregates.nonEmpty)
-          val numTotalAbandonedPartialAggregationRows = aggregates.map {
-            agg =>
-              val metrics = agg.metrics
-              assert(metrics.contains("abandonedPartialAggregationRows"))
-              val num = metrics("abandonedPartialAggregationRows").value
-              assert(num >= 0)
-              num
-          }.sum
-          assert(numTotalAbandonedPartialAggregationRows > 0)
+          val aggregateMetrics = aggregates.map(_.metrics)
+          assert(aggregateMetrics.forall(_.contains("abandonedPartialAggregationRows")))
+          assert(aggregateMetrics.forall(_.contains("toIntermediateFastPathCalls")))
+          assert(aggregateMetrics.map(_("abandonedPartialAggregationRows").value).sum > 0)
+          assert(aggregateMetrics.map(_("toIntermediateFastPathCalls").value).sum > 0)
       }
+    }
+  }
+
+  test("Literal-on-left comparison prunes Parquet row groups") {
+    withTempPath {
+      dir =>
+        withTempView("sorted_ids") {
+          spark
+            .range(0, 10000, 1, 1)
+            .write
+            .format("parquet")
+            .option("parquet.block.rows", "1000")
+            .save(dir.getCanonicalPath)
+          spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("sorted_ids")
+          // The file has 10 row groups. Returns (skipped, processed) row groups of the scan.
+          def strides(query: String): (Long, Long) = {
+            var result = (0L, 0L)
+            runQueryAndCompare(query) {
+              df =>
+                val scan = find(df.queryExecution.executedPlan) {
+                  case _: FileSourceScanExecTransformer => true
+                  case _ => false
+                }
+                assert(scan.isDefined)
+                val metrics = scan.get.metrics
+                result = (metrics("skippedStrides").value, metrics("processedStrides").value)
+            }
+            result
+          }
+          // Each literal-on-left predicate must skip the same row groups as its mirrored form.
+          Seq(
+            "100 > id" -> "id < 100",
+            "100 >= id" -> "id <= 100",
+            "9900 < id" -> "id > 9900",
+            "9900 <= id" -> "id >= 9900",
+            "5000 = id" -> "id = 5000"
+          ).foreach {
+            case (left, right) =>
+              val expected = strides(s"SELECT id FROM sorted_ids WHERE $right")
+              val actual = strides(s"SELECT id FROM sorted_ids WHERE $left")
+              assert(expected._1 > 0, s"$right should prune row groups: $expected")
+              assert(actual == expected, s"$left vs $right")
+          }
+        }
     }
   }
 

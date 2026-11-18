@@ -17,7 +17,7 @@
 package org.apache.gluten.expression
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.execution.{ColumnarPartialProjectExec, WholeStageTransformerSuite}
+import org.apache.gluten.execution.{ColumnarPartialProjectExec, SortExecTransformer, WholeStageTransformerSuite}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.catalyst.optimizer.{ConstantFolding, NullPropagation}
@@ -119,6 +119,18 @@ class UDFPartialProjectSuite extends WholeStageTransformerSuite {
     }.size == 2)
   }
 
+  test("eliminate local sort below partial project to keep collect_list order") {
+    // A non-stable native sort on the grouping key would reorder collected values.
+    runQueryAndCompare(
+      """SELECT k, collect_list(concat_concat(v)) FROM (
+        |  SELECT id % 10 AS k, cast(id AS string) AS v FROM range(0, 10000, 1, 1)
+        |) GROUP BY k""".stripMargin) {
+      df =>
+        checkGlutenPlan[ColumnarPartialProjectExec](df)
+        assert(getExecutedPlan(df).collect { case s: SortExecTransformer => s }.isEmpty)
+    }
+  }
+
   test("test plus_one with many columns in project") {
     runQueryAndCompare("SELECT plus_one(cast(l_orderkey as long)), hash(l_partkey) from lineitem") {
       checkGlutenPlan[ColumnarPartialProjectExec]
@@ -143,8 +155,9 @@ class UDFPartialProjectSuite extends WholeStageTransformerSuite {
   }
 
   test("udf in agg simple") {
-    runQueryAndCompare("""select sum(hash(plus_one(l_extendedprice)) + hash(l_orderkey) ) as revenue
-                         | from   lineitem""".stripMargin) {
+    runQueryAndCheck(
+      """select sum(hash(plus_one(l_extendedprice)) + hash(l_orderkey) ) as revenue
+        | from   lineitem""".stripMargin) {
       checkGlutenPlan[ColumnarPartialProjectExec]
     }
   }

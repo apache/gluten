@@ -45,6 +45,7 @@ class HashAggregateMetricsUpdaterImpl(val metrics: Map[String, SQLMetric])
   val aggSpilledFiles: SQLMetric = metrics("aggSpilledFiles")
   val flushRowCount: SQLMetric = metrics("flushRowCount")
   val abandonedPartialAggregationRows: SQLMetric = metrics("abandonedPartialAggregationRows")
+  val toIntermediateFastPathCalls: SQLMetric = metrics("toIntermediateFastPathCalls")
   val loadedToValueHook: SQLMetric = metrics("loadedToValueHook")
 
   val rowConstructionCpuCount: SQLMetric = metrics("rowConstructionCpuCount")
@@ -83,6 +84,7 @@ class HashAggregateMetricsUpdaterImpl(val metrics: Map[String, SQLMetric])
     aggSpilledFiles += aggMetrics.spilledFiles
     flushRowCount += aggMetrics.flushRowCount
     abandonedPartialAggregationRows += aggMetrics.abandonedPartialAggregationRows
+    toIntermediateFastPathCalls += aggMetrics.toIntermediateFastPathCalls
     loadedToValueHook += aggMetrics.loadedToValueHook
     idx += 1
 

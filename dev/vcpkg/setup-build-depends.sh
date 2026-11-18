@@ -19,8 +19,33 @@ set -e
 
 ## Install functions begin
 
+CCACHE_VERSION="4.14"
+
 function semver {
     echo "$@" | awk -F. '{ printf("%d%03d%03d", $1,$2,$3); }'
+}
+
+install_ccache() {
+    # Upstream static (musl) builds have no glibc requirement but only exist for x86_64 and
+    # aarch64; fall back to the distro package on other architectures (e.g. ppc64le).
+    case "$(uname -m)" in
+    x86_64|aarch64) ;;
+    *)
+        if command -v apt-get > /dev/null; then
+            apt-get -y install ccache
+        elif command -v dnf > /dev/null; then
+            dnf -y install ccache
+        else
+            yum -y install ccache
+        fi
+        return
+        ;;
+    esac
+    local name="ccache-${CCACHE_VERSION}-linux-$(uname -m)-musl-static"
+    wget -nv -O "/tmp/${name}.tar.gz" "https://github.com/ccache/ccache/releases/download/v${CCACHE_VERSION}/${name}.tar.gz"
+    tar -xzf "/tmp/${name}.tar.gz" -C /tmp
+    install -m 0755 "/tmp/${name}/ccache" /usr/local/bin/ccache
+    rm -rf "/tmp/${name}" "/tmp/${name}.tar.gz"
 }
 
 install_maven_from_source() {
@@ -68,79 +93,6 @@ install_gcc11_from_source() {
      fi
 }
 
-install_centos_7() {
-    export PATH=/usr/local/bin:$PATH
-
-    sed -i \
-        -e 's/^mirrorlist/#mirrorlist/' \
-        -e 's/^# *baseurl *=/baseurl=/' \
-        -e 's/mirror\.centos\.org/vault.centos.org/' \
-        /etc/yum.repos.d/*.repo
-
-    yum -y install epel-release centos-release-scl
-    sed -i \
-        -e 's/^mirrorlist/#mirrorlist/' \
-        -e 's/^# *baseurl *=/baseurl=/' \
-        -e 's/mirror\.centos\.org/vault.centos.org/' \
-        /etc/yum.repos.d/*.repo
-
-    yum -y install \
-        wget curl tar zip unzip which patch sudo \
-        ninja-build perl-IPC-Cmd autoconf autoconf-archive automake libtool \
-        devtoolset-11 python3 pip dnf \
-        bison \
-        java-1.8.0-openjdk java-1.8.0-openjdk-devel
-
-    pip3 install --upgrade pip
-
-    # Requires cmake >= 3.28.3
-    pip3 install cmake==3.28.3
-
-    # Requires git >= 2.7.4
-    if [[ "$(git --version)" != "git version 2."* ]]; then
-        yum -y remove git
-        # Requires 'centos-release-scl' package to be installed.
-        yum -y install rh-git227
-        source /opt/rh/rh-git227/enable
-        echo "source /opt/rh/rh-git227/enable" >> ~/.bashrc
-    fi
-
-    # flex>=2.6.0
-    if [[ "$(PATH="/usr/local/bin:$PATH" flex --version 2>&1)" != "flex 2.6."* ]]; then
-        yum -y install gettext-devel
-        FLEX_URL="https://github.com/westes/flex/releases/download/v2.6.4/flex-2.6.4.tar.gz"
-        mkdir -p /tmp/flex
-        wget -q --max-redirect 3 -O - "${FLEX_URL}" | tar -xz -C /tmp/flex --strip-components=1
-        cd /tmp/flex
-        ./autogen.sh
-        ./configure --prefix=/usr
-        make install
-        cd
-        rm -rf /tmp/flex
-    fi
-
-    # automake>=1.14
-    installed_automake_version="$(aclocal --version | sed -En "1s/^.* ([1-9\.]*)$/\1/p")"
-    if [ "$(semver "$installed_automake_version")" -lt "$(semver 1.14)" ]; then
-        mkdir -p /tmp/automake
-        AUTOMAKE_URL1="https://ftp.gnu.org/gnu/automake/automake-1.16.5.tar.xz"
-        AUTOMAKE_URL2="https://www.mirrorservice.org/sites/ftp.gnu.org/gnu/automake/automake-1.16.5.tar.xz"
-        wget -O /tmp/automake.tar.xz "$AUTOMAKE_URL1" || wget -O /tmp/automake.tar.xz "$AUTOMAKE_URL2"
-        tar -xf /tmp/automake.tar.xz -C /tmp/automake --strip-components=1
-        rm -f /tmp/automake.tar.xz
-        cd /tmp/automake
-        ./configure
-        make install -j
-        cd
-        rm -rf /tmp/automake
-
-        # Fix aclocal search path
-        echo /usr/share/aclocal > /usr/local/share/aclocal/dirlist
-    fi
-
-    install_maven_from_source
-}
-
 install_centos_8() {
     sed -i \
         -e 's/^mirrorlist/#mirrorlist/' \
@@ -159,6 +111,7 @@ install_centos_8() {
 
     dnf -y --enablerepo=powertools install autoconf-archive ninja-build
 
+    install_ccache
     install_maven_from_source
 }
 
@@ -172,18 +125,19 @@ install_centos_9() {
 
     pip3 install --upgrade pip
 
-
     dnf -y --enablerepo=crb install autoconf-archive ninja-build
 
+    install_ccache
     install_maven_from_source
 }
 
 install_ubuntu_20.04() {
     apt-get update && apt-get -y install \
         wget curl tar zip unzip git \
-        build-essential ccache cmake ninja-build pkg-config autoconf autoconf-archive libtool \
+        build-essential cmake ninja-build pkg-config autoconf autoconf-archive libtool \
         flex bison \
         openjdk-8-jdk maven
+    install_ccache
     # Overwrite gcc-9 installed by build-essential.
     sudo apt install -y software-properties-common
     sudo add-apt-repository ppa:ubuntu-toolchain-r/test
@@ -193,6 +147,15 @@ install_ubuntu_20.04() {
 }
 
 install_ubuntu_22.04() { install_ubuntu_20.04; }
+
+install_ubuntu_24.04() {
+    apt-get update && apt-get -y install \
+        wget curl tar zip unzip git \
+        build-essential cmake ninja-build pkg-config autoconf autoconf-archive libtool \
+        flex bison \
+        openjdk-17-jdk maven
+    install_ccache
+}
 
 install_openeuler_24.03() {
     dnf -y update
@@ -204,6 +167,7 @@ install_openeuler_24.03() {
 
     pip install cmake==3.31.4
 
+    install_ccache
     install_maven_from_source
 }
 
@@ -230,8 +194,9 @@ install_tencentos_3.2() {
 install_debian_10() {
     apt-get -y install \
         wget curl tar zip unzip git apt-transport-https \
-        build-essential ccache cmake ninja-build pkg-config autoconf autoconf-archive libtool \
+        build-essential cmake ninja-build pkg-config autoconf autoconf-archive libtool \
         flex bison python3
+    install_ccache
 
     # Download the Eclipse Adoptium GPG key
     wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor | tee /etc/apt/trusted.gpg.d/adoptium.gpg > /dev/null
@@ -249,8 +214,9 @@ install_debian_10() {
 install_debian_11() {
     apt-get -y install \
         wget curl tar zip unzip git apt-transport-https \
-        build-essential ccache cmake ninja-build pkg-config autoconf autoconf-archive libtool \
+        build-essential cmake ninja-build pkg-config autoconf autoconf-archive libtool \
         flex bison
+    install_ccache
 
     # Download the Eclipse Adoptium GPG key
     wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor | tee /etc/apt/trusted.gpg.d/adoptium.gpg > /dev/null

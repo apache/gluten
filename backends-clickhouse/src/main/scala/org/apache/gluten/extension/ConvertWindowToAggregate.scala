@@ -54,12 +54,14 @@ case class ConverRowNumbertWindowToAggregateRule(spark: SparkSession)
         if (
           !isSupportedWindowFunction(windowExpressions) || !isTopKLimitFilter(
             condition,
-            windowExpressions(0))
+            windowExpressions(0)) || hasSamePartitionAndOrderKeys(partitionSpec, orderSpec)
         ) {
           logDebug(
             s"xxx Not Supported case for converting window to aggregate. is topk limit: " +
               s"${isTopKLimitFilter(condition, windowExpressions(0))}. is supported window " +
-              s"function: ${isSupportedWindowFunction(windowExpressions)}")
+              s"function: ${isSupportedWindowFunction(windowExpressions)}. " +
+              s"has same partition and order keys: " +
+              s"${hasSamePartitionAndOrderKeys(partitionSpec, orderSpec)}")
           filter
         } else {
           val limit = getLimit(condition.asInstanceOf[BinaryComparison])
@@ -110,6 +112,16 @@ case class ConverRowNumbertWindowToAggregateRule(spark: SparkSession)
     windowFunction match {
       case _: RowNumber => true
       case _ => false
+    }
+  }
+
+  private def hasSamePartitionAndOrderKeys(
+      partitionSpec: Seq[Expression],
+      orderSpec: Seq[SortOrder]): Boolean = {
+    partitionSpec.nonEmpty && partitionSpec.length == orderSpec.length &&
+    partitionSpec.zip(orderSpec).forall {
+      case (partitionExpr, sortOrder) =>
+        partitionExpr.semanticEquals(sortOrder.child)
     }
   }
 

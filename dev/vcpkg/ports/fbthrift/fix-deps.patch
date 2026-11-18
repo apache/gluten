@@ -1,8 +1,8 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 2f214f5..b45f528 100644
+index c48d560..2f88099 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -118,12 +118,15 @@ endif ()
+@@ -135,14 +135,17 @@ endif ()
  
  # Find required dependencies for thrift/lib
  if (THRIFT_LIB_ONLY OR build_all)
@@ -12,27 +12,27 @@ index 2f214f5..b45f528 100644
 +  set(LIBGFLAGS_LIBRARY gflags::gflags)
 +  find_package(glog CONFIG REQUIRED)
 +  set(GLOG_LIBRARIES glog::glog)
-   find_package(fizz CONFIG REQUIRED)
-   find_package(wangle CONFIG REQUIRED)
+   if (THRIFT_RPC)
+     find_package(fizz CONFIG REQUIRED)
+     find_package(wangle CONFIG REQUIRED)
+   endif ()
    find_package(ZLIB REQUIRED)
 -  find_package(Zstd REQUIRED)
 +  find_package(zstd CONFIG REQUIRED)
 +  set(ZSTD_LIBRARIES zstd::libzstd)
    find_package(Xxhash REQUIRED)
-   find_package(mvfst CONFIG REQUIRED)
-   # https://cmake.org/cmake/help/v3.9/module/FindThreads.html
+   if (THRIFT_RPC)
+     find_package(mvfst CONFIG REQUIRED)
 diff --git a/thrift/cmake/FBThriftConfig.cmake.in b/thrift/cmake/FBThriftConfig.cmake.in
-index e279485..4dd8bd1 100644
+index 9aee56b..4d3616b 100644
 --- a/thrift/cmake/FBThriftConfig.cmake.in
 +++ b/thrift/cmake/FBThriftConfig.cmake.in
-@@ -29,9 +29,16 @@ else()
-   set_and_check(FBTHRIFT_COMPILER "@PACKAGE_BIN_INSTALL_DIR@/thrift1")
+@@ -45,8 +45,15 @@ if (NOT Xxhash_FOUND)
+   return()
  endif()
  
--find_dependency(Xxhash REQUIRED)
 -find_dependency(ZLIB REQUIRED)
--find_package(mvfst CONFIG REQUIRED)
-+find_dependency(xxHash CONFIG)
+-find_package(mvfst CONFIG)
 +find_dependency(ZLIB)
 +find_dependency(mvfst CONFIG)
 +find_dependency(fizz CONFIG)

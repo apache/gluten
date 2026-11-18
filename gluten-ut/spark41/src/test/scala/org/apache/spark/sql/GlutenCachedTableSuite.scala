@@ -31,12 +31,10 @@ class GlutenCachedTableSuite
   with GlutenSQLTestsTrait
   with AdaptiveSparkPlanHelper {
   import testImplicits._
-  // for temporarily disable the columnar table cache globally.
-  sys.props.put(GlutenConfig.COLUMNAR_TABLE_CACHE_ENABLED.key, "true")
-  override def sparkConf: SparkConf = {
-    super.sparkConf.set("spark.sql.shuffle.partitions", "5")
-    super.sparkConf.set(GlutenConfig.COLUMNAR_TABLE_CACHE_ENABLED.key, "true")
-  }
+  override def sparkConf: SparkConf =
+    super.sparkConf
+      .set("spark.sql.shuffle.partitions", "5")
+      .set(GlutenConfig.COLUMNAR_TABLE_CACHE_ENABLED.key, "true")
 
   testGluten("SPARK-52684: Atomicity of cache table on error") {
     withTempView("SPARK_52684") {

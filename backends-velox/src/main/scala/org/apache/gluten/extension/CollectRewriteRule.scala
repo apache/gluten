@@ -76,7 +76,8 @@ object CollectRewriteRule {
     }
   }
 
-  private def getIgnoreNulls(expr: Expression): Boolean = {
+  /** Returns the `ignoreNulls` flag of Spark's CollectSet / CollectList (true before Spark 4.2). */
+  def getIgnoreNulls(expr: Expression): Boolean = {
     try {
       val method = expr.getClass.getMethod("ignoreNulls")
       method.invoke(expr).asInstanceOf[Boolean]

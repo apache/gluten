@@ -17,6 +17,7 @@
 package org.apache.spark.shuffle.sort
 
 import org.apache.spark.SparkConf
+import org.apache.spark.util.collection.OpenHashSet
 
 import org.scalatest.funsuite.AnyFunSuiteLike
 
@@ -32,6 +33,25 @@ class ColumnarShuffleManagerSuite extends AnyFunSuiteLike {
     val shuffleManager = new ColumnarShuffleManager(conf)
     try {
       assert(shuffleManager.isInstanceOf[SortShuffleManager])
+    } finally {
+      shuffleManager.stop()
+    }
+  }
+
+  // IndexShuffleBlockResolver records blocks migrated in during executor decommissioning into its
+  // own taskIdMapsForShuffle, and unregisterShuffle deletes map output by reading the manager's
+  // map. If the two are separate instances, migrated blocks are recorded where nothing reads them
+  // and their files are never deleted, leaking disk on decommissioned executors.
+  test("shares taskIdMapsForShuffle with its block resolver") {
+    val conf = new SparkConf().setMaster("local[2]").setAppName("ColumnarShuffleManagerSuite")
+    val shuffleManager = new ColumnarShuffleManager(conf)
+    try {
+      val shuffleId = 0
+      shuffleManager.shuffleBlockResolver.taskIdMapsForShuffle
+        .put(shuffleId, new OpenHashSet[Long](16))
+
+      assert(shuffleManager.unregisterShuffle(shuffleId))
+      assert(shuffleManager.shuffleBlockResolver.taskIdMapsForShuffle.isEmpty)
     } finally {
       shuffleManager.stop()
     }

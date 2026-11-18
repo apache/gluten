@@ -20,7 +20,7 @@ import org.apache.gluten.execution.{ProjectExecTransformer, ShuffledHashJoinExec
 
 import org.apache.spark.sql.catalyst.expressions.SortOrder
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.execution.{ProjectExec, SortExec, SparkPlan, UnaryExecNode}
+import org.apache.spark.sql.execution.{OrderPreservingUnaryExecNode, ProjectExec, SortExec, SparkPlan, UnaryExecNode}
 
 /**
  * This rule is used to eliminate unnecessary local sort.
@@ -44,6 +44,8 @@ object EliminateLocalSort extends Rule[SparkPlan] {
   private def canThrough(p: SparkPlan): Boolean = p match {
     case _: ProjectExec => true
     case _: ProjectExecTransformer => true
+    // e.g. ColumnarPartialProjectExec, which sits between a pulled-out project and its sort.
+    case p: OrderPreservingUnaryExecNode => p.requiredChildOrdering.forall(_.isEmpty)
     case _ => false
   }
 
@@ -56,22 +58,23 @@ object EliminateLocalSort extends Rule[SparkPlan] {
       case p if canEliminateLocalSort(p) =>
         val requiredChildOrdering = p.requiredChildOrdering
         assert(requiredChildOrdering.size == p.children.size)
-        val newChildren = p.children.zipWithIndex.map {
-          case (SortWithChild(gChild), i) if orderingSatisfies(gChild, requiredChildOrdering(i)) =>
-            gChild
-          case (p: UnaryExecNode, i) if canThrough(p) =>
-            // There may be more than one project between target operator and sort,
-            // e.g., both hash aggregate and sort pull out project
-            p.child match {
-              case SortWithChild(gChild) if orderingSatisfies(gChild, requiredChildOrdering(i)) =>
-                p.withNewChildren(gChild :: Nil)
-              case _ => p
-            }
-          case p => p._1
+        val newChildren = p.children.zip(requiredChildOrdering).map {
+          case (child, ordering) => eliminateSort(child, ordering)
         }
         p.withNewChildren(newChildren)
     }
   }
+
+  // There may be more than one project between target operator and sort, e.g., both hash
+  // aggregate and sort pull out project, or a partial project is inserted.
+  private def eliminateSort(plan: SparkPlan, requiredOrdering: Seq[SortOrder]): SparkPlan =
+    plan match {
+      case SortWithChild(gChild) if orderingSatisfies(gChild, requiredOrdering) =>
+        gChild
+      case p: UnaryExecNode if canThrough(p) =>
+        p.withNewChildren(eliminateSort(p.child, requiredOrdering) :: Nil)
+      case p => p
+    }
 }
 
 object SortWithChild {

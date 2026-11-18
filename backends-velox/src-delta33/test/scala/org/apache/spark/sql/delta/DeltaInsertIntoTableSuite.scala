@@ -21,7 +21,7 @@ import org.apache.spark.SparkException
 import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.parser.ParseException
-import org.apache.spark.sql.delta.DeltaInsertIntoTableSuiteShims.{INSERT_INTO_TMP_VIEW_ERROR_MSG, INVALID_COLUMN_DEFAULT_VALUE_ERROR_MSG}
+import org.apache.spark.sql.delta.DeltaInsertIntoTableSuiteShims._
 import org.apache.spark.sql.delta.schema.{InvariantViolationException, SchemaUtils}
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.test.{DeltaColumnMappingSelectedTestMixin, DeltaSQLCommandTest}
@@ -351,10 +351,8 @@ class DeltaInsertIntoSQLSuite
       }
       checkErrorMatchPVals(
         exception = err,
-        "_LEGACY_ERROR_TEMP_DELTA_0007",
-        parameters = Map(
-          "message" -> "A schema mismatch detected when writing to the Delta table(.|\\n)*"
-        )
+        METADATA_MISMATCH_ERROR_CLASS,
+        parameters = METADATA_MISMATCH_ERROR_PARAMETERS
       )
 
       // insert data with schema evolution
@@ -424,10 +422,8 @@ class DeltaInsertIntoSQLSuite
       }
       checkErrorMatchPVals(
         exception = e,
-        "_LEGACY_ERROR_TEMP_DELTA_0007",
-        parameters = Map(
-          "message" -> "A schema mismatch detected when writing to the Delta table(.|\\n)*"
-        )
+        METADATA_MISMATCH_ERROR_CLASS,
+        parameters = METADATA_MISMATCH_ERROR_PARAMETERS
       )
 
       withSQLConf(DeltaSQLConf.DELTA_SCHEMA_AUTO_MIGRATE.key -> "true") {
@@ -462,10 +458,8 @@ class DeltaInsertIntoSQLSuite
       }
       checkErrorMatchPVals(
         exception = e,
-        "_LEGACY_ERROR_TEMP_DELTA_0007",
-        parameters = Map(
-          "message" -> "A schema mismatch detected when writing to the Delta table(.|\\n)*"
-        )
+        METADATA_MISMATCH_ERROR_CLASS,
+        parameters = METADATA_MISMATCH_ERROR_PARAMETERS
       )
 
       withSQLConf(DeltaSQLConf.DELTA_SCHEMA_AUTO_MIGRATE.key -> "true") {
@@ -713,7 +707,9 @@ abstract class DeltaInsertIntoTestsWithTempViews(
                     e.getMessage.contains("Table or view 'v' not found in database 'default'") ||
                     e.getMessage.contains("The table or view `default`.`v` cannot be found") ||
                     e.getMessage.contains(
-                      "[UNSUPPORTED_INSERT.RDD_BASED] Can't insert into the target."))
+                      "[UNSUPPORTED_INSERT.RDD_BASED] Can't insert into the target.") ||
+                    e.getMessage.contains(
+                      "The table or view `spark_catalog`.`default`.`v` cannot be found"))
             }
         }
     }

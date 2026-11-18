@@ -55,6 +55,11 @@ import scala.jdk.CollectionConverters._
 
 class Spark41Shims extends SparkShims {
 
+  override def getSampleSeed(plan: SampleExec): Long = plan.seed
+
+  override def isKeyGroupedPartitioning(partitioning: Partitioning): Boolean =
+    partitioning.isInstanceOf[KeyGroupedPartitioning]
+
   override def getLocalTableScanStream(plan: LocalTableScanExec): Option[SparkDataStream] =
     plan.stream
 
@@ -489,6 +494,9 @@ class Spark41Shims extends SparkShims {
   override def getFileSourceScanStream(scan: FileSourceScanExec): Option[SparkDataStream] = {
     scan.stream
   }
+
+  override def isOneRowRelationExec(plan: SparkPlan): Boolean =
+    plan.isInstanceOf[OneRowRelationExec]
 
   override def unsupportedCodec: Seq[CompressionCodecName] = {
     Seq(CompressionCodecName.LZO, CompressionCodecName.BROTLI, CompressionCodecName.LZ4_RAW)

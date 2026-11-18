@@ -102,8 +102,13 @@ facebook::velox::RowVectorPtr RowVectorStream::next() {
   const std::shared_ptr<VeloxColumnarBatch>& vb = VeloxColumnarBatch::from(pool_, cb);
   auto vp = vb->getRowVector();
   VELOX_DCHECK(vp != nullptr);
+  // Broadcast preprojection can append join-key columns beyond the stream's output schema.
+  VELOX_CHECK_GE(
+      vp->childrenSize(), outputType_->size(), "Value stream batch has fewer columns than the declared output type");
+  std::vector<facebook::velox::VectorPtr> children(
+      vp->children().begin(), vp->children().begin() + outputType_->size());
   return std::make_shared<facebook::velox::RowVector>(
-      vp->pool(), outputType_, facebook::velox::BufferPtr(0), vp->size(), vp->children());
+      vp->pool(), outputType_, facebook::velox::BufferPtr(0), vp->size(), std::move(children));
 }
 
 ValueStreamDataSource::ValueStreamDataSource(
@@ -136,47 +141,50 @@ void ValueStreamDataSource::addSplit(std::shared_ptr<facebook::velox::connector:
 std::optional<facebook::velox::RowVectorPtr> ValueStreamDataSource::next(
     uint64_t size,
     facebook::velox::ContinueFuture& future) {
-  // Try to get current iterator if we don't have one
-  while (!currentIterator_) {
-    if (pendingIterators_.empty()) {
-      // No more iterators to process
-      return nullptr;
+  for (;;) {
+    // Try to get current iterator if we don't have one.
+    if (!currentIterator_) {
+      if (pendingIterators_.empty()) {
+        // No more iterators to process. Return an engaged null RowVectorPtr to
+        // tell TableScan the current split is finished, not connector-blocked.
+        return facebook::velox::RowVectorPtr(nullptr);
+      }
+
+      // Get next RowVectorStream from queue.
+      currentIterator_ = pendingIterators_.front();
+      pendingIterators_.erase(pendingIterators_.begin());
     }
 
-    // Get next RowVectorStream from queue
-    currentIterator_ = pendingIterators_.front();
-    pendingIterators_.erase(pendingIterators_.begin());
-  }
+    // Check if current stream has more data.
+    if (!currentIterator_->hasNext()) {
+      currentIterator_ = nullptr;
+      continue;
+    }
 
-  // Check if current stream has more data
-  if (!currentIterator_->hasNext()) {
-    // Current stream exhausted, try next one
-    currentIterator_ = nullptr;
-    return next(size, future); // Recursively try next stream
-  }
-
-  // Get next batch from current stream (RowVectorStream handles conversion)
-  auto rowVector = currentIterator_->next();
-
-  if (!rowVector) {
-    currentIterator_ = nullptr;
-    return next(size, future); // Recursively try next stream
-  }
-
-  // Update metrics
-  completedRows_ += rowVector->size();
-  completedBytes_ += rowVector->estimateFlatSize();
-
-  // Apply dynamic filters if any have been pushed down.
-  if (!dynamicFilters_.empty()) {
-    rowVector = applyDynamicFilters(rowVector);
+    // Get next batch from current stream (RowVectorStream handles conversion).
+    auto rowVector = currentIterator_->next();
     if (!rowVector) {
-      // All rows filtered out, try next batch.
-      return next(size, future);
+      // Current stream is done, move on to the next one.
+      currentIterator_ = nullptr;
+      continue;
     }
-  }
 
-  return rowVector;
+    // Update metrics.
+    completedRows_ += rowVector->size();
+    completedBytes_ += rowVector->estimateFlatSize();
+
+    // Apply dynamic filters if any have been pushed down.
+    if (!dynamicFilters_.empty()) {
+      rowVector = applyDynamicFilters(rowVector);
+      if (!rowVector) {
+        // All rows filtered out. Retry in-loop rather than recursing: a long run
+        // of fully-filtered batches must not grow the native stack.
+        continue;
+      }
+    }
+
+    return rowVector;
+  }
 }
 
 facebook::velox::RowVectorPtr ValueStreamDataSource::applyDynamicFilters(const facebook::velox::RowVectorPtr& input) {

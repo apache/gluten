@@ -245,7 +245,9 @@ trait GlutenTestsTrait extends GlutenTestsCommonTrait {
           ArrayType(vt, vcn),
           exprNullable = false)
       case (result: Double, expected: Double) =>
-        if (
+        if (result.isNaN && expected.isNaN) {
+          true
+        } else if (
           (isNaNOrInf(result) || isNaNOrInf(expected))
           || (result == -0.0) || (expected == -0.0)
         ) {

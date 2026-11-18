@@ -30,7 +30,7 @@ jobs:
       - name: build doc
         uses: actions/jekyll-build-pages@v1
       - name: rsync
-        uses: burnett01/rsync-deployments@0dc935cdecc5f5e571865e60d2a6cdc673704823
+        uses: burnett01/rsync-deployments@155b6d6c1219ab2224c20c58d423a3f1b850395f # 9.0.1
         with:
           switches: -avzr --delete
           path: _site

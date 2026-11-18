@@ -96,6 +96,9 @@ object ExpressionNames {
   final val CHECKED_DIVIDE = "checked_divide"
   final val CHECKED_MULTIPLY = "checked_multiply"
   final val CHECKED_DIV = "checked_div"
+  final val TRY_ADD = "try_add"
+  final val TRY_SUBTRACT = "try_subtract"
+  final val TRY_MULTIPLY = "try_multiply"
 
   // SparkSQL String functions
   final val ASCII = "ascii"
@@ -237,6 +240,9 @@ object ExpressionNames {
   final val UNIX_DATE = "unix_date"
   final val MAKE_DATE = "make_date"
   final val MAKE_TIMESTAMP = "make_timestamp"
+  final val TRY_MAKE_TIMESTAMP = "try_make_timestamp"
+  final val MAKE_TIMESTAMP_NTZ = "make_timestamp_ntz"
+  final val TRY_MAKE_TIMESTAMP_NTZ = "try_make_timestamp_ntz"
   final val MAKE_YM_INTERVAL = "make_ym_interval"
   final val TO_UTC_TIMESTAMP = "to_utc_timestamp"
   final val FROM_UTC_TIMESTAMP = "from_utc_timestamp"
@@ -358,6 +364,7 @@ object ExpressionNames {
   final val AT_LEAST_N_NON_NULLS = "at_least_n_non_nulls"
   final val ASSERT_TRUE = "assert_true"
   final val ASSERT_NOT_NULL = "assert_not_null"
+  final val INCREMENT_METRIC = "increment_metric"
   final val NULLIF = "nullif"
   final val NVL = "nvl"
   final val NVL2 = "nvl2"

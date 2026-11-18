@@ -1,0 +1,140 @@
+VeloxColumnarToRow
+  TakeOrderedAndProjectExecTransformer [substr(r_reason_desc, 1, 20),avg(ws_quantity),avg(wr_refunded_cash),avg(wr_fee)]
+    WholeStageCodegenTransformer (16)
+      ProjectExecTransformer [r_reason_desc,avg(ws_quantity),avg(UnscaledValue(wr_refunded_cash)),avg(UnscaledValue(wr_fee))]
+        RegularHashAggregateExecTransformer [r_reason_desc,sum,count,sum,count,sum,count] [avg(ws_quantity),avg(UnscaledValue(wr_refunded_cash)),avg(UnscaledValue(wr_fee)),sum,count,sum,count,sum,count]
+          InputIteratorTransformer
+            InputAdapter
+              ColumnarExchange [r_reason_desc,sum,count,sum,count,sum,count] #1
+                VeloxResizeBatches
+                  WholeStageCodegenTransformer (15)
+                    ProjectExecTransformer [r_reason_desc,sum,count,sum,count,sum,count]
+                      FlushableHashAggregateExecTransformer [r_reason_desc,ws_quantity,_pre_x,_pre_x] [sum,count,sum,count,sum,count,sum,count,sum,count,sum,count,sum,count,sum,count]
+                        ProjectExecTransformer [ws_quantity,r_reason_desc,wr_refunded_cash,wr_fee]
+                          BroadcastHashJoinExecTransformer [wr_reason_sk,r_reason_sk]
+                            ProjectExecTransformer [ws_quantity,wr_reason_sk,wr_fee,wr_refunded_cash]
+                              BroadcastHashJoinExecTransformer [ws_sold_date_sk,d_date_sk]
+                                ProjectExecTransformer [ws_quantity,ws_sold_date_sk,wr_reason_sk,wr_fee,wr_refunded_cash]
+                                  BroadcastHashJoinExecTransformer [wr_refunded_addr_sk,ca_address_sk,ca_state,ws_net_profit]
+                                    ProjectExecTransformer [ws_quantity,ws_net_profit,ws_sold_date_sk,wr_refunded_addr_sk,wr_reason_sk,wr_fee,wr_refunded_cash]
+                                      ShuffledHashJoinExecTransformer [wr_returning_cdemo_sk,cd_marital_status,cd_education_status,cd_demo_sk,cd_marital_status,cd_education_status]
+                                        InputIteratorTransformer
+                                          InputAdapter
+                                            ColumnarExchange [wr_returning_cdemo_sk,cd_marital_status,cd_education_status,ws_quantity,ws_net_profit,ws_sold_date_sk,wr_refunded_addr_sk,wr_reason_sk,wr_fee,wr_refunded_cash] #2
+                                              VeloxResizeBatches
+                                                WholeStageCodegenTransformer (10)
+                                                  ProjectExecTransformer [wr_returning_cdemo_sk,cd_marital_status,cd_education_status,ws_quantity,ws_net_profit,ws_sold_date_sk,wr_refunded_addr_sk,wr_reason_sk,wr_fee,wr_refunded_cash]
+                                                    BroadcastHashJoinExecTransformer [wr_refunded_cdemo_sk,cd_demo_sk,cd_marital_status,cd_education_status,ws_sales_price]
+                                                      ProjectExecTransformer [ws_quantity,ws_sales_price,ws_net_profit,ws_sold_date_sk,wr_refunded_cdemo_sk,wr_refunded_addr_sk,wr_returning_cdemo_sk,wr_reason_sk,wr_fee,wr_refunded_cash]
+                                                        ShuffledHashJoinExecTransformer [ws_item_sk,ws_order_number,wr_item_sk,wr_order_number]
+                                                          InputIteratorTransformer
+                                                            InputAdapter
+                                                              ColumnarExchange [ws_item_sk,ws_order_number,ws_quantity,ws_sales_price,ws_net_profit,ws_sold_date_sk] #3
+                                                                VeloxResizeBatches
+                                                                  WholeStageCodegenTransformer (3)
+                                                                    ProjectExecTransformer [ws_item_sk,ws_order_number,ws_quantity,ws_sales_price,ws_net_profit,ws_sold_date_sk]
+                                                                      BroadcastHashJoinExecTransformer [ws_web_page_sk,wp_web_page_sk]
+                                                                        FilterExecTransformer [ws_item_sk,ws_order_number,ws_web_page_sk,ws_sales_price,ws_net_profit]
+                                                                          FileSourceScanExecTransformer parquet spark_catalog.default.web_sales [ws_item_sk,ws_web_page_sk,ws_order_number,ws_quantity,ws_sales_price,ws_net_profit,ws_sold_date_sk]
+                                                                            ColumnarSubqueryBroadcast [d_date_sk] #1
+                                                                              ColumnarBroadcastExchange #4
+                                                                                WholeStageCodegenTransformer (1)
+                                                                                  ProjectExecTransformer [d_date_sk]
+                                                                                    FilterExecTransformer [d_year,d_date_sk]
+                                                                                      FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_date_sk,d_year]
+                                                                        InputIteratorTransformer
+                                                                          InputAdapter
+                                                                            ColumnarBroadcastExchange #5
+                                                                              WholeStageCodegenTransformer (2)
+                                                                                FilterExecTransformer [wp_web_page_sk]
+                                                                                  FileSourceScanExecTransformer parquet spark_catalog.default.web_page [wp_web_page_sk]
+                                                          InputIteratorTransformer
+                                                            InputAdapter
+                                                              ColumnarExchange [wr_item_sk,wr_order_number,wr_refunded_cdemo_sk,wr_refunded_addr_sk,wr_returning_cdemo_sk,wr_reason_sk,wr_fee,wr_refunded_cash] #6
+                                                                VeloxResizeBatches
+                                                                  WholeStageCodegenTransformer (8)
+                                                                    ProjectExecTransformer [wr_item_sk,wr_order_number,wr_refunded_cdemo_sk,wr_refunded_addr_sk,wr_returning_cdemo_sk,wr_reason_sk,wr_fee,wr_refunded_cash]
+                                                                      FilterExecTransformer [wr_item_sk,wr_order_number,wr_refunded_cdemo_sk,wr_returning_cdemo_sk,wr_refunded_addr_sk,wr_reason_sk]
+                                                                        Subquery #2
+                                                                          VeloxColumnarToRow
+                                                                            WholeStageCodegenTransformer (5)
+                                                                              RegularHashAggregateExecTransformer [bloom_filter_agg(xxhash64(cd_demo_sk, 42), 159981, 2239471, 0, 0),bloomFilter,buf,buf]
+                                                                                InputIteratorTransformer
+                                                                                  InputAdapter
+                                                                                    ColumnarExchange #7
+                                                                                      VeloxResizeBatches
+                                                                                        WholeStageCodegenTransformer (4)
+                                                                                          FlushableHashAggregateExecTransformer [_pre_x] [buf,buf,buf]
+                                                                                            ProjectExecTransformer [cd_demo_sk]
+                                                                                              FilterExecTransformer [cd_demo_sk,cd_marital_status,cd_education_status]
+                                                                                                FileSourceScanExecTransformer parquet spark_catalog.default.customer_demographics [cd_demo_sk,cd_marital_status,cd_education_status]
+                                                                        Subquery #3
+                                                                          VeloxColumnarToRow
+                                                                            WholeStageCodegenTransformer (7)
+                                                                              RegularHashAggregateExecTransformer [bloom_filter_agg(xxhash64(ca_address_sk, 42), 152837, 2153999, 0, 0),bloomFilter,buf,buf]
+                                                                                InputIteratorTransformer
+                                                                                  InputAdapter
+                                                                                    ColumnarExchange #8
+                                                                                      VeloxResizeBatches
+                                                                                        WholeStageCodegenTransformer (6)
+                                                                                          FlushableHashAggregateExecTransformer [_pre_x] [buf,buf,buf]
+                                                                                            ProjectExecTransformer [ca_address_sk]
+                                                                                              FilterExecTransformer [ca_country,ca_address_sk,ca_state]
+                                                                                                FileSourceScanExecTransformer parquet spark_catalog.default.customer_address [ca_address_sk,ca_state,ca_country]
+                                                                        FileSourceScanExecTransformer parquet spark_catalog.default.web_returns [wr_item_sk,wr_refunded_cdemo_sk,wr_refunded_addr_sk,wr_returning_cdemo_sk,wr_reason_sk,wr_order_number,wr_fee,wr_refunded_cash,wr_returned_date_sk]
+                                                                          Subquery #2
+                                                                            VeloxColumnarToRow
+                                                                              WholeStageCodegenTransformer (5)
+                                                                                RegularHashAggregateExecTransformer [bloom_filter_agg(xxhash64(cd_demo_sk, 42), 159981, 2239471, 0, 0),bloomFilter,buf,buf]
+                                                                                  InputIteratorTransformer
+                                                                                    InputAdapter
+                                                                                      ColumnarExchange #7
+                                                                                        VeloxResizeBatches
+                                                                                          WholeStageCodegenTransformer (4)
+                                                                                            FlushableHashAggregateExecTransformer [_pre_x] [buf,buf,buf]
+                                                                                              ProjectExecTransformer [cd_demo_sk]
+                                                                                                FilterExecTransformer [cd_demo_sk,cd_marital_status,cd_education_status]
+                                                                                                  FileSourceScanExecTransformer parquet spark_catalog.default.customer_demographics [cd_demo_sk,cd_marital_status,cd_education_status]
+                                                                          Subquery #3
+                                                                            VeloxColumnarToRow
+                                                                              WholeStageCodegenTransformer (7)
+                                                                                RegularHashAggregateExecTransformer [bloom_filter_agg(xxhash64(ca_address_sk, 42), 152837, 2153999, 0, 0),bloomFilter,buf,buf]
+                                                                                  InputIteratorTransformer
+                                                                                    InputAdapter
+                                                                                      ColumnarExchange #8
+                                                                                        VeloxResizeBatches
+                                                                                          WholeStageCodegenTransformer (6)
+                                                                                            FlushableHashAggregateExecTransformer [_pre_x] [buf,buf,buf]
+                                                                                              ProjectExecTransformer [ca_address_sk]
+                                                                                                FilterExecTransformer [ca_country,ca_address_sk,ca_state]
+                                                                                                  FileSourceScanExecTransformer parquet spark_catalog.default.customer_address [ca_address_sk,ca_state,ca_country]
+                                                      InputIteratorTransformer
+                                                        InputAdapter
+                                                          ColumnarBroadcastExchange #9
+                                                            WholeStageCodegenTransformer (9)
+                                                              FilterExecTransformer [cd_demo_sk,cd_marital_status,cd_education_status]
+                                                                FileSourceScanExecTransformer parquet spark_catalog.default.customer_demographics [cd_demo_sk,cd_marital_status,cd_education_status]
+                                        InputIteratorTransformer
+                                          InputAdapter
+                                            ColumnarExchange [cd_demo_sk,cd_marital_status,cd_education_status] #10
+                                              VeloxResizeBatches
+                                                WholeStageCodegenTransformer (11)
+                                                  ProjectExecTransformer [cd_demo_sk,cd_marital_status,cd_education_status]
+                                                    FilterExecTransformer [cd_demo_sk,cd_marital_status,cd_education_status]
+                                                      FileSourceScanExecTransformer parquet spark_catalog.default.customer_demographics [cd_demo_sk,cd_marital_status,cd_education_status]
+                                    InputIteratorTransformer
+                                      InputAdapter
+                                        ColumnarBroadcastExchange #11
+                                          WholeStageCodegenTransformer (12)
+                                            ProjectExecTransformer [ca_address_sk,ca_state]
+                                              FilterExecTransformer [ca_country,ca_address_sk,ca_state]
+                                                FileSourceScanExecTransformer parquet spark_catalog.default.customer_address [ca_address_sk,ca_state,ca_country]
+                                InputIteratorTransformer
+                                  InputAdapter
+                                    ReusedExchange [d_date_sk] #4
+                            InputIteratorTransformer
+                              InputAdapter
+                                ColumnarBroadcastExchange #12
+                                  WholeStageCodegenTransformer (14)
+                                    FilterExecTransformer [r_reason_sk]
+                                      FileSourceScanExecTransformer parquet spark_catalog.default.reason [r_reason_sk,r_reason_desc]

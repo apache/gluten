@@ -378,6 +378,8 @@ class BoltMetricsApi extends MetricsApi with Logging {
       "inputBatches" -> SQLMetrics
         .createMetric(sparkContext, "number of input batches"),
       "spillTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "time to spill"),
+      // Every Bolt writer reports split time, including sort-classified dependencies.
+      "splitTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "time to split"),
       "compressTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "time to compress"),
       "decompressTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "time to decompress"),
       "deserializeTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "time to deserialize"),
@@ -390,6 +392,9 @@ class BoltMetricsApi extends MetricsApi with Logging {
       "totalReadTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "totaltime read"),
       "mergeTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "merge time"),
       "shuffleWallTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "shuffle wall time"),
+      "rssWriteTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "RSS write time"),
+      "rssPushTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "RSS push time"),
+      "rssCloseWaitTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "RSS close wait time"),
       // For hash shuffle writer, the peak bytes represents the maximum split buffer size.
       // For sort shuffle writer, the peak bytes represents the maximum
       // row buffer + sort buffer size.
@@ -421,7 +426,6 @@ class BoltMetricsApi extends MetricsApi with Logging {
     shuffleWriterType match {
       case HashShuffleWriterType =>
         baseMetrics ++ Map(
-          "splitTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "time to split"),
           "avgDictionaryFields" -> SQLMetrics
             .createAverageMetric(sparkContext, "avg dictionary fields"),
           "dictionarySize" -> SQLMetrics.createSizeMetric(sparkContext, "dictionary size")
@@ -542,6 +546,22 @@ class BoltMetricsApi extends MetricsApi with Logging {
 
   override def genSortTransformerMetricsUpdater(metrics: Map[String, SQLMetric]): MetricsUpdater =
     new SortMetricsUpdater(metrics)
+
+  override def genTopNTransformerMetrics(sparkContext: SparkContext): Map[String, SQLMetric] =
+    Map(
+      "numOutputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"),
+      "outputVectors" -> SQLMetrics.createMetric(sparkContext, "number of output vectors"),
+      "outputBytes" -> SQLMetrics.createSizeMetric(sparkContext, "number of output bytes"),
+      "wallNanos" -> SQLMetrics.createNanoTimingMetric(sparkContext, "time of top-n"),
+      "cpuCount" -> SQLMetrics.createMetric(sparkContext, "cpu wall time count"),
+      "peakMemoryBytes" -> SQLMetrics.createSizeMetric(sparkContext, "peak memory bytes"),
+      "numMemoryAllocations" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of memory allocations")
+    )
+
+  override def genTopNTransformerMetricsUpdater(metrics: Map[String, SQLMetric]): MetricsUpdater =
+    new TopNMetricsUpdater(metrics)
 
   override def genSortMergeJoinTransformerMetrics(
       sparkContext: SparkContext): Map[String, SQLMetric] =

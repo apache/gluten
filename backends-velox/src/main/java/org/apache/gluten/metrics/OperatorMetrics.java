@@ -17,6 +17,9 @@
 package org.apache.gluten.metrics;
 
 public class OperatorMetrics implements IOperatorMetrics {
+  /** Rows processed per Delta counter slot function, keyed by its name; see IncrementMetricCall. */
+  public java.util.Map<String, Long> expressionStats = new java.util.HashMap<>();
+
   public long inputRows;
   public long inputVectors;
   public long inputBytes;
@@ -41,6 +44,7 @@ public class OperatorMetrics implements IOperatorMetrics {
   public long numDynamicFilterInputRows;
   public long flushRowCount;
   public long abandonedPartialAggregationRows;
+  public long toIntermediateFastPathCalls;
   public long loadedToValueHook;
   public long bloomFilterBlocksByteSize;
   public long bloomFilterTestedRows;
@@ -95,6 +99,7 @@ public class OperatorMetrics implements IOperatorMetrics {
       long numDynamicFilterInputRows,
       long flushRowCount,
       long abandonedPartialAggregationRows,
+      long toIntermediateFastPathCalls,
       long loadedToValueHook,
       long bloomFilterBlocksByteSize,
       long scanTime,
@@ -140,6 +145,7 @@ public class OperatorMetrics implements IOperatorMetrics {
     this.numDynamicFilterInputRows = numDynamicFilterInputRows;
     this.flushRowCount = flushRowCount;
     this.abandonedPartialAggregationRows = abandonedPartialAggregationRows;
+    this.toIntermediateFastPathCalls = toIntermediateFastPathCalls;
     this.loadedToValueHook = loadedToValueHook;
     this.bloomFilterBlocksByteSize = bloomFilterBlocksByteSize;
     this.skippedSplits = skippedSplits;

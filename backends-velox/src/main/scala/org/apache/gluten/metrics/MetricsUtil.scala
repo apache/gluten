@@ -51,8 +51,20 @@ object MetricsUtil extends Logging {
       .map(_.asLong())
       .getOrElse(0L)
 
+  private[metrics] def expressionStatsFromJson(node: JsonNode): JMap[String, java.lang.Long] = {
+    val stats = new java.util.HashMap[String, java.lang.Long]()
+    Option(node.get("expressionStats")).foreach {
+      exprStats =>
+        exprStats.fields().asScala.foreach {
+          entry => stats.put(entry.getKey, java.lang.Long.valueOf(entry.getValue.asLong()))
+        }
+    }
+    stats
+  }
+
   private def operatorMetricFromJson(node: JsonNode): OperatorMetrics = {
     val metrics = new OperatorMetrics()
+    metrics.expressionStats = expressionStatsFromJson(node)
     metrics.inputRows = value(node, "inputRows")
     metrics.inputVectors = value(node, "inputVectors")
     metrics.inputBytes = value(node, "inputBytes")
@@ -78,6 +90,7 @@ object MetricsUtil extends Logging {
     metrics.flushRowCount = customMetricSum(node, "flushRowCount")
     metrics.abandonedPartialAggregationRows =
       customMetricSum(node, "abandonedPartialAggregationRows")
+    metrics.toIntermediateFastPathCalls = customMetricSum(node, "toIntermediateFastPathCalls")
     metrics.loadedToValueHook = customMetricSum(node, "loadedToValueHook")
     metrics.bloomFilterBlocksByteSize = customMetricSum(node, "bloomFilterSize")
     metrics.bloomFilterTestedRows = customMetricSum(node, "bloomFilterTestedRows")
@@ -206,7 +219,7 @@ object MetricsUtil extends Logging {
    * @return
    *   the merged metrics
    */
-  private def mergeMetrics(operatorMetrics: JList[OperatorMetrics]): OperatorMetrics = {
+  private[metrics] def mergeMetrics(operatorMetrics: JList[OperatorMetrics]): OperatorMetrics = {
     if (operatorMetrics.size() == 0) {
       return null
     }
@@ -241,6 +254,7 @@ object MetricsUtil extends Logging {
     var numDynamicFilterInputRows: Long = 0
     var flushRowCount: Long = 0
     var abandonedPartialAggregationRows: Long = 0
+    var toIntermediateFastPathCalls: Long = 0
     var loadedToValueHook: Long = 0
     var bloomFilterBlocksByteSize: Long = 0
     var bloomFilterTestedRows: Long = 0
@@ -282,6 +296,7 @@ object MetricsUtil extends Logging {
       numDynamicFilterInputRows += metrics.numDynamicFilterInputRows
       flushRowCount += metrics.flushRowCount
       abandonedPartialAggregationRows += metrics.abandonedPartialAggregationRows
+      toIntermediateFastPathCalls += metrics.toIntermediateFastPathCalls
       loadedToValueHook += metrics.loadedToValueHook
       bloomFilterBlocksByteSize += metrics.bloomFilterBlocksByteSize
       bloomFilterTestedRows += metrics.bloomFilterTestedRows
@@ -330,6 +345,7 @@ object MetricsUtil extends Logging {
       numDynamicFilterInputRows,
       flushRowCount,
       abandonedPartialAggregationRows,
+      toIntermediateFastPathCalls,
       loadedToValueHook,
       bloomFilterBlocksByteSize,
       scanTime,
@@ -355,6 +371,16 @@ object MetricsUtil extends Logging {
     aggregated.bloomFilterTestedRows = bloomFilterTestedRows
     aggregated.bloomFilterAcceptedRows = bloomFilterAcceptedRows
     aggregated.bloomFilterBypassed = bloomFilterBypassed
+    val expressionStats = new java.util.HashMap[String, java.lang.Long]()
+    operatorMetrics.asScala.foreach {
+      metrics =>
+        metrics.expressionStats.asScala.foreach {
+          case (name, rows) =>
+            val sum = Option(expressionStats.get(name)).map(_.longValue()).getOrElse(0L) + rows
+            expressionStats.put(name, java.lang.Long.valueOf(sum))
+        }
+    }
+    aggregated.expressionStats = expressionStats
     aggregated
   }
 
@@ -369,7 +395,6 @@ object MetricsUtil extends Logging {
       relMap: JMap[JLong, JList[JLong]],
       operatorIdx: JLong,
       nativeMetrics: JList[OperatorMetrics],
-      singleMetrics: Metrics.SingleMetric,
       metricsIdx: Int,
       joinParamsMap: JMap[JLong, JoinParams],
       aggParamsMap: JMap[JLong, AggregationParams]): (JLong, Int) = {
@@ -393,7 +418,7 @@ object MetricsUtil extends Logging {
           p.postProjectionNeeded = false
           p
         }
-        smj.updateJoinMetrics(operatorMetrics, singleMetrics, joinParams)
+        smj.updateJoinMetrics(operatorMetrics, joinParams)
       case ju: JoinMetricsUpdaterBase =>
         // JoinRel and NestedLoopJoinRel output two suites of metrics respectively for build and
         // probe.
@@ -405,7 +430,7 @@ object MetricsUtil extends Logging {
           p.postProjectionNeeded = false
           p
         }
-        ju.updateJoinMetrics(operatorMetrics, singleMetrics, joinParams)
+        ju.updateJoinMetrics(operatorMetrics, joinParams)
       case u: UnionMetricsUpdater =>
         // Union outputs two suites of metrics respectively.
         // Therefore, fetch one more suite of metrics here.
@@ -446,7 +471,6 @@ object MetricsUtil extends Logging {
           relMap,
           newOperatorIdx,
           nativeMetrics,
-          singleMetrics,
           newMetricsIdx,
           joinParamsMap,
           aggParamsMap)
@@ -495,7 +519,6 @@ object MetricsUtil extends Logging {
           relMap,
           operatorIdx,
           nativeMetrics,
-          metrics.getSingleMetrics,
           numNativeMetrics - 1,
           joinParamsMap,
           aggParamsMap)

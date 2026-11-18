@@ -15,7 +15,6 @@
 # limitations under the License.
 #
 
-org.apache.gluten.spi.SharedLibraryLoaderCentos7
 org.apache.gluten.spi.SharedLibraryLoaderCentos8
 org.apache.gluten.spi.SharedLibraryLoaderCentos9
 org.apache.gluten.spi.SharedLibraryLoaderDebian11

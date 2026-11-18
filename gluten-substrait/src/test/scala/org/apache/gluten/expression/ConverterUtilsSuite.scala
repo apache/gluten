@@ -16,10 +16,13 @@
  */
 package org.apache.gluten.expression
 
-import org.apache.spark.sql.types.{DataType, TimestampType}
+import org.apache.spark.sql.catalyst.expressions.AttributeReference
+import org.apache.spark.sql.types.{DataType, IntegerType, LongType, StructField, StructType, TimestampType}
 
 import io.substrait.proto.Type
 import org.scalatest.funsuite.AnyFunSuiteLike
+
+import scala.collection.JavaConverters._
 
 /**
  * Guards the Substrait 0.98 temporal type migration: Spark's TimestampType maps to
@@ -63,5 +66,52 @@ class ConverterUtilsSuite extends AnyFunSuiteLike {
         assert(dataType === timestampNTZType)
         assert(parsedNullable === nullable)
     }
+  }
+
+  test("column names for an attribute with a null name") {
+    // An attribute can have a null name, e.g. from a StructField built with a null name.
+    val nullNamed = AttributeReference(null, IntegerType)()
+    assert(ConverterUtils.genColumnNameWithoutExprId(nullNamed) === "")
+    assert(ConverterUtils.genColumnNameWithExprId(nullNamed) === s"#${nullNamed.exprId.id}")
+
+    val named = AttributeReference("B", IntegerType)()
+    assert(ConverterUtils.genColumnNameWithExprId(named) === s"b#${named.exprId.id}")
+  }
+
+  test("struct field names are kept when the producer sets them") {
+    // given
+    val proto = structOfTwoLongs(Seq("a", "b"))
+    val expected = StructType(Seq(StructField("a", LongType), StructField("b", LongType)))
+
+    // when
+    val (actual, _) = ConverterUtils.parseFromSubstraitType(proto)
+
+    // then
+    assert(actual === expected)
+  }
+
+  test("struct fields stay unnamed when the producer sets no names") {
+    // given
+    val proto = structOfTwoLongs(Seq.empty)
+    val expected = StructType(Seq(StructField("", LongType), StructField("", LongType)))
+
+    // when
+    val (actual, _) = ConverterUtils.parseFromSubstraitType(proto)
+
+    // then
+    assert(actual === expected)
+  }
+
+  private def structOfTwoLongs(names: Seq[String]): Type = {
+    val i64 = Type
+      .newBuilder()
+      .setI64(Type.I64.newBuilder().setNullability(Type.Nullability.NULLABILITY_NULLABLE))
+    val struct_ = Type.Struct
+      .newBuilder()
+      .setNullability(Type.Nullability.NULLABILITY_NULLABLE)
+      .addTypes(i64)
+      .addTypes(i64)
+      .addAllNames(names.asJava)
+    Type.newBuilder().setStruct(struct_).build()
   }
 }

@@ -18,6 +18,7 @@
 #pragma once
 
 #include "compute/VeloxRuntime.h"
+#include "memory/VeloxMemoryManager.h"
 #include "utils/WholeStageDumper.h"
 
 namespace gluten {
@@ -28,7 +29,7 @@ class VeloxWholeStageDumper final : public WholeStageDumper {
       const SparkTaskInfo& taskInfo,
       const std::string& saveDir,
       int64_t batchSize,
-      facebook::velox::memory::MemoryPool* aggregatePool);
+      VeloxMemoryManager* memoryManager);
 
   void dumpConf(const std::unordered_map<std::string, std::string>& confMap) override;
 
@@ -45,7 +46,9 @@ class VeloxWholeStageDumper final : public WholeStageDumper {
   std::string saveDir_;
   int64_t batchSize_;
 
-  facebook::velox::memory::MemoryPool* pool_;
+  // Owned by the Runtime / JNI wrapper and released after the Runtime, so it outlives the dumper and
+  // every iterator / batch created by the Runtime.
+  VeloxMemoryManager* memoryManager_;
 };
 
 } // namespace gluten

@@ -62,9 +62,48 @@ TEST(GlutenS3FileSystemTest, extractsAsyncUploadConfigs) {
 
   const auto hiveConfig = createHiveConnectorConfig(config, FileSystemType::kS3);
 
-  EXPECT_EQ(hiveConfig->get<std::string>("hive.s3.part-upload-async"), "true");
-  EXPECT_EQ(hiveConfig->get<std::string>("hive.s3.max-concurrent-upload-num"), "8");
-  EXPECT_EQ(hiveConfig->get<std::string>("hive.s3.upload-threads"), "32");
+  const std::string prefix = filesystems::S3Config::kS3Prefix;
+  EXPECT_EQ(hiveConfig->get<std::string>(prefix + "part-upload-async"), "true");
+  EXPECT_EQ(hiveConfig->get<std::string>(prefix + "max-concurrent-upload-num"), "8");
+  EXPECT_EQ(hiveConfig->get<std::string>(prefix + "upload-threads"), "32");
+}
+
+TEST(GlutenS3FileSystemTest, extractsPerBucketConfigs) {
+  using Keys = filesystems::S3Config::Keys;
+  auto config = std::make_shared<velox::config::ConfigBase>(std::unordered_map<std::string, std::string>{
+      {"spark.hadoop.fs.s3a.bucket.plain-bucket.endpoint", "http://plain:9000"},
+      {"spark.hadoop.fs.s3a.bucket.my.data.bucket.endpoint", "http://dotted:9000"},
+      {"spark.hadoop.fs.s3a.bucket.my.data.bucket.access.key", "dotted-access"},
+      {"spark.hadoop.fs.s3a.bucket.my.data.bucket.endpoint.region", "us-west-2"},
+      {"spark.hadoop.fs.s3a.bucket.my.data.bucket.iam.role.session.name", "dotted-session"},
+      {"spark.hadoop.fs.s3a.bucket.my.data.bucket.unknown.option", "ignored"},
+      // Malformed keys are ignored too: no bucket name, empty bucket name, no dot before the option.
+      {"spark.hadoop.fs.s3a.bucket.endpoint", "ignored"},
+      {"spark.hadoop.fs.s3a.bucket..endpoint", "ignored"},
+      {"spark.hadoop.fs.s3a.bucket.myendpoint", "ignored"}});
+
+  const auto hiveConfig = createHiveConnectorConfig(config, FileSystemType::kS3);
+
+  auto bucketValue = [&](Keys key, std::string_view bucket) {
+    return hiveConfig->get<std::string>(filesystems::S3Config::bucketConfigKey(key, bucket));
+  };
+  EXPECT_EQ(bucketValue(Keys::kEndpoint, "plain-bucket"), "http://plain:9000");
+  EXPECT_EQ(bucketValue(Keys::kEndpoint, "my.data.bucket"), "http://dotted:9000");
+  EXPECT_EQ(bucketValue(Keys::kAccessKey, "my.data.bucket"), "dotted-access");
+  EXPECT_EQ(bucketValue(Keys::kEndpointRegion, "my.data.bucket"), "us-west-2");
+  EXPECT_EQ(bucketValue(Keys::kIamRoleSessionName, "my.data.bucket"), "dotted-session");
+
+  // Nothing is registered under a bucket name truncated at the first dot.
+  EXPECT_FALSE(bucketValue(Keys::kEndpoint, "my").has_value());
+
+  // Only the five recognized options above produce per-bucket Velox configs.
+  size_t numBucketConfigs = 0;
+  for (const auto& [key, value] : hiveConfig->rawConfigs()) {
+    if (key.rfind(filesystems::S3Config::kS3BucketPrefix, 0) == 0) {
+      ++numBucketConfigs;
+    }
+  }
+  EXPECT_EQ(numBucketConfigs, 5);
 }
 
 } // namespace

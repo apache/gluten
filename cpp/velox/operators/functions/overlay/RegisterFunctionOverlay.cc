@@ -16,6 +16,7 @@
  */
 #include "operators/functions/overlay/RegisterFunctionOverlay.h"
 
+#include "operators/functions/overlay/GetMapValue.h"
 #include "operators/functions/overlay/Round.h"
 #include "velox/functions/lib/RegistrationHelpers.h"
 
@@ -40,6 +41,11 @@ void registerRoundFunction() {
 
 void registerFunctionOverlay() {
   registerRoundFunction();
+  // Spark GetMapValue (m[key]) is emitted as get_map_value rather than being
+  // rewritten to Velox's element_at: a map-only subscript can report
+  // canPushdown(), so remaining filters like m['k'].x = v extract m["k"] and
+  // do not defeat map-key pruning.
+  registerSparkGetMapValueFunction("get_map_value");
 }
 
 } // namespace gluten

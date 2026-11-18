@@ -16,8 +16,8 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.execution.{ColumnarPartialGenerateExec, ColumnarPartialProjectExec, GlutenQueryComparisonTest}
+import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
+import org.apache.gluten.execution.{BasicScanExecTransformer, ColumnarPartialGenerateExec, ColumnarPartialProjectExec, GlutenQueryComparisonTest}
 import org.apache.gluten.expression.UDFMappings
 import org.apache.gluten.udf.{CustomerUDF, DuplicateArray}
 import org.apache.gluten.udtf.{ConditionalOutputUDTF, CustomerUDTF, NoInputUDTF, SimpleUDTF}
@@ -131,6 +131,38 @@ class GlutenHiveUDFSuite extends GlutenQueryComparisonTest with SQLTestUtils {
         "select l_partkey, col0, col1 from lineitem lateral view" +
           " testUDTF(l_partkey, l_comment) as col0, col1") {
         checkOperatorMatch[ColumnarPartialGenerateExec]
+      }
+    }
+  }
+
+  test("a partial generate over a hive udtf disables map-key pruning") {
+    // The map is forwarded through the partial generate and read above it, so ScanMapKeyPruning
+    // finds it still live when its Filter / Project chain ends and leaves the scan whole.
+    withTempFunction("simpleUDTF") {
+      sql(s"CREATE TEMPORARY FUNCTION simpleUDTF AS '${classOf[SimpleUDTF].getName}'")
+      withTempPath {
+        path =>
+          spark
+            .range(0, 100)
+            .selectExpr("id", "map('a', id, 'b', id * 2) as m")
+            .write
+            .parquet(path.getCanonicalPath)
+          withTempView("map_udtf_src") {
+            spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("map_udtf_src")
+            withSQLConf(VeloxConfig.SCAN_MAP_KEY_PRUNING_ENABLED.key -> "true") {
+              runQueryAndCompare(
+                "select col0, m['a'] from map_udtf_src lateral view simpleUDTF(id) as col0") {
+                df =>
+                  checkOperatorMatch[ColumnarPartialGenerateExec](df)
+                  val declared = getExecutedPlan(df).collect {
+                    case scan: BasicScanExecTransformer => scan.requiredMapSubfields
+                  }.filter(_.nonEmpty)
+                  assert(
+                    declared.isEmpty,
+                    s"plan with a partial generate must not be pruned: $declared")
+              }
+            }
+          }
       }
     }
   }

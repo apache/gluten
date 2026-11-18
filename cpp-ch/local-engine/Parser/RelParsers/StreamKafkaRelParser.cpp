@@ -20,7 +20,9 @@
 #include <Parser/SubstraitParserUtils.h>
 #include <Parser/TypeParser.h>
 #include <Storages/Kafka/ReadFromGlutenStorageKafka.h>
+#include <kafka.pb.h>
 #include <Common/BlockTypeUtils.h>
+#include <Common/DebugUtils.h>
 #include <Common/logger_useful.h>
 
 namespace DB
@@ -30,6 +32,7 @@ namespace ErrorCodes
 {
 extern const int NO_SUCH_DATA_PART;
 extern const int LOGICAL_ERROR;
+extern const int CANNOT_PARSE_PROTOBUF_SCHEMA;
 extern const int UNKNOWN_FUNCTION;
 extern const int UNKNOWN_TYPE;
 }
@@ -50,10 +53,19 @@ StreamKafkaRelParser::parse(DB::QueryPlanPtr query_plan, const substrait::Rel & 
 
 DB::QueryPlanPtr StreamKafkaRelParser::parseRelImpl(DB::QueryPlanPtr query_plan, const substrait::ReadRel & read_rel)
 {
-    if (!read_rel.has_stream_kafka())
-        throw DB::Exception(DB::ErrorCodes::LOGICAL_ERROR, "Can't not parse kafka rel, because of read rel don't contained stream kafka");
+    if (split_info.empty())
+        throw DB::Exception(DB::ErrorCodes::LOGICAL_ERROR, "Can't parse kafka rel, because no split info was supplied for it");
 
-    auto kafka_task = BinaryToMessage<substrait::ReadRel::StreamKafka>(split_info);
+    auto extension_table = BinaryToMessage<substrait::ReadRel::ExtensionTable>(split_info);
+    debug::dumpMessage(extension_table, "extension_table");
+
+    gluten::StreamKafka kafka_task;
+    if (!extension_table.detail().UnpackTo(&kafka_task))
+        throw DB::Exception(
+            DB::ErrorCodes::CANNOT_PARSE_PROTOBUF_SCHEMA,
+            "Can't parse kafka rel, expected an extension table detail of type gluten.StreamKafka but got '{}'",
+            extension_table.detail().type_url());
+
     auto topic = kafka_task.topic_partition().topic();
     auto partition = kafka_task.topic_partition().partition();
     auto start_offset = kafka_task.start_offset();

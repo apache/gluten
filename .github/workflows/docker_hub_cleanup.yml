@@ -1,0 +1,109 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Deletes unused tags from https://hub.docker.com/r/apache/gluten. Run it manually from the
+# Actions tab. It runs as a dry run unless dry_run is unchecked. A tag is refused if it is a
+# release tag (<major>.<minor>-*), is still published by docker_image.yml, or is referenced as
+# apache/gluten:<tag> anywhere on main or a branch-* release branch.
+name: Delete Docker Hub tags
+
+on:
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: 'Space-separated apache/gluten tags to delete'
+        required: true
+        default: >-
+          centos-8-dev
+          gluten-vcpkg-builder_2024_03_17
+          gluten-vcpkg-builder_2024_05_22
+          gluten-vcpkg-builder_2024_07_10
+          gluten-vcpkg-builder_2024_07_11
+          gluten-vcpkg-builder_2024_08_05
+      dry_run:
+        description: 'Only check and list the tags, do not delete them'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  delete-tags:
+    if: ${{ github.repository == 'apache/gluten' }}
+    runs-on: ubuntu-latest
+    env:
+      TAGS: ${{ inputs.tags }}
+      HUB: https://hub.docker.com/v2/namespaces/apache/repositories/gluten/tags
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # All branches, to find references on release branches.
+          fetch-depth: 0
+      - name: Check that the tags are safe to delete
+        run: |
+          refs=$(git for-each-ref --format='%(refname:short)' refs/remotes/origin/main 'refs/remotes/origin/branch-*')
+          echo "Checking references on: $(echo $refs)"
+          refused=0
+          for tag in $TAGS; do
+            reason=""
+            if ! [[ "$tag" =~ ^[A-Za-z0-9._-]+$ ]]; then
+              reason="not a valid tag name"
+            elif [[ "$tag" =~ ^[0-9]+\.[0-9]+- ]]; then
+              reason="release tag"
+            elif grep -qE "(^|[^A-Za-z0-9._-])${tag//./\\.}([^A-Za-z0-9._-]|\$)" .github/workflows/docker_image.yml; then
+              reason="still published by docker_image.yml"
+            else
+              pattern="apache/gluten:${tag//./\\.}([^A-Za-z0-9._-]|\$)"
+              used=$(git grep -lE "$pattern" $refs -- 2>/dev/null | head -5 || true)
+              if [ -n "$used" ]; then
+                reason="referenced by $(echo $used)"
+              else
+                code=$(curl -s -o /dev/null -w '%{http_code}' "$HUB/$tag")
+                [ "$code" = 200 ] || reason="not found on Docker Hub (HTTP $code)"
+              fi
+            fi
+            if [ -n "$reason" ]; then
+              echo "::error::Refusing $tag: $reason"
+              refused=1
+            else
+              echo "OK to delete: $tag"
+            fi
+          done
+          exit $refused
+      - name: Delete the tags
+        if: ${{ !inputs.dry_run }}
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          token=$(jq -n --arg u "$DOCKERHUB_USER" --arg p "$DOCKERHUB_TOKEN" '{identifier: $u, secret: $p}' \
+            | curl -s -X POST "https://hub.docker.com/v2/auth/token" -H 'Content-Type: application/json' -d @- \
+            | jq -r '.access_token // empty')
+          if [ -z "$token" ]; then
+            echo "::error::Docker Hub login failed"
+            exit 1
+          fi
+          failed=0
+          for tag in $TAGS; do
+            code=$(curl -s -o /tmp/response.json -w '%{http_code}' -X DELETE \
+              -H "Authorization: Bearer $token" "$HUB/$tag")
+            case "$code" in
+              204) echo "Deleted $tag" ;;
+              403) echo "::error::No permission to delete $tag; the Docker Hub token needs delete access (ask ASF Infra)"; failed=1 ;;
+              *) echo "::error::Deleting $tag failed with HTTP $code: $(cat /tmp/response.json)"; failed=1 ;;
+            esac
+          done
+          exit $failed

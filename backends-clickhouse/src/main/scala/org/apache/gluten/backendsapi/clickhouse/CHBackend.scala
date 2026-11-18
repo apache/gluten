@@ -354,6 +354,15 @@ object CHBackendSettings extends BackendSettingsApi with Logging {
               allSupported = false
               break
           }
+
+          wExpression.windowSpec.frameSpecification match {
+            case swf: SpecifiedWindowFrame
+                if !Seq(swf.lower, swf.upper).forall(WindowFunctionsBuilder.isLongOffset) =>
+              logDebug(s"Not support window frame with a non-long offset: $swf")
+              allSupported = false
+              break
+            case _ =>
+          }
         })
     }
     allSupported

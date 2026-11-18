@@ -284,14 +284,22 @@ class GlutenMathExpressionsSuite extends MathExpressionsSuite with GlutenTestsTr
     checkEvaluation(Unhex(Literal("F")), Array[Byte](15))
     checkEvaluation(Unhex(Literal("ff")), Array[Byte](-1))
 
-//    checkEvaluation(Unhex(Literal("GG")), null)
     checkEvaluation(Unhex(Literal("123")), Array[Byte](1, 35))
     checkEvaluation(Unhex(Literal("12345")), Array[Byte](1, 35, 69))
     // scalastyle:off
     // Turn off scala style for non-ascii chars
     checkEvaluation(Unhex(Literal("E4B889E9878DE79A84")), "三重的".getBytes(StandardCharsets.UTF_8))
-//    checkEvaluation(Unhex(Literal("三重的")), null)
     // scalastyle:on
     checkConsistencyBetweenInterpretedAndCodegen((e: Expression) => Unhex(e), StringType)
+  }
+
+  // Split out of "unhex" so that ClickHouse, which does not return null for invalid hex
+  // input (see https://github.com/apache/gluten/issues/7232), can exclude only this case.
+  testGluten("unhex returns null for invalid hex input") {
+    checkEvaluation(Unhex(Literal("GG")), null)
+    // scalastyle:off
+    // Turn off scala style for non-ascii chars
+    checkEvaluation(Unhex(Literal("三重的")), null)
+    // scalastyle:on
   }
 }

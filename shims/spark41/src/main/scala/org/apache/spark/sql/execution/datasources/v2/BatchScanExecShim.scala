@@ -77,6 +77,11 @@ abstract class BatchScanExecShim(
       .exists(v => metadataColumnsNames.contains(v.name))
   }
 
+  // Spark 4.2 changed the signature of `postDriverMetrics`, so the call is shimmed per version.
+  def doPostDriverMetrics(): Unit = {
+    postDriverMetrics()
+  }
+
   override def doExecuteColumnar(): RDD[ColumnarBatch] = {
     throw new UnsupportedOperationException("Need to implement this method")
   }

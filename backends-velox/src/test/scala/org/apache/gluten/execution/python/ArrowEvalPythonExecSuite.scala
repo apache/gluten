@@ -16,13 +16,14 @@
  */
 package org.apache.gluten.execution.python
 
-import org.apache.gluten.execution.WholeStageTransformerSuite
+import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.execution.{LoadArrowDataExec, OffloadArrowDataExec, WholeStageTransformerSuite}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.api.python.ColumnarArrowEvalPythonExec
-import org.apache.spark.sql.IntegratedUDFTestUtils
+import org.apache.spark.sql.{DataFrame, IntegratedUDFTestUtils, Row}
 import org.apache.spark.sql.execution.python.UserDefinedPythonFunction
-import org.apache.spark.sql.functions.max
+import org.apache.spark.sql.functions.{count, max, sum}
 import org.apache.spark.sql.types.{DataType, LongType, StringType}
 import org.apache.spark.util.SparkVersionUtil
 
@@ -114,6 +115,40 @@ class ArrowEvalPythonExecSuite extends WholeStageTransformerSuite {
       .withColumn("p_a", pyarrowTestUDFString(base("a")))
       .withColumn("p_b", pyarrowTestUDFLong(base("b") * 2))
     checkAnswer(df, expected)
+  }
+
+  testWithMinSparkVersion("arrow_udf test: chained UDFs over small batches with nulls", "4.0") {
+    withSQLConf("spark.gluten.sql.columnar.maxBatchSize" -> "64") {
+      val base = spark
+        .range(0, 1000, 1, 2)
+        .selectExpr(
+          "id",
+          "if(id % 11 = 0, null, cast(id % 7 as string)) as s",
+          "if(id % 5 = 0, null, id * 1.5) as d")
+      // Velox operators both below and above the UDF, over many small batches.
+      def query(): DataFrame = base
+        .filter("id > 10")
+        .withColumn("p_s", pyarrowTestUDFString(base("s")))
+        .filter("p_s <> '3'")
+        .groupBy("p_s")
+        .agg(sum("d").as("sum_d"), count("*").as("cnt"))
+      var expected: Seq[Row] = Seq.empty
+      withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+        expected = query().collect().toSeq
+      }
+      val df = query()
+      checkAnswer(df, expected)
+      checkSparkPlan[ColumnarArrowEvalPythonExec](df)
+      // Only Arrow data loading and offloading are needed around the UDFs.
+      val plan = getExecutedPlan(df)
+      val udfs = plan.collect { case p: ColumnarArrowEvalPythonExec => p }
+      assert(udfs.size == 2, plan)
+      assert(udfs.forall(_.child.isInstanceOf[LoadArrowDataExec]), plan)
+      val offloadedUdfs = plan.collect {
+        case p: OffloadArrowDataExec if p.child.isInstanceOf[ColumnarArrowEvalPythonExec] => p
+      }
+      assert(offloadedUdfs.size == 2, plan)
+    }
   }
 
   testWithMinSparkVersion("arrow batched python udf over parquet scan", "4.0") {

@@ -62,6 +62,13 @@ trait BackendSettingsApi {
 
   def supportNativeRowIndexColumn(): Boolean = true
 
+  /**
+   * Whether the backend evaluates Delta's `IncrementMetric` natively through
+   * [[org.apache.gluten.expression.IncrementMetricCall]] and reports the processed-row count of
+   * each counter function in its operator metrics.
+   */
+  def supportNativeIncrementMetric(): Boolean = false
+
   def supportSortExec(): Boolean = false
 
   def supportSortMergeJoinExec(): Boolean = true

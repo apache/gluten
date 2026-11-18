@@ -26,6 +26,7 @@ import org.apache.spark.sql.catalyst.plans.physical.{Partitioning, SinglePartiti
 import org.apache.spark.sql.catalyst.util.truncatedString
 import org.apache.spark.sql.execution.{ColumnarCollapseTransformStages, ColumnarShuffleExchangeExec, SparkPlan, UnaryExecNode}
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
+import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 import java.util.concurrent.atomic.AtomicInteger
@@ -41,6 +42,13 @@ case class TakeOrderedAndProjectExecTransformer(
     offset: Int = 0)
   extends UnaryExecNode
   with ValidatablePlan {
+
+  // The native TopN operator that backs this node is synthesized at execution time and is not
+  // plan-visible, so its native metrics are reported here. Backends that do not lower to TopN
+  // (e.g. ClickHouse) return an empty map and keep reporting on their inner Sort/Limit nodes.
+  @transient override lazy val metrics: Map[String, SQLMetric] =
+    BackendsApiManager.getMetricsApiInstance.genTopNTransformerMetrics(sparkContext)
+
   override def outputPartitioning: Partitioning = SinglePartition
   override def outputOrdering: Seq[SortOrder] = sortOrder
   override def batchType(): Convention.BatchType = BackendsApiManager.getSettings.primaryBatchType
@@ -166,7 +174,8 @@ case class TakeOrderedAndProjectExecTransformer(
 
       val collapsed =
         BackendsApiManager.getSparkPlanExecApiInstance.maybeCollapseTakeOrderedAndProject(
-          projectPlan)
+          projectPlan,
+          metrics)
 
       val finalPlan =
         WholeStageTransformer(collapsed)(transformStageCounter.incrementAndGet())

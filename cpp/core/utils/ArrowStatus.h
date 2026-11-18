@@ -38,14 +38,6 @@ inline T arrowGetOrThrow(arrow::Result<T> result) {
   return std::move(result).ValueOrDie();
 }
 
-template <typename T>
-inline T arrowGetOrThrow(arrow::Result<T> result, const std::string& message) {
-  if (!result.status().ok()) {
-    ThrowPendingException(message + " - " + result.status().message());
-  }
-  return std::move(result).ValueOrDie();
-}
-
 static inline void arrowAssertOkOrThrow(arrow::Status status) {
   if (!status.ok()) {
     throwArrowException(status.message());

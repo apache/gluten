@@ -1,0 +1,74 @@
+VeloxColumnarToRow
+  WholeStageCodegenTransformer (10)
+    ProjectExecTransformer [amc,pmc]
+      VeloxBroadcastNestedLoopJoinExecTransformer
+        RegularHashAggregateExecTransformer [count] [count(1),amc,count]
+          InputIteratorTransformer
+            InputAdapter
+              ColumnarExchange #1
+                VeloxResizeBatches
+                  WholeStageCodegenTransformer (4)
+                    FlushableHashAggregateExecTransformer [count,count]
+                      ProjectExecTransformer
+                        BroadcastHashJoinExecTransformer [ws_sold_time_sk,t_time_sk]
+                          ProjectExecTransformer [ws_sold_time_sk]
+                            BroadcastHashJoinExecTransformer [ws_ship_hdemo_sk,hd_demo_sk]
+                              ProjectExecTransformer [ws_sold_time_sk,ws_ship_hdemo_sk]
+                                BroadcastHashJoinExecTransformer [ws_web_page_sk,wp_web_page_sk]
+                                  ProjectExecTransformer [ws_sold_time_sk,ws_ship_hdemo_sk,ws_web_page_sk]
+                                    FilterExecTransformer [ws_ship_hdemo_sk,ws_sold_time_sk,ws_web_page_sk]
+                                      FileSourceScanExecTransformer parquet spark_catalog.default.web_sales [ws_sold_time_sk,ws_ship_hdemo_sk,ws_web_page_sk,ws_sold_date_sk]
+                                  InputIteratorTransformer
+                                    InputAdapter
+                                      ColumnarBroadcastExchange #2
+                                        WholeStageCodegenTransformer (1)
+                                          ProjectExecTransformer [wp_web_page_sk]
+                                            FilterExecTransformer [wp_char_count,wp_web_page_sk]
+                                              FileSourceScanExecTransformer parquet spark_catalog.default.web_page [wp_web_page_sk,wp_char_count]
+                              InputIteratorTransformer
+                                InputAdapter
+                                  ColumnarBroadcastExchange #3
+                                    WholeStageCodegenTransformer (2)
+                                      ProjectExecTransformer [hd_demo_sk]
+                                        FilterExecTransformer [hd_dep_count,hd_demo_sk]
+                                          FileSourceScanExecTransformer parquet spark_catalog.default.household_demographics [hd_demo_sk,hd_dep_count]
+                          InputIteratorTransformer
+                            InputAdapter
+                              ColumnarBroadcastExchange #4
+                                WholeStageCodegenTransformer (3)
+                                  ProjectExecTransformer [t_time_sk]
+                                    FilterExecTransformer [t_hour,t_time_sk]
+                                      FileSourceScanExecTransformer parquet spark_catalog.default.time_dim [t_time_sk,t_hour]
+        InputIteratorTransformer
+          InputAdapter
+            ColumnarBroadcastExchange #5
+              WholeStageCodegenTransformer (9)
+                RegularHashAggregateExecTransformer [count] [count(1),pmc,count]
+                  InputIteratorTransformer
+                    InputAdapter
+                      ColumnarExchange #6
+                        VeloxResizeBatches
+                          WholeStageCodegenTransformer (8)
+                            FlushableHashAggregateExecTransformer [count,count]
+                              ProjectExecTransformer
+                                BroadcastHashJoinExecTransformer [ws_sold_time_sk,t_time_sk]
+                                  ProjectExecTransformer [ws_sold_time_sk]
+                                    BroadcastHashJoinExecTransformer [ws_ship_hdemo_sk,hd_demo_sk]
+                                      ProjectExecTransformer [ws_sold_time_sk,ws_ship_hdemo_sk]
+                                        BroadcastHashJoinExecTransformer [ws_web_page_sk,wp_web_page_sk]
+                                          ProjectExecTransformer [ws_sold_time_sk,ws_ship_hdemo_sk,ws_web_page_sk]
+                                            FilterExecTransformer [ws_ship_hdemo_sk,ws_sold_time_sk,ws_web_page_sk]
+                                              FileSourceScanExecTransformer parquet spark_catalog.default.web_sales [ws_sold_time_sk,ws_ship_hdemo_sk,ws_web_page_sk,ws_sold_date_sk]
+                                          InputIteratorTransformer
+                                            InputAdapter
+                                              ReusedExchange [wp_web_page_sk] #2
+                                      InputIteratorTransformer
+                                        InputAdapter
+                                          ReusedExchange [hd_demo_sk] #3
+                                  InputIteratorTransformer
+                                    InputAdapter
+                                      ColumnarBroadcastExchange #7
+                                        WholeStageCodegenTransformer (7)
+                                          ProjectExecTransformer [t_time_sk]
+                                            FilterExecTransformer [t_hour,t_time_sk]
+                                              FileSourceScanExecTransformer parquet spark_catalog.default.time_dim [t_time_sk,t_hour]

@@ -23,9 +23,11 @@
 #include <boost/uuid/uuid_io.hpp>
 #include <folly/executors/ThreadPoolExecutor.h>
 #include <filesystem>
+#include <mutex>
 
 #include "velox/common/caching/AsyncDataCache.h"
 #include "velox/common/config/Config.h"
+#include "velox/common/memory/MallocAllocator.h"
 #include "velox/common/memory/MmapAllocator.h"
 #include "velox/connectors/Connector.h"
 
@@ -52,6 +54,13 @@ class VeloxBackend {
   facebook::velox::cache::AsyncDataCache* getAsyncDataCache() const;
 
   ReaderThreadPool* getReaderThreadPool();
+
+  /// A dedicated CPU thread pool for the parallel broadcast hash-table build. The build is
+  /// CPU-bound, so it must not share ioExecutor() which is reserved for async IO tasks. Returns
+  /// nullptr when the configured thread count uses the serial build path.
+  folly::Executor* broadcastHashTableBuildExecutor() const {
+    return broadcastHashTableBuildExecutor_.get();
+  }
 
   std::shared_ptr<facebook::velox::config::ConfigBase> getBackendConf() const {
     return backendConf_;
@@ -88,6 +97,10 @@ class VeloxBackend {
   std::shared_ptr<facebook::velox::connector::Connector> createValueStreamConnector(
       const std::string& connectorId,
       bool dynamicFilterEnabled) const;
+
+#ifdef ENABLE_KAFKA
+  std::shared_ptr<facebook::velox::connector::Connector> createKafkaConnector(const std::string& connectorId) const;
+#endif
 
 #ifdef GLUTEN_ENABLE_GPU
   std::shared_ptr<facebook::velox::connector::Connector> createCudfHiveConnector(
@@ -126,7 +139,7 @@ class VeloxBackend {
   std::unique_ptr<folly::Executor> spillExecutor_;
   std::unique_ptr<folly::Executor> ioExecutor_;
   std::unique_ptr<folly::Executor> ssdCacheExecutor_;
-  std::shared_ptr<facebook::velox::memory::MmapAllocator> cacheAllocator_;
+  std::shared_ptr<facebook::velox::memory::MemoryAllocator> cacheAllocator_;
   std::shared_ptr<facebook::velox::config::ConfigBase> hiveConnectorConfig_;
 
   std::string cachePathPrefix_;
@@ -135,6 +148,7 @@ class VeloxBackend {
   std::shared_ptr<facebook::velox::config::ConfigBase> backendConf_;
 
   std::unique_ptr<ReaderThreadPool> readerThreadPool_;
+  std::unique_ptr<folly::Executor> broadcastHashTableBuildExecutor_;
 };
 
 } // namespace gluten

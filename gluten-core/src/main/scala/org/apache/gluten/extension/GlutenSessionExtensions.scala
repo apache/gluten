@@ -44,7 +44,15 @@ private[gluten] class GlutenSessionExtensions
       session =>
         val glutenEnabledForThread =
           Option(session.sparkContext.getLocalProperty(GLUTEN_ENABLE_FOR_THREAD_KEY))
-            .forall(_.toBoolean)
+            .forall {
+              value =>
+                try value.toBoolean
+                catch {
+                  case _: IllegalArgumentException =>
+                    throw new IllegalArgumentException(
+                      s"$GLUTEN_ENABLE_FOR_THREAD_KEY should be boolean, but was $value")
+                }
+            }
         val disabled = !glutenEnabledForThread
         logDebug(s"Gluten is disabled by variable: glutenEnabledForThread: $glutenEnabledForThread")
         disabled

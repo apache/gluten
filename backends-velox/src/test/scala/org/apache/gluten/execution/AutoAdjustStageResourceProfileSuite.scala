@@ -20,7 +20,7 @@ import org.apache.gluten.config.GlutenConfig
 
 import org.apache.spark.SparkConf
 import org.apache.spark.annotation.Experimental
-import org.apache.spark.sql.execution.{ApplyResourceProfileExec, ColumnarShuffleExchangeExec, SparkPlan}
+import org.apache.spark.sql.execution.{ApplyResourceProfileExec, ColumnarShuffleExchangeExec, CommandResultExec, SparkPlan}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
 import org.apache.spark.sql.internal.SQLConf
@@ -87,7 +87,12 @@ class AutoAdjustStageResourceProfileSuite
   }
 
   private def collectApplyResourceProfileExec(plan: SparkPlan): Int = {
-    collect(plan) { case c: ApplyResourceProfileExec => c }.size
+    plan match {
+      case command: CommandResultExec =>
+        collectApplyResourceProfileExec(command.commandPhysicalPlan)
+      case _ =>
+        collect(plan) { case c: ApplyResourceProfileExec => c }.size
+    }
   }
 
   test("stage contains fallback nodes and apply new resource profile") {
@@ -179,20 +184,61 @@ class AutoAdjustStageResourceProfileSuite
         // scalastyle:off
         // format: off
         /*
-         DeserializeToObject createexternalrow(java_method(java.lang.Integer, signum, c1)#35.toString, count(1)#36L, StructField(java_method(java.lang.Integer, signum, c1),StringType,true), StructField(count(1),LongType,false)), obj#42: org.apache.spark.sql.Row
-         +- *(3) HashAggregate(keys=[_nondeterministic#37], functions=[count(1)], output=[java_method(java.lang.Integer, signum, c1)#35, count(1)#36L])
-            +- AQEShuffleRead coalesced
-               +- ShuffleQueryStage 0
-                  +- Exchange hashpartitioning(_nondeterministic#37, 5), ENSURE_REQUIREMENTS, [plan_id=607]
-                     +- ApplyResourceProfile Profile: id = 0, executor resources: cores -> name: cores, amount: 1, script: , vendor: ,memory -> name: memory, amount: 1024, script: , vendor: ,offHeap -> name: offHeap, amount: 2048, script: , vendor: , task resources: cpus -> name: cpus, amount: 1.0
-                        +- *(2) HashAggregate(keys=[_nondeterministic#37], functions=[partial_count(1)], output=[_nondeterministic#37, count#41L])
-                           +- Project [java_method(java.lang.Integer, signum, c1#22) AS _nondeterministic#37]
-                              +- *(1) ColumnarToRow
-                                 +- FileScan parquet default.tmp1[c1#22] Batched: true, DataFilters: [], Format: Parquet
+        ResultQueryStage 1
+        +- ApplyResourceProfile Profile: id = 0,
+            +- *(3) HashAggregate(keys=[_nondeterministic#25], functions=[count(1)], output=[java_method(java.lang.Integer, signum, c1)#23, count(1)#24L])
+              +- AQEShuffleRead coalesced
+                  +- ShuffleQueryStage 0
+                    +- Exchange hashpartitioning(_nondeterministic#25, 5), ENSURE_REQUIREMENTS, [plan_id=1275]
+                        +- ApplyResourceProfile Profile: id = 0,
+                          +- *(2) HashAggregate(keys=[_nondeterministic#25], functions=[partial_count(1)], output=[_nondeterministic#25, count#27L])
+                              +- Project [java_method(java.lang.Integer, signum, c1#9, true) AS _nondeterministic#25]
+                                +- *(1) ColumnarToRow
+                                    +- FileScan parquet spark_catalog.default.tmp1[c1#9] Batched: true, DataFilters: [],
          */
         // format: on
         // scalastyle:on
-        df => assert(collectApplyResourceProfileExec(df.queryExecution.executedPlan) == 1)
+        df => assert(collectApplyResourceProfileExec(df.queryExecution.executedPlan) == 2)
+      }
+    }
+  }
+
+  test("Apply new resource profile to a direct data-writing stage") {
+    withSQLConf(
+      GlutenConfig.NATIVE_WRITER_ENABLED.key -> "false",
+      GlutenConfig.COLUMNAR_FALLBACK_PREFER_COLUMNAR.key -> "false",
+      GlutenConfig.COLUMNAR_FALLBACK_IGNORE_ROW_TO_COLUMNAR.key -> "false",
+      GlutenConfig.AUTO_ADJUST_STAGE_RESOURCES_FALLEN_NODE_RATIO_THRESHOLD.key -> "0.1"
+    ) {
+      withTable("t") {
+        spark.sql("CREATE TABLE t (c1 STRING) USING parquet")
+        runQueryAndCompare(s"""
+                              |INSERT OVERWRITE TABLE t
+                              |SELECT java_method('java.lang.Integer', 'signum', c1)
+                              |FROM tmp1
+                              |""".stripMargin) {
+          df =>
+            val plan = df.queryExecution.executedPlan
+            // scalastyle:off
+            // format: off
+            /*
+            CommandResult <empty>
+              +- Execute InsertIntoHadoopFsRelationCommand
+                  +- ApplyResourceProfile Profile: id = 0,
+                    +- WriteFiles
+                        +- VeloxColumnarToRow
+                          +- ^(2) ProjectExecTransformer [java_method(java.lang.Integer, signum, c1)#17 AS c1#18]
+                              +- ^(2) InputIteratorTransformer[java_method(java.lang.Integer, signum, c1)#17]
+                                +- RowToVeloxColumnar
+                                    +- Project [java_method(java.lang.Integer, signum, c1#10, true) AS java_method(java.lang.Integer, signum, c1)#17]
+                                      +- VeloxColumnarToRow
+                                          +- ^(1) FileFileSourceScanExecTransformer parquet spark_catalog.default.tmp1[c1#10] Batched: true, DataFilters: [],
+             */
+            // scalastyle:on
+            // format: on
+            assert(collectShuffleExchange(plan) == 0)
+            assert(collectApplyResourceProfileExec(plan) == 1)
+        }
       }
     }
   }

@@ -117,7 +117,7 @@ object GlutenDriverEndpoint extends Logging
 
   def collectResources(executionId: String, resourceId: String): Unit = {
     val resources = executionResourceRelation
-      .get(executionId, (_: String) => new util.HashSet[String]())
+      .get(executionId, (_: String) => java.util.concurrent.ConcurrentHashMap.newKeySet[String]())
     resources.add(resourceId)
   }
 

@@ -16,9 +16,7 @@
  */
 package org.apache.gluten.utils
 
-import org.apache.gluten.vectorized.ArrowWritableColumnVector
-
-import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
+import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch}
 
 import org.apache.arrow.vector.types.pojo.{Field, Schema}
 
@@ -27,13 +25,10 @@ object ArrowUtil {
   def toSchema(batch: ColumnarBatch): Schema = {
     val fields = new java.util.ArrayList[Field](batch.numCols)
     for (i <- 0 until batch.numCols) {
-      val col: ColumnVector = batch.column(i)
-      fields.add(col match {
-        case vector: ArrowWritableColumnVector =>
-          vector.getValueVector.getField
-        case _ =>
-          throw new UnsupportedOperationException(
-            s"Unexpected vector type: ${col.getClass.toString}")
+      fields.add(batch.column(i) match {
+        case vector: ArrowColumnVector => vector.getValueVector.getField
+        case col =>
+          throw new UnsupportedOperationException(s"Unexpected vector type: ${col.getClass}")
       })
     }
     new Schema(fields)

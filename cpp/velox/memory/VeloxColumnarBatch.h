@@ -59,6 +59,10 @@ class VeloxColumnarBatch final : public ColumnarBatch {
   facebook::velox::RowVectorPtr getRowVector() const;
   facebook::velox::RowVectorPtr getFlattenedRowVector();
 
+  /// Returns the position in 'columnIndices' of the first listed column that has a null in this batch, or -1 if none
+  /// has. A null row counts as a null in every column.
+  int32_t firstNullColumnIndex(const std::vector<int32_t>& columnIndices) const;
+
  private:
   void ensureFlattened();
 

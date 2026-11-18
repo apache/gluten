@@ -1,0 +1,62 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#pragma once
+
+#include <jni.h>
+
+#include <exception>
+#include <memory>
+
+namespace gluten {
+
+// Tracks guarded Java-to-native entries on the current thread, not throwable ownership.
+class JniEntryGuard final {
+ public:
+  JniEntryGuard() noexcept;
+  ~JniEntryGuard() noexcept;
+
+  JniEntryGuard(const JniEntryGuard&) = delete;
+  JniEntryGuard& operator=(const JniEntryGuard&) = delete;
+
+  static bool isActive() noexcept;
+
+ private:
+  // Core objects can appear in multiple DSOs; inline storage is coalesced across them.
+  inline static thread_local unsigned depth_ = 0;
+};
+
+// Owns a global reference, so copies and exception_ptrs may outlive the JNI call or thread.
+class JavaException final : public std::exception {
+ public:
+  // The caller owns throwable's reference and must clear any pending JNI exception first.
+  JavaException(JNIEnv* env, jthrowable throwable);
+
+  const char* what() const noexcept override;
+
+  void throwToJava(JNIEnv* env) const noexcept;
+
+  static bool throwNestedToJava(JNIEnv* env, const std::exception& error) noexcept;
+
+  static void check(JNIEnv* env);
+
+ private:
+  struct State;
+  std::shared_ptr<State> state_;
+};
+
+} // namespace gluten

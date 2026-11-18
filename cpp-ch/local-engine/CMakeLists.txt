@@ -202,6 +202,19 @@ endmacro()
 
 add_memory_tracking_wrappers(${LOCALENGINE_SHARED_LIB})
 
+if(GLUTEN_ENABLE_NATIVE_PAIMON AND NOT APPLE)
+  # Keep the Paimon dependency discoverable after relocating the runtime
+  # libraries.
+  set_property(
+    TARGET ${LOCALENGINE_SHARED_LIB}
+    APPEND
+    PROPERTY BUILD_RPATH "$ORIGIN")
+  set_property(
+    TARGET ${LOCALENGINE_SHARED_LIB}
+    APPEND
+    PROPERTY INSTALL_RPATH "$ORIGIN")
+endif()
+
 if(NOT APPLE)
   if(ENABLE_JEMALLOC)
     target_link_options(

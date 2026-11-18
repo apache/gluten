@@ -36,6 +36,7 @@ ENABLE_GCS=OFF
 ENABLE_S3=OFF
 ENABLE_HDFS=OFF
 ENABLE_ABFS=OFF
+ENABLE_KAFKA=OFF
 ENABLE_VCPKG=OFF
 ENABLE_GPU=OFF
 ENABLE_ENHANCED_FEATURES=OFF
@@ -46,6 +47,7 @@ VELOX_BRANCH=""
 VELOX_HOME="$GLUTEN_DIR/ep/build-velox/build/velox_ep"
 VELOX_PARAMETER=""
 BUILD_ARROW=ON
+BUILD_ARROW_EXPLICIT=OFF
 SPARK_VERSION=ALL
 
 # set default number of threads as cpu cores minus 2
@@ -104,6 +106,10 @@ do
         ENABLE_ABFS=("${arg#*=}")
         shift # Remove argument name from processing
         ;;
+        --enable_kafka=*)
+        ENABLE_KAFKA=("${arg#*=}")
+        shift # Remove argument name from processing
+        ;;
         --enable_vcpkg=*)
         ENABLE_VCPKG=("${arg#*=}")
         shift # Remove argument name from processing
@@ -146,6 +152,7 @@ do
         ;;
         --build_arrow=*)
         BUILD_ARROW="${arg#*=}"
+        BUILD_ARROW_EXPLICIT=ON
         shift # Remove argument name from processing
         ;;
         --num_threads=*)
@@ -162,6 +169,18 @@ do
         ;;
     esac
 done
+
+function vcpkg_is_active {
+    [ "$ENABLE_VCPKG" = "ON" ] || [ -n "${GLUTEN_VCPKG_ENABLED:-}" ]
+}
+
+if vcpkg_is_active; then
+    if [ "$BUILD_ARROW_EXPLICIT" = "ON" ] && [ "$BUILD_ARROW" = "ON" ]; then
+        echo "ERROR: --build_arrow=ON is deprecated with --enable_vcpkg=ON; Arrow is managed by Gluten vcpkg." >&2
+        exit 1
+    fi
+    BUILD_ARROW=OFF
+fi
 
 if [[ "$(uname)" == "Darwin" ]]; then
     export INSTALL_PREFIX=${INSTALL_PREFIX:-${VELOX_HOME}/deps-install}
@@ -205,7 +224,7 @@ function concat_velox_param {
 if [ "$ENABLE_VCPKG" = "ON" ]; then
     # vcpkg will install static depends and init build environment
     BUILD_OPTIONS="--build_tests=$BUILD_TESTS --enable_s3=$ENABLE_S3 --enable_gcs=$ENABLE_GCS \
-                   --enable_hdfs=$ENABLE_HDFS --enable_abfs=$ENABLE_ABFS"
+                   --enable_hdfs=$ENABLE_HDFS --enable_abfs=$ENABLE_ABFS --enable_kafka=$ENABLE_KAFKA"
     source ./dev/vcpkg/env.sh ${BUILD_OPTIONS}
 fi
 
@@ -227,7 +246,14 @@ concat_velox_param
 # Keep VELOX_HOME visible to child processes such as Maven's build-info generation step.
 export VELOX_HOME
 
+# Expose dependency installers as explicit commands when setup is skipped.
+source "$GLUTEN_DIR/dev/build-helper-functions.sh"
+
 function build_arrow {
+  if vcpkg_is_active; then
+    echo "ERROR: build_arrow is deprecated with --enable_vcpkg=ON; Arrow is managed by Gluten vcpkg." >&2
+    return 1
+  fi
   local GLUTEN_BUILD_TYPE="$BUILD_TYPE"
   if [ ! -d "$VELOX_HOME" ]; then
     get_velox
@@ -272,6 +298,7 @@ function build_gluten_cpp {
     "-DENABLE_S3=$ENABLE_S3"
     "-DENABLE_HDFS=$ENABLE_HDFS"
     "-DENABLE_ABFS=$ENABLE_ABFS"
+    "-DENABLE_KAFKA=$ENABLE_KAFKA"
     "-DENABLE_GPU=$ENABLE_GPU"
     "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
     "-DENABLE_ENHANCED_FEATURES=$ENABLE_ENHANCED_FEATURES"
@@ -279,8 +306,10 @@ function build_gluten_cpp {
   )
 
   if [ -n "${INSTALL_PREFIX:-}" ]; then
-    GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_PREFIX_PATH=$INSTALL_PREFIX")
     GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX")
+    if [ -z "${GLUTEN_VCPKG_ENABLED:-}" ]; then
+      GLUTEN_CMAKE_OPTIONS+=("-DCMAKE_PREFIX_PATH=$INSTALL_PREFIX")
+    fi
   fi
   if [ $OS == 'Darwin' ]; then
     if [[ -n "${INSTALL_PREFIX:-}" && "${INSTALL_PREFIX:-}" != "/usr/local" && "${INSTALL_PREFIX:-}" != /usr/local/* ]]; then
@@ -321,12 +350,16 @@ function setup_dependencies {
     setup_linux
   elif [ $OS == 'Darwin' ]; then
     setup_macos
+    export OPENSSL_ROOT_DIR="${OPENSSL_ROOT_DIR:-$(brew --prefix openssl@3)}"
   else
     echo "Unsupported kernel: $OS"
     exit 1
   fi
   if [[ "$ENABLE_S3" == "ON" || "$ENABLE_GCS" == "ON" || "$ENABLE_HDFS" == "ON" || "$ENABLE_ABFS" == "ON" ]]; then
     install_adapters
+  fi
+  if [ "$ENABLE_KAFKA" = "ON" ] && ! vcpkg_is_active; then
+    install_librdkafka
   fi
   popd
 }
@@ -346,6 +379,8 @@ commands_to_run=(${OTHER_ARGUMENTS[@]:-})
     get_velox
     if [ -z "${GLUTEN_VCPKG_ENABLED:-}" ] && [ $RUN_SETUP_SCRIPT == "ON" ]; then
       setup_dependencies
+    elif [ "$ENABLE_KAFKA" = "ON" ] && ! vcpkg_is_active; then
+      install_librdkafka
     fi
     build_velox_backend
   else
