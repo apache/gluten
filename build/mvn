@@ -17,6 +17,7 @@
 
 # This script downloads and installs Apache Maven if it's not already installed
 # Usage: build/mvn <maven-args>
+# CI-only: trigger weekly validation of the GCC 11 S3 fix.
 #
 
 # Determine the current working directory
