@@ -25,6 +25,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.{InternalRow, TableIdentifier}
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.expressions.{And, Attribute, AttributeReference, BoundReference, Expression, FileSourceConstantMetadataAttribute, FileSourceGeneratedMetadataAttribute, PlanExpression, Predicate}
+import org.apache.spark.sql.catalyst.util.ResolveDefaultColumns
 import org.apache.spark.sql.connector.read.streaming.SparkDataStream
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.execution.datasources.{BucketingUtils, FilePartition, HadoopFsRelation, PartitionDirectory}
@@ -83,6 +84,9 @@ abstract class FileSourceScanExecShim(
   def isMetadataColumn(attr: Attribute): Boolean = metadataColumns.contains(attr)
 
   def hasFieldIds: Boolean = ParquetUtils.hasFieldIds(requiredSchema)
+
+  protected def hasNonNullExistenceDefaults: Boolean =
+    ResolveDefaultColumns.hasExistenceDefaultValues(requiredSchema)
 
   protected def isDynamicPruningFilter(e: Expression): Boolean =
     e.find(_.isInstanceOf[PlanExpression[_]]).isDefined

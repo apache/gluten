@@ -16,4 +16,4 @@
  */
 package org.apache.spark.sql
 
-class GlutenFileScanSuite extends FileScanSuite with GlutenSQLTestsBaseTrait {}
+class GlutenFileScanSuite extends FileScanSuite with GlutenDefaultColumnScanTests {}
