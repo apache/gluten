@@ -61,14 +61,17 @@ class VeloxDeltaSuite extends DeltaSuite {
                        |using delta
                        |tblproperties ("delta.columnMapping.mode" = "$mode")
                        |""".stripMargin)
-          spark.sql(
-            "insert into delta_cm_map select id, " +
-              "map('a', named_struct('s', concat('v', cast(id % 7 as string)), 't', id), " +
-              "'b', named_struct('s', 'x', 't', id * 2)) from range(0, 500)")
+          withSQLConf(vanillaSparkConfs(): _*) {
+            spark.sql(
+              "insert into delta_cm_map select id, " +
+                "map('a', named_struct('s', concat('v', cast(id % 7 as string)), 't', id), " +
+                "'b', named_struct('s', 'x', 't', id * 2)) from range(0, 500)")
+          }
           val pruningFlag = "spark.gluten.sql.columnar.backend.velox.scanMapKeyPruningEnabled"
           withSQLConf(pruningFlag -> "true", "spark.sql.adaptive.enabled" -> "false") {
             runQueryAndCompare(
-              "select sum(m['a'].t), max(m['a'].s) from delta_cm_map where m['a'].s = 'v3'") {
+              "select sum(m['a'].t), max(m['a'].s) from delta_cm_map where m['a'].s = 'v3'",
+              noFallBack = mode != "id") {
               df =>
                 val subfields = getExecutedPlan(df)
                   .collect { case scan: DeltaScanTransformer => scan.requiredMapSubfields }
