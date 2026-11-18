@@ -150,8 +150,10 @@ object RateMicroBatchBenchmark extends SqlBasedBenchmark {
                           .load()
                           .selectExpr(
                             "from_json(CAST(value AS STRING), " +
-                              "'timestamp TIMESTAMP, value BIGINT') AS record")
-                          .select("record.*")
+                              "'timestamp STRING, value BIGINT') AS record")
+                          .selectExpr(
+                            "CAST(record.timestamp AS TIMESTAMP) AS timestamp",
+                            "record.value AS value")
                           .writeStream
                           .format("console")
                           .outputMode("append")
