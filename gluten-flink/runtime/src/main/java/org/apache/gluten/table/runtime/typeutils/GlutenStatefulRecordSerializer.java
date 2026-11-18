@@ -60,20 +60,20 @@ public class GlutenStatefulRecordSerializer extends TypeSerializer<StatefulRecor
 
   @Override
   public void serialize(StatefulRecord record, DataOutputView target) throws IOException {
-    String vectorStr = record.getRowVector().serialize();
-    target.writeInt(vectorStr.getBytes().length);
-    target.write(vectorStr.getBytes());
+    byte[] vectorBytes = record.getRowVector().serialize();
+    target.writeInt(vectorBytes.length);
+    target.write(vectorBytes);
   }
 
   @Override
   public StatefulRecord deserialize(DataInputView source) throws IOException {
     int len = source.readInt();
-    byte[] str = new byte[len];
-    source.readFully(str);
+    byte[] bytes = new byte[len];
+    source.readFully(bytes);
     RowVector rowVector =
         GlutenTaskSessionContext.getSession(operatorId)
             .baseVectorOps()
-            .deserializeOne(new String(str))
+            .deserializeOne(bytes)
             .asRowVector();
     StatefulRecord record = new StatefulRecord(operatorId, rowVector.id(), 0, false, -1);
     record.setRowVector(rowVector);
