@@ -17,6 +17,7 @@
 package org.apache.gluten.config
 
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.util.SparkVersionUtil
 
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -53,5 +54,22 @@ class VeloxConfigSuite extends AnyFunSuite {
 
   test("build hash table once per executor can still be disabled explicitly") {
     assert(!veloxConfig(buildOncePerExecutor -> "false").enableBroadcastBuildOncePerExecutor)
+  }
+
+  private val nullStructKey = "spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing"
+
+  test("native session conf passes Spark's default for returnNullStructIfAllFieldsMissing") {
+    // Spark 4.1 added the conf with default false (SPARK-53535). Earlier versions behave as if it
+    // is true.
+    val native = GlutenConfig.getNativeSessionConf("velox", Map.empty)
+    assert(native.get(nullStructKey).contains((!SparkVersionUtil.gteSpark41).toString))
+  }
+
+  test("returnNullStructIfAllFieldsMissing set in the session overrides the default") {
+    Seq("true", "false").foreach {
+      value =>
+        val native = GlutenConfig.getNativeSessionConf("velox", Map(nullStructKey -> value))
+        assert(native.get(nullStructKey).contains(value))
+    }
   }
 }
