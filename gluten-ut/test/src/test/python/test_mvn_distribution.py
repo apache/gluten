@@ -15,6 +15,7 @@
 
 import hashlib
 import io
+from itertools import groupby
 import json
 import os
 from pathlib import Path
@@ -214,7 +215,10 @@ class MavenDistributionTest(unittest.TestCase):
         return [call for call in self.log if call["tool"] == tool]
 
     def urls(self, tool):
-        return [call["args"][-1] for call in self.calls(tool)]
+        # Source ordering is independent of retries within a download.
+        return [
+            url for url, _ in groupby(call["args"][-1] for call in self.calls(tool))
+        ]
 
     def assert_downloads_cleaned(self):
         for path in (self.archive, self.checksum):
@@ -263,9 +267,12 @@ class MavenDistributionTest(unittest.TestCase):
                         tool, failures={url: ("404", status) for url in missing}
                     )
                     self.assertNotEqual(0, result.returncode)
-                    self.assertEqual(
-                        2 if CDN in missing else 4, len(self.calls(tool))
+                    expected = (
+                        [CDN, ARCHIVE]
+                        if CDN in missing
+                        else [CDN, CHECKSUM, ARCHIVE, ARCHIVE_CHECKSUM]
                     )
+                    self.assertEqual(expected, self.urls(tool))
                     self.assertIn("Failed to download Maven", result.stderr)
                     self.assert_not_installed()
 
