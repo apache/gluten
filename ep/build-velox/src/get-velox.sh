@@ -139,11 +139,11 @@ function prepare_velox_source_code {
 
 function apply_flex_lexer_patch {
   local patch_name="${CURRENT_DIR}/flex-lexer-yyread.patch"
-  if git -C "$VELOX_HOME" apply --reverse --check "$patch_name" > /dev/null 2>&1; then
+  if git apply --reverse --check "$patch_name" > /dev/null 2>&1; then
     echo "Flex lexer compatibility patch already applied"
   else
     echo "Applying Flex lexer compatibility patch..."
-    git -C "$VELOX_HOME" apply "$patch_name"
+    git apply "$patch_name"
   fi
 }
 
