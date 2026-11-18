@@ -25,6 +25,7 @@ import org.apache.spark.sql.delta.DeltaLog
 import org.apache.spark.sql.delta.util.DeltaFileOperations
 import org.apache.spark.sql.execution.{QueryExecution, SparkPlan}
 import org.apache.spark.sql.execution.command.ExecutedCommandExec
+import org.apache.spark.sql.execution.streaming.MemoryStream
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types.{IntegerType, LongType, StructType}
 import org.apache.spark.sql.util.QueryExecutionListener
@@ -153,6 +154,62 @@ class GlutenDeltaNativePartitionWriteSuite extends GlutenQueryTest with SharedSp
                 "0" -> Seq(4),
                 "1" -> (if (limit == 0) Seq(9) else Seq(1, 4, 4))))
               checkAnswer(spark.read.format("delta").load(path).select("id", "part"), expected)
+            }
+        }
+      }
+    }
+  }
+
+  for (partitioned <- Seq(false, true); nativeWrite <- Seq(false, true)) {
+    test(s"Delta streaming appends: partitioned=$partitioned, nativeWrite=$nativeWrite") {
+      assume(BackendTestUtils.isVeloxBackendLoaded())
+      import testImplicits._
+      withSQLConf(
+        "spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite" -> nativeWrite.toString,
+        "spark.databricks.delta.stats.collect" -> "false") {
+        withTempDir {
+          dir =>
+            val path = dir.getCanonicalPath + "/data"
+            val input = MemoryStream[(Option[Long], Option[String])]
+            val writer = input.toDF().toDF("id", "part")
+              .filter($"id".isNull || $"id" >= 0L)
+              .writeStream.format("delta").outputMode("append")
+              .option("checkpointLocation", dir.getCanonicalPath + "/checkpoint")
+            val query = (if (partitioned) writer.partitionBy("part") else writer).start(path)
+            try {
+              input.addData((Some(1L), Some("a")), (None, Some("a")))
+              query.processAllAvailable()
+              input.addData((Some(2L), None), (Some(3L), Some("b")))
+              query.processAllAvailable()
+              // Advance the source offset with an empty output batch.
+              input.addData((Some(-1L), Some("discarded")))
+              query.processAllAvailable()
+            } finally {
+              query.stop()
+            }
+            // Read with Spark so native reader behavior cannot hide a write error.
+            withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+              checkAnswer(
+                spark.read.format("delta").load(path).select("id", "part"),
+                Seq(Row(1L, "a"), Row(null, "a"), Row(2L, null), Row(3L, "b")))
+              val files = DeltaLog.forTable(spark, path).update().allFiles.collect()
+              assert(files.nonEmpty)
+              files.foreach {
+                file =>
+                  val reader = ParquetFileReader.open(HadoopInputFile.fromPath(
+                    DeltaFileOperations.absolutePath(path, file.path),
+                    spark.sessionState.newHadoopConf()))
+                  try {
+                    // Check the physical writer, not only a plan wrapper that could fall back.
+                    val createdBy = reader.getFooter.getFileMetaData.getCreatedBy
+                    assert(createdBy != null, s"Missing writer metadata for ${file.path}")
+                    assert(
+                      createdBy.startsWith("parquet-mr") == !nativeWrite,
+                      s"Unexpected writer for ${file.path}: $createdBy")
+                  } finally {
+                    reader.close()
+                  }
+              }
             }
         }
       }
