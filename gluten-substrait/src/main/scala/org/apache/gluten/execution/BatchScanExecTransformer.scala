@@ -176,8 +176,11 @@ abstract class BatchScanExecTransformerBase(
       return ValidationResult.failed(s"Unsupported aggregation push down for $scan.")
     }
 
+    val hasRowIndexColumn =
+      SparkShimLoader.getSparkShims.findRowIndexColumnIndexInSchema(schema) >= 0 ||
+        output.exists(isRowIndexMetadataColumn)
     if (
-      SparkShimLoader.getSparkShims.findRowIndexColumnIndexInSchema(schema) > 0 &&
+      hasRowIndexColumn &&
       !BackendsApiManager.getSettings.supportNativeRowIndexColumn()
     ) {
       return ValidationResult.failed("Unsupported row index column scan in native.")
