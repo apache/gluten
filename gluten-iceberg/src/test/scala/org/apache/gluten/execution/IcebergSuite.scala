@@ -626,6 +626,27 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
+  test("iceberg scan with no data files") {
+    withTable("iceberg_empty", "iceberg_pruned") {
+      spark.sql("create table iceberg_empty (id int, name string) using iceberg")
+      runQueryAndCompare("select * from iceberg_empty") {
+        checkGlutenPlan[IcebergScanTransformer]
+      }
+
+      spark.sql("""
+                  |create table iceberg_pruned (id int, name string)
+                  | using iceberg partitioned by (name)
+                  |""".stripMargin)
+      spark.sql("""insert into iceberg_pruned values (1, "v1"), (2, "v2")""")
+      runQueryAndCompare("select * from iceberg_pruned where name = 'v3'") {
+        checkGlutenPlan[IcebergScanTransformer]
+      }
+      runQueryAndCompare("select true from iceberg_pruned where id > 100 limit 1") {
+        checkGlutenPlan[IcebergScanTransformer]
+      }
+    }
+  }
+
   test("iceberg read mor table - delete and update") {
     withTable("iceberg_mor_tb") {
       spark.sql("""

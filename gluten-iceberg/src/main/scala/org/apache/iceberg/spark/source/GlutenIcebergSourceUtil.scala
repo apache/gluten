@@ -262,7 +262,12 @@ object GlutenIcebergSourceUtil {
     }
 
     if (fileFormat == ReadFileFormat.UnknownFormat) {
-      throw new GlutenNotSupportException("Iceberg Only support parquet and orc file format.")
+      fileFormat = convertFileFormat(
+        FileFormat.fromString(
+          PropertyUtil.propertyAsString(
+            getTable(sparkScan).properties(),
+            TableProperties.DEFAULT_FILE_FORMAT,
+            TableProperties.DEFAULT_FILE_FORMAT_DEFAULT)))
     }
     (fileFormat, rootPathsBuilder.result())
   }
@@ -303,7 +308,7 @@ object GlutenIcebergSourceUtil {
           return new StructType()
         }
     }
-    throw new UnsupportedOperationException("Failed to get partition schema from iceberg scan.")
+    new StructType()
   }
 
   def getTable(sparkScan: Scan): Table = sparkScan match {
