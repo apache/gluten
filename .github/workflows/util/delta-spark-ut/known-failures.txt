@@ -46,7 +46,6 @@ org.apache.spark.sql.delta.CloneTableScalaDeletionVectorSuite#shallow clone acro
 org.apache.spark.sql.delta.CloneTableScalaSuite#shallow clone across file systems
 org.apache.spark.sql.delta.ConvertToDeltaSQLSuite#CONVERT keeps NaN rows for finite-threshold predicate (NaN-excluding writer)
 org.apache.spark.sql.delta.ConvertToDeltaScalaSuite#CONVERT keeps NaN rows for finite-threshold predicate (NaN-excluding writer)
-org.apache.spark.sql.delta.DeltaColumnMappingSuite#explicit id matching
 org.apache.spark.sql.delta.DeltaDataFrameHadoopOptionsSuite#SC-86916: Delta log cache should respect options
 org.apache.spark.sql.delta.DeltaDataFrameHadoopOptionsSuite#SC-86916: checkpoint should pick up Hadoop file system options
 org.apache.spark.sql.delta.DeltaDataFrameHadoopOptionsSuite#SC-86916: invalidateCache should invalidate all DeltaLogs of the given path
@@ -66,7 +65,6 @@ org.apache.spark.sql.delta.DeltaParquetFileFormatWithPredicatePushdownSuite#read
 org.apache.spark.sql.delta.DeltaParquetFileFormatWithPredicatePushdownSuite#read DV metadata columns: with rowIndexFilterType=IF_NOT_CONTAINED, with vectorized Parquet reader=false, with readColumnarBatchAsRows=true
 org.apache.spark.sql.delta.DeltaParquetFileFormatWithPredicatePushdownSuite#read DV metadata columns: with rowIndexFilterType=IF_NOT_CONTAINED, with vectorized Parquet reader=true, with readColumnarBatchAsRows=false
 org.apache.spark.sql.delta.DeltaParquetFileFormatWithPredicatePushdownSuite#read DV metadata columns: with rowIndexFilterType=IF_NOT_CONTAINED, with vectorized Parquet reader=true, with readColumnarBatchAsRows=true
-org.apache.spark.sql.delta.DeltaSinkIdColumnMappingSuite#partitioned writing and batch reading - column mapping id mode
 org.apache.spark.sql.delta.DeltaSinkNameColumnMappingSuite#partitioned writing and batch reading - column mapping name mode
 org.apache.spark.sql.delta.DeltaSuite#SC-8810: skipping deleted file still throws on corrupted file
 org.apache.spark.sql.delta.DeltaSuite#all operations with special characters in path
