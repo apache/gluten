@@ -25,7 +25,8 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.StructType
 
 import org.apache.iceberg.spark.source.IcebergWriteUtil
-import org.apache.iceberg.types.TypeUtil
+import org.apache.iceberg.types.{TypeUtil, Types}
+import org.apache.iceberg.types.Type.TypeID
 
 import java.util
 
@@ -57,6 +58,30 @@ abstract class AbstractIcebergWriteExec extends IcebergWriteExec {
     )
 
     val icebergProperties = new util.HashMap[String, String]
+
+    // Fix for https://github.com/apache/gluten/issues/13429
+    // Spark's TimestampType maps to Iceberg's `timestamptz` (shouldAdjustToUTC = true).
+    // Velox's Parquet writer derives isAdjustedToUTC from whether the Arrow timestamp type
+    // carries a non-empty timezone string (ArrowSchema.cpp:240). Without the serde property
+    // below, the Arrow schema is built with an empty timezone → isAdjustedToUTC=false in
+    // the Parquet footer, violating the Iceberg spec and breaking strict readers such as
+    // apache/iceberg-go during compaction ("cannot promote timestamp to timestamptz").
+    //
+    // Limitation: this sets a file-level timezone flag. Tables containing both `timestamptz`
+    // and `timestamp_ntz` columns are not currently supported by the native Iceberg write
+    // path (validation in IcebergWriteExec blocks them). If per-column support is needed in
+    // future, consider Option 2/3 discussed in https://github.com/apache/gluten/issues/13429.
+    val hasTimestampTz = writeSchema
+      .columns()
+      .asScala
+      .exists {
+        col =>
+          col.`type`().typeId() == TypeID.TIMESTAMP &&
+            col.`type`().asInstanceOf[Types.TimestampType].shouldAdjustToUTC()
+      }
+    if (hasTimestampTz) {
+      icebergProperties.put("parquet.writer.timestamp.timezone", "UTC")
+    }
 
     Seq(
       PARQUET_PAGE_SIZE_BYTES.key -> getParquetPageSizeBytes,
