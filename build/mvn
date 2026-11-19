@@ -58,8 +58,8 @@ download_mvn() {
         fi
         rm -f "$PARTIAL" || return 1
         if [ "$ATTEMPT" -lt 3 ]; then
-            echo "Maven download attempt ${ATTEMPT}/3 failed (${DOWNLOAD_CMD[0]} exit ${STATUS}); retrying in $((ATTEMPT * 20))s..." >&2
-            sleep "$((ATTEMPT * 20))" || return 1
+            echo "Maven download attempt ${ATTEMPT}/3 failed (${DOWNLOAD_CMD[0]} exit ${STATUS}); retrying in $((ATTEMPT * 60))s..." >&2
+            sleep "$((ATTEMPT * 60))" || return 1
         fi
     done
 
