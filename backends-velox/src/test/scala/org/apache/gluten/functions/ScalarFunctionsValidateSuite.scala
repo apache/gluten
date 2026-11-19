@@ -757,6 +757,83 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
     }
   }
 
+  test("map offloads to Velox under both mapKeyDedupPolicy values") {
+    // l_orderkey is repeated. The keys must come from a table: Spark rejects repeated literal keys
+    // while planning, before the query reaches Velox.
+    val duplicateKeys =
+      "map(l_orderkey, l_partkey, l_orderkey + 1, l_suppkey, l_orderkey, l_linenumber)"
+    val duplicateKeyQuery =
+      s"select $duplicateKeys as m, map_keys($duplicateKeys) as k from lineitem limit 10"
+
+    // l_orderkey is not repeated.
+    val distinctKeyQuery =
+      "select map(l_orderkey, l_partkey, l_orderkey + 1, l_suppkey) from lineitem limit 10"
+
+    withSQLConf(SQLConf.MAP_KEY_DEDUP_POLICY.key -> SQLConf.MapKeyDedupPolicy.EXCEPTION.toString) {
+      // EXCEPTION policy passes when there is no duplicate.
+      runQueryAndCompare(distinctKeyQuery) {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+
+      // EXCEPTION policy raises on a duplicate.
+      val df = sql(duplicateKeyQuery)
+      checkGlutenPlan[ProjectExecTransformer](df)
+      val e = intercept[SparkException] {
+        df.collect()
+      }
+      assert(e.getMessage.contains("Duplicate map key"))
+    }
+
+    withSQLConf(SQLConf.MAP_KEY_DEDUP_POLICY.key -> SQLConf.MapKeyDedupPolicy.LAST_WIN.toString) {
+      // LAST_WIN policy keeps the duplicate's first position and its last value.
+      runQueryAndCompare(duplicateKeyQuery) {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+    }
+  }
+
+  test("map_from_entries offloads to Velox under both mapKeyDedupPolicy values") {
+    // l_orderkey is repeated. The fields are named and the values cast so that all entries have the
+    // same struct type: struct() would name the first field after the column only when the key is
+    // a bare column, which makes the entries differ.
+    val duplicateEntries =
+      "array(named_struct('k', l_orderkey, 'v', cast(l_partkey as bigint)), " +
+        "named_struct('k', l_orderkey + 1, 'v', cast(l_suppkey as bigint)), " +
+        "named_struct('k', l_orderkey, 'v', cast(l_linenumber as bigint)))"
+    val duplicateKeyQuery =
+      s"select map_from_entries($duplicateEntries) as m, " +
+        s"map_keys(map_from_entries($duplicateEntries)) as k from lineitem limit 10"
+
+    // l_orderkey is not repeated.
+    val distinctKeyQuery =
+      "select map_from_entries(array(" +
+        "named_struct('k', l_orderkey, 'v', cast(l_partkey as bigint)), " +
+        "named_struct('k', l_orderkey + 1, 'v', cast(l_suppkey as bigint)))) " +
+        "from lineitem limit 10"
+
+    withSQLConf(SQLConf.MAP_KEY_DEDUP_POLICY.key -> SQLConf.MapKeyDedupPolicy.EXCEPTION.toString) {
+      // EXCEPTION policy passes when there is no duplicate.
+      runQueryAndCompare(distinctKeyQuery) {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+
+      // EXCEPTION policy raises on a duplicate.
+      val df = sql(duplicateKeyQuery)
+      checkGlutenPlan[ProjectExecTransformer](df)
+      val e = intercept[SparkException] {
+        df.collect()
+      }
+      assert(e.getMessage.contains("Duplicate map key"))
+    }
+
+    withSQLConf(SQLConf.MAP_KEY_DEDUP_POLICY.key -> SQLConf.MapKeyDedupPolicy.LAST_WIN.toString) {
+      // LAST_WIN policy keeps the duplicate's first position and its last value.
+      runQueryAndCompare(duplicateKeyQuery) {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+    }
+  }
+
   test("raise_error, assert_true") {
     runQueryAndCompare("""SELECT assert_true(l_orderkey >= 1), l_orderkey
                          | from lineitem limit 100""".stripMargin) {
