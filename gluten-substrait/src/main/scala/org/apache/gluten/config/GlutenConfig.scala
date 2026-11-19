@@ -621,7 +621,7 @@ object GlutenConfig extends ConfigRegistry {
       SQLConf.MAP_KEY_DEDUP_POLICY.key,
       SQLConf.MAP_KEY_DEDUP_POLICY.valueConverter(rawMapKeyDedupPolicy).toString)
 
-    // Spark accepts the codec name in any case, and Velox matches it in lower case.
+    // Spark lowercases the codec name before using it, so give native code the same value.
     conf
       .get(SPARK_IO_COMPRESSION_CODEC)
       .foreach(v => nativeConfMap.put(SPARK_IO_COMPRESSION_CODEC, v.toLowerCase(Locale.ROOT)))
