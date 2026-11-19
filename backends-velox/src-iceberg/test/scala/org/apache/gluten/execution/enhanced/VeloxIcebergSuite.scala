@@ -1093,7 +1093,7 @@ class VeloxIcebergSuite extends IcebergSuite {
             spark.sparkContext.hadoopConfiguration))
           try {
             val schema = reader.getFooter.getFileMetaData.getSchema
-            val tsField = schema.getType("ts")
+            val tsField = schema.asGroupType().getType("ts")
             val logicalType = tsField.getLogicalTypeAnnotation
             assert(
               logicalType.isInstanceOf[LogicalTypeAnnotation.TimestampLogicalTypeAnnotation],
