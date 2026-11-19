@@ -34,6 +34,7 @@ import org.apache.iceberg.shaded.org.apache.parquet.column.Encoding
 import org.apache.iceberg.shaded.org.apache.parquet.column.page.{DataPage, DataPageV1, DataPageV2}
 import org.apache.iceberg.shaded.org.apache.parquet.hadoop.ParquetFileReader
 import org.apache.iceberg.shaded.org.apache.parquet.hadoop.util.HadoopInputFile
+import org.apache.iceberg.shaded.org.apache.parquet.schema.LogicalTypeAnnotation
 
 import java.util.Locale
 
@@ -1063,6 +1064,52 @@ class VeloxIcebergSuite extends IcebergSuite {
       checkAnswer(
         spark.sql("SELECT * FROM iceberg_write_switch_tbl ORDER BY a"),
         Seq(Row(1, "hello"), Row(2, "world")))
+    }
+  }
+
+  test("GLUTEN-13429: timestamptz columns written with isAdjustedToUTC=true") {
+    withTable("iceberg_timestamptz_tbl") {
+      spark.sql("""
+                  |CREATE TABLE iceberg_timestamptz_tbl (id INT, ts TIMESTAMP)
+                  |USING iceberg
+                  |""".stripMargin)
+
+      val df = spark.sql(
+        "INSERT INTO iceberg_timestamptz_tbl VALUES (1, TIMESTAMP '2026-11-19 12:00:00')")
+      assert(
+        df.queryExecution.executedPlan
+          .asInstanceOf[CommandResultExec]
+          .commandPhysicalPlan
+          .isInstanceOf[VeloxIcebergAppendDataExec],
+        "Iceberg write should be offloaded to Velox")
+
+      val files = spark.sql("SELECT file_path FROM default.iceberg_timestamptz_tbl.files").collect()
+      assert(files.nonEmpty)
+      files.foreach {
+        file =>
+          val reader = ParquetFileReader.open(HadoopInputFile.fromPath(
+            new Path(file.getString(0)),
+            spark.sparkContext.hadoopConfiguration))
+          try {
+            val schema = reader.getFooter.getFileMetaData.getSchema
+            val tsField = schema.getType("ts")
+            val logicalType = tsField.getLogicalTypeAnnotation
+            assert(
+              logicalType.isInstanceOf[LogicalTypeAnnotation.TimestampLogicalTypeAnnotation],
+              s"Expected TimestampLogicalTypeAnnotation but got $logicalType")
+            val tsAnnotation =
+              logicalType.asInstanceOf[LogicalTypeAnnotation.TimestampLogicalTypeAnnotation]
+            assert(
+              tsAnnotation.isAdjustedToUTC,
+              s"Expected isAdjustedToUTC=true for timestamptz, but got ${tsAnnotation.isAdjustedToUTC}")
+          } finally {
+            reader.close()
+          }
+      }
+
+      checkAnswer(
+        spark.sql("SELECT id, ts FROM iceberg_timestamptz_tbl"),
+        Seq(Row(1, java.sql.Timestamp.valueOf("2026-11-19 12:00:00"))))
     }
   }
 }
