@@ -71,13 +71,14 @@ abstract class AbstractIcebergWriteExec extends IcebergWriteExec {
     // and `timestamp_ntz` columns are not currently supported by the native Iceberg write
     // path (validation in IcebergWriteExec blocks them). If per-column support is needed in
     // future, consider Option 2/3 discussed in https://github.com/apache/gluten/issues/13429.
-    val hasTimestampTz = writeSchema
-      .columns()
+    val hasTimestampTz = TypeUtil
+      .indexById(writeSchema.asStruct())
+      .values()
       .asScala
       .exists {
-        col =>
-          col.`type`().typeId() == TypeID.TIMESTAMP &&
-          col.`type`().asInstanceOf[Types.TimestampType].shouldAdjustToUTC()
+        field =>
+          field.`type`().typeId() == TypeID.TIMESTAMP &&
+          field.`type`().asInstanceOf[Types.TimestampType].shouldAdjustToUTC()
       }
     if (hasTimestampTz) {
       icebergProperties.put("parquet.writer.timestamp.timezone", "UTC")
