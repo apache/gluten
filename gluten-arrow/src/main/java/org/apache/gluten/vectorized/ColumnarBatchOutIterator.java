@@ -21,14 +21,17 @@ import org.apache.gluten.exception.GlutenException;
 import org.apache.gluten.iterator.ClosableIterator;
 import org.apache.gluten.runtime.Runtime;
 import org.apache.gluten.runtime.RuntimeAware;
-import org.apache.gluten.sql.shims.SparkShimLoader;
 
+import org.apache.spark.QueryContext;
 import org.apache.spark.sql.execution.datasources.SchemaColumnConvertNotSupportedException;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 
 import java.io.IOException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import scala.collection.immutable.Map;
+import scala.collection.immutable.Map$;
 
 public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
     implements RuntimeAware {
@@ -159,8 +162,26 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
     if (!matcher.find()) {
       return null;
     }
-    int limit = Integer.parseInt(matcher.group(1));
-    return SparkShimLoader.getSparkShims().charVarcharLengthExceededError(limit, e);
+    String limit = matcher.group(1);
+    try {
+      // Builds the exception QueryExecutionErrors.exceedMaxLimit builds, with the Velox error as
+      // its cause. SparkRuntimeException is private[spark], and its cause can only be set through
+      // its constructor.
+      return (RuntimeException)
+          Class.forName("org.apache.spark.SparkRuntimeException")
+              .getConstructor(
+                  String.class, Map.class, Throwable.class, QueryContext[].class, String.class)
+              .newInstance(
+                  "EXCEED_LIMIT_LENGTH",
+                  Map$.MODULE$.<String, String>empty().updated("limit", limit),
+                  e,
+                  new QueryContext[0],
+                  "");
+    } catch (ReflectiveOperationException ignored) {
+      // Spark 3.4 has no EXCEED_LIMIT_LENGTH error class, so the constructor throws there. Spark
+      // 3.4 throws this plain RuntimeException itself.
+      return new RuntimeException("Exceeds char/varchar type length limitation: " + limit, e);
+    }
   }
 
   @Override
