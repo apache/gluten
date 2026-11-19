@@ -113,7 +113,7 @@ object LanceNullSlots {
     val width = vector.getTypeWidth.toLong
     val bitmapBytes = validityBytes(rows)
     val copy = vector.getField.createVector(allocator).asInstanceOf[BaseFixedWidthVector]
-    // Raw buffers rather than allocateNew(), which would zero the data only for it to be copied over.
+    // Raw buffers rather than allocateNew(), which would zero the data just before the copy.
     val validity = allocator.buffer(bitmapBytes)
     val data =
       try allocator.buffer(rows * width)

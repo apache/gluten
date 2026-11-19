@@ -34,6 +34,7 @@ on:
       - 'gluten-arrow/**'
       - 'gluten-delta/**'
       - 'gluten-iceberg/**'
+      - 'gluten-lance/**'
       - 'gluten-hudi/**'
       - 'gluten-paimon/**'
       - 'gluten-ut/**'
@@ -122,7 +123,7 @@ jobs:
         uses: ./.github/actions/squash-merge-upstream
         with:
           # The `paths:` list above. Keep the two in sync.
-          paths: '^(\.github/workflows/(velox_backend_x86|iceberg_spark_ut|iceberg_upstream_revision|velox_native_build)\.yml$|\.github/workflows/util/(parallel-ut|iceberg-upstream)/|\.github/actions/|pom\.xml$|build/mvn$|(backends-velox|gluten-(uniffle|celeborn|core|substrait|arrow|delta|iceberg|hudi|paimon|ut)|package|shims|tools/gluten-it|ep/build-velox|cpp|dev)/)'
+          paths: '^(\.github/workflows/(velox_backend_x86|iceberg_spark_ut|iceberg_upstream_revision|velox_native_build)\.yml$|\.github/workflows/util/(parallel-ut|iceberg-upstream)/|\.github/actions/|pom\.xml$|build/mvn$|(backends-velox|gluten-(uniffle|celeborn|core|substrait|arrow|delta|iceberg|lance|hudi|paimon|ut)|package|shims|tools/gluten-it|ep/build-velox|cpp|dev)/)'
           paths-ignore: '^cpp/bolt/|^cpp/bolt\.CMakeLists\.cmake$'
 
   # Detect which parts of the codebase were modified so downstream jobs can
@@ -224,7 +225,7 @@ jobs:
           match() { echo "$changed" | grep -qE "$1" && echo true || echo false; }
 
           echo "cpp=$(match      '^(cpp/|ep/build-velox/|dev/)')"                                            >> $GITHUB_OUTPUT
-          echo "java=$(match     '^(\.github/(workflows|actions)/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi|paimon)/|gluten-ut/(common/|test/|src-iceberg-upstream/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
+          echo "java=$(match     '^(\.github/(workflows|actions)/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|lance|hudi|paimon)/|gluten-ut/(common/|test/|src-iceberg-upstream/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
           echo "udf=$(match      '^(backends-velox/src/test/scala/org/apache/gluten/expression/VeloxUdfSuite\.scala|\.github/workflows/velox_backend_x86\.yml)$')" >> $GITHUB_OUTPUT
           echo "jni_test=$(match '^(\.github/workflows/velox_backend_x86\.yml|pom\.xml|gluten-(arrow|core)/pom\.xml|build/mvn|gluten-arrow/src/test/java/org/apache/gluten/jni/.*|gluten-arrow/src/main/java/org/apache/gluten/exception/JniExceptionDescriber\.java|gluten-core/src/main/java/org/apache/gluten/exception/GlutenException\.java)$')" >> $GITHUB_OUTPUT
           echo "shims34=$(match  '^(shims/(spark34|common)/|gluten-ut/spark34/)')"                           >> $GITHUB_OUTPUT

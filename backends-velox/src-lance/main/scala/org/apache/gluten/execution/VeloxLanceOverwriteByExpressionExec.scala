@@ -25,7 +25,7 @@ case class VeloxLanceOverwriteByExpressionExec(
     refreshCache: () => Unit,
     write: Write,
     override val batchWrite: BatchWrite)
-  extends LanceWriteExec {
+  extends VeloxLanceWriteExec {
   override protected def withNewChildInternal(
       newChild: SparkPlan): VeloxLanceOverwriteByExpressionExec =
     copy(query = newChild)

@@ -55,13 +55,15 @@ Enable the `lance` profile alongside the Velox backend:
 ./build/mvn clean package -Pbackends-velox -Pspark-3.5 -Plance -DskipTests
 ```
 
-The offload is entirely Velox-specific, so it lives under `backends-velox/src-lance`
-(mirroring `backends-velox/src-iceberg`) rather than in a top-level module. Add `-Plance-test` to
-also compile and run the Lance test suite:
+As for Iceberg, the code is split in two. The `gluten-lance` module holds the parts that do not
+depend on Velox: the scan, the checks that decide which writes are offloaded, and the Arrow
+conversions the writer applies. `backends-velox/src-lance` holds the Velox parts: the writer that
+exports Velox batches to Lance, the write nodes and the rules that register them. Add
+`-Plance-test` to also compile and run the Lance tests:
 
 ```
-./build/mvn test -pl backends-velox -Pbackends-velox -Pspark-3.5 -Plance -Plance-test \
-  -Dtest=none -DwildcardSuites=org.apache.gluten.execution.VeloxLanceSuite
+./build/mvn test -pl gluten-lance,backends-velox -am -Pbackends-velox -Pspark-3.5 -Plance \
+  -Plance-test -Dtest=none -DwildcardSuites=org.apache.gluten.execution.VeloxLanceSuite
 ```
 
 ## Reading

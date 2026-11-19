@@ -1977,6 +1977,9 @@
       <activation>
         <activeByDefault>false</activeByDefault>
       </activation>
+      <modules>
+        <module>gluten-lance</module>
+      </modules>
       <build>
         <plugins>
           <plugin>

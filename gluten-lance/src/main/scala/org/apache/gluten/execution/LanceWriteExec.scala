@@ -17,7 +17,7 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
-import org.apache.gluten.connector.write.{ColumnarBatchDataWriterFactory, ColumnarStreamingDataWriterFactory, LanceColumnarBatchDataWriterFactory}
+import org.apache.gluten.connector.write.ColumnarStreamingDataWriterFactory
 
 import org.apache.spark.sql.catalyst.trees.TreeNodeTag
 import org.apache.spark.sql.connector.distributions.UnspecifiedDistribution
@@ -35,9 +35,10 @@ import java.util.{List => JList}
 import scala.collection.JavaConverters._
 
 /**
- * A Lance batch write offloaded to Velox. Executors export their Velox batches as an Arrow C stream
- * that lance-spark writes into uncommitted fragments; lance-spark's [[LanceBatchWrite]] then
- * commits them on the driver, exactly as for its own row writer.
+ * A Lance batch write offloaded to a native backend. Executors export their native batches as an
+ * Arrow C stream that lance-spark writes into uncommitted fragments; lance-spark's
+ * [[LanceBatchWrite]] then commits them on the driver, exactly as for its own row writer. A backend
+ * provides the writer factory.
  *
  * Implementations take the [[LanceBatchWrite]] as a constructor argument, so the node keeps one
  * batch write through the copies the planner makes of it, and the validation, the writer factory
@@ -47,13 +48,7 @@ import scala.collection.JavaConverters._
  */
 trait LanceWriteExec extends ColumnarV2TableWriteExec {
 
-  private def lanceBatchWrite: LanceBatchWrite = batchWrite.asInstanceOf[LanceBatchWrite]
-
-  override protected def createBatchWriterFactory(
-      schema: StructType): ColumnarBatchDataWriterFactory =
-    LanceColumnarBatchDataWriterFactory(
-      lanceBatchWrite.getFragmentWriteSpec,
-      lanceBatchWrite.getCommitSchema.toJson)
+  protected def lanceBatchWrite: LanceBatchWrite = batchWrite.asInstanceOf[LanceBatchWrite]
 
   override protected def createStreamingWriterFactory(
       schema: StructType): ColumnarStreamingDataWriterFactory =
