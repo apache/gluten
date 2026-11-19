@@ -21,10 +21,10 @@ import org.apache.gluten.backendsapi.velox.VeloxBackendSettings
 import org.apache.gluten.runtime.Runtimes
 import org.apache.gluten.vectorized.HashJoinBuilder
 
-import org.apache.spark.SparkEnv
+import org.apache.spark.{SparkEnv, TaskContext}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.execution.ColumnarBuildSideRelation
+import org.apache.spark.sql.execution.{ColumnarBuildSideRelation, SQLExecution}
 import org.apache.spark.sql.execution.joins.BuildSideRelation
 import org.apache.spark.sql.execution.unsafe.UnsafeColumnarBuildSideRelation
 import org.apache.spark.task.TaskResources
@@ -83,19 +83,44 @@ object VeloxBroadcastBuildSideCache
         }
       ).build[String, SerializedBroadcastHashTable]()
 
+  /**
+   * The cache key of the hash table of `buildHashTableId` in SQL execution `executionId`.
+   *
+   * Runs of the same physical plan share `buildHashTableId`, but each run cleans up its tables when
+   * it ends, asynchronously. Keying by execution as well keeps the cleanup of one run from dropping
+   * the table that the next run is building or probing.
+   */
+  def executionCacheKey(buildHashTableId: String, executionId: String): String =
+    s"$buildHashTableId:$executionId"
+
+  /**
+   * The cache key of the hash table of `buildHashTableId` in the SQL execution of the current task.
+   * This is also called from c++ side.
+   */
+  def taskCacheKey(buildHashTableId: String): String = {
+    val taskContext = TaskContext.get()
+    val executionId =
+      if (taskContext == null) null
+      else taskContext.getLocalProperty(SQLExecution.EXECUTION_ID_KEY)
+    executionCacheKey(buildHashTableId, executionId)
+  }
+
   def getOrBuildBroadcastHashTable(
       broadcast: Broadcast[BuildSideRelation],
       broadcastContext: BroadcastHashJoinContext): BroadcastHashTable = {
 
+    val cacheKey = taskCacheKey(broadcastContext.buildHashTableId)
     buildSideRelationCache
       .get(
-        broadcastContext.buildHashTableId,
+        cacheKey,
         (_: String) => {
+          // The native side caches the table under the id of the context.
+          val context = broadcastContext.copy(buildHashTableId = cacheKey)
           val (pointer, relation, droppedDuplicates) = broadcast.value match {
             case columnar: ColumnarBuildSideRelation =>
-              columnar.buildHashTable(broadcastContext)
+              columnar.buildHashTable(context)
             case unsafe: UnsafeColumnarBuildSideRelation =>
-              unsafe.buildHashTable(broadcastContext)
+              unsafe.buildHashTable(context)
           }
 
           broadcastContext.hashTableMemorySizeMetric.foreach(
@@ -196,12 +221,13 @@ object VeloxBroadcastBuildSideCache
       deserializeHashTableTimeMetric: Option[org.apache.spark.sql.execution.metric.SQLMetric] =
         None): BroadcastHashTable = {
 
+    val cacheKey = taskCacheKey(broadcastHashTableId)
     buildSideRelationCache.get(
-      broadcastHashTableId,
+      cacheKey,
       (_: String) => {
-        logInfo(s"Deserializing hash table on executor for broadcast ID: $broadcastHashTableId")
+        logInfo(s"Deserializing hash table on executor for broadcast ID: $cacheKey")
         val startTime = System.currentTimeMillis()
-        val hashTableHandle = serialized.deserialize(broadcastHashTableId)
+        val hashTableHandle = serialized.deserialize(cacheKey)
         val timeMs = System.currentTimeMillis() - startTime
         deserializeHashTableTimeMetric.foreach(_ += timeMs)
         BroadcastHashTable(
@@ -212,13 +238,14 @@ object VeloxBroadcastBuildSideCache
     )
   }
 
-  /** This is called from c++ side. */
-  def get(broadcastHashtableId: String): Long = {
-    Option(buildSideRelationCache.getIfPresent(broadcastHashtableId))
+  /** This is called from c++ side, with a key from [[taskCacheKey]]. */
+  def get(cacheKey: String): Long = {
+    Option(buildSideRelationCache.getIfPresent(cacheKey))
       .map(_.pointer)
-      .getOrElse(0)
+      .getOrElse(0L)
   }
 
+  /** `broadcastHashtableId` is a key from [[executionCacheKey]]. */
   def invalidateBroadcastHashtable(broadcastHashtableId: String): Unit = {
     // Cleanup operations on the backend are idempotent.
     buildSideRelationCache.invalidate(broadcastHashtableId)

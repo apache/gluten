@@ -37,6 +37,8 @@ void JniHashTableContext::initialize(JNIEnv* env, JavaVM* javaVm) {
   const char* classSig = "Lorg/apache/gluten/execution/VeloxBroadcastBuildSideCache;";
   jniVeloxBroadcastBuildSideCache_ = createGlobalClassReferenceOrError(env, classSig);
   jniGet_ = getStaticMethodId(env, jniVeloxBroadcastBuildSideCache_, "get", "(Ljava/lang/String;)J");
+  jniTaskCacheKey_ = getStaticMethodId(
+      env, jniVeloxBroadcastBuildSideCache_, "taskCacheKey", "(Ljava/lang/String;)Ljava/lang/String;");
 }
 
 void JniHashTableContext::finalize(JNIEnv* env) {
@@ -62,6 +64,27 @@ std::optional<jlong> JniHashTableContext::callJavaGet(const std::string& id) con
   env->DeleteLocalRef(s);
   checkException(env);
   return result;
+}
+
+std::optional<std::string> JniHashTableContext::callJavaCacheKey(const std::string& hashTableId) const {
+  if (vm_ == nullptr) {
+    return std::nullopt;
+  }
+
+  JNIEnv* env;
+  if (vm_->GetEnv(reinterpret_cast<void**>(&env), jniVersion) != JNI_OK) {
+    throw gluten::GlutenException("JNIEnv was not attached to current thread");
+  }
+
+  const jstring s = env->NewStringUTF(hashTableId.c_str());
+  checkException(env);
+  auto result =
+      static_cast<jstring>(env->CallStaticObjectMethod(jniVeloxBroadcastBuildSideCache_, jniTaskCacheKey_, s));
+  env->DeleteLocalRef(s);
+  checkException(env);
+  auto cacheKey = jStringToCString(env, result);
+  env->DeleteLocalRef(result);
+  return cacheKey;
 }
 
 std::shared_ptr<BroadcastHashTable> nativeHashTableBuild(
@@ -160,14 +183,18 @@ std::shared_ptr<BroadcastHashTable> nativeHashTableBuild(
       hashTableId, spec, buildVectors, numThreads, executor, std::move(queryPool), memoryPool.get());
 }
 
-long getJoin(const std::string& hashTableId) {
-  const auto handle = JniHashTableContext::getInstance().callJavaGet(hashTableId);
+std::string getJoinCacheKey(const std::string& hashTableId) {
+  return JniHashTableContext::getInstance().callJavaCacheKey(hashTableId).value_or(hashTableId);
+}
+
+long getJoin(const std::string& cacheKey) {
+  const auto handle = JniHashTableContext::getInstance().callJavaGet(cacheKey);
   if (!handle.has_value()) {
     // The JVM side VeloxBroadcastBuildSideCache holding the pre-built hash tables is unreachable,
     // e.g. in the standalone micro benchmark. Report a miss, the same way that cache reports one,
     // and let the caller build the hash table from the join's build side input instead.
     LOG(WARNING) << "No JVM is attached to this process, cannot look up the pre-built hash table for cache key: "
-                 << hashTableId << ". A new hash table will be built from the build side input.";
+                 << cacheKey << ". A new hash table will be built from the build side input.";
     return 0;
   }
   return handle.value();

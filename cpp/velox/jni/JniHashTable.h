@@ -60,6 +60,11 @@ class JniHashTableContext {
   // and the native unit tests, where JNI_OnLoad never runs.
   std::optional<jlong> callJavaGet(const std::string& id) const;
 
+  // Returns the key the JVM side VeloxBroadcastBuildSideCache uses for the hash table of
+  // 'hashTableId' in the SQL execution of the current task, or std::nullopt when no JVM is
+  // attached to this process.
+  std::optional<std::string> callJavaCacheKey(const std::string& hashTableId) const;
+
  private:
   JniHashTableContext() : hashTableObjStore_(ObjectStore::create()) {}
 
@@ -74,6 +79,7 @@ class JniHashTableContext {
   std::unique_ptr<ObjectStore> hashTableObjStore_;
   jclass jniVeloxBroadcastBuildSideCache_{nullptr};
   jmethodID jniGet_{nullptr};
+  jmethodID jniTaskCacheKey_{nullptr};
 };
 
 // Builds the hash table by running Velox HashBuild in a dedicated task, see
@@ -101,9 +107,15 @@ std::shared_ptr<BroadcastHashTable> nativeHashTableBuild(
     std::shared_ptr<facebook::velox::memory::MemoryPool> queryPool,
     std::shared_ptr<facebook::velox::memory::MemoryPool> memoryPool);
 
-// Returns the handle of the pre-built hash table registered for the given id, or 0 if there is
-// none. Safe to call from a process with no JVM attached, in which case it always returns 0.
-long getJoin(const std::string& hashTableId);
+// Returns the cache key of the hash table of the join with 'hashTableId' in the SQL execution of
+// the current task. Runs of the same plan share 'hashTableId', so the key also names the execution
+// to keep the tables of different runs apart. Returns 'hashTableId' when no JVM is attached.
+std::string getJoinCacheKey(const std::string& hashTableId);
+
+// Returns the handle of the pre-built hash table registered under 'cacheKey', see
+// getJoinCacheKey(), or 0 if there is none. Safe to call from a process with no JVM attached, in
+// which case it always returns 0.
+long getJoin(const std::string& cacheKey);
 
 // Return the exact serialized hash table size for direct buffer allocation.
 size_t serializedHashTableSize(const BroadcastHashTable& hashTable);
