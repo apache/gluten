@@ -56,10 +56,10 @@ Enable the `lance` profile alongside the Velox backend:
 ```
 
 As for Iceberg, the code is split in two. The `gluten-lance` module holds the parts that do not
-depend on Velox: the scan, the checks that decide which writes are offloaded, and the Arrow
-conversions the writer applies. `backends-velox/src-lance` holds the Velox parts: the writer that
-exports Velox batches to Lance, the write nodes and the rules that register them. Add
-`-Plance-test` to also compile and run the Lance tests:
+depend on Velox: the scan, the write checks that hold for any backend, and the Arrow conversions
+the writer applies. `backends-velox/src-lance` holds the Velox parts: the writer that exports Velox
+batches to Lance, the checks for what Velox exports, the write nodes and the rules that register
+them. Add `-Plance-test` to also compile and run the Lance tests:
 
 ```
 ./build/mvn test -pl gluten-lance,backends-velox -am -Pbackends-velox -Pspark-3.5 -Plance \
@@ -121,13 +121,13 @@ A write is left on lance-spark's writer (fallback, not an error) when Velox cann
 | Table with a sharding key                                  | Fallback |
 | Blob columns                                               | Fallback |
 | `TimestampNTZ` columns                                     | Fallback, unless Gluten's NTZ validation is turned off |
-| Timestamps inside a struct that can be null                | Fallback |
+| Timestamps, strings, binaries, arrays and maps inside a struct that can be null | Fallback, until Gluten's Velox exports a null struct's children as null |
 | Large strings or binaries, half floats, unsigned integers, fixed-size lists inside other columns | Fallback |
 | Row-level operations (`UPDATE`, `DELETE`, `MERGE`) and column backfills | Fallback |
 
 Fixed-size list columns, such as vectors, are written natively when they are top-level columns of
-signed integers or floats: Velox exports them as plain lists, and each list must hold exactly the
-column's number of elements.
+floats or doubles, the only ones lance-spark writes as fixed-size lists: Velox exports them as plain
+lists, and each list must hold exactly the column's number of elements.
 
 The offload decision is made at plan time. Each batch a task exports is also checked against the
 table's Arrow schema, so a type Velox exports differently fails the task, naming the column, rather

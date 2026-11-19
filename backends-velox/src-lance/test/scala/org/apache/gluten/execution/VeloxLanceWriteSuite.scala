@@ -29,16 +29,17 @@ import org.apache.spark.sql.execution.datasources.v2.{AppendDataExec, OverwriteB
 import org.apache.spark.sql.functions.{col, udf}
 import org.apache.spark.sql.gluten.LanceTestUtils
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{IntegerType, MapType, Metadata, MetadataBuilder, StructType, TimestampType}
+import org.apache.spark.sql.types.{DoubleType, IntegerType, MapType, Metadata, MetadataBuilder, StringType, StructType, TimestampType}
 import org.apache.spark.sql.util.QueryExecutionListener
 import org.apache.spark.task.TaskResources
 
 import org.apache.arrow.memory.RootAllocator
 import org.apache.arrow.vector.{BaseFixedWidthVector, BitVector, FieldVector}
 import org.apache.arrow.vector.complex.StructVector
+import org.apache.arrow.vector.types.FloatingPointPrecision
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType, Schema}
 import org.lance.WriteParams
-import org.lance.spark.utils.BlobUtils
+import org.lance.spark.utils.{BlobUtils, JsonUtils}
 
 import java.io.File
 import java.util.Collections
@@ -357,8 +358,7 @@ class VeloxLanceWriteSuite extends VeloxWholeStageTransformerSuite {
         .selectExpr(
           "cast(id as int) as id",
           "case when id % 6 = 0 then null " +
-            "else named_struct('x', cast(id as int), 'y', concat('v', cast(id as string))) " +
-            "end as st",
+            "else named_struct('x', cast(id as int), 'y', cast(id as double) / 4) end as st",
           "case when id % 5 = 0 then null " +
             "else array(cast(id as int), null, cast(id + 1 as int)) end as arr",
           "array(named_struct('k', cast(id as string), 'v', id * 2)) as arr_of_st"
@@ -657,7 +657,7 @@ class VeloxLanceWriteSuite extends VeloxWholeStageTransformerSuite {
             nullEvery(
               15,
               "named_struct('x', case when id % 4 = 0 then null else cast(id as int) end, " +
-                "'y', cast(id as string))",
+                "'y', cast(id as double) / 3)",
               "st"),
             nullEvery(16, "array(cast(id as int), null)", "arr"),
             nullEvery(17, "map('k', cast(id as int))", "m")
@@ -751,32 +751,41 @@ class VeloxLanceWriteSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
-  test("timestamps inside a struct that may be null fall back to lance-spark's writer") {
-    // Velox would convert the timestamps of the struct's null rows too, where a CASE WHEN or a join
+  test("strings, arrays, maps and timestamps inside a struct that may be null fall back") {
+    // Velox would export the values under the struct's null rows too, where a CASE WHEN or a join
     // may leave any value. The row writer reads through ColumnarToRow, which skips them.
-    def nullable(start: Long, n: Long): DataFrame =
-      spark
-        .range(start, start + n)
-        .selectExpr(
-          "cast(id as int) as id",
-          "case when id % 3 = 0 then null " +
-            "else named_struct('t', timestamp_seconds(id * 37), 'v', id) end as st")
-    withLanceTable(nullable(0, 10)) {
-      uri =>
-        val plans = executedPlans {
-          nullable(10, 50).write.format("lance").mode("append").option("path", uri).save()
+    Seq(
+      "timestamp_seconds(id * 37)",
+      "concat('s', cast(id as string))",
+      "cast(concat('b', cast(id as string)) as binary)",
+      "array(id, id + 1)",
+      "map('k', id)").foreach {
+      field =>
+        def nullable(start: Long, n: Long): DataFrame =
+          spark
+            .range(start, start + n)
+            .selectExpr(
+              "cast(id as int) as id",
+              s"case when id % 3 = 0 then null else named_struct('f', $field, 'v', id) end as st")
+        withLanceTable(nullable(0, 10)) {
+          uri =>
+            val plans = executedPlans {
+              nullable(10, 50).write.format("lance").mode("append").option("path", uri).save()
+            }
+            assertFellBack(plans)
+            checkAnswer(read(uri), nullable(0, 60))
         }
-        assertFellBack(plans)
-        checkAnswer(read(uri), nullable(0, 60))
     }
-    // Structs that are never null, such as map entries, keep their timestamps offloaded.
+    // Structs that are never null, such as map entries, keep those values offloaded.
     def neverNull(start: Long, n: Long): DataFrame =
       spark
         .range(start, start + n)
         .selectExpr(
           "cast(id as int) as id",
-          "named_struct('t', timestamp_seconds(id * 37), 'v', id) as st",
-          "map('k', timestamp_seconds(id * 37)) as m")
+          "named_struct('t', timestamp_seconds(id * 37), 's', cast(id as string), " +
+            "'a', array(id)) as st",
+          "map('k', timestamp_seconds(id * 37)) as m"
+        )
     withLanceTable(neverNull(0, 10)) {
       uri =>
         val plans = executedPlans {
@@ -787,13 +796,46 @@ class VeloxLanceWriteSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
-  test("the check for timestamps in nullable structs also looks inside map keys") {
+  test("the check for values under null structs looks inside map keys and skips fixed widths") {
     val maybeNull = new StructType().add("t", TimestampType)
     def keyed(nullable: Boolean): StructType =
       new StructType()
         .add("m", MapType(new StructType().add("s", maybeNull, nullable), IntegerType))
-    assert(LanceWriteExec.timestampInNullableStruct(keyed(nullable = true)).contains("m.key.s.t"))
-    assert(LanceWriteExec.timestampInNullableStruct(keyed(nullable = false)).isEmpty)
+    assert(VeloxLanceWriteExec.undefinedUnderNullStruct(keyed(nullable =
+      true)).contains("m.key.s.t"))
+    assert(VeloxLanceWriteExec.undefinedUnderNullStruct(keyed(nullable = false)).isEmpty)
+    def inNullable(fields: StructType): StructType = new StructType().add("s", fields, true)
+    assert(
+      VeloxLanceWriteExec
+        .undefinedUnderNullStruct(inNullable(new StructType().add(
+          "i",
+          IntegerType).add("d", DoubleType)))
+        .isEmpty)
+    assert(
+      VeloxLanceWriteExec
+        .undefinedUnderNullStruct(inNullable(new StructType().add(
+          "i",
+          IntegerType).add("str", StringType)))
+        .contains("s.str"))
+  }
+
+  test("only float and double fixed-size lists are taken as vectors") {
+    // lance-spark writes a fixed-size list only for float and double arrays.
+    def vectors(element: ArrowType): Schema =
+      new Schema(
+        Seq(
+          new Field(
+            "v",
+            FieldType.nullable(new ArrowType.FixedSizeList(4)),
+            Seq(Field.nullable("item", element)).asJava)).asJava)
+    val float32 = new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE)
+    val float64 = new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)
+    assert(VeloxLanceWriteExec.unexportableColumn(vectors(float32)).isEmpty)
+    assert(VeloxLanceWriteExec.unexportableColumn(vectors(float64)).isEmpty)
+    assert(
+      VeloxLanceWriteExec
+        .unexportableColumn(vectors(new ArrowType.Int(32, true)))
+        .exists(_.startsWith("Fixed-size list column v has elements of Arrow type Int(32, true)")))
   }
 
   test("a failure inside Lance fails the task and leaves the table unchanged") {
@@ -962,6 +1004,43 @@ class VeloxLanceWriteSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
+  test("JSON columns are written natively and read back as lance-spark's writer leaves them") {
+    // A JSON column reaches the commit schema as Utf8 with the arrow.json extension; Lance encodes
+    // the text to JSONB for either writer.
+    val json = new MetadataBuilder()
+      .putString(BlobUtils.ARROW_EXTENSION_NAME_KEY, JsonUtils.ARROW_JSON_EXTENSION_NAME)
+      .build()
+    def docs: DataFrame =
+      spark
+        .range(0, 200)
+        .selectExpr(
+          "cast(id as int) as id",
+          "case when id % 7 = 0 then null " +
+            "else to_json(named_struct('n', id, 's', concat('v', cast(id as string)))) end " +
+            "as payload"
+        )
+        .withColumn("payload", col("payload").as("payload", json))
+    withTempPath {
+      dir =>
+        val native = s"${dir.getCanonicalPath}/native.lance"
+        val plans = executedPlans(docs.write.format("lance").option("path", native).save())
+        assertOffloaded[VeloxLanceAppendDataExec](plans)
+        val rowWriter = s"${dir.getCanonicalPath}/rows.lance"
+        withSQLConf(VeloxLanceConfig.ENABLE_NATIVE_WRITE.key -> "false") {
+          docs.write.format("lance").option("path", rowWriter).save()
+        }
+        // Read with lance-spark's reader: Lance returns JSON as JSONB, which the Gluten scan,
+        // planned with the column's Utf8 type, cannot export yet.
+        withSQLConf(GlutenConfig.COLUMNAR_BATCHSCAN_ENABLED.key -> "false") {
+          assert(JsonUtils.isJsonSparkField(read(native).schema("payload")))
+          checkAnswer(read(native), read(rowWriter))
+          checkAnswer(
+            read(native).selectExpr("id", "get_json_object(payload, '$.n')"),
+            docs.selectExpr("id", "get_json_object(payload, '$.n')"))
+        }
+    }
+  }
+
   test("blob v2 columns are recognized by their Arrow extension") {
     // A blob v2 column is a struct whose fields Velox could export, so only its extension marks it.
     val extension = Map(BlobUtils.ARROW_EXTENSION_NAME_KEY -> BlobUtils.ARROW_EXTENSION_BLOB_V2)
@@ -969,8 +1048,7 @@ class VeloxLanceWriteSuite extends VeloxWholeStageTransformerSuite {
       "data",
       new FieldType(true, ArrowType.Struct.INSTANCE, null, extension.asJava),
       Seq(Field.nullable("data", ArrowType.Binary.INSTANCE)).asJava)
-    val reason = LanceWriteExec.unsupportedColumn(new Schema(Seq(blob).asJava))
-    assert(reason.contains("Lance blob column data is not offloaded"))
+    assert(LanceWriteExec.blobColumn(new Schema(Seq(blob).asJava)).contains("data"))
   }
 
   test("planning a write builds its batch write once") {
