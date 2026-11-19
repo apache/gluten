@@ -612,15 +612,14 @@ object GlutenConfig extends ConfigRegistry {
           nativeConfMap
             .put(SQLConf.LEGACY_TIME_PARSER_POLICY.key, v.toUpperCase(Locale.ROOT)))
 
-    // Spark accepts this value in any case, and native code compares it in upper case.
+    // `conf` holds raw strings, so parse the policy with Spark's converter to give native code
+    // the same value as `SQLConf.getConf`.
+    val rawMapKeyDedupPolicy = conf.getOrElse(
+      SQLConf.MAP_KEY_DEDUP_POLICY.key,
+      SQLConf.MAP_KEY_DEDUP_POLICY.defaultValueString)
     nativeConfMap.put(
       SQLConf.MAP_KEY_DEDUP_POLICY.key,
-      conf
-        .getOrElse(
-          SQLConf.MAP_KEY_DEDUP_POLICY.key,
-          SQLConf.MAP_KEY_DEDUP_POLICY.defaultValueString)
-        .toUpperCase(Locale.ROOT)
-    )
+      SQLConf.MAP_KEY_DEDUP_POLICY.valueConverter(rawMapKeyDedupPolicy).toString)
 
     // Spark accepts the codec name in any case, and Velox matches it in lower case.
     conf
