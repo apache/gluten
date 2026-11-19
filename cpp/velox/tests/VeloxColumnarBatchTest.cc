@@ -108,4 +108,42 @@ TEST_F(VeloxColumnarBatchTest, firstNullColumnIndexRowNullsAndTruncatedChildren)
   ASSERT_EQ(std::make_shared<VeloxColumnarBatch>(truncated)->firstNullColumnIndex({0}), -1);
 }
 
+TEST_F(VeloxColumnarBatchTest, compose) {
+  auto left = std::make_shared<VeloxColumnarBatch>(makeRowVector({makeFlatVector<int64_t>({1, 2, 3})}));
+  auto right = std::make_shared<VeloxColumnarBatch>(
+      makeRowVector({"c1", "c2"}, {makeFlatVector<int32_t>({4, 5, 6}), makeFlatVector<std::string>({"a", "b", "c"})}));
+
+  auto composed = VeloxColumnarBatch::compose(pool(), {left, right});
+  ASSERT_EQ(composed->numColumns(), 3);
+  ASSERT_EQ(composed->numRows(), 3);
+  test::assertEqualVectors(
+      makeRowVector(
+          {makeFlatVector<int64_t>({1, 2, 3}),
+           makeFlatVector<int32_t>({4, 5, 6}),
+           makeFlatVector<std::string>({"a", "b", "c"})}),
+      composed->getRowVector());
+
+  auto shorter = std::make_shared<VeloxColumnarBatch>(makeRowVector({makeFlatVector<int64_t>({1, 2})}));
+  ASSERT_ANY_THROW(VeloxColumnarBatch::compose(pool(), {left, shorter}));
+}
+
+TEST_F(VeloxColumnarBatchTest, composeRejectsRowNullsInAnyBatch) {
+  auto plain = std::make_shared<VeloxColumnarBatch>(makeRowVector({makeFlatVector<int64_t>({1, 2, 3})}));
+  auto rowVectorWithNull = makeRowVector({makeFlatVector<int64_t>({4, 5, 6})});
+  rowVectorWithNull->setNull(1, true);
+  auto withRowNull = std::make_shared<VeloxColumnarBatch>(rowVectorWithNull);
+
+  auto expectNullBitsError = [&](const std::vector<std::shared_ptr<ColumnarBatch>>& batches) {
+    try {
+      VeloxColumnarBatch::compose(pool(), batches);
+      FAIL() << "Expected compose to reject row nulls";
+    } catch (const std::exception& e) {
+      ASSERT_NE(std::string(e.what()).find("null bits"), std::string::npos) << e.what();
+    }
+  };
+  // The first batch used to skip the check, so its row nulls were silently dropped.
+  expectNullBitsError({withRowNull, plain});
+  expectNullBitsError({plain, withRowNull});
+}
+
 } // namespace gluten
