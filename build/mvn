@@ -18,6 +18,7 @@
 # This script downloads and installs Apache Maven if it's not already installed
 # Usage: build/mvn <maven-args>
 #
+# CI-validation only: trigger weekly macOS coverage for the Velox update in #13686.
 
 # Determine the current working directory
 GLUTEN_HOME="$(cd "$(dirname "$0")"/.. && pwd)" || exit 1
