@@ -37,21 +37,8 @@ spark.executor.extraJavaOptions=-Dio.netty.tryReflectionSetAccessible=true
 
 Gluten requires Maven  3.6.3 or above.
 
-Use `./build/mvn` to run the Maven version pinned in `pom.xml`. The wrapper reuses
-a matching system installation or its local installation under `build/.mvn`.
-Failed downloads are retried with at most three downloader invocations, waiting
-20 and 40 seconds between invocations and removing partial files after failures.
-Each invocation retains `curl --retry 3` or `wget --tries=3`, for an upper bound
-of 12 curl or 9 wget transfer attempts. Native retry behavior, including
-`Retry-After` on supported curl versions, is preserved. Maven builds and tests
-are never retried by the wrapper.
-
-The bootstrap regression tests use mocked download tools and need only Bash,
-Python 3, and standard Unix utilities, with no network access or JDK:
-
-```bash
-python3 gluten-ut/test/src/test/python/test_mvn.py
-```
+`./build/mvn` uses the Maven version pinned in `pom.xml`, downloading it if needed
+and retrying transient download failures.
 
 ### GCC
 
