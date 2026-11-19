@@ -156,8 +156,9 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
 
   override def close(): Unit = {
     stopWriter()
-    // A writer thread that did not stop may still read the stream, so leave it rather than free it.
-    // The task then reports the stream's struct as leaked Arrow memory.
+    // A writer thread still running after stopWriter() waited StopTimeoutMs may still read the
+    // stream, so leave it rather than free it. The batch it holds then still has its memory
+    // reserved when the task ends.
     if (stream != null && (thread == null || !thread.isAlive)) {
       // Lance has taken the stream by now, unless it failed before reading it; release() then
       // closes the reader, and frees nothing otherwise.
@@ -238,19 +239,33 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
 
   /**
    * Makes the stream fail so Lance stops writing, then waits for the writer thread, once: abort()
-   * and close() both stop it, and a task should not wait twice for a writer stuck in I/O, even when
-   * the first wait is interrupted.
+   * and close() both stop it, and a task should not wait twice for a writer stuck in I/O.
+   *
+   * Spark interrupts a task it kills, and the interrupt may still be pending when the task aborts
+   * the writer, or arrive during the wait. Either would end the wait at once, so interrupts are
+   * cleared for the wait and restored after: the writer has stopped, and released the batches it
+   * holds, before the task frees its memory.
    */
   private def stopWriter(): Unit = {
     stopRequested = true
     drain()
     if (thread != null && thread.isAlive && !stopWaited) {
       stopWaited = true
-      try {
-        thread.join(StopTimeoutMs)
-      } catch {
-        // Spark interrupts a task it kills. Keep the interrupt for Spark to see.
-        case _: InterruptedException => Thread.currentThread().interrupt()
+      var interrupted = Thread.interrupted()
+      val deadlineNs = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(StopTimeoutMs)
+      var remainingMs = StopTimeoutMs
+      // join(0) waits forever, so the loop stops before the time left rounds down to 0.
+      while (thread.isAlive && remainingMs > 0) {
+        try {
+          thread.join(remainingMs)
+        } catch {
+          case _: InterruptedException => interrupted = true
+        }
+        remainingMs = TimeUnit.NANOSECONDS.toMillis(deadlineNs - System.nanoTime())
+      }
+      // Keep the interrupt for Spark to see.
+      if (interrupted) {
+        Thread.currentThread().interrupt()
       }
       if (thread.isAlive) {
         logWarning("Lance write thread is still running after the task stopped it")

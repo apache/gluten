@@ -26,7 +26,7 @@ import org.apache.spark.sql.connector.write.{BatchWrite, DataWriterFactory, Phys
 import org.apache.spark.sql.execution.{ColumnarToRowTransition, QueryExecution, RowToColumnarTransition, SparkPlan}
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, QueryStageExec}
 import org.apache.spark.sql.execution.datasources.v2.{AppendDataExec, OverwriteByExpressionExec}
-import org.apache.spark.sql.functions.col
+import org.apache.spark.sql.functions.{col, udf}
 import org.apache.spark.sql.gluten.LanceTestUtils
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{IntegerType, MapType, Metadata, MetadataBuilder, StructType, TimestampType}
@@ -462,6 +462,35 @@ class VeloxLanceWriteSuite extends VeloxWholeStageTransformerSuite {
         assert(node.metrics(BatchWriteMetrics.NUM_WRITTEN_BYTES).value > 0)
         assert(stageRecords.get == 100)
         assert(stageBytes.get == node.metrics(BatchWriteMetrics.NUM_WRITTEN_BYTES).value)
+    }
+  }
+
+  test("a task aborted with its interrupt flag set still stops the writer and frees its batches") {
+    withLanceTable(rows(0, 50)) {
+      uri =>
+        // As when Spark kills a task: the interrupt flag is still set when the writer is aborted.
+        val killAt = udf {
+          id: Long =>
+            if (id == 2500) {
+              Thread.currentThread().interrupt()
+              throw new IllegalStateException("task killed")
+            }
+            id
+        }
+        val failing = rows(50, 3000).withColumn("id", killAt(col("id")))
+        // Small batches, so the writer has taken several before the task fails.
+        withSQLConf(GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> "100") {
+          assertNoArrowLeak {
+            val e = intercept[Exception] {
+              failing.write.format("lance").mode("append").option("path", uri).save()
+            }
+            assert(causedBy(e, "task killed"), e)
+          }
+        }
+        assert(
+          !Thread.getAllStackTraces.keySet.asScala
+            .exists(t => t.getName == "gluten-lance-write" && t.isAlive))
+        checkAnswer(read(uri), rows(0, 50))
     }
   }
 

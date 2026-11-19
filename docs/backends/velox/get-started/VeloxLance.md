@@ -131,8 +131,10 @@ The offload decision is made at plan time. Each batch a task exports is also che
 table's Arrow schema, so a type Velox exports differently fails the task, naming the column, rather
 than writing wrong data.
 
-When a task of an offloaded write fails, Lance deletes the data files that task wrote, and the
-table is left unchanged.
+When a task of an offloaded write fails, the table is left unchanged, and Lance deletes the data
+files that task wrote. A task killed after handing Lance its last batch, such as a speculative
+attempt that lost, leaves its files behind, as lance-spark's own writer does; they are never part
+of the table.
 
 ## Configuration
 
@@ -161,4 +163,7 @@ read offload engages automatically whenever lance-spark is present on the classp
 - Velox exports at most 2 GiB of string or binary data per column in one batch, so very large
   values need smaller batches.
 - The memory Lance itself uses to encode and write fragments is not counted as Spark task memory,
-  as with lance-spark's own writer. The Arrow batches the native write hands to Lance are counted.
+  as with lance-spark's own writer, so leave room for it in `spark.executor.memoryOverhead`. By
+  default Lance buffers up to 8 MiB per column for each file it writes, so this grows with the
+  number of columns and of concurrent write tasks per executor. The Arrow batches the native write
+  hands to Lance are counted.
