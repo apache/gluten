@@ -735,7 +735,7 @@ std::shared_ptr<connector::hive::HiveInsertTableHandle> makeHiveInsertTableHandl
     const std::vector<std::string>& partitionedBy,
     const std::shared_ptr<connector::hive::HiveBucketProperty>& bucketProperty,
     const std::shared_ptr<connector::hive::LocationHandle>& locationHandle,
-    const std::shared_ptr<dwio::common::WriterOptions>& writerOptions,
+    const std::unordered_map<std::string, std::string>& serdeParameters,
     const dwio::common::FileFormat& tableStorageFormat = dwio::common::FileFormat::PARQUET,
     const std::optional<common::CompressionKind>& compressionKind = {}) {
   std::vector<std::shared_ptr<const connector::hive::HiveColumnHandle>> columnHandles;
@@ -783,11 +783,12 @@ std::shared_ptr<connector::hive::HiveInsertTableHandle> makeHiveInsertTableHandl
   return std::make_shared<connector::hive::HiveInsertTableHandle>(
       columnHandles,
       locationHandle,
+      // The default of Velox's insert_existing_partitions_behavior, which Gluten does not set.
+      connector::hive::HiveConfig::InsertExistingPartitionsBehavior::kError,
       tableStorageFormat,
       bucketProperty,
       compressionKind,
-      std::unordered_map<std::string, std::string>{},
-      writerOptions);
+      serdeParameters);
 }
 
 #ifdef GLUTEN_ENABLE_GPU
@@ -913,7 +914,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
           partitionedKey,
           bucketProperty,
           makeLocationHandle(writePath, fileName, fileFormat, compressionKind, bucketProperty != nullptr),
-          writerOptions,
+          makeParquetWriteSerdeParameters(writeConfs),
           fileFormat,
           compressionKind),
       folly::F14FastSet<std::string>{});
