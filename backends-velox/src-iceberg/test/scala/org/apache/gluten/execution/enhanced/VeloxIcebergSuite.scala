@@ -1081,7 +1081,8 @@ class VeloxIcebergSuite extends IcebergSuite {
           .asInstanceOf[CommandResultExec]
           .commandPhysicalPlan
           .isInstanceOf[VeloxIcebergAppendDataExec],
-        "Iceberg write should be offloaded to Velox")
+        "Iceberg write should be offloaded to Velox"
+      )
 
       val files = spark.sql("SELECT file_path FROM default.iceberg_timestamptz_tbl.files").collect()
       assert(files.nonEmpty)

@@ -25,7 +25,7 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.StructType
 
 import org.apache.iceberg.spark.source.IcebergWriteUtil
-import org.apache.iceberg.types.{TypeUtil, Types}
+import org.apache.iceberg.types.{Types, TypeUtil}
 import org.apache.iceberg.types.Type.TypeID
 
 import java.util
@@ -77,7 +77,7 @@ abstract class AbstractIcebergWriteExec extends IcebergWriteExec {
       .exists {
         col =>
           col.`type`().typeId() == TypeID.TIMESTAMP &&
-            col.`type`().asInstanceOf[Types.TimestampType].shouldAdjustToUTC()
+          col.`type`().asInstanceOf[Types.TimestampType].shouldAdjustToUTC()
       }
     if (hasTimestampTz) {
       icebergProperties.put("parquet.writer.timestamp.timezone", "UTC")
