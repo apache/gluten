@@ -290,23 +290,21 @@ object GlutenDeltaJobStatsTracker extends Logging {
       })
     }
 
-    override def closeFile(filePath: String): Unit = {
-      def signalEoS(): Unit = {
-        while (true) {
-          if (currentJsonFuture.isDone) {
-            currentJsonFuture.get()
-            // The future should be an error since we haven't signaled EoS yet.
-            throw new IllegalStateException("Unreachable code.")
-          }
-          val queued = inputBatchQueue.offer(None, 500, java.util.concurrent.TimeUnit.MILLISECONDS)
-          if (queued) {
-            // The future should be done after we signal EoS.
-            return
-          }
+    private def enqueueInput(batch: Option[ColumnarBatch]): Unit = {
+      while (true) {
+        if (currentJsonFuture.isDone) {
+          currentJsonFuture.get()
+          throw new IllegalStateException("Statistics worker finished before receiving all input.")
+        }
+        if (inputBatchQueue.offer(batch, 500, TimeUnit.MILLISECONDS)) {
+          return
         }
       }
+    }
+
+    override def closeFile(filePath: String): Unit = {
       assert(filePath == currentPath)
-      signalEoS()
+      enqueueInput(None)
       val fileName = new Path(filePath).getName
       val json = currentJsonFuture.get()
       resultJsonMap(fileName) = json
@@ -324,7 +322,7 @@ object GlutenDeltaJobStatsTracker extends Logging {
           ColumnarBatches.retain(batch)
           var transferred = false
           try {
-            inputBatchQueue.put(Some(batch))
+            enqueueInput(Some(batch))
             transferred = true
           } finally {
             if (!transferred) {
