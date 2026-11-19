@@ -20,6 +20,7 @@ import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.columnarbatch.{ColumnarBatches, VeloxColumnarBatches}
 import org.apache.gluten.config.ShuffleWriterType
 import org.apache.gluten.exception.GlutenNotSupportException
+import org.apache.gluten.execution.VeloxColumnarToRowExec
 import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
 import org.apache.gluten.runtime.Runtimes
@@ -93,6 +94,44 @@ object ExecUtil {
       .protectInvocationFlow()
       .recycleIterator {
         jniWrapper.nativeClose(c2rHandle)
+      }
+      .create()
+  }
+
+  private[spark] def computeAndAddPartitionId(
+      cbIter: Iterator[ColumnarBatch],
+      partitioner: Partitioner,
+      partitionKeyExtractor: InternalRow => Any,
+      converter: VeloxColumnarToRowExec.Converter): Iterator[(Int, ColumnarBatch)] = {
+    // Per-batch iterator recyclers would retain completed C2R arrays until task completion.
+    Iterators
+      .wrap(
+        cbIter
+          .filter(cb => cb.numRows != 0 && cb.numCols != 0)
+          .map {
+            cb =>
+              val pidRoot =
+                ArrowColumnVectors.allocateRoot(new StructType().add("pid", IntegerType))
+              val pidVec = pidRoot.getVector(0).asInstanceOf[IntVector]
+              pidVec.allocateNew(cb.numRows)
+              converter.toRowIterator(cb).zipWithIndex.foreach {
+                case (row, i) =>
+                  val pid = partitioner.getPartition(partitionKeyExtractor(row))
+                  pidVec.set(i, pid)
+              }
+              pidRoot.setRowCount(cb.numRows)
+              val pidBatch = VeloxColumnarBatches.toVeloxBatch(
+                ColumnarBatches.offload(
+                  ArrowBufferAllocators.contextInstance(),
+                  ArrowColumnVectors.toBatch(pidRoot)))
+              val newBatch = VeloxColumnarBatches.compose(pidBatch, cb)
+              // Composed batch already hold pidBatch's shared ref, so close is safe.
+              ColumnarBatches.forceClose(pidBatch)
+              (0, newBatch)
+          })
+      .recyclePayload(p => ColumnarBatches.forceClose(p._2)) // FIXME why force close?
+      .recycleIterator {
+        converter.close()
       }
       .create()
   }
@@ -173,40 +212,6 @@ object ExecUtil {
       case _ => None
     }
 
-    // Used for partitioning modes whose IDs are computed on the JVM.
-    def computeAndAddPartitionId(
-        cbIter: Iterator[ColumnarBatch],
-        partitioner: Partitioner,
-        partitionKeyExtractor: InternalRow => Any): Iterator[(Int, ColumnarBatch)] = {
-      Iterators
-        .wrap(
-          cbIter
-            .filter(cb => cb.numRows != 0 && cb.numCols != 0)
-            .map {
-              cb =>
-                val pidRoot =
-                  ArrowColumnVectors.allocateRoot(new StructType().add("pid", IntegerType))
-                val pidVec = pidRoot.getVector(0).asInstanceOf[IntVector]
-                pidVec.allocateNew(cb.numRows)
-                convertColumnarToRow(cb).zipWithIndex.foreach {
-                  case (row, i) =>
-                    val pid = partitioner.getPartition(partitionKeyExtractor(row))
-                    pidVec.set(i, pid)
-                }
-                pidRoot.setRowCount(cb.numRows)
-                val pidBatch = VeloxColumnarBatches.toVeloxBatch(
-                  ColumnarBatches.offload(
-                    ArrowBufferAllocators.contextInstance(),
-                    ArrowColumnVectors.toBatch(pidRoot)))
-                val newBatch = VeloxColumnarBatches.compose(pidBatch, cb)
-                // Composed batch already hold pidBatch's shared ref, so close is safe.
-                ColumnarBatches.forceClose(pidBatch)
-                (0, newBatch)
-            })
-        .recyclePayload(p => ColumnarBatches.forceClose(p._2)) // FIXME why force close?
-        .create()
-    }
-
     val nativePartitioning: NativePartitioning = newPartitioning match {
       case SinglePartition =>
         new NativePartitioning(GlutenShuffleUtils.SinglePartitioningShortName, 1)
@@ -242,9 +247,11 @@ object ExecUtil {
                 UnsafeProjection.create(sortingExpressions.map(_.child), outputAttributes)
               row => projection(row)
             }
-            val newIter =
-              computeAndAddPartitionId(cbIter, rangePartitioner.get, partitionKeyExtractor)
-            newIter
+            computeAndAddPartitionId(
+              cbIter,
+              rangePartitioner.get,
+              partitionKeyExtractor,
+              new VeloxColumnarToRowExec.Converter(new SQLMetric("convertTime")))
           },
           isOrderSensitive = isOrderSensitive
         )
@@ -284,7 +291,11 @@ object ExecUtil {
                 }
                 partitionKey
             }
-            computeAndAddPartitionId(cbIter, partitioner, partitionKeyExtractor)
+            computeAndAddPartitionId(
+              cbIter,
+              partitioner,
+              partitionKeyExtractor,
+              new VeloxColumnarToRowExec.Converter(new SQLMetric("convertTime")))
           },
           isOrderSensitive = isOrderSensitive
         )
