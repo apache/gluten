@@ -16,9 +16,14 @@
  */
 package org.apache.gluten.connector.write
 
+import org.apache.arrow.c.{ArrowArray, Data}
+import org.apache.arrow.memory.{AllocationListener, BufferAllocator, OutOfMemoryException, RootAllocator}
+import org.apache.arrow.vector.{IntVector, VectorSchemaRoot}
 import org.apache.arrow.vector.types.{FloatingPointPrecision, TimeUnit}
 import org.apache.arrow.vector.types.pojo.{ArrowType, DictionaryEncoding, Field, FieldType, Schema}
 import org.scalatest.funsuite.AnyFunSuite
+
+import java.util.concurrent.atomic.AtomicLong
 
 import scala.collection.JavaConverters._
 
@@ -34,6 +39,86 @@ class LanceColumnarBatchDataWriterSuite extends AnyFunSuite {
 
   private def mismatch(expected: Schema, exported: Schema): Option[String] =
     LanceColumnarBatchDataWriter.layoutMismatch(expected, exported)
+
+  /** Exports `rows` ints from `source`, standing in for a batch Velox exports. */
+  private def exportInts(source: BufferAllocator, rows: Int): ArrowArray = {
+    val ints = new IntVector("i", source)
+    ints.allocateNew(rows)
+    (0 until rows).foreach(i => ints.set(i, i))
+    ints.setValueCount(rows)
+    val root = VectorSchemaRoot.of(ints)
+    val array = ArrowArray.allocateNew(source)
+    try Data.exportVectorSchemaRoot(source, root, null, array)
+    finally root.close()
+    array
+  }
+
+  /** Grants the first `granted` reservations and refuses the rest, counting the bytes it holds. */
+  private class Reservations(granted: Int) extends AllocationListener {
+    val held = new AtomicLong()
+    private var calls = 0
+
+    override def onPreAllocation(size: Long): Unit = {
+      calls += 1
+      if (calls > granted) {
+        throw new OutOfMemoryException(s"refused $size bytes")
+      }
+      held.addAndGet(size)
+    }
+
+    override def onRelease(size: Long): Unit = held.addAndGet(-size)
+  }
+
+  private def ints(allocator: BufferAllocator): VectorSchemaRoot =
+    VectorSchemaRoot.create(schema(field("i", int32)), allocator)
+
+  test("a batch whose import is refused is released, whichever reservation fails") {
+    // The import first copies the C struct, then wraps the validity and the data buffers.
+    Seq(0, 1, 2).foreach {
+      granted =>
+        val source = new RootAllocator()
+        val reservations = new Reservations(granted)
+        val parent = new RootAllocator(reservations, Long.MaxValue)
+        val imports = LanceColumnarBatchDataWriter.importAllocator(parent)
+        val root = ints(parent)
+        val batch = new LanceColumnarBatchDataWriter.ExportedBatch(exportInts(source, 1000))
+        // Arrow wraps a refused buffer in an IllegalArgumentException.
+        val refused = intercept[RuntimeException](batch.importInto(imports, root))
+        assert(refused.getMessage.contains("refused"), refused)
+        // Velox frees a batch when its release callback runs, as the source allocator does here.
+        assert(source.getAllocatedMemory == 0, s"with $granted reservations granted")
+        root.close()
+        source.close()
+        // Arrow leaks a refused copy of the struct, so only the other allocators close cleanly.
+        if (granted > 0) {
+          imports.close()
+          parent.close()
+          assert(reservations.held.get == 0, s"with $granted reservations granted")
+        }
+    }
+  }
+
+  test("an imported batch is reserved once and released when its vectors are") {
+    val source = new RootAllocator()
+    val reservations = new Reservations(Int.MaxValue)
+    val parent = new RootAllocator(reservations, Long.MaxValue)
+    try {
+      val imports = LanceColumnarBatchDataWriter.importAllocator(parent)
+      val root = ints(parent)
+      new LanceColumnarBatchDataWriter.ExportedBatch(exportInts(source, 1000))
+        .importInto(imports, root)
+      // The buffers moved to the vectors' allocator, which releases them to the same listener.
+      assert(reservations.held.get == parent.getAllocatedMemory)
+      assert(root.getVector(0).asInstanceOf[IntVector].get(999) == 999)
+      root.close()
+      assert(reservations.held.get == 0)
+      assert(source.getAllocatedMemory == 0)
+      imports.close()
+    } finally {
+      parent.close()
+      source.close()
+    }
+  }
 
   test("a batch with the layout of the commit schema fits") {
     val expected = schema(

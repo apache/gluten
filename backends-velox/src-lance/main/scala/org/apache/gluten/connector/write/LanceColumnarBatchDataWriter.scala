@@ -28,7 +28,7 @@ import org.apache.spark.sql.execution.metric.CustomMetrics
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 import org.apache.arrow.c.{ArrowArray, ArrowArrayStream, ArrowSchema, CDataDictionaryProvider, Data}
-import org.apache.arrow.memory.BufferAllocator
+import org.apache.arrow.memory.{AllocationListener, BufferAllocator}
 import org.apache.arrow.vector.VectorSchemaRoot
 import org.apache.arrow.vector.ipc.ArrowReader
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field, Schema}
@@ -58,10 +58,10 @@ import scala.collection.JavaConverters._
  * under nulls are zeroed by [[LanceNullSlots]] so that Lance encodes as compactly as it does for
  * the row writer.
  *
- * The writer thread imports the batches with the task's Arrow allocator, so they count as task
- * memory while Lance holds them. That reserves task memory off the task thread, which Gluten's
- * memory targets allow and Velox's I/O threads do as well. A reservation that fails makes the
- * stream fail, which fails the task.
+ * The writer thread imports the batches through [[importAllocator]], under the task's Arrow
+ * allocator, so they count as task memory while Lance holds them. That reserves task memory off the
+ * task thread, which Gluten's memory targets allow and Velox's I/O threads do as well. A
+ * reservation that fails releases the batch and makes the stream fail, which fails the task.
  *
  * It reports the metrics lance-spark's row writer reports, under the same names, and fills the
  * native write metrics of the write node.
@@ -73,6 +73,7 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
 
   private val allocator: BufferAllocator =
     ArrowBufferAllocators.contextInstance(classOf[LanceColumnarBatchDataWriter].getSimpleName)
+  private val imports: BufferAllocator = importAllocator(allocator)
   private val queue = new ArrayBlockingQueue[Item](QueueCapacity)
   private val exportedSchema = LanceFixedSizeLists.exportedSchema(commitSchema)
 
@@ -165,6 +166,11 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
       stream.release()
       stream.close()
       stream = null
+    }
+    // Each import has moved its buffers into the reader's vectors, which are freed by now, unless
+    // Arrow leaked a struct copy whose reservation was refused; the task then reports it as leaked.
+    if ((thread == null || !thread.isAlive) && imports.getAllocatedMemory == 0) {
+      imports.close()
     }
   }
 
@@ -332,14 +338,13 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
           streamEnded = true
           false
         case batch: ExportedBatch =>
-          val writerAllocator = LanceColumnarBatchDataWriter.this.allocator
           staging match {
-            case None => batch.importInto(writerAllocator, getVectorSchemaRoot)
+            case None => batch.importInto(imports, getVectorSchemaRoot)
             case Some(root) =>
-              batch.importInto(writerAllocator, root)
+              batch.importInto(imports, root)
               LanceFixedSizeLists.moveInto(root, getVectorSchemaRoot)
           }
-          LanceNullSlots.zero(getVectorSchemaRoot, writerAllocator)
+          LanceNullSlots.zero(getVectorSchemaRoot, LanceColumnarBatchDataWriter.this.allocator)
           true
       }
     }
@@ -360,6 +365,33 @@ object LanceColumnarBatchDataWriter {
   private val PollIntervalMs = 100L
   // As long as lance-spark's row writer waits for its writer thread in abort().
   private val StopTimeoutMs = TimeUnit.MINUTES.toMillis(5)
+
+  /**
+   * An allocator to import exported batches with, under `parent`, so that their buffers can move
+   * into vectors of `parent`, and reserving through `parent`'s listener. Arrow up to 19 leaks a
+   * foreign allocation whose reservation fails in `onPreAllocation`: it never releases the batch,
+   * and Velox then finds the batch's memory still reserved when the task ends
+   * (apache/arrow-java#1240). A failure in `onAllocation` releases it, so this allocator reserves
+   * there instead. The only other allocation the import makes with it is its copy of the batch's C
+   * struct; if that one is refused, Arrow leaks the copy, and the import fails before it takes the
+   * batch, which [[ExportedBatch.importInto]] then releases.
+   *
+   * Arrow tells no listener when a buffer moves between allocators, and the release goes to the
+   * listener of the allocator that owns it last, so both allocators reserve and release through the
+   * same listener.
+   */
+  private[write] def importAllocator(parent: BufferAllocator): BufferAllocator = {
+    val reservations = parent.getListener
+    parent.newChildAllocator(
+      "LanceImports",
+      new AllocationListener {
+        override def onAllocation(size: Long): Unit = reservations.onPreAllocation(size)
+        override def onRelease(size: Long): Unit = reservations.onRelease(size)
+      },
+      0,
+      Long.MaxValue
+    )
+  }
 
   private def taskMetric(metricName: String, read: => Long): CustomTaskMetric =
     new CustomTaskMetric {
@@ -412,32 +444,44 @@ object LanceColumnarBatchDataWriter {
     }
   }
 
-  sealed private trait Item {
+  sealed private[write] trait Item {
     def close(): Unit = {}
   }
 
-  /** An exported batch, released and freed by [[close]] unless it was imported. */
-  final private class ExportedBatch(val array: ArrowArray) extends Item {
+  /** An exported batch, released by [[close]] unless an import took it. */
+  final private[write] class ExportedBatch(val array: ArrowArray) extends Item {
     private var owned = true
 
     /**
-     * Moves the batch into `root`. Importing takes the data even when it fails, and some Arrow
-     * versions also free the struct, so only the idempotent close() is left to do.
+     * Moves the batch into `root`. Once the import has copied the C struct it owns the batch, and
+     * releases it even if it fails later; Arrow 15 and 18 then close the struct, and Arrow 19 marks
+     * it released. An import that fails before, when the copy cannot be allocated, leaves the batch
+     * here.
      */
-    def importInto(allocator: BufferAllocator, root: VectorSchemaRoot): Unit = {
-      owned = false
+    def importInto(allocator: BufferAllocator, root: VectorSchemaRoot): Unit =
       try Data.importIntoVectorSchemaRoot(allocator, array, root, null)
-      finally array.close()
-    }
+      finally {
+        if (!holdsBatch) {
+          owned = false
+        }
+        close()
+      }
+
+    private def holdsBatch: Boolean =
+      try array.snapshot().release != 0L
+      catch {
+        // Closed by the import.
+        case _: NullPointerException => false
+      }
 
     override def close(): Unit = {
       if (owned) {
         owned = false
         array.release()
-        array.close()
       }
+      array.close()
     }
   }
 
-  private case object End extends Item
+  private[write] case object End extends Item
 }
