@@ -240,23 +240,23 @@ for text of these licenses.
 BSD 3-Clause
 ------------
 
-com.thoughtworks.paranamer:paranamer
-io.glutenproject:protobuf-java
-io.glutenproject:protobuf-java-util
-org.eclipse.collections:eclipse-collections
-org.eclipse.collections:eclipse-collections-api
+com.thoughtworks.paranamer:paranamer (licenses-binary/LICENSE-paranamer.txt)
+com.google.protobuf:protobuf-java (licenses-binary/LICENSE-protobuf.txt)
+com.google.protobuf:protobuf-java-util (licenses-binary/LICENSE-protobuf.txt)
+org.eclipse.collections:eclipse-collections (licenses-binary/LICENSE-EDL-1.0.txt)
+org.eclipse.collections:eclipse-collections-api (licenses-binary/LICENSE-EDL-1.0.txt)
 
 
 MIT License
 -----------
 
-org.checkerframework:checker-qual
-org.slf4j:slf4j-api
+org.checkerframework:checker-qual (licenses-binary/LICENSE-checker-qual.txt)
+org.slf4j:slf4j-api (licenses-binary/LICENSE-slf4j.txt)
 
 
 Eclipse Public License (EPL) 1.0
 --------------------------------
 
-org.eclipse.collections:eclipse-collections
-org.eclipse.collections:eclipse-collections-api
+org.eclipse.collections:eclipse-collections (licenses-binary/LICENSE-EPL-1.0.txt)
+org.eclipse.collections:eclipse-collections-api (licenses-binary/LICENSE-EPL-1.0.txt)
 

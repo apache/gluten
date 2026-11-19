@@ -42,12 +42,17 @@ fi
 # distribution must ship the LICENSE/NOTICE that cover it.
 LICENSE_BINARY="${GLUTEN_HOME}/LICENSE-binary"
 NOTICE_BINARY="${GLUTEN_HOME}/NOTICE-binary"
+LICENSES_BINARY="${GLUTEN_HOME}/licenses-binary"
 for f in "$LICENSE_BINARY" "$NOTICE_BINARY"; do
   if [[ ! -f "$f" ]]; then
     echo "Missing $f, required for the binary distribution."
     exit 1
   fi
 done
+if [[ ! -d "$LICENSES_BINARY" ]]; then
+  echo "Missing $LICENSES_BINARY, required for the binary distribution."
+  exit 1
+fi
 
 pushd $GLUTEN_HOME/release/
 
@@ -77,6 +82,7 @@ for v in $SPARK_VERSIONS; do
   cp "$JAR" "${BIN_DIR}/"
   cp "$LICENSE_BINARY" "${BIN_DIR}/LICENSE"
   cp "$NOTICE_BINARY" "${BIN_DIR}/NOTICE"
+  cp -R "$LICENSES_BINARY" "${BIN_DIR}/licenses-binary"
   tar -czf "${BIN_DIR}.tar.gz" "${BIN_DIR}"
   rm -rf "${BIN_DIR}"
 done
