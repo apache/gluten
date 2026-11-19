@@ -19,8 +19,16 @@
 
 #include <folly/Executor.h>
 
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
 #include "operators/hashjoin/BroadcastHashTable.h"
+#include "velox/common/memory/Memory.h"
 #include "velox/core/PlanNode.h"
+#include "velox/vector/ComplexVector.h"
 
 namespace gluten {
 

@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <cstdint>
+#include <memory>
+
 #include "velox/exec/HashTable.h"
 
 namespace gluten {

@@ -17,6 +17,8 @@
 
 #include "operators/hashjoin/HashTableTaskBuilder.h"
 
+#include <fmt/format.h>
+
 #include <atomic>
 
 #include "velox/exec/HashTableCache.h"
@@ -60,7 +62,7 @@ core::TypedExprPtr makePlaceholderFilter(const HashTableTaskBuildSpec& spec) {
     return std::make_shared<core::CallTypedExpr>(BOOLEAN(), std::vector<core::TypedExprPtr>{left, right}, "equalto");
   };
   auto filter = equalTo(column(spec.filterBuildColumns[0]), column(spec.filterBuildColumns[0]));
-  for (auto i = 1; i < spec.filterBuildColumns.size(); ++i) {
+  for (size_t i = 1; i < spec.filterBuildColumns.size(); ++i) {
     filter = equalTo(toVarchar(filter), column(spec.filterBuildColumns[i]));
   }
   return filter;
@@ -69,8 +71,9 @@ core::TypedExprPtr makePlaceholderFilter(const HashTableTaskBuildSpec& spec) {
 // An empty join table with the join keys of 'spec'.
 std::shared_ptr<exec::BaseHashTable> makeEmptyJoinTable(const HashTableTaskBuildSpec& spec, memory::MemoryPool* pool) {
   std::vector<std::unique_ptr<exec::VectorHasher>> hashers;
-  for (auto i = 0; i < spec.joinKeys.size(); ++i) {
-    hashers.emplace_back(std::make_unique<exec::VectorHasher>(spec.buildType->findChild(spec.joinKeys[i]), i));
+  for (const auto& key : spec.joinKeys) {
+    const auto channel = spec.buildType->getChildIdx(key);
+    hashers.emplace_back(std::make_unique<exec::VectorHasher>(spec.buildType->childAt(channel), channel));
   }
   exec::BaseHashTable::Options options;
   options.minTableSizeForParallelJoinBuild = 1'000;
@@ -121,7 +124,7 @@ std::shared_ptr<BroadcastHashTable> buildHashTableWithTask(
   std::vector<TypePtr> probeTypes;
   std::vector<core::FieldAccessTypedExprPtr> leftKeys;
   std::vector<core::FieldAccessTypedExprPtr> rightKeys;
-  for (auto i = 0; i < spec.joinKeys.size(); ++i) {
+  for (size_t i = 0; i < spec.joinKeys.size(); ++i) {
     const auto& type = spec.buildType->findChild(spec.joinKeys[i]);
     probeNames.emplace_back(fmt::format("__fake_probe_k{}", i));
     probeTypes.emplace_back(type);
@@ -147,7 +150,7 @@ std::shared_ptr<BroadcastHashTable> buildHashTableWithTask(
   }
   core::PlanNodePtr build = std::make_shared<core::ValuesNode>(nextPlanNodeId(), std::move(values));
   if (numDrivers > 1) {
-    // Fan the broadcast vectors out to all HashBuild drivers.
+    // Distribute the broadcast vectors across all HashBuild drivers.
     build = std::make_shared<core::LocalPartitionNode>(
         nextPlanNodeId(),
         core::LocalPartitionNode::Type::kRepartition,
