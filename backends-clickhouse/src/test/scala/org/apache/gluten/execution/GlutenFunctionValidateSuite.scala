@@ -1257,18 +1257,18 @@ class GlutenFunctionValidateSuite extends GlutenClickHouseWholeStageTransformerS
   }
 
   test("GLUTEN-8723 fix slice unexpected exception") {
-    val create_sql = "create table t_8723 (full_user_agent string) using orc"
-    val insert_sql = "insert into t_8723 values(NULL)"
-    val select1_sql = "select " +
-      "slice(split(full_user_agent, ';'), 2, size(split(full_user_agent, ';'))) from t_8723"
-    val select2_sql = "select slice(split(full_user_agent, ';'), 0, 2) from t_8723"
-    val drop_sql = "drop table t_8723"
+    withTable("t_8723") {
+      val create_sql = "create table t_8723 (full_user_agent string) using orc"
+      val insert_sql = "insert into t_8723 values(NULL)"
+      val select1_sql = "select " +
+        "slice(split(full_user_agent, ';'), 2, size(split(full_user_agent, ';'))) from t_8723"
+      val select2_sql = "select slice(split(full_user_agent, ';'), 0, 2) from t_8723"
 
-    spark.sql(create_sql)
-    spark.sql(insert_sql)
-    compareResultsAgainstVanillaSpark(select1_sql, true, { _ => })
-    compareResultsAgainstVanillaSpark(select2_sql, true, { _ => })
-    spark.sql(drop_sql)
+      spark.sql(create_sql)
+      spark.sql(insert_sql)
+      compareResultsAgainstVanillaSpark(select1_sql, true, { _ => })
+      compareResultsAgainstVanillaSpark(select2_sql, true, { _ => })
+    }
   }
 
   test("GLUTEN-8715 nan semantics") {
@@ -1443,22 +1443,22 @@ class GlutenFunctionValidateSuite extends GlutenClickHouseWholeStageTransformerS
   }
 
   test("Test partition values with special characters") {
-    spark.sql("""
-      CREATE TABLE tbl_9050 (
-        product_id STRING,
-        quantity INT
-      ) using parquet
-      PARTITIONED BY (year STRING)
-    """)
+    withTable("tbl_9050") {
+      spark.sql("""
+        CREATE TABLE tbl_9050 (
+          product_id STRING,
+          quantity INT
+        ) using parquet
+        PARTITIONED BY (year STRING)
+      """)
 
-    sql("INSERT INTO tbl_9050 PARTITION(year='%s') SELECT 'prod1', 1")
-    sql("INSERT INTO tbl_9050 PARTITION(year='%%s') SELECT 'prod2', 2")
-    sql("INSERT INTO tbl_9050 PARTITION(year='%25s') SELECT 'prod3', 3")
-    sql("INSERT INTO tbl_9050 PARTITION(year=' s') SELECT 'prod3', 4")
+      sql("INSERT INTO tbl_9050 PARTITION(year='%s') SELECT 'prod1', 1")
+      sql("INSERT INTO tbl_9050 PARTITION(year='%%s') SELECT 'prod2', 2")
+      sql("INSERT INTO tbl_9050 PARTITION(year='%25s') SELECT 'prod3', 3")
+      sql("INSERT INTO tbl_9050 PARTITION(year=' s') SELECT 'prod3', 4")
 
-    compareResultsAgainstVanillaSpark("select *, input_file_name() from tbl_9050", true, { _ => })
-
-    sql("DROP TABLE tbl_9050")
+      compareResultsAgainstVanillaSpark("select *, input_file_name() from tbl_9050", true, { _ => })
+    }
   }
 
   test("Test array_sort without comparator") {
@@ -1524,73 +1524,73 @@ class GlutenFunctionValidateSuite extends GlutenClickHouseWholeStageTransformerS
   }
 
   test("local digit date") {
-    withSQLConf(
-      SQLConf.OPTIMIZER_EXCLUDED_RULES.key ->
-        (ConstantFolding.ruleName + "," + NullPropagation.ruleName),
-      ("spark.sql.legacy.timeParserPolicy", "LEGACY")) {
-      sql("create table tb_local_date(i bigint, d string) using parquet")
-      sql("""
-            |insert into tb_local_date values
-            |(1, '2aLZoNmi2aQt2aDZpi3ZoNmh'),
-            |(2, '2aLZoNmi2aQt2aHZoi3Zo9mh'),
-            |(3, '2aLZoNmi2aQt2aHZoi3Zo9mh'),
-            |(5, '27LbsNuy27Ut27HbsS3bsduz'),
-            |(6, ''),
-            |(7, '4KWo4KWm4KWo4KWrLeClp+Clpy3gpafgpak='),
-            |(8, '4Z+i4Z+g4Z+i4Z+lLeGfoeGfoS3hn6Hhn6M='),
-            |(9, null),
-            |(10, '4Keo4Kem4Keo4KerLeCnp+Cnpy3gp6fgp6k='),
-            |(11, 'MjAyNS0xMS0xMg=='),
-            |(12, '4LmS4LmQ4LmS4LmVLeC5keC5kS3guZHguZM=')
-            |""".stripMargin)
-      // base64 inputs decode to local digit dates:
-      // 1-3 Arabic-Indic, 5 Persian, 7 Devanagari, 8 Khmer, 10 Bengali, 11 ASCII, 12 Thai
-      var query_sql = """
-                        |select
-                        |from_unixtime(unix_timestamp(cast(unbase64(d) as string), 'yyyy-MM-dd')),
-                        |cast(unbase64(d) as string) from (
-                        |select d, i
-                        |from tb_local_date
-                        |order by i)
-                        |""".stripMargin
-      compareResultsAgainstVanillaSpark(query_sql, true, { _ => })
+    withTable("tb_local_date") {
+      withSQLConf(
+        SQLConf.OPTIMIZER_EXCLUDED_RULES.key ->
+          (ConstantFolding.ruleName + "," + NullPropagation.ruleName),
+        ("spark.sql.legacy.timeParserPolicy", "LEGACY")) {
+        sql("create table tb_local_date(i bigint, d string) using parquet")
+        sql("""
+              |insert into tb_local_date values
+              |(1, '2aLZoNmi2aQt2aDZpi3ZoNmh'),
+              |(2, '2aLZoNmi2aQt2aHZoi3Zo9mh'),
+              |(3, '2aLZoNmi2aQt2aHZoi3Zo9mh'),
+              |(5, '27LbsNuy27Ut27HbsS3bsduz'),
+              |(6, ''),
+              |(7, '4KWo4KWm4KWo4KWrLeClp+Clpy3gpafgpak='),
+              |(8, '4Z+i4Z+g4Z+i4Z+lLeGfoeGfoS3hn6Hhn6M='),
+              |(9, null),
+              |(10, '4Keo4Kem4Keo4KerLeCnp+Cnpy3gp6fgp6k='),
+              |(11, 'MjAyNS0xMS0xMg=='),
+              |(12, '4LmS4LmQ4LmS4LmVLeC5keC5kS3guZHguZM=')
+              |""".stripMargin)
+        // base64 inputs decode to local digit dates:
+        // 1-3 Arabic-Indic, 5 Persian, 7 Devanagari, 8 Khmer, 10 Bengali, 11 ASCII, 12 Thai
+        var query_sql = """
+                          |select
+                          |from_unixtime(unix_timestamp(cast(unbase64(d) as string), 'yyyy-MM-dd')),
+                          |cast(unbase64(d) as string) from (
+                          |select d, i
+                          |from tb_local_date
+                          |order by i)
+                          |""".stripMargin
+        compareResultsAgainstVanillaSpark(query_sql, true, { _ => })
 
-      query_sql = """
-                    |select from_unixtime(
-                    | unix_timestamp(cast(unbase64('2aLZoNmi2aQt2aDZpi3ZoNmh') as string),
-                    | 'yyyy-MM-dd')),
-                    | cast(unbase64('2aLZoNmi2aQt2aDZpi3ZoNmh') as string)
-                    |""".stripMargin
-      compareResultsAgainstVanillaSpark(query_sql, true, { _ => })
+        query_sql = """
+                      |select from_unixtime(
+                      | unix_timestamp(cast(unbase64('2aLZoNmi2aQt2aDZpi3ZoNmh') as string),
+                      | 'yyyy-MM-dd')),
+                      | cast(unbase64('2aLZoNmi2aQt2aDZpi3ZoNmh') as string)
+                      |""".stripMargin
+        compareResultsAgainstVanillaSpark(query_sql, true, { _ => })
 
-      query_sql = """
-                    |select from_unixtime(unix_timestamp('2020-01-01', 'yyyy-MM-dd'))
-                    |""".stripMargin
-      compareResultsAgainstVanillaSpark(query_sql, true, { _ => })
+        query_sql = """
+                      |select from_unixtime(unix_timestamp('2020-01-01', 'yyyy-MM-dd'))
+                      |""".stripMargin
+        compareResultsAgainstVanillaSpark(query_sql, true, { _ => })
 
-      query_sql = """
-                    |select from_unixtime(
-                    | unix_timestamp(
-                    |   regexp_replace(
-                    |     cast(unbase64('4LmS4LmQ4LmS4LmVLeC5keC5kS3guZHguZM=') as string),
-                    |     '-0', '-'),
-                    |   'yyyy-MM-dd'),
-                    | 'yyyy-MM-dd')
-                    |""".stripMargin
-      compareResultsAgainstVanillaSpark(query_sql, true, { _ => })
+        query_sql = """
+                      |select from_unixtime(
+                      | unix_timestamp(
+                      |   regexp_replace(
+                      |     cast(unbase64('4LmS4LmQ4LmS4LmVLeC5keC5kS3guZHguZM=') as string),
+                      |     '-0', '-'),
+                      |   'yyyy-MM-dd'),
+                      | 'yyyy-MM-dd')
+                      |""".stripMargin
+        compareResultsAgainstVanillaSpark(query_sql, true, { _ => })
 
-      query_sql = """
-                    |select from_unixtime(
-                    | unix_timestamp(
-                    |   regexp_replace(
-                    |     cast(unbase64('4Z+i4Z+g4Z+i4Z+lLeGfoeGfoS3hn6Hhn6M=') as string),
-                    |     '-0', '-'),
-                    |   'yyyy-MM-dd'),
-                    | 'yyyy-MM-dd')
-                    |""".stripMargin
-      compareResultsAgainstVanillaSpark(query_sql, true, { _ => })
-
-      sql("drop table tb_local_date")
+        query_sql = """
+                      |select from_unixtime(
+                      | unix_timestamp(
+                      |   regexp_replace(
+                      |     cast(unbase64('4Z+i4Z+g4Z+i4Z+lLeGfoeGfoS3hn6Hhn6M=') as string),
+                      |     '-0', '-'),
+                      |   'yyyy-MM-dd'),
+                      | 'yyyy-MM-dd')
+                      |""".stripMargin
+        compareResultsAgainstVanillaSpark(query_sql, true, { _ => })
+      }
     }
   }
 
