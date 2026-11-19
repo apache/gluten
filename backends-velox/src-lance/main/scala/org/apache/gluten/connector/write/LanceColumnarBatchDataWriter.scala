@@ -354,6 +354,8 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
 }
 
 object LanceColumnarBatchDataWriter {
+  // Lets Lance keep encoding while the task exports the next batches. Queued batches are still
+  // Velox batches, so they count as task memory, each capped by maxBatchSize.
   private val QueueCapacity = 4
   private val PollIntervalMs = 100L
   // As long as lance-spark's row writer waits for its writer thread in abort().
