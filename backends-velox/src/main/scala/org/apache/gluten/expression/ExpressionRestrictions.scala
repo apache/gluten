@@ -104,6 +104,17 @@ object FormatNumberRestrictions extends ExpressionRestrictions {
     Array(NOT_SUPPORT_DECIMAL_INPUT, NOT_SUPPORT_STRING_FORMAT)
 }
 
+object EncodeRestrictions extends ExpressionRestrictions {
+  val ONLY_STANDARD_CHARSET_LITERAL: String =
+    s"${ExpressionNames.ENCODE} only supports a literal charset that is one of US-ASCII, " +
+      s"ISO-8859-1, UTF-8, UTF-16BE, UTF-16LE, UTF-16 or UTF-32 in Velox; other JDK charset " +
+      s"names and aliases are not supported"
+
+  override val functionName: String = ExpressionNames.ENCODE
+
+  override val restrictionMessages: Array[String] = Array(ONLY_STANDARD_CHARSET_LITERAL)
+}
+
 object ExpressionRestrictions {
   // Called by gen-function-support-docs.py to get all restrictions.
   def listAllRestrictions(): Array[ExpressionRestrictions] = {
@@ -112,7 +123,8 @@ object ExpressionRestrictions {
       ToJsonRestrictions,
       Unbase64Restrictions,
       Base64Restrictions,
-      FormatNumberRestrictions
+      FormatNumberRestrictions,
+      EncodeRestrictions
     )
   }
 }

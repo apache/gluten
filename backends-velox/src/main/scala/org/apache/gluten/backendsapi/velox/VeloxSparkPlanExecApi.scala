@@ -1456,6 +1456,10 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
             ExpressionConverter.replaceWithExpressionTransformer(rf.child, attributeSeq),
             rf,
             rf.scale))
+      case e: Encode if !isVeloxEncodeCharset(e.charset) =>
+        GlutenExceptionUtil.throwsNotFullySupported(
+          ExpressionNames.ENCODE,
+          EncodeRestrictions.ONLY_STANDARD_CHARSET_LITERAL)
       case _ => None
     }
   }
@@ -1811,4 +1815,19 @@ object VeloxSparkPlanExecApi {
   // A new VeloxSparkPlanExecApi is created per call to Backend.sparkPlanExecApi(), so state that
   // must be shared across calls lives here.
   private val warnedBroadcastBuildOncePerExecutorIgnored = new AtomicBoolean(false)
+
+  // The charset names Velox encode accepts, compared ignoring ASCII case.
+  private val veloxEncodeCharsets =
+    Set("US-ASCII", "ISO-8859-1", "UTF-8", "UTF-16BE", "UTF-16LE", "UTF-16", "UTF-32")
+
+  // Spark 3.x Encode accepts any charset name or alias the JDK knows (e.g. 'utf8', 'latin1'),
+  // while Velox accepts only the standard names above. A charset that is not a literal could hold
+  // any name, so only a literal from the list (or NULL) is offloaded.
+  private def isVeloxEncodeCharset(charset: Expression): Boolean = charset match {
+    case Literal(null, _) => true
+    case Literal(v, _: StringType) =>
+      val name = v.toString
+      name.forall(_ < 0x80) && veloxEncodeCharsets.contains(name.toUpperCase(Locale.ROOT))
+    case _ => false
+  }
 }

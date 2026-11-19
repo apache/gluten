@@ -21,6 +21,7 @@ import org.apache.gluten.shuffle.SupportsColumnarShuffle
 
 import org.apache.spark.network.util.{ByteUnit, JavaUtils}
 import org.apache.spark.sql.internal.{GlutenConfigUtil, SQLConf}
+import org.apache.spark.util.SparkVersionUtil
 
 import org.apache.hadoop.security.UserGroupInformation
 
@@ -612,6 +613,14 @@ object GlutenConfig extends ConfigRegistry {
         v =>
           nativeConfMap
             .put(SQLConf.LEGACY_TIME_PARSER_POLICY.key, v.toUpperCase(Locale.ROOT)))
+
+    // Spark 3.x Encode uses String.getBytes, which replaces characters the charset cannot
+    // represent with '?'. Velox encode throws on them unless this query config is set. Spark 4.x
+    // Encode is a StaticInvoke that Gluten does not offload. Set before copying the backend
+    // configs below, so an explicit setting by the user still wins.
+    if (backendName == "velox" && !SparkVersionUtil.gteSpark40) {
+      nativeConfMap.put(s"${prefixOf(backendName)}.spark.legacy_coding_error_action", "true")
+    }
 
     val confPrefixSession = prefixSessionOf(backendName)
     val confPrefix = prefixOf(backendName)
