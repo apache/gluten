@@ -26,6 +26,7 @@
 #include "operators/functions/RegistrationAllFunctions.h"
 #include "operators/plannodes/RowVectorStream.h"
 #include "utils/ConfigExtractor.h"
+#include "utils/TlsTrustStore.h"
 
 #ifdef ENABLE_KAFKA
 #include "operators/reader/KafkaConnector.h"
@@ -157,6 +158,11 @@ void VeloxBackend::init(
   }
   FLAGS_logtostderr = true;
   google::InitGoogleLogging("gluten");
+
+  // Make sure the statically linked OpenSSL can find trusted certificates before any filesystem creates an HTTP client.
+  // This may call setenv(), which is not safe against concurrent getenv()/setenv() calls from other threads, so it is
+  // done here, once per process, before the memory manager, the filesystems and the other components are set up.
+  ensureTlsTrustStore();
 
   globalMemoryManager_ = std::make_unique<VeloxMemoryManager>(kVeloxBackendKind, std::move(listener), *backendConf_);
 
