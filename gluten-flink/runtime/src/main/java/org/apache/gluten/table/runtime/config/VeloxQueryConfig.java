@@ -23,9 +23,9 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.operators.StreamingRuntimeContext;
 import org.apache.flink.table.api.config.TableConfigOptions;
 
+import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.TimeZone;
 
 public class VeloxQueryConfig {
 
@@ -48,7 +48,11 @@ public class VeloxQueryConfig {
     // session-timezone-sensitive function) match native Flink.
     if (localTimeZone == null
         || TableConfigOptions.LOCAL_TIME_ZONE.defaultValue().equals(localTimeZone)) {
-      configMap.put(keyVeloxSessionTimezone, TimeZone.getDefault().getID());
+      // ZoneId (not the legacy TimeZone API): on hosts whose /etc/localtime is
+      // set to a legacy alias the legacy API reports non-IANA ids (e.g.
+      // "Asia/Beijing") that velox's QueryConfig validation rejects, while
+      // ZoneId normalizes to the canonical id ("Asia/Shanghai").
+      configMap.put(keyVeloxSessionTimezone, ZoneId.systemDefault().getId());
     } else {
       configMap.put(keyVeloxSessionTimezone, localTimeZone);
     }

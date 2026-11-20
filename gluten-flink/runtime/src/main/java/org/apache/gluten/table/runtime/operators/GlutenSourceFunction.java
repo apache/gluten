@@ -70,8 +70,10 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
   private SerialTask task;
   private SourceOperatorMetrics metrics;
   private final Class<OUT> outClass;
-  private transient ListState<String> checkpointState;
-  private transient String[] restoredCheckpointRecords = new String[0];
+  // The records are raw checkpoint bytes, not text: a String channel would
+  // corrupt them (JNI strings are modified UTF-8).
+  private transient ListState<byte[]> checkpointState;
+  private transient byte[][] restoredCheckpointRecords = new byte[0][];
 
   public GlutenSourceFunction(
       StatefulPlanNode planNode,
@@ -227,8 +229,8 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
   @Override
   public void snapshotState(FunctionSnapshotContext context) throws Exception {
     checkpointState.clear();
-    String[] checkpointRecords = this.task.snapshotState(context.getCheckpointId());
-    for (String checkpointRecord : checkpointRecords) {
+    byte[][] checkpointRecords = this.task.snapshotState(context.getCheckpointId());
+    for (byte[] checkpointRecord : checkpointRecords) {
       checkpointState.add(checkpointRecord);
     }
   }
@@ -239,13 +241,19 @@ public class GlutenSourceFunction<OUT> extends RichParallelSourceFunction<OUT>
         context
             .getOperatorStateStore()
             .getListState(
-                new ListStateDescriptor<>("gluten-native-source-checkpoint", String.class));
+                new ListStateDescriptor<>("gluten-native-source-checkpoint", byte[].class));
     if (context.isRestored()) {
-      List<String> records = new ArrayList<>();
-      for (String checkpointRecord : checkpointState.get()) {
+      List<byte[]> records = new ArrayList<>();
+      for (byte[] checkpointRecord : checkpointState.get()) {
         records.add(checkpointRecord);
       }
-      restoredCheckpointRecords = records.toArray(new String[0]);
+      restoredCheckpointRecords = records.toArray(new byte[0][]);
+    } else {
+      // The transient field initializer does not survive task deployment
+      // deserialization (ObjectInputStream runs no constructors); a fresh
+      // start must re-assign it or the native state initialization below
+      // receives null records (the GlutenOneInputOperator pattern).
+      restoredCheckpointRecords = new byte[0][];
     }
     initSession();
     this.task.initializeState(0, null, restoredCheckpointRecords);
