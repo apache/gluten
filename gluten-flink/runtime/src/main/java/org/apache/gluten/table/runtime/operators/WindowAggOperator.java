@@ -86,6 +86,14 @@ public class WindowAggOperator<IN, OUT, W> extends GlutenOneInputOperator<IN, OU
   public void initializeState(StateInitializationContext context) throws Exception {
     super.initializeState(context);
     KeyedStateBackend<?> stateBackend = getKeyedStateBackend();
+    if (stateBackend == null) {
+      // Native heap path: the window state lives in the native keyed
+      // backend built from the plan's KeyedStateSpec, and the Flink
+      // transformation stays non-keyed (the group-agg keygroup-conflict
+      // lesson); no Java-side keyed state is needed.
+      task.initializeState(0, null);
+      return;
+    }
     ValueStateDescriptor<RowData> descriptor =
         new ValueStateDescriptor<>(windowStateName, new RowDataSerializer(accTypes));
     ValueState<RowData> state =
