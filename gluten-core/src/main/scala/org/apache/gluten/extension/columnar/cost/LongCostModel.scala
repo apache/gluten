@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.extension.columnar.cost
 
+import org.apache.gluten.config.GlutenCoreConfig
 import org.apache.gluten.exception.GlutenException
 
 import org.apache.spark.internal.Logging
@@ -92,7 +93,12 @@ object LongCostModel extends Logging {
 
   object Kind {
     private val all: mutable.Map[String, Kind] = mutable.Map()
-    def values(): Map[String, Kind] = all.toMap
+    def values(): Map[String, Kind] = {
+      // Kinds register themselves on first access. Touch the built-in ones so a built-in kind
+      // that no coster refers to is still known.
+      Seq(Legacy, Rough).foreach(_.name())
+      all.toMap
+    }
   }
 
   /**
@@ -119,6 +125,11 @@ object LongCostModel extends Logging {
     }
 
     def get(kind: Kind): LongCostModel = synchronized {
+      if (!lookup.contains(kind)) {
+        throw new GlutenException(
+          s"No coster is registered for cost model '${kind.name()}'. Set " +
+            s"${GlutenCoreConfig.GLUTEN_COST_MODEL.key} to a cost model the backend supports.")
+      }
       builderOf(kind).build()
     }
 
