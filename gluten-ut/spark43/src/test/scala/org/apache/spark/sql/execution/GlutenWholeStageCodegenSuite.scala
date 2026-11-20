@@ -21,6 +21,8 @@ import org.apache.gluten.execution._
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{Dataset, GlutenSQLTestsTrait, Row, SaveMode}
+import org.apache.spark.sql.execution.adaptive.QueryStageExec
+import org.apache.spark.sql.execution.exchange.Exchange
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DecimalType, IntegerType, StringType, StructType}
@@ -54,6 +56,39 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
       s"Expected $expectedCount WholeStageTransformer stage(s) containing " +
         s"${targetClass.getSimpleName}, but found ${stages.size}:\n${plan.treeString}"
     )
+  }
+
+  // The operators of one WholeStageTransformer's own stage. Traversal stops at the stage's inputs,
+  // so an operator of a child stage or of a shuffle/broadcast input isn't included.
+  private def stageOperators(plan: SparkPlan): Seq[SparkPlan] = plan match {
+    case _: InputIteratorTransformer | _: ColumnarInputAdapter | _: WholeStageTransformer |
+        _: QueryStageExec | _: Exchange =>
+      Nil
+    case _ => plan +: plan.children.flatMap(stageOperators)
+  }
+
+  // Requires both native joins of a two-join query to be in the same WholeStageTransformer.
+  private def assertTwoJoinsInOneStage[T <: SparkPlan: ClassTag](df: Dataset[_]): Unit = {
+    val targetClass = implicitly[ClassTag[T]].runtimeClass
+    val plan = df.queryExecution.executedPlan
+    val stages = plan.collect {
+      case stage: WholeStageTransformer
+          if stageOperators(stage.child).count(targetClass.isInstance) == 2 =>
+        stage
+    }
+    assert(
+      stages.size === 1,
+      s"Expected one WholeStageTransformer stage containing two " +
+        s"${targetClass.getSimpleName}s, but found ${stages.size}:\n${plan.treeString}"
+    )
+  }
+
+  private def assertTwoShuffledJoinsInOneStage(df: Dataset[_], hint: String): Unit = {
+    if (hint == "SHUFFLE_HASH") {
+      assertTwoJoinsInOneStage[ShuffledHashJoinExecTransformer](df)
+    } else {
+      assertTwoJoinsInOneStage[SortMergeJoinExecTransformer](df)
+    }
   }
 
   private def assertWholeStageContains[T <: SparkPlan: ClassTag](df: Dataset[_]): Unit = {
@@ -316,6 +351,7 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
     val twoJoinsDF = oneJoinDF.join(df3.hint("SHUFFLE_HASH"), $"k1" === $"k3")
     // Both native joins are collapsed into the same WholeStageTransformer.
     assertWholeStageCount[ShuffledHashJoinExecTransformer](twoJoinsDF, expectedCount = 1)
+    assertTwoJoinsInOneStage[ShuffledHashJoinExecTransformer](twoJoinsDF)
     checkAnswer(twoJoinsDF, (0L until 5).map(i => Row(i, i, i)))
   }
 
@@ -511,6 +547,7 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
             .join(df3.hint(hint), $"k1" === $"k3" && $"k1" + $"k3" =!= 2, "right_outer")
           // Both native joins are collapsed into the same WholeStageTransformer.
           assertShuffledJoinStageCount(twoRightJoinsDf, hint, expectedCount = 1)
+          assertTwoShuffledJoinsInOneStage(twoRightJoinsDf, hint)
           checkAnswer(twoRightJoinsDf, Seq(Row(2, 2, 2), Row(3, 3, 3), Row(4, 4, 4)))
 
           val twoLeftJoinsDf = leftJoinUniqueDf
@@ -518,6 +555,7 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
             .join(df3, $"k1" === $"k3" && $"k1" + $"k3" =!= 2, "left_outer")
           // Both native joins are collapsed into the same WholeStageTransformer.
           assertShuffledJoinStageCount(twoLeftJoinsDf, hint, expectedCount = 1)
+          assertTwoShuffledJoinsInOneStage(twoLeftJoinsDf, hint)
           checkAnswer(
             twoLeftJoinsDf,
             Seq(
@@ -562,6 +600,7 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
       .join(df1.hint("SHUFFLE_MERGE"), $"k3" === $"k1", "right_outer")
     // Both native joins are collapsed into the same WholeStageTransformer.
     assertWholeStageCount[SortMergeJoinExecTransformer](twoJoins, expectedCount = 1)
+    assertTwoJoinsInOneStage[SortMergeJoinExecTransformer](twoJoins)
     checkAnswer(
       twoJoins,
       Seq(
@@ -592,6 +631,7 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
       .join(df1.hint("SHUFFLE_MERGE"), $"k3" === $"k1", "left_semi")
     // Both native joins are collapsed into the same WholeStageTransformer.
     assertWholeStageCount[SortMergeJoinExecTransformer](twoJoins, expectedCount = 1)
+    assertTwoJoinsInOneStage[SortMergeJoinExecTransformer](twoJoins)
     checkAnswer(twoJoins, (0L until 4).map(Row(_)))
   }
 
@@ -607,6 +647,7 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
     val twoJoins = oneJoin.join(df3.hint("SHUFFLE_MERGE"), $"k1" === $"k3", "left_anti")
     // Both native joins are collapsed into the same WholeStageTransformer.
     assertWholeStageCount[SortMergeJoinExecTransformer](twoJoins, expectedCount = 1)
+    assertTwoJoinsInOneStage[SortMergeJoinExecTransformer](twoJoins)
     checkAnswer(twoJoins, (6L until 10).map(Row(_)))
   }
 
@@ -658,6 +699,7 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
           assertWholeStageCount[BroadcastNestedLoopJoinExecTransformer](
             twoJoins,
             expectedCount = 1)
+          assertTwoJoinsInOneStage[BroadcastNestedLoopJoinExecTransformer](twoJoins)
           checkAnswer(
             twoJoins,
             Seq(
@@ -709,6 +751,7 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
           assertWholeStageCount[BroadcastNestedLoopJoinExecTransformer](
             twoJoins,
             expectedCount = 1)
+          assertTwoJoinsInOneStage[BroadcastNestedLoopJoinExecTransformer](twoJoins)
           checkAnswer(
             twoJoins,
             Seq(Row(2, 0, null), Row(3, 0, null), Row(3, 1, null), Row(null, 2, null)))

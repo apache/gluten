@@ -16,21 +16,29 @@
  */
 package org.apache.spark.sql.execution
 
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.SortExecTransformer
 
 import org.apache.spark.sql.{DataFrame, GlutenSQLTestsTrait}
 import org.apache.spark.sql.internal.SQLConf
 
+import org.scalatest.exceptions.TestFailedException
+
 class GlutenPushDownLocalSortSuite extends PushDownLocalSortSuite with GlutenSQLTestsTrait {
 
-  // Gluten offloads local sorts to SortExecTransformer, so count both sort operators.
-  private def checkNumSorts(df: DataFrame, count: Int): Unit = {
+  // Gluten offloads local sorts to SortExecTransformer, so count both sort operators. Every
+  // fixture below supports a native sort, so also require one, which an all-vanilla plan with the
+  // same sort count would not satisfy.
+  private def checkNumSorts(df: DataFrame, count: Int, nativeSort: Boolean = true): Unit = {
     df.collect()
     val sorts = collectWithSubqueries(df.queryExecution.executedPlan) {
       case s: SortExec => s
       case s: SortExecTransformer => s
     }
     assert(sorts.length == count, df.queryExecution.executedPlan)
+    if (nativeSort) {
+      assert(sorts.exists(_.isInstanceOf[SortExecTransformer]), df.queryExecution.executedPlan)
+    }
   }
 
   private def checkSorts(query: String, enabledCount: Int, disabledCount: Int): Unit = {
@@ -67,6 +75,24 @@ class GlutenPushDownLocalSortSuite extends PushDownLocalSortSuite with GlutenSQL
         1,
         2
       )
+    }
+  }
+
+  testGluten("Native sort check fails for a plan with only vanilla sorts") {
+    withTable3(100, None) {
+      withSQLConf(
+        SQLConf.PUSH_DOWN_LOCAL_SORT_ENABLED.key -> "true",
+        GlutenConfig.COLUMNAR_SORT_ENABLED.key -> "false") {
+        val df = sql("""
+                       |SELECT a, b, c,
+                       |  RANK() OVER (PARTITION BY a ORDER BY b) AS rk,
+                       |  ROW_NUMBER() OVER (PARTITION BY a ORDER BY b, c) AS rn
+                       |FROM t
+                       |""".stripMargin)
+        // The pushed-down sort count holds for the vanilla sort, but the native sort check doesn't.
+        checkNumSorts(df, 1, nativeSort = false)
+        intercept[TestFailedException](checkNumSorts(df, 1))
+      }
     }
   }
 
