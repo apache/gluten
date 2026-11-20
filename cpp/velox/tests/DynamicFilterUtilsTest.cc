@@ -96,6 +96,92 @@ TEST_F(DynamicFilterUtilsTest, nonDeterministicBelowAnotherJoinOnProbeSide) {
   ASSERT_TRUE(hasNonDeterministicExprBelowHashProbe(*plan));
 }
 
+TEST_F(DynamicFilterUtilsTest, onlyJoinsThatPushDynamicFilters) {
+  // HashProbe pushes dynamic filters only for these join types.
+  const std::vector<std::pair<core::JoinType, bool>> joinTypes = {
+      {core::JoinType::kInner, true},
+      {core::JoinType::kLeftSemiFilter, true},
+      {core::JoinType::kRightSemiFilter, true},
+      {core::JoinType::kRight, true},
+      {core::JoinType::kLeft, false},
+      {core::JoinType::kFull, false},
+      {core::JoinType::kAnti, false},
+      {core::JoinType::kLeftSemiProject, false},
+  };
+  for (const auto& [joinType, pushes] : joinTypes) {
+    SCOPED_TRACE(core::JoinTypeName::toName(joinType));
+    const bool semi = core::isLeftSemiFilterJoin(joinType) || core::isLeftSemiProjectJoin(joinType) ||
+        core::isAntiJoin(joinType) || core::isRightSemiFilterJoin(joinType);
+    std::vector<std::string> output{"c0"};
+    if (core::isLeftSemiProjectJoin(joinType)) {
+      output.push_back("match");
+    } else if (core::isRightSemiFilterJoin(joinType)) {
+      output = {"u0"};
+    } else if (!semi) {
+      output.push_back("u0");
+    }
+    auto plan = probe()
+                    .project({"c0", "rand() AS r"})
+                    .hashJoin({"c0"}, {"u0"}, build().planNode(), "", output, joinType)
+                    .planNode();
+    ASSERT_EQ(hasNonDeterministicExprBelowHashProbe(*plan), pushes);
+  }
+}
+
+TEST_F(DynamicFilterUtilsTest, rightJoinTypesThatPushDynamicFilters) {
+  // HashProbe pushes for a right anti join and for a right semi project join unless it is null-aware.
+  struct Case {
+    core::JoinType joinType;
+    bool nullAware;
+    std::vector<std::string> output;
+    bool pushes;
+  };
+  const std::vector<Case> cases = {
+      {core::JoinType::kRightAnti, false, {"u0"}, true},
+      {core::JoinType::kRightSemiProject, false, {"u0", "match"}, true},
+      {core::JoinType::kRightSemiProject, true, {"u0", "match"}, false},
+  };
+  for (const auto& c : cases) {
+    SCOPED_TRACE(fmt::format("{} nullAware={}", core::JoinTypeName::toName(c.joinType), c.nullAware));
+    auto plan = probe()
+                    .project({"c0", "rand() AS r"})
+                    .hashJoin({"c0"}, {"u0"}, build().planNode(), "", c.output, c.joinType, c.nullAware)
+                    .planNode();
+    ASSERT_EQ(hasNonDeterministicExprBelowHashProbe(*plan), c.pushes);
+  }
+}
+
+TEST_F(DynamicFilterUtilsTest, affectedJoinInBuildSide) {
+  // The build side runs in its own pipeline, but a join inside it can still push its dynamic filter
+  // below rand() on its own probe side.
+  auto buildSide = PlanBuilder(ids_, pool())
+                       .values({makeRowVector({"x0"}, {makeFlatVector<int64_t>({1, 2})})})
+                       .project({"x0", "rand() AS r"})
+                       .hashJoin({"x0"}, {"u0"}, build().planNode(), "", {"x0"})
+                       .planNode();
+  auto plan = probe().hashJoin({"c0"}, {"x0"}, buildSide, "", {"c0"}).planNode();
+  ASSERT_TRUE(hasNonDeterministicExprBelowHashProbe(*plan));
+}
+
+TEST_F(DynamicFilterUtilsTest, nonDeterministicBetweenInnerAndOuterJoin) {
+  // The inner join can prune its scan because rand() runs above it. The left outer join above
+  // rand() never pushes a dynamic filter, so pushdown can stay on.
+  auto plan = probe()
+                  .hashJoin({"c0"}, {"u0"}, build().planNode(), "", {"c0"})
+                  .project({"c0", "rand() AS r"})
+                  .hashJoin({"c0"}, {"u0"}, build().planNode(), "", {"c0", "r", "u0"}, core::JoinType::kLeft)
+                  .planNode();
+  ASSERT_FALSE(hasNonDeterministicExprBelowHashProbe(*plan));
+
+  // With an inner join on top, its dynamic filter would reach the scan below rand().
+  plan = probe()
+             .hashJoin({"c0"}, {"u0"}, build().planNode(), "", {"c0"})
+             .project({"c0", "rand() AS r"})
+             .hashJoin({"c0"}, {"u0"}, build().planNode(), "", {"c0", "r"})
+             .planNode();
+  ASSERT_TRUE(hasNonDeterministicExprBelowHashProbe(*plan));
+}
+
 TEST_F(DynamicFilterUtilsTest, deterministicProbeSide) {
   auto plan = probe()
                   .project({"c0", "add(c0, c0) AS d"})

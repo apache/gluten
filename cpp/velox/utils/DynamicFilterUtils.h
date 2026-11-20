@@ -21,8 +21,9 @@
 
 namespace gluten {
 
-/// True if a projection or filter on the probe side of a hash join, between the join and the leaf
-/// that feeds it, calls a non-deterministic function. That includes a filter pushed into the scan.
+/// True if a projection or filter on the probe side of a hash join that can push dynamic filters,
+/// between the join and the leaf that feeds it, calls a non-deterministic function. That includes a
+/// filter pushed into the scan. Joins that never push one, such as a left outer join, are skipped.
 ///
 /// A hash probe pushes a filter on its join keys to the operators that feed it, through every
 /// operator that passes the key column through unchanged, down to the scan. Velox does not check

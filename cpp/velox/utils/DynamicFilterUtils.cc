@@ -66,33 +66,50 @@ bool evaluatesNonDeterministicExpr(const core::PlanNode& node) {
   return false;
 }
 
-// The nodes a dynamic filter from the probe can reach: the probe input and, below it, the first
-// input of each node down to the leaf. Other inputs, such as a build side, run in other pipelines.
-bool hasNonDeterministicExprOnProbePath(const core::PlanNode& probeInput) {
-  for (const core::PlanNode* node = &probeInput; node != nullptr;) {
-    if (evaluatesNonDeterministicExpr(*node)) {
-      return true;
+// Whether a hash join of this type pushes dynamic filters into its probe side, as in
+// HashProbe::asyncWaitForHashTable(). A left or full outer join, for example, never does.
+bool canPushDynamicFilters(const core::HashJoinNode& join) {
+  const auto type = join.joinType();
+  return core::isInnerJoin(type) || core::isLeftSemiFilterJoin(type) || core::isCountingLeftSemiFilterJoin(type) ||
+      core::isRightSemiFilterJoin(type) || (core::isRightSemiProjectJoin(type) && !join.isNullAware()) ||
+      core::isRightJoin(type) || core::isRightAntiJoin(type);
+}
+
+struct ProbePathInfo {
+  // Whether this node or one below it on the path of first inputs down to the leaf evaluates a
+  // non-deterministic expression. A dynamic filter from a hash probe reaches only that path: other
+  // inputs, such as a build side, run in other pipelines.
+  bool nonDeterministicOnPath{false};
+  // Whether this node or one below it is a hash join that can push a dynamic filter below a
+  // non-deterministic expression.
+  bool affectedJoin{false};
+};
+
+// Computes both in one bottom-up pass, so each node and expression is checked once.
+ProbePathInfo checkProbePaths(const core::PlanNode& node) {
+  ProbePathInfo info;
+  const auto& sources = node.sources();
+  for (size_t i = 0; i < sources.size(); ++i) {
+    if (sources[i] == nullptr) {
+      continue;
     }
-    node = node->sources().empty() ? nullptr : node->sources()[0].get();
+    const auto source = checkProbePaths(*sources[i]);
+    info.affectedJoin = info.affectedJoin || source.affectedJoin;
+    if (i == 0) {
+      info.nonDeterministicOnPath = source.nonDeterministicOnPath;
+    }
   }
-  return false;
+  if (const auto* join = dynamic_cast<const core::HashJoinNode*>(&node)) {
+    info.affectedJoin = info.affectedJoin || (info.nonDeterministicOnPath && canPushDynamicFilters(*join));
+  }
+  info.nonDeterministicOnPath = info.nonDeterministicOnPath || evaluatesNonDeterministicExpr(node);
+  return info;
 }
 
 } // namespace
 
 bool hasNonDeterministicExprBelowHashProbe(const core::PlanNode& plan) {
-  if (const auto* join = dynamic_cast<const core::HashJoinNode*>(&plan)) {
-    if (!join->sources().empty() && join->sources()[0] != nullptr &&
-        hasNonDeterministicExprOnProbePath(*join->sources()[0])) {
-      return true;
-    }
-  }
-  for (const auto& source : plan.sources()) {
-    if (source != nullptr && hasNonDeterministicExprBelowHashProbe(*source)) {
-      return true;
-    }
-  }
-  return false;
+  return checkProbePaths(plan).affectedJoin;
 }
 
 } // namespace gluten
