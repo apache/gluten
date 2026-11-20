@@ -16,7 +16,7 @@ Throughout, `X.Y` is the new Spark version (e.g. `4.2`), `XY` its plain form (`4
 ## 1. Prerequisites
 
 1. Gluten must already have the shim and UT module for the version: `shims/sparkXY`, `gluten-ut/sparkXY`, and a
-   `spark-X.Y` profile in `pom.xml` (read `<spark.version>` there, e.g. `4.2.0`; build exactly that tag).
+   `spark-X.Y` profile in `pom.xml` (read `<spark.version>` there, e.g. `4.2.1`; build exactly that tag).
 2. A machine with the native libs built (`cpp/build/releases/libgluten.so`, `libvelox.so`), JDK 17, Maven, Python 3
    with `pip install findspark tabulate black`.
 3. Spark source of that exact tag, built: `./build/mvn -DskipTests -Pyarn -Phive -Phive-thriftserver clean install`
