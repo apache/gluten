@@ -16,6 +16,8 @@
  */
 package org.apache.gluten.config
 
+import org.apache.spark.sql.internal.SQLConf
+
 import org.scalatest.funsuite.AnyFunSuite
 
 import java.nio.file.Paths
@@ -25,6 +27,20 @@ class AllVeloxConfiguration extends AnyFunSuite {
     AllGlutenConfiguration.getCodeSourceLocation(this.getClass).split("backends-velox")(0)
   private val markdown =
     Paths.get(glutenHome, "docs", "backends", "velox", "velox-configuration.md").toAbsolutePath
+
+  test("Broadcast build input streaming defaults to disabled and forces a single build thread") {
+    val conf = new SQLConf
+    val veloxConf = new VeloxConfig(conf)
+    val dataSize = veloxConf.veloxBroadcastHashTableBuildTargetBytes * 4
+    assert(!veloxConf.broadcastBuildInputStreamingEnabled)
+    assert(veloxConf.broadcastHashTableBuildThreads(0) == 1)
+    assert(veloxConf.broadcastHashTableBuildThreads(dataSize) == 4)
+    conf.setConfString(VeloxConfig.VELOX_BROADCAST_BUILD_INPUT_STREAMING_ENABLED.key, "true")
+    assert(veloxConf.broadcastHashTableBuildThreads(0) == 1)
+    assert(veloxConf.broadcastHashTableBuildThreads(dataSize) == 1)
+    conf.setConfString(VeloxConfig.VELOX_BROADCAST_BUILD_INPUT_STREAMING_ENABLED.key, "false")
+    assert(veloxConf.broadcastHashTableBuildThreads(dataSize) == 4)
+  }
 
   test("Check velox backend configs") {
     val builder = MarkdownBuilder(getClass.getName)

@@ -63,6 +63,29 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
+  private def checkBroadcastBuild(
+      df: org.apache.spark.sql.DataFrame,
+      offHeap: Boolean,
+      driverBuild: Boolean): Unit = {
+    val plan = df.queryExecution.executedPlan
+    assert(plan.collect { case join: BroadcastHashJoinExecTransformer => join }.nonEmpty)
+    val exchanges = plan.collect { case exchange: ColumnarBroadcastExchangeExec => exchange }
+    assert(exchanges.nonEmpty)
+    assert(exchanges.forall(_.metrics("buildThreads").value == 1))
+    val relations = collectBroadcastRelations(df)
+    assert(relations.nonEmpty)
+    relations.foreach {
+      relation =>
+        if (driverBuild) {
+          assert(relation.isInstanceOf[SerializedHashTableBroadcastRelation])
+        } else if (offHeap) {
+          assert(relation.isInstanceOf[UnsafeColumnarBuildSideRelation])
+        } else {
+          assert(relation.isInstanceOf[ColumnarBuildSideRelation])
+        }
+    }
+  }
+
   test("generate hash join plan - v1") {
     withSQLConf(
       ("spark.sql.autoBroadcastJoinThreshold", "-1"),
@@ -337,6 +360,154 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
+  for {
+    streamBuildInput <- Seq(false, true)
+    offHeap <- Seq(false, true)
+    driverBuild <- Seq(false, true)
+  } {
+    test(
+      s"Broadcast build: streamBuildInput=$streamBuildInput, " +
+        s"offHeap=$offHeap, driver=$driverBuild") {
+      withSQLConf(
+        VeloxConfig.VELOX_BROADCAST_BUILD_INPUT_STREAMING_ENABLED.key -> streamBuildInput.toString,
+        VeloxConfig.VELOX_BROADCAST_BUILD_RELATION_USE_OFFHEAP.key -> offHeap.toString,
+        VeloxConfig.VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD.key -> driverBuild.toString,
+        GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> "16",
+        "spark.sql.autoBroadcastJoinThreshold" -> "10MB",
+        "spark.sql.adaptive.enabled" -> "false"
+      ) {
+        withTable("streaming_probe", "streaming_build") {
+          spark
+            .range(201)
+            .selectExpr("case when id = 200 then cast(null as bigint) else id end as key")
+            .write
+            .saveAsTable("streaming_probe")
+          spark
+            .range(128)
+            .selectExpr(
+              "case when id = 0 then cast(null as bigint) else id % 50 end as key",
+              "concat('long_string_payload_', cast(id as string)) as payload",
+              "array(id, id + 1) as values"
+            )
+            .write
+            .saveAsTable("streaming_build")
+
+          val queries = Seq(
+            """SELECT /*+ BROADCAST(build) */ probe.key, build.payload, build.values
+              |FROM streaming_probe probe JOIN streaming_build build
+              |ON probe.key = build.key""".stripMargin,
+            """SELECT /*+ BROADCAST(build) */ probe.key, build.payload, build.values
+              |FROM streaming_probe probe LEFT OUTER JOIN streaming_build build
+              |ON probe.key = build.key""".stripMargin,
+            """SELECT /*+ BROADCAST(build) */ probe.key
+              |FROM streaming_probe probe LEFT SEMI JOIN streaming_build build
+              |ON probe.key = build.key""".stripMargin,
+            """SELECT /*+ BROADCAST(build) */ probe.key
+              |FROM streaming_probe probe LEFT ANTI JOIN streaming_build build
+              |ON probe.key = build.key""".stripMargin,
+            """SELECT key FROM streaming_probe
+              |WHERE key NOT IN (SELECT key FROM streaming_build)""".stripMargin,
+            """SELECT key FROM streaming_probe
+              |WHERE key NOT IN (
+              |  SELECT key FROM streaming_build WHERE key IS NOT NULL
+              |)""".stripMargin
+          )
+
+          queries.foreach {
+            query => runQueryAndCompare(query)(df => checkBroadcastBuild(df, offHeap, driverBuild))
+          }
+        }
+      }
+    }
+  }
+
+  for {
+    offHeap <- Seq(false, true)
+    driverBuild <- Seq(false, true)
+  } {
+    test(s"Streaming broadcast build with empty input: offHeap=$offHeap, driver=$driverBuild") {
+      withSQLConf(
+        VeloxConfig.VELOX_BROADCAST_BUILD_INPUT_STREAMING_ENABLED.key -> "true",
+        VeloxConfig.VELOX_BROADCAST_BUILD_RELATION_USE_OFFHEAP.key -> offHeap.toString,
+        VeloxConfig.VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD.key -> driverBuild.toString,
+        "spark.sql.autoBroadcastJoinThreshold" -> "10MB",
+        "spark.sql.adaptive.enabled" -> "false"
+      ) {
+        withTable("empty_build_probe", "empty_build") {
+          spark
+            .range(201)
+            .selectExpr("case when id = 200 then cast(null as bigint) else id end as key")
+            .write
+            .saveAsTable("empty_build_probe")
+          spark.sql("CREATE TABLE empty_build (key BIGINT, payload STRING) USING PARQUET")
+
+          val queries = Seq("INNER", "LEFT OUTER", "LEFT SEMI", "LEFT ANTI").map {
+            joinType =>
+              s"""SELECT /*+ BROADCAST(build) */ probe.key
+                 |FROM empty_build_probe probe $joinType JOIN empty_build build
+                 |ON probe.key = build.key""".stripMargin
+          } :+ """SELECT key FROM empty_build_probe
+                 |WHERE key NOT IN (SELECT key FROM empty_build)""".stripMargin
+
+          queries.foreach {
+            query =>
+              runQueryAndCompare(query) {
+                df =>
+                  checkBroadcastBuild(df, offHeap, driverBuild)
+                  val exchanges = df.queryExecution.executedPlan.collect {
+                    case exchange: ColumnarBroadcastExchangeExec => exchange
+                  }
+                  assert(exchanges.forall(_.metrics("numOutputRows").value == 0))
+              }
+          }
+        }
+      }
+    }
+  }
+
+  Seq(false, true).foreach {
+    driverBuild =>
+      test(s"Streaming broadcast build preserves residual join conditions: driver=$driverBuild") {
+        withSQLConf(
+          VeloxConfig.VELOX_BROADCAST_BUILD_INPUT_STREAMING_ENABLED.key -> "true",
+          VeloxConfig.VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD.key -> driverBuild.toString,
+          VeloxConfig.VELOX_BROADCAST_BUILD_RELATION_USE_OFFHEAP.key -> "false",
+          GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> "16",
+          "spark.sql.autoBroadcastJoinThreshold" -> "10MB",
+          "spark.sql.adaptive.enabled" -> "false"
+        ) {
+          withTable("residual_probe", "residual_build") {
+            spark
+              .range(16)
+              .selectExpr("id as key", "id + 24 as value")
+              .write
+              .saveAsTable("residual_probe")
+            spark
+              .range(96)
+              .selectExpr("id % 8 as key", "id as value")
+              .write
+              .saveAsTable("residual_build")
+
+            Seq("INNER", "LEFT OUTER", "LEFT SEMI", "LEFT ANTI").foreach {
+              joinType =>
+                val query =
+                  s"""SELECT /*+ BROADCAST(build) */ probe.key, probe.value
+                     |FROM residual_probe probe $joinType JOIN residual_build build
+                     |ON probe.key = build.key AND probe.value > build.value""".stripMargin
+                runQueryAndCompare(query) {
+                  df =>
+                    checkBroadcastBuild(df, offHeap = false, driverBuild = driverBuild)
+                    val joins = df.queryExecution.executedPlan.collect {
+                      case join: BroadcastHashJoinExecTransformer => join
+                    }
+                    assert(joins.forall(_.condition.nonEmpty))
+                }
+            }
+          }
+        }
+      }
+  }
+
   test("Broadcast build mergeBatches: merged vs per-batch produce equivalent results") {
     Seq("true", "false").foreach {
       mergeBatches =>
@@ -426,103 +597,120 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
-  test("driver-side broadcast hash table build reuses exchange and cache cleanup works") {
-    withSQLConf(
-      ("spark.sql.autoBroadcastJoinThreshold", "10MB"),
-      ("spark.sql.adaptive.enabled", "false"),
-      ("spark.sql.exchange.reuse", "true"),
-      (VeloxConfig.VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD.key, "true"),
-      (VeloxConfig.VELOX_BROADCAST_BUILD_RELATION_USE_OFFHEAP.key, "true")
-    ) {
-      withTable("reuse_fact", "reuse_dim") {
-        spark.range(0, 400).selectExpr("id as id", "id % 40 as k").write.saveAsTable("reuse_fact")
-        spark.range(0, 40).selectExpr("id as k", "id * 3 as v").write.saveAsTable("reuse_dim")
+  Seq(false, true).foreach {
+    streamBuildInput =>
+      test(
+        s"driver-side broadcast hash table build reuses exchange and cache cleanup works: " +
+          s"streamBuildInput=$streamBuildInput") {
+        withSQLConf(
+          (
+            VeloxConfig.VELOX_BROADCAST_BUILD_INPUT_STREAMING_ENABLED.key,
+            streamBuildInput.toString),
+          ("spark.sql.autoBroadcastJoinThreshold", "10MB"),
+          ("spark.sql.adaptive.enabled", "false"),
+          ("spark.sql.exchange.reuse", "true"),
+          (VeloxConfig.VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD.key, "true"),
+          (VeloxConfig.VELOX_BROADCAST_BUILD_RELATION_USE_OFFHEAP.key, "true")
+        ) {
+          withTable("reuse_fact", "reuse_dim") {
+            spark
+              .range(0, 400)
+              .selectExpr("id as id", "id % 40 as k")
+              .write
+              .saveAsTable("reuse_fact")
+            spark.range(0, 40).selectExpr("id as k", "id * 3 as v").write.saveAsTable("reuse_dim")
 
-        val query =
-          """
-            |WITH shared_dim AS (
-            |  SELECT * FROM reuse_dim WHERE k < 20
-            |)
-            |SELECT /*+ BROADCAST(d1), BROADCAST(d2) */ count(*)
-            |FROM reuse_fact f
-            |JOIN shared_dim d1
-            |  ON f.k = d1.k
-            |JOIN shared_dim d2
-            |  ON f.k = d2.k
-            |""".stripMargin
+            val query =
+              """
+                |WITH shared_dim AS (
+                |  SELECT * FROM reuse_dim WHERE k < 20
+                |)
+                |SELECT /*+ BROADCAST(d1), BROADCAST(d2) */ count(*)
+                |FROM reuse_fact f
+                |JOIN shared_dim d1
+                |  ON f.k = d1.k
+                |JOIN shared_dim d2
+                |  ON f.k = d2.k
+                |""".stripMargin
 
-        runQueryAndCompare(query) {
-          df =>
-            val plan = df.queryExecution.executedPlan
-            val broadcastJoins = plan.collect { case bhj: BroadcastHashJoinExecTransformer => bhj }
-            assert(
-              broadcastJoins.size == 2,
-              s"Expected two broadcast hash joins, got ${broadcastJoins.size}")
+            runQueryAndCompare(query) {
+              df =>
+                val plan = df.queryExecution.executedPlan
+                val broadcastJoins = plan.collect {
+                  case bhj: BroadcastHashJoinExecTransformer => bhj
+                }
+                assert(
+                  broadcastJoins.size == 2,
+                  s"Expected two broadcast hash joins, got ${broadcastJoins.size}")
 
-            val reusedExchanges = collectWithSubqueries(plan) {
-              case reused: ReusedExchangeExec => reused
+                val reusedExchanges = collectWithSubqueries(plan) {
+                  case reused: ReusedExchangeExec => reused
+                }
+                assert(
+                  reusedExchanges.nonEmpty,
+                  "Expected reused broadcast exchange for shared build side")
+
+                val relations = collectBroadcastRelations(df)
+                assert(
+                  relations.size == 1,
+                  s"Expected one materialized broadcast relation, got ${relations.size}")
+                assert(
+                  relations.head.isInstanceOf[SerializedHashTableBroadcastRelation],
+                  s"Expected SerializedHashTableBroadcastRelation," +
+                    s" got ${relations.head.getClass.getName}"
+                )
+                assert(
+                  VeloxBroadcastBuildSideCache.driverSerializedCacheSize() >= 1,
+                  s"Expected driver serialized cache to contain entries, got " +
+                    s"${VeloxBroadcastBuildSideCache.driverSerializedCacheSize()}"
+                )
             }
-            assert(
-              reusedExchanges.nonEmpty,
-              "Expected reused broadcast exchange for shared build side")
 
-            val relations = collectBroadcastRelations(df)
-            assert(
-              relations.size == 1,
-              s"Expected one materialized broadcast relation, got ${relations.size}")
-            assert(
-              relations.head.isInstanceOf[SerializedHashTableBroadcastRelation],
-              s"Expected SerializedHashTableBroadcastRelation," +
-                s" got ${relations.head.getClass.getName}"
-            )
-            assert(
-              VeloxBroadcastBuildSideCache.driverSerializedCacheSize() >= 1,
-              s"Expected driver serialized cache to contain entries, got " +
-                s"${VeloxBroadcastBuildSideCache.driverSerializedCacheSize()}"
-            )
+            VeloxBroadcastBuildSideCache.cleanAll()
+            assert(VeloxBroadcastBuildSideCache.driverSerializedCacheSize() == 0)
+          }
         }
-
-        VeloxBroadcastBuildSideCache.cleanAll()
-        assert(VeloxBroadcastBuildSideCache.driverSerializedCacheSize() == 0)
       }
-    }
   }
 
-  test("GLUTEN-12504: whole stage dumping streams the broadcast build side") {
-    // The micro benchmark can only replay a broadcast hash join whose build side reaches the native
-    // join through its input iterator. A task id that matches no task requests dumping without
-    // dumping anything.
-    withSQLConf(
-      ("spark.sql.autoBroadcastJoinThreshold", "10MB"),
-      ("spark.sql.adaptive.enabled", "false"),
-      (VeloxConfig.VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR.key, "true"),
-      (VeloxConfig.VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD.key, "true"),
-      (GlutenConfig.BENCHMARK_TASK_TASK_ID.key, "-1")
-    ) {
-      withTable("dump_fact", "dump_dim") {
-        spark.range(0, 400).selectExpr("id as id", "id % 40 as k").write.saveAsTable("dump_fact")
-        spark.range(0, 40).selectExpr("id as k", "id * 3 as v").write.saveAsTable("dump_dim")
+  for (streamBuildInput <- Seq(false, true)) {
+    test(s"GLUTEN-12504: whole stage dumping streams the broadcast build side: $streamBuildInput") {
+      // The micro benchmark can only replay a broadcast hash join whose build side reaches
+      // the native join through its input iterator. A task id that matches no task requests
+      // dumping without dumping anything.
+      withSQLConf(
+        ("spark.sql.autoBroadcastJoinThreshold", "10MB"),
+        ("spark.sql.adaptive.enabled", "false"),
+        (VeloxConfig.VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR.key, "true"),
+        (VeloxConfig.VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD.key, "true"),
+        (VeloxConfig.VELOX_BROADCAST_BUILD_INPUT_STREAMING_ENABLED.key, streamBuildInput.toString),
+        (GlutenConfig.BENCHMARK_TASK_TASK_ID.key, "-1")
+      ) {
+        withTable("dump_fact", "dump_dim") {
+          spark.range(0, 400).selectExpr("id as id", "id % 40 as k").write.saveAsTable("dump_fact")
+          spark.range(0, 40).selectExpr("id as k", "id * 3 as v").write.saveAsTable("dump_dim")
 
-        val query =
-          """
-            |SELECT /*+ BROADCAST(d) */ f.id, d.v
-            |FROM dump_fact f
-            |JOIN dump_dim d
-            |  ON f.k = d.k
-            |""".stripMargin
+          val query =
+            """
+              |SELECT /*+ BROADCAST(d) */ f.id, d.v
+              |FROM dump_fact f
+              |JOIN dump_dim d
+              |  ON f.k = d.k
+              |""".stripMargin
 
-        runQueryAndCompare(query) {
-          df =>
-            val plan = df.queryExecution.executedPlan
-            assert(plan.collect { case bhj: BroadcastHashJoinExecTransformer => bhj }.size == 1)
+          runQueryAndCompare(query) {
+            df =>
+              val plan = df.queryExecution.executedPlan
+              assert(plan.collect { case bhj: BroadcastHashJoinExecTransformer => bhj }.size == 1)
 
-            val relations = collectBroadcastRelations(df)
-            assert(relations.size == 1)
-            relations.head match {
-              case columnar: ColumnarBuildSideRelation => assert(!columnar.offload)
-              case unsafe: UnsafeColumnarBuildSideRelation => assert(!unsafe.isOffload)
-              case other => fail(s"Expected the build side to be streamed, got ${other.getClass}")
-            }
+              val relations = collectBroadcastRelations(df)
+              assert(relations.size == 1)
+              relations.head match {
+                case columnar: ColumnarBuildSideRelation => assert(!columnar.offload)
+                case unsafe: UnsafeColumnarBuildSideRelation => assert(!unsafe.isOffload)
+                case other => fail(s"Expected the build side to be streamed, got ${other.getClass}")
+              }
+          }
         }
       }
     }
@@ -591,6 +779,8 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
 
   test("Broadcast build once with generated build key alias") {
     withSQLConf(
+      (VeloxConfig.VELOX_BROADCAST_BUILD_INPUT_STREAMING_ENABLED.key, "true"),
+      (VeloxConfig.VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD.key, "false"),
       ("spark.sql.autoBroadcastJoinThreshold", "10MB"),
       ("spark.sql.adaptive.enabled", "false"),
       (VeloxConfig.VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR.key, "true")
@@ -605,30 +795,35 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
-  Seq(false, true).foreach {
-    offHeap =>
-      test(s"Driver-side build with generated build key alias, off-heap relation: $offHeap") {
-        withSQLConf(
-          ("spark.sql.autoBroadcastJoinThreshold", "10MB"),
-          ("spark.sql.adaptive.enabled", "false"),
-          (VeloxConfig.VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD.key, "true"),
-          (VeloxConfig.VELOX_BROADCAST_BUILD_RELATION_USE_OFFHEAP.key, offHeap.toString)
-        ) {
-          createTPCHNotNullTables()
-          runQueryAndCompare(generatedBuildKeyAliasQuery) {
-            df =>
-              val relations = collectBroadcastRelations(df)
-              assert(relations.nonEmpty, "Should use a columnar broadcast")
-              // A failed driver-side build falls back to the executor-side relation.
-              relations.foreach {
-                relation =>
-                  assert(
-                    relation.isInstanceOf[SerializedHashTableBroadcastRelation],
-                    s"Driver-side build fell back, got ${relation.getClass.getName}")
-              }
-          }
+  for {
+    offHeap <- Seq(false, true)
+    streamBuildInput <- Seq(false, true)
+  } {
+    test(
+      s"Driver-side build with generated build key alias, off-heap relation: $offHeap, " +
+        s"streamBuildInput=$streamBuildInput") {
+      withSQLConf(
+        (VeloxConfig.VELOX_BROADCAST_BUILD_INPUT_STREAMING_ENABLED.key, streamBuildInput.toString),
+        ("spark.sql.autoBroadcastJoinThreshold", "10MB"),
+        ("spark.sql.adaptive.enabled", "false"),
+        (VeloxConfig.VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD.key, "true"),
+        (VeloxConfig.VELOX_BROADCAST_BUILD_RELATION_USE_OFFHEAP.key, offHeap.toString)
+      ) {
+        createTPCHNotNullTables()
+        runQueryAndCompare(generatedBuildKeyAliasQuery) {
+          df =>
+            val relations = collectBroadcastRelations(df)
+            assert(relations.nonEmpty, "Should use a columnar broadcast")
+            // A failed driver-side build falls back to the executor-side relation.
+            relations.foreach {
+              relation =>
+                assert(
+                  relation.isInstanceOf[SerializedHashTableBroadcastRelation],
+                  s"Driver-side build fell back, got ${relation.getClass.getName}")
+            }
         }
       }
+    }
   }
 
   test("Reuse broadcast exchange with different hash table") {
@@ -763,6 +958,86 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
         df.join(broadcast(df), "id").collect()
       }
       assert(ex.getErrorClass == "_LEGACY_ERROR_TEMP_2249")
+    }
+  }
+}
+
+class VeloxBroadcastBuildThreadSuite extends VeloxWholeStageTransformerSuite {
+  override protected val resourcePath: String = "/tpch-data-parquet"
+  override protected val fileFormat: String = "parquet"
+
+  override protected def sparkConf: SparkConf = super.sparkConf
+    .set("spark.unsafe.exceptionOnMemoryLeak", "true")
+    .set(VeloxConfig.COLUMNAR_VELOX_BROADCAST_HASH_TABLE_BUILD_TARGET_BYTES.key, "1MB")
+
+  override protected def beforeEach(): Unit = {
+    super.beforeEach()
+    VeloxBroadcastBuildSideCache.cleanAll()
+  }
+
+  override protected def afterEach(): Unit = {
+    try {
+      VeloxBroadcastBuildSideCache.cleanAll()
+    } finally {
+      super.afterEach()
+    }
+  }
+
+  for {
+    streamBuildInput <- Seq(false, true)
+    driverBuild <- Seq(false, true)
+  } {
+    test(s"Broadcast build thread selection: streaming=$streamBuildInput, driver=$driverBuild") {
+      withSQLConf(
+        VeloxConfig.VELOX_BROADCAST_BUILD_INPUT_STREAMING_ENABLED.key -> streamBuildInput.toString,
+        VeloxConfig.VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD.key -> driverBuild.toString,
+        VeloxConfig.VELOX_BROADCAST_BUILD_RELATION_USE_OFFHEAP.key -> "false",
+        GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> "512",
+        "spark.sql.autoBroadcastJoinThreshold" -> "10MB",
+        "spark.sql.adaptive.enabled" -> "false"
+      ) {
+        withTable("thread_probe", "thread_build") {
+          spark.range(2048).selectExpr("id as key").write.saveAsTable("thread_probe")
+          spark
+            .range(4096)
+            .selectExpr(
+              "id % 1024 as key",
+              "concat(repeat('payload_', 64), cast(id as string)) as payload")
+            .write
+            .saveAsTable("thread_build")
+
+          val query =
+            """SELECT /*+ BROADCAST(build) */ probe.key, build.payload
+              |FROM thread_probe probe JOIN thread_build build
+              |ON probe.key = build.key""".stripMargin
+          runQueryAndCompare(query) {
+            df =>
+              val plan = df.queryExecution.executedPlan
+              val joins = plan.collect { case join: BroadcastHashJoinExecTransformer => join }
+              assert(joins.size == 1)
+              val exchanges = plan.collect {
+                case exchange: ColumnarBroadcastExchangeExec => exchange
+              }
+              assert(exchanges.size == 1)
+              val exchange = exchanges.head
+              assert(
+                exchange.metrics("dataSize").value >
+                  VeloxConfig.get.veloxBroadcastHashTableBuildTargetBytes)
+              val buildThreads = exchange.metrics("buildThreads").value
+              if (streamBuildInput) {
+                assert(buildThreads == 1)
+              } else {
+                assert(buildThreads > 1)
+              }
+              val relation = exchange.executeBroadcast[BuildSideRelation]().value
+              if (driverBuild) {
+                assert(relation.isInstanceOf[SerializedHashTableBroadcastRelation])
+              } else {
+                assert(relation.isInstanceOf[ColumnarBuildSideRelation])
+              }
+          }
+        }
+      }
     }
   }
 }
