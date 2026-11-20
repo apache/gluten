@@ -41,6 +41,8 @@ curl() {
     while [[ $# -gt 1 && "$1" != -o ]]; do shift; done
     [[ "$1" = -o ]] && printf '%s\n' "$digest" > "$2"
 }
-export -f curl
+# Exercise checksum fallback without waiting through real retry delays.
+sleep() { :; }
+export -f curl sleep
 caller="$(bash "$checkout/build/mvn")"
 [[ "$caller" = "$(pwd -P)" ]]
