@@ -648,9 +648,38 @@ object ExpressionConverter extends SQLConfHelper with Logging with PredicateHelp
           substraitExprName,
           Seq(
             replaceWithExpressionTransformer0(r.subject, attributeSeq, expressionsMap),
-            replaceWithExpressionTransformer0(r.regexp, attributeSeq, expressionsMap),
+            withRewrittenRegexPattern(r.regexp, attributeSeq, expressionsMap),
             replaceWithExpressionTransformer0(r.rep, attributeSeq, expressionsMap),
             replaceWithExpressionTransformer0(r.pos, attributeSeq, expressionsMap)
+          ),
+          r
+        )
+      case r: RLike =>
+        GenericExpressionTransformer(
+          substraitExprName,
+          Seq(
+            replaceWithExpressionTransformer0(r.left, attributeSeq, expressionsMap),
+            withRewrittenRegexPattern(r.right, attributeSeq, expressionsMap)
+          ),
+          r
+        )
+      case r: RegExpExtract =>
+        GenericExpressionTransformer(
+          substraitExprName,
+          Seq(
+            replaceWithExpressionTransformer0(r.subject, attributeSeq, expressionsMap),
+            withRewrittenRegexPattern(r.regexp, attributeSeq, expressionsMap),
+            replaceWithExpressionTransformer0(r.idx, attributeSeq, expressionsMap)
+          ),
+          r
+        )
+      case r: RegExpExtractAll =>
+        GenericExpressionTransformer(
+          substraitExprName,
+          Seq(
+            replaceWithExpressionTransformer0(r.subject, attributeSeq, expressionsMap),
+            withRewrittenRegexPattern(r.regexp, attributeSeq, expressionsMap),
+            replaceWithExpressionTransformer0(r.idx, attributeSeq, expressionsMap)
           ),
           r
         )
@@ -662,7 +691,7 @@ object ExpressionConverter extends SQLConfHelper with Logging with PredicateHelp
           substraitExprName,
           Seq(
             replaceWithExpressionTransformer0(instr.subject, attributeSeq, expressionsMap),
-            replaceWithExpressionTransformer0(instr.regexp, attributeSeq, expressionsMap)
+            withRewrittenRegexPattern(instr.regexp, attributeSeq, expressionsMap)
           ),
           instr
         )
@@ -971,7 +1000,7 @@ object ExpressionConverter extends SQLConfHelper with Logging with PredicateHelp
         BackendsApiManager.getSparkPlanExecApiInstance.genStringSplitTransformer(
           substraitExprName,
           replaceWithExpressionTransformer0(ss.str, attributeSeq, expressionsMap),
-          replaceWithExpressionTransformer0(ss.regex, attributeSeq, expressionsMap),
+          withRewrittenRegexPattern(ss.regex, attributeSeq, expressionsMap),
           replaceWithExpressionTransformer0(ss.limit, attributeSeq, expressionsMap),
           ss
         )
@@ -1012,6 +1041,21 @@ object ExpressionConverter extends SQLConfHelper with Logging with PredicateHelp
           expr
         )
     }
+  }
+
+  /**
+   * Lets the backend rewrite the pattern argument of a regex expression (e.g. translate it to RE2
+   * syntax) before it is written into the Substrait literal. Backends reject patterns they cannot
+   * express by throwing [[GlutenNotSupportException]], which triggers fallback.
+   */
+  private def withRewrittenRegexPattern(
+      patternChild: Expression,
+      attributeSeq: Seq[Attribute],
+      expressionsMap: Map[Class[_], String]): ExpressionTransformer = {
+    replaceWithExpressionTransformer0(
+      BackendsApiManager.getSparkPlanExecApiInstance.rewriteRegexPattern(patternChild),
+      attributeSeq,
+      expressionsMap)
   }
 
   /**
