@@ -1,0 +1,24 @@
+Subject: [PATCH] Use Spark's writer for the Hadoop-only mock S3 fixture
+
+The path-scheme conversion test maps s3: paths to local files through a
+Hadoop FileSystem mock that Velox's native writer cannot use.
+
+Use Spark's writer only for the preparatory CREATE TABLE USING parquet.
+Keep Gluten enabled for the subsequent Delta conversion and preserve the
+original path-scheme assertion. Remove this workaround when the fixture no
+longer relies on the Hadoop-only mock filesystem.
+
+diff --git a/spark/src/test/scala/org/apache/spark/sql/delta/ConvertToDeltaSuiteBase.scala b/spark/src/test/scala/org/apache/spark/sql/delta/ConvertToDeltaSuiteBase.scala
+--- a/spark/src/test/scala/org/apache/spark/sql/delta/ConvertToDeltaSuiteBase.scala
++++ b/spark/src/test/scala/org/apache/spark/sql/delta/ConvertToDeltaSuiteBase.scala
+@@ -1450,7 +1450,9 @@
+     withTempDir { dir =>
+       withTable("externalTable") {
+         withSQLConf(("fs.s3.impl", classOf[S3LikeLocalFileSystem].getCanonicalName)) {
+-          sql(s"CREATE TABLE externalTable USING parquet LOCATION 's3://$dir' AS SELECT 1")
++          withSQLConf("spark.gluten.sql.native.writer.enabled" -> "false") {
++            sql(s"CREATE TABLE externalTable USING parquet LOCATION 's3://$dir' AS SELECT 1")
++          }
+
+           // Ideally we would test a successful conversion with a remote filesystem, but there's
+           // no good way to set one up in unit tests. So instead we delete the data, and let the

@@ -222,7 +222,22 @@ object ConverterUtils extends Logging {
     }
   }
 
-  def getTypeNode(datatype: DataType, nullable: Boolean): TypeNode = {
+  def getTypeNode(datatype: DataType, nullable: Boolean): TypeNode =
+    getTypeNode(datatype, nullable, preserveStructFieldNames = false)
+
+  /**
+   * Converts a Spark data type to a Substrait type node.
+   *
+   * @param preserveStructFieldNames
+   *   If true, struct field names (including nested ones) are emitted as is, regardless of
+   *   `spark.sql.caseSensitive`. Needed by expressions whose semantics depend on the exact field
+   *   names of their result type, e.g. `from_json`, which matches JSON keys against the schema
+   *   field names case-sensitively.
+   */
+  def getTypeNode(
+      datatype: DataType,
+      nullable: Boolean,
+      preserveStructFieldNames: Boolean): TypeNode = {
     datatype match {
       case BooleanType =>
         TypeBuilder.makeBoolean(nullable)
@@ -258,17 +273,24 @@ object ConverterUtils extends Logging {
       case m: MapType =>
         TypeBuilder.makeMap(
           nullable,
-          getTypeNode(m.keyType, nullable = false),
-          getTypeNode(m.valueType, m.valueContainsNull))
+          getTypeNode(m.keyType, nullable = false, preserveStructFieldNames),
+          getTypeNode(m.valueType, m.valueContainsNull, preserveStructFieldNames))
       case a: ArrayType =>
-        TypeBuilder.makeList(nullable, getTypeNode(a.elementType, a.containsNull))
+        TypeBuilder.makeList(
+          nullable,
+          getTypeNode(a.elementType, a.containsNull, preserveStructFieldNames))
       case s: StructType =>
         val normalizeStructFieldName: String => String =
-          if (BackendsApiManager.getSettings.structFieldToLowerCase()) {
+          if (
+            !preserveStructFieldNames && BackendsApiManager.getSettings.structFieldToLowerCase()
+          ) {
             (name: String) => normalizeColName(name)
           } else { (name: String) => name }
         val (fieldNodes, fieldNames) = s.map {
-          f => (getTypeNode(f.dataType, f.nullable), normalizeStructFieldName(f.name))
+          f =>
+            (
+              getTypeNode(f.dataType, f.nullable, preserveStructFieldNames),
+              normalizeStructFieldName(f.name))
         }.unzip
         TypeBuilder.makeStruct(nullable, fieldNodes.asJava, fieldNames.asJava)
       case _: NullType =>
@@ -306,6 +328,8 @@ object ConverterUtils extends Logging {
         DecimalType(d.precision, d.scale)
       case _: TimestampTypeNode =>
         TimestampType
+      case _: TimestampNTZTypeNode =>
+        TimestampNTZType
       case m: MapNode =>
         val keyType = parseFromTypeNode(m.getKeyType)
         val valueType = parseFromTypeNode(m.getValueType)

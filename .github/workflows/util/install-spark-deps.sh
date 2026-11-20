@@ -24,12 +24,33 @@ set -e
 
 # Install Hadoop binary
 function install_hadoop() {
+  local HADOOP_VERSION=3.3.6
+  # apache/gluten:ubuntu-22.04-runtime ships Hadoop here, so CI jobs skip the download.
+  if [ -d "/opt/hadoop-${HADOOP_VERSION}" ]; then
+    echo "Using pre-installed Hadoop in /opt/hadoop-${HADOOP_VERSION}"
+    export HADOOP_HOME="/opt/hadoop-${HADOOP_VERSION}"
+  else
+    download_hadoop "$HADOOP_VERSION"
+    export HADOOP_HOME="$PWD/hadoop-${HADOOP_VERSION}"
+  fi
+  export PATH="$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$PATH"
+  export LD_LIBRARY_PATH="$HADOOP_HOME/lib/native:$LD_LIBRARY_PATH"
+
+  if [ -n "$GITHUB_ENV" ]; then
+    echo "HADOOP_HOME=$HADOOP_HOME" >> $GITHUB_ENV
+    echo "LD_LIBRARY_PATH=$HADOOP_HOME/lib/native:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+    echo "$HADOOP_HOME/bin" >> $GITHUB_PATH
+  fi
+}
+
+# Download and extract the Hadoop binary into the current directory.
+function download_hadoop() {
   echo "Installing Hadoop..."
-  
+
   apt-get update -y
   apt-get install -y curl tar gzip
-  
-  local HADOOP_VERSION=3.3.6
+
+  local HADOOP_VERSION=$1
   local url_path="hadoop/common/hadoop-${HADOOP_VERSION}/hadoop-${HADOOP_VERSION}.tar.gz"
   # archive.apache.org is heavily throttled (a download can take hours), so prefer the CDN.
   # Abort the CDN transfer if it stalls below 1MB/s for 60s, then fall back to the archive,
@@ -41,16 +62,6 @@ function install_hadoop() {
   fi
   tar -xzf hadoop.tgz --no-same-owner --no-same-permissions
   rm -f hadoop.tgz
-
-  export HADOOP_HOME="$PWD/hadoop-${HADOOP_VERSION}"
-  export PATH="$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$PATH"
-  export LD_LIBRARY_PATH="$HADOOP_HOME/lib/native:$LD_LIBRARY_PATH"
-
-  if [ -n "$GITHUB_ENV" ]; then
-    echo "HADOOP_HOME=$HADOOP_HOME" >> $GITHUB_ENV
-    echo "LD_LIBRARY_PATH=$HADOOP_HOME/lib/native:$LD_LIBRARY_PATH" >> $GITHUB_ENV
-    echo "$HADOOP_HOME/bin" >> $GITHUB_PATH
-  fi
 }
 
 # Setup HDFS namenode and datanode
@@ -101,6 +112,11 @@ EOF
 }
 
 function install_minio {
+  # apache/gluten:ubuntu-22.04-runtime ships both binaries, so CI jobs skip the download.
+  if [ -x /usr/local/bin/minio ] && [ -x /usr/local/bin/mc ]; then
+    echo "Using pre-installed MinIO"
+    return
+  fi
   echo "Installing MinIO..."
 
   apt-get update -y

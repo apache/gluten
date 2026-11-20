@@ -327,6 +327,7 @@ class VeloxIteratorApi extends IteratorApi with Logging {
       }
       .recyclePayload(batch => batch.close())
       .collectLifeMillis(millis => pipelineTime += millis)
+      .asInterruptible(context)
       .create()
   }
   // scalastyle:on argcount

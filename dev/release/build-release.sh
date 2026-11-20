@@ -25,9 +25,15 @@ cd ${GLUTEN_HOME}
 ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --build_arrow=OFF --build_tests=OFF --build_benchmarks=OFF \
                            --build_examples=OFF --enable_s3=ON --enable_gcs=ON --enable_hdfs=ON --enable_abfs=ON
 
-sudo curl -Lo /etc/yum.repos.d/corretto.repo https://yum.corretto.aws/corretto.repo
-sudo yum install -y java-17-amazon-corretto-devel
-export JAVA_HOME=/usr/lib/jvm/java-17-amazon-corretto
+sudo yum install -y java-17-openjdk-devel
+# Derive JAVA_HOME from the installed JDK 17 package instead of hard-coding the path,
+# since the install location can vary across distros/packaging.
+JAVAC_PATH=$(rpm -ql java-17-openjdk-devel | grep -m1 '/bin/javac$' || true)
+if [[ -z "${JAVAC_PATH}" ]]; then
+  echo "Error: Unable to locate javac from the java-17-openjdk-devel package."
+  exit 1
+fi
+export JAVA_HOME=$(dirname "$(dirname "$(readlink -f "${JAVAC_PATH}")")")
 export PATH=$JAVA_HOME/bin:$PATH
 
 JAVA_VERSION=$("java" -version 2>&1 | awk -F '"' '/version/ {print $2}')
@@ -38,14 +44,17 @@ else
   exit 1
 fi
 
-# Build Gluten for Spark 3.4 and 3.5 with Java 17. The version of Iceberg being used requires Java 11 or higher.
-# All feature modules are enabled.
-for spark_version in 3.4 3.5
+for spark_version in 3.4 3.5 4.0 4.1
 do
-  ${GLUTEN_HOME}/build/mvn clean install -Pjava-17 -Pbackends-velox -Pspark-${spark_version} -Pceleborn,uniffle \
-                    -Piceberg,delta,hudi,paimon -DskipTests
+  scala_profile=""
+  # Spark 4.x is built with Scala 2.13; keep Spark 3.x behavior unchanged.
+  if [[ "${spark_version}" == 4.* ]]; then
+    scala_profile="-Pscala-2.13"
+  fi
+
+  ${GLUTEN_HOME}/build/mvn clean install -Pjava-17 -Pbackends-velox ${scala_profile} -Pbackends-velox -Pspark-${spark_version} -Pceleborn,uniffle \
+                    -Piceberg,delta,hudi,paimon -DskipTests -Dmaven.source.skip
 done
 
-${GLUTEN_HOME}/build/mvn clean install -Pjava-17 -Pscala-2.13 -Pbackends-velox -Pspark-4.0 -Piceberg,paimon -DskipTests
-
-${GLUTEN_HOME}/build/mvn clean install -Pjava-17 -Pscala-2.13 -Pbackends-velox -Pspark-4.1 -Piceberg -DskipTests
+# partial support for spark-4.2
+${GLUTEN_HOME}/build/mvn clean install -Pspark-4.2 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pceleborn -Puniffle -DskipTests -Dmaven.source.skip

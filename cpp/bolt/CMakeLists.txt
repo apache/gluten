@@ -66,7 +66,7 @@ endif()
 
 set(CMAKE_CXX_FLAGS
     "${CMAKE_CXX_FLAGS} -Wno-deprecated-declarations -Wno-attributes")
-if(NOT ${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
+if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-class-memaccess")
 endif()
 
@@ -195,7 +195,8 @@ set_target_properties(
   ${PROJECT_NAME}
   PROPERTIES BUILD_RPATH "${BOLT_RELATIVE_LIBRARY_RPATH}"
              BUILD_WITH_INSTALL_RPATH TRUE
-             INSTALL_RPATH "${BOLT_RELATIVE_LIBRARY_RPATH}")
+             INSTALL_RPATH "${BOLT_RELATIVE_LIBRARY_RPATH}"
+             LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/symbols.map")
 
 if(BUILD_STATIC)
   add_library(${PROJECT_NAME}_static STATIC ${BOLT_SRCS})

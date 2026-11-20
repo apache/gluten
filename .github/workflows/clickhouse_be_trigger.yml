@@ -23,6 +23,7 @@ on:
       - 'backends-clickhouse/**'
       - 'gluten-celeborn/**'
       - 'gluten-iceberg/**'
+      - 'gluten-paimon/**'
       - 'gluten-core/**'
       - 'gluten-substrait/**'
       - 'gluten-ut/**'

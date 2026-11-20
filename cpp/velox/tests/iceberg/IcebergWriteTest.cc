@@ -19,7 +19,7 @@
 #include "memory/VeloxColumnarBatch.h"
 #include "utils/ConfigExtractor.h"
 #include "utils/VeloxWriterUtils.h"
-#include "velox/connectors/hive/FileConnectorUtil.h"
+#include "velox/connectors/common/FileConnectorUtil.h"
 #include "velox/connectors/hive/HiveConfig.h"
 #include "velox/exec/tests/utils/TempDirectoryPath.h"
 #include "velox/vector/tests/utils/VectorTestBase.h"
@@ -58,8 +58,7 @@ TEST_F(VeloxIcebergWriteTest, parquetWriterOptions) {
           {"spark.gluten.sql.columnar.backend.velox.parquet_writer_compression_level", std::to_string(level)},
           {"spark.gluten.sql.columnar.backend.velox.parquet_writer_datapage_version", version}});
       auto session = createHiveConnectorSessionConfig(sparkConf);
-      auto scopedConfigs =
-          connector::hive::makeFormatScopedConfigs(hiveConfig, *session, dwio::common::FileFormat::PARQUET);
+      auto scopedConfigs = connector::makeFormatScopedConfigs(hiveConfig, *session, dwio::common::FileFormat::PARQUET);
       auto options = std::static_pointer_cast<parquet::ParquetWriterOptions>(
           factory.createFormatOptions(scopedConfigs.connectorConfig, scopedConfigs.sessionProperties));
       ASSERT_NE(options->codecOptions, nullptr);
