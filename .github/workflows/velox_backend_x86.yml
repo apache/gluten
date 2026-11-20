@@ -1897,7 +1897,7 @@ jobs:
             # Group 1: streaming + gluten utils + top-level spark tests (~55 classes)
             $PARALLEL_UT $MVN_CMD clean test -Pspark-4.3 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
             -DargLine="-Dspark.test.home=/opt/shims/spark43/spark_home/" -DtagsToExclude="$TAGS_EXCLUDE" \
-            -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten"
+            -DwildcardSuites="org.apache.spark.sql.streaming,org.apache.spark.GlutenSortShuffleSuite,org.apache.gluten,org.apache.spark.util.SparkResourceUtilSuite,org.apache.spark.storage.GlutenShuffleBlockFetcherIteratorSuite"
           elif [ "${{ matrix.group }}" = "2" ]; then
             # Group 2: execution + catalyst + errors + extension tests (~140 classes)
             $PARALLEL_UT $MVN_CMD clean test -Pspark-4.3 -Pscala-2.13 -Pjava-17 -Pbackends-velox -Pspark-ut \
