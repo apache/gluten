@@ -19,6 +19,8 @@
 
 #include <operators/plannodes/RowVectorStream.h>
 
+#include <arrow/c/bridge.h>
+#include <arrow/c/helpers.h>
 #include <algorithm>
 #include <condition_variable>
 #include <filesystem>
@@ -41,6 +43,7 @@
 #include "utils/VeloxArrowUtils.h"
 #include "utils/VeloxWholeStageDumper.h"
 #include "velox/common/process/StackTrace.h"
+#include "velox/vector/arrow/Bridge.h"
 
 DECLARE_bool(velox_exception_user_stacktrace_enabled);
 DECLARE_bool(velox_memory_use_hugepages);
@@ -639,6 +642,16 @@ std::shared_ptr<ShuffleReader> VeloxRuntime::createShuffleReader(
     std::shared_ptr<arrow::Schema> schema,
     const std::shared_ptr<ShuffleReaderOptions>& options) {
   return std::make_shared<gluten::VeloxShuffleReader>(schema, memoryManager(), options);
+}
+
+std::shared_ptr<ShuffleReader> VeloxRuntime::createShuffleReader(
+    ArrowSchema* schema,
+    const std::shared_ptr<ShuffleReaderOptions>& options) {
+  // Import the row type before Arrow C++ drops map-key field metadata (including TIMESTAMP_UTC).
+  const auto release = folly::makeGuard([&] { ArrowSchemaRelease(schema); });
+  auto rowType = velox::asRowType(velox::importFromArrow(*schema));
+  GLUTEN_ASSIGN_OR_THROW(auto imported, arrow::ImportSchema(schema));
+  return std::make_shared<VeloxShuffleReader>(imported, memoryManager(), options, std::move(rowType));
 }
 
 std::unique_ptr<ColumnarBatchSerializer> VeloxRuntime::createColumnarBatchSerializer(struct ArrowSchema* cSchema) {

@@ -186,12 +186,15 @@ These checks are in `GlutenDeltaNativeWriteGate` (from code).
 `TIMESTAMP_NTZ` data is written natively as Parquet `INT64` microseconds with
 `isAdjustedToUTC=false`, including fields inside structs, arrays and map keys or values.
 The Spark-to-Arrow schema preserves Velox's NTZ logical-type metadata for both row conversion
-and the file writer. The native writer also recognizes timezone-less Arrow timestamps when
-Arrow C++ drops map-key metadata; ordinary `TIMESTAMP` fields in the same file remain
-adjusted-to-UTC. Direct field access and null checks on ordinary fields inside mixed NTZ
-structs remain eligible for native statistics, including deeper field-access chains.
+and the file writer. Native shuffle readers import the logical type before Arrow C++ drops
+map-key metadata. Files retain the original nested field names even when the writing session
+resolves names case-insensitively. Ordinary `TIMESTAMP` fields remain adjusted-to-UTC.
+Direct field access and null checks inside mixed NTZ structs remain eligible for native
+statistics; a supported null check does not enable unrelated NTZ expressions in the same projection.
 NTZ-only files do not depend on `spark.sql.parquet.outputTimestampType` or datetime rebasing.
-Mixed schemas still follow the ordinary `TIMESTAMP` and `DATE` checks above. Partitioned
+Mixed schemas still follow the ordinary `TIMESTAMP` and `DATE` checks above. For files with
+these calendar-sensitive types, the footer identifies the Spark version so that Spark readers
+recognize the corrected calendar regardless of their rebase policy for unmarked files. Partitioned
 writes still require `delta.writePartitionColumnsToParquet=false`, and setting
 `spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation=true` still rejects NTZ
 native writes. This writer support does not change NTZ literal conversion or reading older

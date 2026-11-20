@@ -1097,10 +1097,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ShuffleReaderJniWrappe
   options->gpuAsyncReaderMaxPrefetchBytes = gpuAsyncReaderMaxPrefetchBytes;
 #endif
 
-  std::shared_ptr<arrow::Schema> schema =
-      arrowGetOrThrow(arrow::ImportSchema(reinterpret_cast<struct ArrowSchema*>(cSchema)));
-
-  return ctx->saveObject(ctx->createShuffleReader(schema, options));
+  return ctx->saveObject(ctx->createShuffleReader(reinterpret_cast<ArrowSchema*>(cSchema), options));
   JNI_METHOD_END(kInvalidObjectHandle)
 }
 
