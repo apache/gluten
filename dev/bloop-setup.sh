@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
 # this work for additional information regarding copyright ownership.
@@ -288,7 +288,7 @@ if 'project' in config:
 
 with open('$config_file', 'w') as f:
     json.dump(config, f, indent=2)
-" 2>/dev/null && ((INJECTED_COUNT++))
+" 2>/dev/null && ((++INJECTED_COUNT))
   fi
 done
 
