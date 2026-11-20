@@ -34,4 +34,10 @@ abstract class InternalRowSparkCompatible
 
   override def getBinaryView(ordinal: Int): Nothing =
     throw new UnsupportedOperationException()
+
+  override def getTimestampNTZNanos(ordinal: Int): Nothing =
+    throw new UnsupportedOperationException()
+
+  override def getTimestampLTZNanos(ordinal: Int): Nothing =
+    throw new UnsupportedOperationException()
 }
