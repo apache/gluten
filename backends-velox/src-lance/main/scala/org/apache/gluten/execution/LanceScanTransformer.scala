@@ -30,7 +30,9 @@ import org.apache.spark.sql.catalyst.plans.physical.{Partitioning, UnknownPartit
 import org.apache.spark.sql.connector.read.{InputPartition, Scan}
 import org.apache.spark.sql.execution.LeafExecNode
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
-import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
+import org.apache.spark.sql.types.{ArrayType, DataType, MapType, Metadata, StructField, StructType}
+import org.apache.spark.sql.util.LanceArrowUtils
+import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch, ColumnVector}
 
 import org.apache.arrow.c.{ArrowArrayStream, Data}
 import org.apache.arrow.memory.BufferAllocator
@@ -39,10 +41,13 @@ import org.apache.arrow.vector.complex.{BaseRepeatedValueVector, FixedSizeListVe
 import org.apache.arrow.vector.ipc.ArrowReader
 import org.apache.arrow.vector.ipc.message.ArrowFieldNode
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType}
+import org.lance.spark.LanceConstant
 import org.lance.spark.internal.LanceArrowStreamScanner
 import org.lance.spark.read.{LanceInputPartition, LanceScan}
+import org.lance.spark.utils.{BlobUtils, JsonUtils, VectorUtils}
 
 import scala.collection.JavaConverters._
+import scala.util.Try
 
 /**
  * A Gluten leaf that reads a Lance table through the Arrow C Data Interface and produces
@@ -105,14 +110,118 @@ object LanceScanTransformer {
    * rejects both at runtime (checkNoPushedAggregation / checkNativeSchemaMatchesPartition), but by
    * then the node is already offloaded to Velox, so the throw fails the query instead of falling
    * back. Detecting them here keeps such scans on vanilla Spark (e.g. the fast COUNT(*) metadata
-   * reader) rather than offloading a scan that can only crash.
+   * reader) rather than offloading a scan that can only crash. The same holds for the columns
+   * checked by [[hasExportableColumns]].
    */
   def isExportable(batchScan: BatchScanExec): Boolean =
     batchScan.inputPartitions.forall {
       case p: LanceInputPartition =>
         !p.getPushedAggregation.isPresent && p.getReadOptions.getFullTextQuery == null
       case _ => false
+    } && hasExportableColumns(batchScan.scan.readSchema())
+
+  /**
+   * Whether the native fragment scan returns the columns of `schema` as declared, each as an Arrow
+   * vector that Spark's [[ArrowColumnVector]], which each imported vector is wrapped in, reads as
+   * the declared type.
+   *
+   * [[LanceArrowStreamScanner.export]] streams the native scan as is, and only if its schema equals
+   * the one lance-spark's Spark-to-Arrow mapping ([[LanceArrowUtils]]) derives from the declared
+   * schema. The native scan differs for a scan that reads no columns, where it returns `_rowid`,
+   * for the columns in [[isAddedByLanceReader]], and for the fields [[isScannedAsMapped]] rejects
+   * at any depth. Every other column arrives with its mapped type, with vectors rewritten as Lists
+   * ([[FixedSizeLists]]), and ArrowColumnVector has no accessor for some of these types, e.g.
+   * FixedSizeBinary, Date(MILLISECOND) and the elements of a Float16 vector. All of these fail at
+   * execution, after the scan was offloaded. A column's type is checked by wrapping an empty vector
+   * of its field as the scan emits it, which resolves the type as the imported batches will.
+   */
+  private def hasExportableColumns(schema: StructType): Boolean =
+    schema.nonEmpty && !schema.fields.exists(isAddedByLanceReader) &&
+      // The mapping throws for types it rejects (e.g. Float16 without Arrow's Float2Vector), and
+      // the export runs the same mapping.
+      Try(LanceArrowUtils.toArrowSchema(schema, "UTC", true)).toOption.exists {
+        arrowSchema =>
+          schema.fields.zip(arrowSchema.getFields.asScala).forall {
+            case (field, arrowField) =>
+              isScannedAsMapped(field.dataType, field.metadata, arrowField) &&
+              isWrappable(FixedSizeLists.toListField(arrowField), field.dataType)
+          }
+      }
+
+  /**
+   * Lance's metadata columns, and the blob position and size columns, are left out of the native
+   * scan's projection: lance-spark requests, computes or reorders them itself.
+   */
+  private def isAddedByLanceReader(field: StructField): Boolean =
+    metadataColumns.contains(field.name) ||
+      field.name.endsWith(LanceConstant.BLOB_POSITION_SUFFIX) ||
+      field.name.endsWith(LanceConstant.BLOB_SIZE_SUFFIX)
+
+  /**
+   * Whether the native scan returns a field of `dataType` with `metadata`, and every field nested
+   * in it, as `arrowField`, the field lance-spark's mapping derives from it. It does not for:
+   *   - Blob and JSON fields, at any depth: the native scan returns blob descriptions and JSONB
+   *     bytes, which only lance-spark's own reader turns back into the declared values.
+   *   - Vectors the mapping does not restore as a FixedSizeList. lance-spark 0.8.0 restores only
+   *     vectors of floats or doubles, so e.g. an int8 vector or a vector of vectors maps to a List,
+   *     while the native scan returns a FixedSizeList.
+   *
+   * Spark has no metadata slot for the element of an array or the key and value of a map, so
+   * lance-spark embeds theirs in the parent field's metadata, which is where the mapping reads it.
+   */
+  private def isScannedAsMapped(
+      dataType: DataType,
+      metadata: Metadata,
+      arrowField: Field): Boolean = {
+    val storedForm = BlobUtils.isBlobSparkMetadata(metadata) ||
+      BlobUtils.isBlobV2SparkMetadata(metadata) || JsonUtils.hasJsonMetadata(metadata)
+    val vectorAsList = metadata.contains(VectorUtils.ARROW_FIXED_SIZE_LIST_SIZE_KEY) &&
+      !arrowField.getType.isInstanceOf[ArrowType.FixedSizeList]
+    !storedForm && !vectorAsList && (dataType match {
+      case ArrayType(elementType, _) =>
+        isScannedAsMapped(
+          elementType,
+          embeddedMetadata(metadata, LanceArrowUtils.LANCE_ELEMENT_METADATA_KEY),
+          arrowField.getChildren.get(0))
+      case StructType(fields) =>
+        fields.zip(arrowField.getChildren.asScala).forall {
+          case (field, child) => isScannedAsMapped(field.dataType, field.metadata, child)
+        }
+      case MapType(keyType, valueType, _) =>
+        val entries = arrowField.getChildren.get(0).getChildren
+        isScannedAsMapped(
+          keyType,
+          embeddedMetadata(metadata, LanceArrowUtils.LANCE_MAP_KEY_METADATA_KEY),
+          entries.get(0)) &&
+        isScannedAsMapped(
+          valueType,
+          embeddedMetadata(metadata, LanceArrowUtils.LANCE_MAP_VALUE_METADATA_KEY),
+          entries.get(1))
+      case _ => true
+    })
+  }
+
+  private def embeddedMetadata(parent: Metadata, key: String): Metadata =
+    if (parent.contains(key)) Metadata.fromJson(parent.getString(key)) else Metadata.empty
+
+  private val metadataColumns = Set(
+    LanceConstant.ROW_ID,
+    LanceConstant.ROW_ADDRESS,
+    LanceConstant.FRAGMENT_ID,
+    LanceConstant.ROW_CREATED_AT_VERSION,
+    LanceConstant.ROW_LAST_UPDATED_AT_VERSION,
+    LanceConstant.SCORE
+  )
+
+  private def isWrappable(field: Field, dataType: DataType): Boolean = {
+    val vector = field.createVector(ArrowBufferAllocators.globalInstance())
+    try {
+      Try(new ArrowColumnVector(vector).dataType()).toOption.exists(
+        DataType.equalsStructurally(_, dataType, ignoreNullability = true))
+    } finally {
+      vector.close()
     }
+  }
 }
 
 /** One RDD partition per planned Lance [[InputPartition]] (one Lance fragment each). */
@@ -289,7 +398,8 @@ private object FixedSizeLists {
     }
   }
 
-  private def toListField(field: Field): Field =
+  /** `field` with every FixedSizeList rewritten as a List, as [[toLists]] emits it. */
+  def toListField(field: Field): Field =
     if (!contains(field)) {
       field
     } else {
