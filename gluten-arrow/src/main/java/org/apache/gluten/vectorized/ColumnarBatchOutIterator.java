@@ -32,7 +32,7 @@ import java.io.IOException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import scala.collection.immutable.Map$;
+import scala.collection.immutable.Map;
 
 public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
     implements RuntimeAware {
@@ -171,11 +171,7 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
     // Builds the exception QueryExecutionErrors.exceedMaxLimit builds, with the Velox error as its
     // cause. SparkRuntimeException's cause can only be set through its constructor.
     return new SparkRuntimeException(
-        "EXCEED_LIMIT_LENGTH",
-        Map$.MODULE$.<String, String>empty().updated("limit", limit),
-        e,
-        new QueryContext[0],
-        "");
+        "EXCEED_LIMIT_LENGTH", new Map.Map1<>("limit", limit), e, new QueryContext[0], "");
   }
 
   @Override
