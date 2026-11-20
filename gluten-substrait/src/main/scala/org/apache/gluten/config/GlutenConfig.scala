@@ -499,6 +499,7 @@ object GlutenConfig extends ConfigRegistry {
   val SPARK_SHUFFLE_SPILL_DISK_WRITE_BUFFER_SIZE = "spark.shuffle.spill.diskWriteBufferSize"
   val SPARK_SHUFFLE_SPILL_COMPRESS = "spark.shuffle.spill.compress"
   val SPARK_SHUFFLE_SPILL_COMPRESS_DEFAULT: Boolean = true
+  val SPARK_IO_COMPRESSION_CODEC = "spark.io.compression.codec"
   val SPARK_MAX_BROADCAST_TABLE_SIZE = "spark.sql.maxBroadcastTableSize"
   // Added in Spark 4.1 with default false (SPARK-53535). Earlier versions behave as if it is true.
   val SPARK_LEGACY_PARQUET_RETURN_NULL_STRUCT_IF_ALL_FIELDS_MISSING =
@@ -528,7 +529,6 @@ object GlutenConfig extends ConfigRegistry {
     SQLConf.RUNTIME_BLOOM_FILTER_NUM_BITS.key,
     SQLConf.RUNTIME_BLOOM_FILTER_MAX_NUM_BITS.key,
     SQLConf.RUNTIME_BLOOM_FILTER_MAX_NUM_ITEMS.key,
-    "spark.io.compression.codec",
     "spark.sql.decimalOperations.allowPrecisionLoss",
     SPARK_LEGACY_PARQUET_RETURN_NULL_STRUCT_IF_ALL_FIELDS_MISSING,
     // s3 config
@@ -597,7 +597,6 @@ object GlutenConfig extends ConfigRegistry {
         GLUTEN_COLUMNAR_TO_ROW_MEM_THRESHOLD.key,
         GLUTEN_COLUMNAR_TO_ROW_MEM_THRESHOLD.defaultValue.get.toString),
       (SPARK_SHUFFLE_SPILL_COMPRESS, SPARK_SHUFFLE_SPILL_COMPRESS_DEFAULT.toString),
-      (SQLConf.MAP_KEY_DEDUP_POLICY.key, SQLConf.MAP_KEY_DEDUP_POLICY.defaultValueString),
       (SQLConf.SESSION_LOCAL_TIMEZONE.key, SQLConf.SESSION_LOCAL_TIMEZONE.defaultValueString),
       (SQLConf.ANSI_ENABLED.key, SQLConf.ANSI_ENABLED.defaultValueString),
       (
@@ -621,6 +620,20 @@ object GlutenConfig extends ConfigRegistry {
         v =>
           nativeConfMap
             .put(SQLConf.LEGACY_TIME_PARSER_POLICY.key, v.toUpperCase(Locale.ROOT)))
+
+    // `conf` holds raw strings, so parse the policy with Spark's converter to give native code
+    // the same value as `SQLConf.getConf`.
+    val rawMapKeyDedupPolicy = conf.getOrElse(
+      SQLConf.MAP_KEY_DEDUP_POLICY.key,
+      SQLConf.MAP_KEY_DEDUP_POLICY.defaultValueString)
+    nativeConfMap.put(
+      SQLConf.MAP_KEY_DEDUP_POLICY.key,
+      SQLConf.MAP_KEY_DEDUP_POLICY.valueConverter(rawMapKeyDedupPolicy).toString)
+
+    // Spark lowercases the codec name before using it, so give native code the same value.
+    conf
+      .get(SPARK_IO_COMPRESSION_CODEC)
+      .foreach(v => nativeConfMap.put(SPARK_IO_COMPRESSION_CODEC, v.toLowerCase(Locale.ROOT)))
 
     val confPrefixSession = prefixSessionOf(backendName)
     val confPrefix = prefixOf(backendName)

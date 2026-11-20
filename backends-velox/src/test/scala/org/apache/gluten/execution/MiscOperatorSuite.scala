@@ -2691,6 +2691,14 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     }
   }
 
+  test("native aggregation with spark.io.compression.codec set in upper case") {
+    withSQLConf("spark.io.compression.codec" -> "ZSTD") {
+      runQueryAndCompare("select l_returnflag, count(*) from lineitem group by l_returnflag") {
+        checkGlutenPlan[HashAggregateExecTransformer]
+      }
+    }
+  }
+
   test("exchange reuse with CTE lateral view explode") {
     // This test verifies the fix for Generate pre-project canonicalization.
     // When explode(split(col)) is used, a pre-project is inserted to compute the
