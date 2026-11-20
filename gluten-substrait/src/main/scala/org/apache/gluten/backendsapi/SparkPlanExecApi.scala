@@ -39,7 +39,7 @@ import org.apache.spark.sql.catalyst.plans.physical.{BroadcastMode, Partitioning
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.datasources.FileFormat
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
-import org.apache.spark.sql.execution.joins.BuildSideRelation
+import org.apache.spark.sql.execution.joins.{BuildSideRelation, SortMergeJoinExec}
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.execution.python.ArrowEvalPythonExec
 import org.apache.spark.sql.execution.window._
@@ -149,6 +149,17 @@ trait SparkPlanExecApi {
       right: SparkPlan,
       isSkewJoin: Boolean = false,
       projectList: Seq[NamedExpression] = null): SortMergeJoinExecTransformerBase
+
+  /** Convert the original merge join, including its logical statistics. */
+  def genSortMergeJoinExecTransformer(plan: SortMergeJoinExec): SortMergeJoinExecTransformerBase =
+    genSortMergeJoinExecTransformer(
+      plan.leftKeys,
+      plan.rightKeys,
+      plan.joinType,
+      plan.condition,
+      plan.left,
+      plan.right,
+      plan.isSkewJoin)
 
   /** Generate CartesianProductExecTransformer. */
   def genCartesianProductExecTransformer(

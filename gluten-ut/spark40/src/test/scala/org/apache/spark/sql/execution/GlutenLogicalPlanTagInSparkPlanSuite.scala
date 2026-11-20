@@ -96,8 +96,7 @@ class GlutenLogicalPlanTagInSparkPlanSuite
         assert(plan.getTagValue(SparkPlan.LOGICAL_PLAN_TAG).isEmpty)
 
       // Gluten infrastructure nodes (no corresponding logical plan)
-      case _: WholeStageTransformer | _: InputIteratorTransformer | _: ColumnarInputAdapter |
-          _: VeloxResizeBatchesExec =>
+      case _: WholeStageTransformer | _: InputIteratorTransformer | _: ColumnarInputAdapter =>
       // These are Gluten-specific wrapper nodes without logical plan links.
 
       // Scan trees

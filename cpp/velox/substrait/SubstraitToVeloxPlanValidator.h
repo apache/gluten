@@ -160,6 +160,11 @@ class SubstraitToVeloxPlanValidator {
   /// Check if the pattern can pass with RE2 compilation.
   bool validateRegexExpr(const std::string& name, const ::substrait::Expression::ScalarFunction& scalarFunction);
 
+  /// Validate sequence function. Only integer arguments, with no step or a non-zero literal step, are supported.
+  bool validateSequence(
+      const ::substrait::Expression::ScalarFunction& scalarFunction,
+      const std::vector<core::TypedExprPtr>& params);
+
   /// Validate Substrait scarlar function.
   bool validateScalarFunction(
       const ::substrait::Expression::ScalarFunction& scalarFunction,
