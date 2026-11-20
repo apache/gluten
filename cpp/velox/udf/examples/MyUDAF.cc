@@ -103,21 +103,28 @@ class AverageAggregate {
 
 class MyAvgRegisterer final : public gluten::UdafRegisterer {
   int getNumUdaf() override {
-    return 2;
+    return 4;
   }
 
   void populateUdafEntries(int& index, gluten::UdafEntry* udafEntries) override {
-    for (const auto& argTypes : {myAvgArgFloat_, myAvgArgDouble_}) {
-      udafEntries[index++] = {name_.c_str(), kDouble, 1, argTypes, myAvgIntermediateType_, false, true};
+    // Point at the members, not at copies: the entry keeps the char* and an initializer_list of
+    // std::string would hand it one that dies at the end of this statement.
+    for (const auto* name : {&name_, &plainName_}) {
+      for (const auto& argTypes : {myAvgArgFloat_, myAvgArgDouble_}) {
+        udafEntries[index++] = {name->c_str(), kDouble, 1, argTypes, myAvgIntermediateType_, false, true};
+      }
     }
   }
 
   void registerSignatures() override {
-    registerSimpleAverageAggregate();
+    registerSimpleAverageAggregate(name_);
+    // The same aggregate under a name with no dot, which is what lets a query reach it without
+    // a hive UDAF class behind it.
+    registerSimpleAverageAggregate(plainName_);
   }
 
  private:
-  exec::AggregateRegistrationResult registerSimpleAverageAggregate() {
+  exec::AggregateRegistrationResult registerSimpleAverageAggregate(const std::string& name) {
     std::vector<std::shared_ptr<exec::AggregateFunctionSignature>> signatures;
 
     signatures.push_back(exec::AggregateFunctionSignatureBuilder()
@@ -133,14 +140,14 @@ class MyAvgRegisterer final : public gluten::UdafRegisterer {
                              .build());
 
     return exec::registerAggregateFunction(
-        name_,
+        name,
         std::move(signatures),
-        [this](
+        [name](
             core::AggregationNode::Step step,
             const std::vector<TypePtr>& argTypes,
             const TypePtr& resultType,
             const core::QueryConfig& /*config*/) -> std::unique_ptr<exec::Aggregate> {
-          VELOX_CHECK_LE(argTypes.size(), 1, "{} takes at most one argument", name_);
+          VELOX_CHECK_LE(argTypes.size(), 1, "{} takes at most one argument", name);
           auto inputType = argTypes[0];
           if (exec::isRawInput(step)) {
             switch (inputType->kind()) {
@@ -149,7 +156,7 @@ class MyAvgRegisterer final : public gluten::UdafRegisterer {
               case TypeKind::DOUBLE:
                 return std::make_unique<SimpleAggregateAdapter<AverageAggregate<double>>>(step, argTypes, resultType);
               default:
-                VELOX_FAIL("Unknown input type for {} aggregation {}", name_, inputType->kindName());
+                VELOX_FAIL("Unknown input type for {} aggregation {}", name, inputType->kindName());
             }
           } else {
             switch (resultType->kind()) {
@@ -168,6 +175,7 @@ class MyAvgRegisterer final : public gluten::UdafRegisterer {
   }
 
   const std::string name_ = "test.org.apache.spark.sql.MyDoubleAvg";
+  const std::string plainName_ = "myudaf_avg";
   const char* myAvgArgFloat_[1] = {kFloat};
   const char* myAvgArgDouble_[1] = {kDouble};
 

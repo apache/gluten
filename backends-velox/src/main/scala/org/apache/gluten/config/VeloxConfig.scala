@@ -768,7 +768,7 @@ object VeloxConfig extends ConfigRegistry {
   val NATIVE_UDF_BYPASS_REGISTRATION =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.nativeUDF.bypassRegistration")
       .doc(
-        "If true, a UDF from udfLibraryPaths can be called by the name it was registered " +
+        "If true, a UDF or UDAF from udfLibraryPaths can be called by the name it was registered " +
           "with, so you do not have to write a Java class for it or run CREATE TEMPORARY " +
           "FUNCTION. In exchange, there is no Java version to fall back to, so any query " +
           "Gluten cannot run natively will fail instead of running on Spark. Off by default.")
