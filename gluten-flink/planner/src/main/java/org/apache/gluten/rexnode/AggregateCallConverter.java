@@ -44,7 +44,18 @@ public class AggregateCallConverter {
       rawTypes.add(inputType.getChildren().get(arg));
     }
     CallTypedExpr call = toCall(aggregateCall, inputType);
-    return new Aggregate(call, rawTypes, null, List.of(), List.of(), aggregateCall.isDistinct());
+    // A FILTER (WHERE ...) clause becomes the aggregate's mask: the
+    // plan-node column the operator's AggregationMasks reads. Dropping
+    // it silently mis-aggregates (native counts the filtered rows,
+    // GFV would count everything).
+    FieldAccessTypedExpr mask = null;
+    if (aggregateCall.hasFilter()) {
+      int filterArg = aggregateCall.filterArg;
+      mask =
+          FieldAccessTypedExpr.create(
+              inputType.getChildren().get(filterArg), inputType.getNames().get(filterArg));
+    }
+    return new Aggregate(call, rawTypes, mask, List.of(), List.of(), aggregateCall.isDistinct());
   }
 
   public static List<Aggregate> toAggregates(

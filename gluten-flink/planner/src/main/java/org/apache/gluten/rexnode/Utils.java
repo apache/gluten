@@ -157,4 +157,23 @@ public class Utils {
     }
     return groupingKeys;
   }
+
+  // Keyless windows (empty grouping): the keyed state backend requires at
+  // least one key channel (KeyedStateSpec hard constraint), so append a
+  // constant BIGINT column ("$keyless_key", always 0) to the input type
+  // and key on the trailing channel; the native operator materializes the
+  // column on each runtime batch (the declared type is one column wider
+  // than the runtime vectors, and the output projection carries no key
+  // column).
+  public static io.github.zhztheplayer.velox4j.type.RowType wrapKeylessInput(
+      io.github.zhztheplayer.velox4j.type.RowType inputType) {
+    List<String> names = new ArrayList<>(inputType.getNames().size() + 1);
+    names.addAll(inputType.getNames());
+    names.add("$keyless_key");
+    List<io.github.zhztheplayer.velox4j.type.Type> children =
+        new ArrayList<>(inputType.getChildren().size() + 1);
+    children.addAll(inputType.getChildren());
+    children.add(new io.github.zhztheplayer.velox4j.type.BigIntType());
+    return new io.github.zhztheplayer.velox4j.type.RowType(names, children);
+  }
 }
