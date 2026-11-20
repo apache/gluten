@@ -1,0 +1,34 @@
+VeloxColumnarToRow
+  TakeOrderedAndProjectExecTransformer [sum(ss_ext_sales_price),d_year,i_category_id,i_category]
+    WholeStageCodegenTransformer (5)
+      ProjectExecTransformer [d_year,i_category_id,i_category,sum(UnscaledValue(ss_ext_sales_price))]
+        RegularHashAggregateExecTransformer [d_year,i_category_id,i_category,sum] [sum(UnscaledValue(ss_ext_sales_price)),sum]
+          InputIteratorTransformer
+            InputAdapter
+              ColumnarExchange [d_year,i_category_id,i_category,sum] #1
+                VeloxResizeBatches
+                  WholeStageCodegenTransformer (4)
+                    ProjectExecTransformer [d_year,i_category_id,i_category,sum]
+                      FlushableHashAggregateExecTransformer [d_year,i_category_id,i_category,_pre_x] [sum,sum,sum]
+                        ProjectExecTransformer [d_year,i_category_id,i_category,ss_ext_sales_price]
+                          BroadcastHashJoinExecTransformer [ss_sold_date_sk,d_date_sk]
+                            ProjectExecTransformer [ss_ext_sales_price,ss_sold_date_sk,i_category_id,i_category]
+                              BroadcastHashJoinExecTransformer [ss_item_sk,i_item_sk]
+                                FilterExecTransformer [ss_item_sk]
+                                  FileSourceScanExecTransformer parquet spark_catalog.default.store_sales [ss_item_sk,ss_ext_sales_price,ss_sold_date_sk]
+                                    ColumnarSubqueryBroadcast [d_date_sk] #1
+                                      ColumnarBroadcastExchange #2
+                                        WholeStageCodegenTransformer (1)
+                                          ProjectExecTransformer [d_date_sk,d_year]
+                                            FilterExecTransformer [d_moy,d_year,d_date_sk]
+                                              FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_date_sk,d_year,d_moy]
+                                InputIteratorTransformer
+                                  InputAdapter
+                                    ColumnarBroadcastExchange #3
+                                      WholeStageCodegenTransformer (2)
+                                        ProjectExecTransformer [i_item_sk,i_category_id,i_category]
+                                          FilterExecTransformer [i_manager_id,i_item_sk]
+                                            FileSourceScanExecTransformer parquet spark_catalog.default.item [i_item_sk,i_category_id,i_category,i_manager_id]
+                            InputIteratorTransformer
+                              InputAdapter
+                                ReusedExchange [d_date_sk,d_year] #2

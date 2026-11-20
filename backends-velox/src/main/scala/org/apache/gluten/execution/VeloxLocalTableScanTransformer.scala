@@ -23,7 +23,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, SortOrder, UnsafeProjection}
-import org.apache.spark.sql.catalyst.plans.physical.Partitioning
+import org.apache.spark.sql.catalyst.plans.physical.{Partitioning, SinglePartition}
 import org.apache.spark.sql.execution.{LocalTableScanTransformer, SparkPlan}
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.internal.SQLConf
@@ -110,17 +110,29 @@ case class VeloxLocalTableScanTransformer(
           "natively); this plan should not have been offloaded")
     }
 
+    // Spark 4.3+ (SPARK-57851) reports `SinglePartition` for a scan marked for single-task
+    // execution and may elide the shuffle above it, so produce exactly one partition then, as
+    // LocalTableScanExec does. Before 4.3 the partitioning is always `UnknownPartitioning(0)`.
+    val useSingleTask = outputPartitioning == SinglePartition
     if (rows.isEmpty) {
-      sparkContext.emptyRDD[ColumnarBatch]
+      if (useSingleTask) {
+        sparkContext.parallelize(Seq.empty[ColumnarBatch], 1)
+      } else {
+        sparkContext.emptyRDD[ColumnarBatch]
+      }
     } else {
       // Materialize rows as UnsafeRow on the driver, then parallelize
       val proj = UnsafeProjection.create(outputAttributes, outputAttributes)
       val unsafeRows = rows.map(r => proj(r).copy()).toArray
-      val numSlices = math.min(
-        unsafeRows.length,
-        SQLConf.get
-          .getConf(SQLConf.LEAF_NODE_DEFAULT_PARALLELISM)
-          .getOrElse(sparkContext.defaultParallelism))
+      val numSlices = if (useSingleTask) {
+        1
+      } else {
+        math.min(
+          unsafeRows.length,
+          SQLConf.get
+            .getConf(SQLConf.LEAF_NODE_DEFAULT_PARALLELISM)
+            .getOrElse(sparkContext.defaultParallelism))
+      }
       val rowRdd = sparkContext.parallelize(unsafeRows.toSeq, numSlices)
 
       rowRdd.mapPartitions {
