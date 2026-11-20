@@ -21,7 +21,10 @@ import org.apache.gluten.execution.{BatchScanExecTransformer, ProjectExecTransfo
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.catalyst.expressions.{RoundCeil, RoundFloor}
+import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.DecimalType
 
 class MathFunctionsValidateSuiteAnsiOn extends FunctionsValidateSuite {
 
@@ -119,6 +122,129 @@ class MathFunctionsValidateSuite extends FunctionsValidateSuite {
   test("ceiling") {
     runQueryAndCompare("SELECT ceiling(cast(l_orderkey as long)) from lineitem limit 1") {
       checkGlutenPlan[ProjectExecTransformer]
+    }
+  }
+
+  test("2-arg ceiling / floor on decimals (RoundCeil / RoundFloor)") {
+    // The 2-arg forms produce Spark RoundCeil / RoundFloor and dispatch to the Velox
+    // decimal_ceil / decimal_floor special forms. The projection is native only when the
+    // expression offloads, so checkGlutenPlan[ProjectExecTransformer] doubles as an offload
+    // assertion; runQueryAndCompare additionally validates results against vanilla Spark.
+    withSQLConf(SQLConf.ANSI_ENABLED.key -> "false") {
+      runQueryAndCompare(
+        "SELECT ceiling(cast(l_quantity as decimal(12, 2)), 1) FROM lineitem limit 10") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+      runQueryAndCompare(
+        "SELECT floor(cast(l_quantity as decimal(12, 2)), 1) FROM lineitem limit 10") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+      // Negative scale rounds to the left of the decimal point.
+      runQueryAndCompare(
+        "SELECT ceiling(cast(l_extendedprice as decimal(20, 4)), -2) FROM lineitem limit 10") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+      runQueryAndCompare(
+        "SELECT floor(cast(l_extendedprice as decimal(20, 4)), -2) FROM lineitem limit 10") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+    }
+  }
+
+  test("2-arg ceiling / floor on decimals offloads under ANSI when precision cannot overflow") {
+    withSQLConf(
+      SQLConf.ANSI_ENABLED.key -> "true",
+      GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false") {
+      runQueryAndCompare(
+        "SELECT ceiling(cast(l_quantity as decimal(12, 2)), 1) FROM lineitem limit 10") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+      runQueryAndCompare(
+        "SELECT floor(cast(l_extendedprice as decimal(20, 4)), -2) FROM lineitem limit 10") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+    }
+  }
+
+  test("2-arg ceiling / floor on decimals falls back when precision can overflow") {
+    Seq("true", "false").foreach {
+      ansiEnabled =>
+        withSQLConf(
+          SQLConf.ANSI_ENABLED.key -> ansiEnabled,
+          GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false") {
+          Seq(
+            ("ceiling", "99999999999999999999999999999999999999", "decimal(38, 0)", "-1"),
+            ("floor", "-99999999999999999999999999999999999999", "decimal(38, 0)", "-1"),
+            ("ceiling", "5", "decimal(10, 2)", "-38")
+          ).foreach {
+            case (function, value, decimalType, scale) =>
+              val df =
+                spark.sql(s"SELECT $function(cast('$value' as $decimalType), $scale)")
+              assert(
+                df.queryExecution.executedPlan
+                  .collect { case project: ProjectExecTransformer => project }
+                  .isEmpty,
+                s"Expected decimal $function overflow to fall back to Spark:\n" +
+                  df.queryExecution.executedPlan
+              )
+              val error = intercept[Exception] {
+                df.collect()
+              }
+              assert(
+                Iterator
+                  .iterate[Throwable](error)(_.getCause)
+                  .takeWhile(_ != null)
+                  .exists(_.isInstanceOf[ArithmeticException]),
+                s"Expected an arithmetic overflow error but received: $error"
+              )
+          }
+
+          val df =
+            spark.sql(
+              "SELECT ceiling(cast('0' as decimal(10, 2)), cast(-2147483648 as int))")
+          assert(
+            df.queryExecution.executedPlan
+              .collect { case project: ProjectExecTransformer => project }
+              .isEmpty,
+            s"Expected extreme-scale decimal ceiling to fall back to Spark:\n" +
+              df.queryExecution.executedPlan
+          )
+          assert(df.collect().head.getDecimal(0).signum() == 0)
+        }
+    }
+  }
+
+  test("2-arg ceiling / floor on negative-scale decimals falls back") {
+    withSQLConf(
+      SQLConf.LEGACY_ALLOW_NEGATIVE_SCALE_OF_DECIMAL_ENABLED.key -> "true",
+      SQLConf.ANSI_ENABLED.key -> "true",
+      GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false"
+    ) {
+      val input = spark
+        .range(-1L, 2L)
+        .select(col("id").cast(DecimalType(1, -256)).as("d"))
+
+      Seq("ceiling(d, -255)", "floor(d, -255)").foreach {
+        expression =>
+          val df = input.selectExpr(expression)
+          assert(
+            df.queryExecution.optimizedPlan.expressions.exists(
+              _.find {
+                case _: RoundCeil | _: RoundFloor => true
+                case _ => false
+              }.isDefined),
+            s"Expected $expression to remain in the optimized plan:\n" +
+              df.queryExecution.optimizedPlan
+          )
+          assert(
+            df.queryExecution.executedPlan
+              .collect { case project: ProjectExecTransformer => project }
+              .isEmpty,
+            s"Expected $expression on a negative-scale decimal to fall back to Spark:\n" +
+              df.queryExecution.executedPlan
+          )
+          assert(df.collect().forall(_.getDecimal(0).signum() == 0))
+      }
     }
   }
 

@@ -58,8 +58,14 @@ serve it:
 | Query shape                    | Behavior |
 |--------------------------------|----------|
 | Projection / filter            | Offload  |
+| Vector (`FixedSizeList`) columns | Offload  |
 | Pushed-down aggregation (e.g. `COUNT(*)`) | Fallback |
 | Full-text query (`_score`)     | Fallback |
+
+Vector columns are Arrow `FixedSizeList`s, which neither Spark's `ArrowColumnVector` nor Velox
+reads, so the scan rewrites them as variable-size lists, the `ArrayType` lance-spark already
+exposes. The vector values are not copied; each vector column only gets an offsets buffer. This
+also applies to vectors nested in a struct or a list.
 
 The offload decision is made at plan time (`LanceScanTransformer.isExportable`), so a
 non-offloadable scan is detected before execution rather than failing inside Velox.

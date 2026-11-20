@@ -66,6 +66,18 @@ requires cutting a new candidate.
 The bundle JAR statically links third-party code, and `package-release.sh` ships `LICENSE-binary`
 and `NOTICE-binary` inside each binary tarball as `LICENSE` and `NOTICE`. Whenever a bundled
 component is added or enabled, its copyright and license must be recorded there.
+The third-party license texts and copyright notices referenced by `LICENSE-binary`
+are kept in `licenses-binary/`. The package build includes the binary LICENSE/NOTICE
+and these texts under `META-INF/` in the shaded JAR, and the release script also
+copies `licenses-binary/` into each binary tarball. Keep these files in sync when
+updating bundled dependencies; listing a license name alone does not retain the
+dependency's required notices.
+
+Run the packaging regression tests without building the native backend:
+
+```bash
+python3 -m unittest discover -s gluten-ut/src-release/test/python -v
+```
 
 A previous RC was voted `-1` because Hudi and Paimon had been enabled in the binaries without
 being added to `NOTICE-binary`.

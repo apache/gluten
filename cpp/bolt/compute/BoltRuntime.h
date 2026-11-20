@@ -117,10 +117,14 @@ class BoltRuntime final : public Runtime {
       std::vector<bytedance::bolt::core::PlanNodeId>& scanIds,
       std::vector<bytedance::bolt::core::PlanNodeId>& streamIds);
 
+  using Runtime::createShuffleWriter;
+
   std::shared_ptr<ShuffleWriterBase> createShuffleWriter(
       const ShuffleWriterInfo& info,
       std::shared_ptr<RssClient> rssClient,
       std::shared_ptr<ColumnarBatch> cb);
+
+  using Runtime::createShuffleReader;
 
   std::shared_ptr<ShuffleReaderBase> createShuffleReader(
       std::shared_ptr<arrow::Schema> schema,

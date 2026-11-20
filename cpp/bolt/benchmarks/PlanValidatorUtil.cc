@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
   conf.insert({kDebugModeEnabled, "true"});
   initBoltBackend(conf);
   auto pool = defaultLeafBoltMemoryPool().get();
-  SubstraitToBoltPlanValidator planValidator(pool);
+  SubstraitToBoltPlanValidator planValidator(pool, conf);
 
   ::substrait::Plan subPlan;
   parseProtobuf(reinterpret_cast<uint8_t*>(plan.data()), plan.size(), &subPlan);

@@ -39,7 +39,29 @@ trait Transformable {
   def getTransformer(childrenTransformers: Seq[ExpressionTransformer]): ExpressionTransformer
 }
 
-object ExpressionConverter extends SQLConfHelper with Logging {
+object ExpressionConverter extends SQLConfHelper with Logging with PredicateHelper {
+
+  /**
+   * Rewrites non-foldable IN list entries as equalities for native conversion, preserving the
+   * original Catalyst expression for Spark fallback.
+   */
+  private[gluten] def rewriteIn(condition: Expression): Expression = {
+    condition.transform {
+      // Expansion can evaluate the value more than once and regroup list expressions.
+      // Struct equality is unsupported by the native converter.
+      case in: In
+          if in.deterministic && !in.value.dataType.isInstanceOf[StructType] &&
+            in.list.exists(!_.foldable) =>
+        val (foldableExprs, nonFoldableExprs) = in.list.partition(_.foldable)
+        val newIn = if (foldableExprs.isEmpty) {
+          None
+        } else {
+          Some(in.copy(list = foldableExprs))
+        }
+        // Keep conversion depth logarithmic for large lists, as for scan conjuncts.
+        buildBalancedPredicate(newIn.toSeq ++ nonFoldableExprs.map(EqualTo(in.value, _)), Or)
+    }
+  }
 
   /**
    * Rebinds extraction paths handled by Spark's ProjectionOverSchema, including maps and arrays.
@@ -515,11 +537,16 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           },
           cw
         )
-      case i: In =>
-        if (i.list.exists(!_.foldable)) {
+      case i: In if i.list.exists(!_.foldable) =>
+        val rewritten = rewriteIn(i)
+        if (rewritten == i) {
           throw new GlutenNotSupportException(
-            s"In list option does not support non-foldable expression, ${i.list.map(_.sql)}")
+            s"Cannot rewrite IN with non-foldable list entries when the expression is " +
+              s"nondeterministic or the value is struct-typed: ${i.sql}")
         }
+        // Use the same conversion for validation and translation, preserving the Spark expression.
+        replaceWithExpressionTransformer0(rewritten, attributeSeq, expressionsMap)
+      case i: In =>
         InTransformer(
           substraitExprName,
           replaceWithExpressionTransformer0(i.value, attributeSeq, expressionsMap),
@@ -922,23 +949,7 @@ object ExpressionConverter extends SQLConfHelper with Logging {
           c
         )
       case t: TransformKeys =>
-        // default is `EXCEPTION`
-        val mapKeyDedupPolicy = SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY)
-
-        // Calling `.toString` on both sides ensures compatibility across all Spark versions.
-        // Starting from Spark 4.1, `SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY)` returns
-        // an enum instead of a String. Without `.toString`, the comparison
-        // `mapKeyDedupPolicy == SQLConf.MapKeyDedupPolicy.LAST_WIN.toString` would silently fail
-        // in tests, producing only a "Comparing unrelated types" warning in IntelliJ IDEA,
-        // but no compile-time error.
-        if (mapKeyDedupPolicy.toString == SQLConf.MapKeyDedupPolicy.LAST_WIN.toString) {
-          // TODO: Remove after fix ready for
-          //  https://github.com/facebookincubator/velox/issues/10219
-          throw new GlutenNotSupportException(
-            "LAST_WIN policy is not supported yet in native to deduplicate map keys"
-          )
-        }
-        GenericExpressionTransformer(
+        BackendsApiManager.getSparkPlanExecApiInstance.genTransformKeysTransformer(
           substraitExprName,
           t.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
           t

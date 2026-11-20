@@ -25,6 +25,7 @@ import org.apache.flink.table.api.config.TableConfigOptions;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.TimeZone;
 
 public class VeloxQueryConfig {
 
@@ -42,10 +43,12 @@ public class VeloxQueryConfig {
     Map<String, String> configMap = new HashMap<>();
     configMap.put(keyVeloxAdjustTimestampToSessionTimeZone, "true");
     String localTimeZone = config.get(TableConfigOptions.LOCAL_TIME_ZONE);
-    // As flink's default timezone value is `default`, it is not a valid timezone id, so we should
-    // convert it to `UTC` timezone.
-    if (TableConfigOptions.LOCAL_TIME_ZONE.defaultValue().equals(localTimeZone)) {
-      configMap.put(keyVeloxSessionTimezone, "UTC");
+    // Flink's `default` value means the JVM default timezone, not UTC; velox
+    // must resolve it the same way so CURRENT_DATE/CURRENT_TIME (and every
+    // session-timezone-sensitive function) match native Flink.
+    if (localTimeZone == null
+        || TableConfigOptions.LOCAL_TIME_ZONE.defaultValue().equals(localTimeZone)) {
+      configMap.put(keyVeloxSessionTimezone, TimeZone.getDefault().getID());
     } else {
       configMap.put(keyVeloxSessionTimezone, localTimeZone);
     }

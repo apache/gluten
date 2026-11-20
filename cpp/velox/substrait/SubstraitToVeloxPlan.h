@@ -279,8 +279,11 @@ class SubstraitToVeloxPlanConverter {
       const core::AggregationNode::Step& aggStep);
 
   /// Helper function to convert the input of Substrait Rel to Velox Node.
+  /// Takes the Rel by reference: the protobuf message owns the whole input
+  /// subtree, and passing by value deep-copied it once per node on the chain
+  /// (O(depth^2) total over a plan).
   template <typename T>
-  core::PlanNodePtr convertSingleInput(T rel) {
+  core::PlanNodePtr convertSingleInput(const T& rel) {
     VELOX_CHECK(rel.has_input(), "Child Rel is expected here.");
     return toVeloxPlan(rel.input());
   }

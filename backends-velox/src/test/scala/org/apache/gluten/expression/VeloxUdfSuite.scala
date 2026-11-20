@@ -20,15 +20,17 @@ import org.apache.gluten.backendsapi.velox.VeloxBackendSettings
 import org.apache.gluten.config.VeloxConfig
 import org.apache.gluten.execution.ProjectExecTransformer
 import org.apache.gluten.execution.WindowExecTransformer
-import org.apache.gluten.tags.{SkipTest, UDFTest}
+import org.apache.gluten.tags.UDFTest
 
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.{GlutenQueryTest, Row, SparkSession}
+import org.apache.spark.sql.{AnalysisException, GlutenQueryTest, Row, SparkSession}
 import org.apache.spark.sql.catalyst.FunctionIdentifier
 import org.apache.spark.sql.catalyst.plans.SQLHelper
 import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.expression.UDFResolver
+
+import org.scalactic.source.Position
 
 import java.nio.file.Paths
 
@@ -37,6 +39,16 @@ abstract class VeloxUdfSuite extends GlutenQueryTest with SQLHelper {
   protected val master: String
 
   private var _spark: SparkSession = _
+
+  private lazy val bypassRegistration: Boolean =
+    new SparkConf().getBoolean(VeloxConfig.NATIVE_UDF_BYPASS_REGISTRATION.key, false)
+
+  private def testBypassRegistration(testName: String)(testFun: => Any)(implicit
+      pos: Position): Unit = {
+    if (bypassRegistration) {
+      test(testName)(testFun)
+    }
+  }
 
   // This property is used for unit tests.
   val UDFLibPathProperty: String = "velox.udf.lib.path"
@@ -297,7 +309,7 @@ abstract class VeloxUdfSuite extends GlutenQueryTest with SQLHelper {
     }
   }
 
-  test("native udf with a plain name is callable without a hive udf class") {
+  testBypassRegistration("native udf with a plain name is callable without a hive udf class") {
     // No CREATE TEMPORARY FUNCTION and no Java class: the session extension put the name in
     // Spark's registry via SparkInjector.injectFunction, which is the only writer for it.
     assert(
@@ -310,7 +322,7 @@ abstract class VeloxUdfSuite extends GlutenQueryTest with SQLHelper {
     checkAnswer(df, Seq(Row(2L), Row(3L), Row(4L)))
   }
 
-  test("native udf with a plain name fails at analysis when gluten is disabled") {
+  testBypassRegistration("native udf with a plain name fails at analysis when gluten is disabled") {
     withSQLConf(("spark.gluten.enabled", "false")) {
       val e = intercept[Exception] {
         spark.sql("SELECT myudf_plus_one(col1) FROM VALUES (1L) AS t(col1)").collect()
@@ -321,7 +333,7 @@ abstract class VeloxUdfSuite extends GlutenQueryTest with SQLHelper {
     }
   }
 
-  test("native udf with a named row argument is callable") {
+  testBypassRegistration("native udf with a named row argument is callable") {
     // given
     val query = "SELECT myudf_sum_row(named_struct('a', col1, 'b', col2)) " +
       "FROM VALUES (1L, 2L), (3L, 4L) AS t(col1, col2)"
@@ -335,7 +347,7 @@ abstract class VeloxUdfSuite extends GlutenQueryTest with SQLHelper {
     checkAnswer(df, expected)
   }
 
-  test("native udf returning a named row exposes its field names") {
+  testBypassRegistration("native udf returning a named row exposes its field names") {
     // given
     val query = "SELECT myudf_make_row(col1).b FROM VALUES (1L), (2L) AS t(col1)"
     val expected = Seq(Row(2L), Row(3L))
@@ -347,6 +359,28 @@ abstract class VeloxUdfSuite extends GlutenQueryTest with SQLHelper {
     checkGlutenPlan[ProjectExecTransformer](df)
     checkAnswer(df, expected)
   }
+
+  test("native udf names are not registered when bypass registration is disabled") {
+    if (!bypassRegistration) {
+      val queries = Seq(
+        "myudf_plus_one" -> "SELECT myudf_plus_one(1L)",
+        "myudf_sum_row" -> "SELECT myudf_sum_row(named_struct('a', 1L, 'b', 2L))",
+        "myudf_make_row" -> "SELECT myudf_make_row(1L).b"
+      )
+      queries.foreach {
+        case (name, query) =>
+          assert(
+            spark.sessionState.functionRegistry
+              .lookupFunction(FunctionIdentifier(name))
+              .isEmpty)
+          val e = intercept[AnalysisException] {
+            spark.sql(query)
+          }
+          assert(e.getMessage.contains(name))
+      }
+    }
+  }
+
 }
 
 @UDFTest
@@ -358,8 +392,6 @@ class VeloxUdfSuiteLocal extends VeloxUdfSuite {
       .set("spark.files", udfLibPath)
       .set(VeloxBackendSettings.GLUTEN_VELOX_UDF_LIB_PATHS, udfLibRelativePath)
       .set("spark.shuffle.manager", "org.apache.spark.shuffle.sort.ColumnarShuffleManager")
-      // Off by default, so the by-name tests below have to opt in.
-      .set(VeloxConfig.NATIVE_UDF_BYPASS_REGISTRATION.key, "true")
   }
 }
 
@@ -369,35 +401,21 @@ class VeloxUdfSuiteLocal extends VeloxUdfSuite {
 //
 // VM options:
 // -Dspark.test.home=${SPARK_HOME}
-// -Dgluten.package.jar=\
-// /path/to/gluten/package/target/gluten-package-${project.version}.jar
 // -Dvelox.udf.lib.path=\
 // /path/to/gluten/cpp/build/velox/udf/examples/libmyudf.so
-@SkipTest
+@UDFTest
 class VeloxUdfSuiteCluster extends VeloxUdfSuite {
 
   override val master: String = "local-cluster[2,2,1024]"
 
-  val GLUTEN_JAR: String = "gluten.package.jar"
-
-  private lazy val glutenJar = sys.props.get(GLUTEN_JAR) match {
-    case Some(jar) => jar
-    case None =>
-      throw new IllegalArgumentException(
-        GLUTEN_JAR + s" cannot be null. You may set it by adding " +
-          s"-D$GLUTEN_JAR=" +
-          "/path/to/gluten/package/target/gluten-package-${project.version}.jar")
-  }
-
   private lazy val driverUdfLibPath =
-    udfLibPath.split(",").map("file://" + _).mkString(",")
+    udfLibPath.split(",").map(p => Paths.get(p).toAbsolutePath.toUri.toString).mkString(",")
 
   override protected def sparkConf: SparkConf = {
     super.sparkConf
       .set("spark.files", udfLibPath)
       .set(VeloxBackendSettings.GLUTEN_VELOX_DRIVER_UDF_LIB_PATHS, driverUdfLibPath)
       .set(VeloxBackendSettings.GLUTEN_VELOX_UDF_LIB_PATHS, udfLibRelativePath)
-      .set("spark.driver.extraClassPath", glutenJar)
-      .set("spark.executor.extraClassPath", glutenJar)
+      .set("spark.executor.extraClassPath", sys.props("java.class.path"))
   }
 }

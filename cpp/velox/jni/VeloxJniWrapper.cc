@@ -717,6 +717,28 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_columnarbatch_VeloxColumnarBatchJ
   JNI_METHOD_END(kInvalidObjectHandle)
 }
 
+JNIEXPORT jint JNICALL Java_org_apache_gluten_columnarbatch_VeloxColumnarBatchJniWrapper_firstNullColumnIndex( // NOLINT
+    JNIEnv* env,
+    jobject wrapper,
+    jlong veloxBatchHandle,
+    jintArray columnOrdinals) {
+  JNI_METHOD_START
+  auto ctx = getRuntime(env, wrapper);
+  auto runtime = dynamic_cast<VeloxRuntime*>(ctx);
+  auto batch = ObjectStore::retrieve<ColumnarBatch>(veloxBatchHandle);
+  auto safeColumnOrdinals = getIntArrayElementsSafe(env, columnOrdinals);
+
+  if (safeColumnOrdinals.length() == 0 || batch->numRows() == 0) {
+    return -1;
+  }
+
+  auto veloxBatch = VeloxColumnarBatch::from(runtime->memoryManager()->getLeafMemoryPool().get(), batch);
+  const std::vector<int32_t> columnIndices(
+      safeColumnOrdinals.elems(), safeColumnOrdinals.elems() + safeColumnOrdinals.length());
+  return veloxBatch->firstNullColumnIndex(columnIndices);
+  JNI_METHOD_END(-1)
+}
+
 JNIEXPORT void JNICALL Java_org_apache_gluten_monitor_VeloxMemoryProfiler_start( // NOLINT
     JNIEnv* env,
     jclass) {
