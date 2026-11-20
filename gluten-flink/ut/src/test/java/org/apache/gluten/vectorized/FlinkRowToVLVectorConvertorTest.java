@@ -30,6 +30,7 @@ import org.apache.flink.table.data.StringData;
 import org.apache.flink.table.types.logical.IntType;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.RowType;
+import org.apache.flink.table.types.logical.VarBinaryType;
 import org.apache.flink.table.types.logical.VarCharType;
 import org.apache.flink.types.RowKind;
 
@@ -130,6 +131,31 @@ public class FlinkRowToVLVectorConvertorTest {
       idVec.close();
       nameVec.close();
       rowKindVec.close();
+    }
+  }
+
+  @Test
+  public void testBinaryRoundTrip() {
+    RowType binaryRowType =
+        RowType.of(
+            new LogicalType[] {new IntType(), new VarBinaryType(VarBinaryType.MAX_LENGTH)},
+            new String[] {"id", "b"});
+    io.github.zhztheplayer.velox4j.type.RowType binaryVeloxType =
+        (io.github.zhztheplayer.velox4j.type.RowType)
+            org.apache.gluten.util.LogicalTypeConverter.toVLType(binaryRowType);
+    byte[][] values = {new byte[] {0x00, (byte) 0xFF, 0x10}, new byte[0], null};
+    for (byte[] value : values) {
+      RowData input = GenericRowData.of(1, value);
+      RowVector rv =
+          FlinkRowToVLVectorConvertor.fromRowData(input, allocator, session, binaryVeloxType);
+      try {
+        List<RowData> rows = FlinkRowToVLVectorConvertor.toRowData(rv, allocator, binaryVeloxType);
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).getInt(0)).isEqualTo(1);
+        assertThat(rows.get(0).getBinary(1)).isEqualTo(value);
+      } finally {
+        rv.close();
+      }
     }
   }
 

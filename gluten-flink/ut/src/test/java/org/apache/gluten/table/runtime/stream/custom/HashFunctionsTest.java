@@ -22,7 +22,11 @@ import org.apache.flink.table.api.TableResult;
 import org.apache.flink.types.Row;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.List;
 
@@ -89,6 +93,67 @@ class HashFunctionsTest extends GlutenStreamingTestBase {
             "+I[" + SHA1_MULTIBYTE + "]",
             "+I[" + SHA1_LONG + "]",
             "+I[null]"));
+  }
+
+  // Flink's hash expressions also accept BYTES and digest the raw bytes. The
+  // BYTES operand comes from a column cast, so the digest is computed at
+  // runtime (a literal would be constant-folded) by the VARBINARY signature.
+  // Non-UTF-8 bytes cannot be built with a cast; see
+  // testMd5Sha1BinarySourceColumn below.
+  @Test
+  void testMd5Sha1Sha256VarbinaryInput() {
+    List<Row> rows =
+        Arrays.asList(Row.of("", 1), Row.of("ab", 2), Row.of("你好", 3), Row.of(null, 4));
+    createSimpleBoundedValuesTable("tblHashBinary", "s varchar, a int", rows);
+    runAndCheck(
+        "select MD5(CAST(s AS BYTES)), SHA1(CAST(s AS BYTES)), SHA256(CAST(s AS BYTES))"
+            + " from tblHashBinary where a > 0",
+        Arrays.asList(
+            "+I["
+                + MD5_EMPTY
+                + ", "
+                + SHA1_EMPTY
+                + ", e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855]",
+            "+I[187ef4436122d1cc2f40dc2b92f0eba0, "
+                + "da23614e02469a0d7c7bd1bdab5c9c474b1904dc, "
+                + "fb8e20fc2e4c3f248c60c39bd652f3c1347298bb977b8b4d5903b85055620603]",
+            "+I[7eca689f0d3389d9dea66ae112e5cfd7, "
+                + "440ee0853ad1e99f962b63e459ef992d7c211722, "
+                + "670d9743542cae3ea7ebe36af56bd53648b0a1126162e78d81a32934a711302e]",
+            "+I[null, null, null]"));
+  }
+
+  // A genuine BYTES source column: the raw-format filesystem source is not
+  // offloaded, so each file arrives as RowData and crosses the Flink -> velox
+  // boundary through the VARBINARY Arrow writer. "nonutf8" pins a NUL plus a
+  // non-UTF-8 byte, so the digests can only come from the raw bytes.
+  @Test
+  void testMd5Sha1BinarySourceColumn(@TempDir File dataDir) throws Exception {
+    Files.write(new File(dataDir, "ab").toPath(), new byte[] {0x61, 0x62});
+    Files.write(new File(dataDir, "nonutf8").toPath(), new byte[] {0x00, (byte) 0xFF, 0x10});
+    Files.write(new File(dataDir, "utf8").toPath(), "你好".getBytes(StandardCharsets.UTF_8));
+    tEnv()
+        .executeSql(
+            "CREATE TABLE binSrc (`value` BYTES) WITH ("
+                + "'connector' = 'filesystem',"
+                + "'path' = '"
+                + dataDir.toURI()
+                + "',"
+                + "'format' = 'raw')");
+    // The print sink prefixes rows with the parallel subtask ("3> +I[...]").
+    List<String> rows =
+        runQuery("select MD5(`value`), SHA1(`value`) from binSrc").stream()
+            .map(row -> row.replaceFirst("^\\d+> ", ""))
+            .collect(java.util.stream.Collectors.toList());
+    String md5Ab = "187ef4436122d1cc2f40dc2b92f0eba0";
+    String sha1Ab = "da23614e02469a0d7c7bd1bdab5c9c474b1904dc";
+    String md5Raw = "481e4551ec039aada760901cf52b1917";
+    String sha1Raw = "a14c2fba17201c1ead45b6c4af4409fbfc16ba8a";
+    assertThat(rows)
+        .containsExactlyInAnyOrder(
+            "+I[" + md5Ab + ", " + sha1Ab + "]",
+            "+I[" + md5Raw + ", " + sha1Raw + "]",
+            "+I[" + MD5_MULTIBYTE + ", " + SHA1_MULTIBYTE + "]");
   }
 
   @Test
