@@ -400,153 +400,8 @@ std::vector<uint8_t> VeloxColumnarBatchSerializer::framedSerializeWithStats(
   std::vector<ColumnStats> perCol = computeStats(rowVector);
   const uint32_t numCols = static_cast<uint32_t>(perCol.size());
 
-  // Marshal statsBlob (LE primitives via lambdas).
-  std::vector<uint8_t> statsBlob;
-  auto pushU8 = [&](uint8_t v) { statsBlob.push_back(v); };
-  auto pushU32 = [&](uint32_t v) {
-    statsBlob.push_back(static_cast<uint8_t>(v & 0xFF));
-    statsBlob.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
-    statsBlob.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
-    statsBlob.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
-  };
-  auto pushU64 = [&](uint64_t v) {
-    for (int i = 0; i < 8; ++i) {
-      statsBlob.push_back(static_cast<uint8_t>((v >> (8 * i)) & 0xFF));
-    }
-  };
-  auto pushI64LE = [&](int64_t v) { pushU64(static_cast<uint64_t>(v)); };
-  auto pushU16LE = [&](uint16_t v) {
-    statsBlob.push_back(static_cast<uint8_t>(v & 0xFF));
-    statsBlob.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
-  };
-
-  pushU32(numCols);
-  for (const auto& s : perCol) {
-    auto kind = s.lowerBound.kind();
-    bool emitSupported = s.hasLowerBound && s.hasUpperBound && s.lowerBound.kind() == s.upperBound.kind() &&
-        (kind == facebook::velox::TypeKind::BIGINT || kind == facebook::velox::TypeKind::INTEGER ||
-         kind == facebook::velox::TypeKind::SMALLINT || kind == facebook::velox::TypeKind::TINYINT ||
-         kind == facebook::velox::TypeKind::HUGEINT || kind == facebook::velox::TypeKind::REAL ||
-         kind == facebook::velox::TypeKind::DOUBLE || kind == facebook::velox::TypeKind::BOOLEAN ||
-         kind == facebook::velox::TypeKind::TIMESTAMP || kind == facebook::velox::TypeKind::VARCHAR);
-    pushU8(emitSupported ? 1 : 0);
-    pushU32(static_cast<uint32_t>(s.nullCount));
-    // PartitionStatistics.count = numRows (vanilla gatherNullStats increments count for null
-    // rows too; subtracting nullCount inverts the IsNotNull predicate).
-    pushU32(numRows);
-    pushU64(0); // sizeInBytes placeholder
-    if (emitSupported) {
-      switch (kind) {
-        case facebook::velox::TypeKind::BIGINT:
-          pushU32(8);
-          pushI64LE(s.lowerBound.value<int64_t>());
-          pushU32(8);
-          pushI64LE(s.upperBound.value<int64_t>());
-          break;
-        case facebook::velox::TypeKind::INTEGER:
-          pushU32(4);
-          pushU32(static_cast<uint32_t>(s.lowerBound.value<int32_t>()));
-          pushU32(4);
-          pushU32(static_cast<uint32_t>(s.upperBound.value<int32_t>()));
-          break;
-        case facebook::velox::TypeKind::SMALLINT:
-          pushU32(2);
-          pushU16LE(static_cast<uint16_t>(s.lowerBound.value<int16_t>()));
-          pushU32(2);
-          pushU16LE(static_cast<uint16_t>(s.upperBound.value<int16_t>()));
-          break;
-        case facebook::velox::TypeKind::TINYINT:
-          pushU32(1);
-          pushU8(static_cast<uint8_t>(s.lowerBound.value<int8_t>()));
-          pushU32(1);
-          pushU8(static_cast<uint8_t>(s.upperBound.value<int8_t>()));
-          break;
-        case facebook::velox::TypeKind::HUGEINT: {
-          // 16 LE bytes: int128 split into low/high uint64 halves, low first. JVM reconstructs
-          // via BigInteger from signed two's-complement big-endian byte array (reverse on read).
-          auto pushI128LE = [&](int128_t v) {
-            pushU64(static_cast<uint64_t>(v));
-            pushU64(static_cast<uint64_t>(v >> 64));
-          };
-          pushU32(16);
-          pushI128LE(s.lowerBound.value<int128_t>());
-          pushU32(16);
-          pushI128LE(s.upperBound.value<int128_t>());
-          break;
-        }
-        case facebook::velox::TypeKind::REAL: {
-          uint32_t loBits, hiBits;
-          float lo = s.lowerBound.value<float>();
-          float hi = s.upperBound.value<float>();
-          std::memcpy(&loBits, &lo, sizeof(uint32_t));
-          std::memcpy(&hiBits, &hi, sizeof(uint32_t));
-          pushU32(4);
-          pushU32(loBits);
-          pushU32(4);
-          pushU32(hiBits);
-          break;
-        }
-        case facebook::velox::TypeKind::DOUBLE: {
-          uint64_t loBits, hiBits;
-          double lo = s.lowerBound.value<double>();
-          double hi = s.upperBound.value<double>();
-          std::memcpy(&loBits, &lo, sizeof(uint64_t));
-          std::memcpy(&hiBits, &hi, sizeof(uint64_t));
-          pushU32(8);
-          pushU64(loBits);
-          pushU32(8);
-          pushU64(hiBits);
-          break;
-        }
-        case facebook::velox::TypeKind::BOOLEAN:
-          pushU32(1);
-          pushU8(s.lowerBound.value<bool>() ? 1 : 0);
-          pushU32(1);
-          pushU8(s.upperBound.value<bool>() ? 1 : 0);
-          break;
-        case facebook::velox::TypeKind::TIMESTAMP: {
-          // Spark Timestamp / TimestampNTZ physical = Long microseconds; share the JVM LongType
-          // 8B wire arm. Velox Timestamp::toMicros() floors toward -infinity. Floor on lo widens
-          // the prune interval downward (conservative) but floor on hi can shrink it and
-          // false-negative drop rows whose true ts has nanos % 1000 != 0. Fix: ceil hi by +1us
-          // when there is any sub-microsecond residue.
-          const auto& loTs = s.lowerBound.value<facebook::velox::Timestamp>();
-          const auto& hiTs = s.upperBound.value<facebook::velox::Timestamp>();
-          int64_t loMicros = loTs.toMicros();
-          int64_t hiMicros = hiTs.toMicros();
-          // Ceil hi by +1us on sub-microsecond residue so the upper bound stays a superset.
-          // Guard int64 overflow at the max representable instant: a +1 at INT64_MAX would wrap
-          // negative and wrongly prune. INT64_MAX micros already bounds any Spark
-          // (micros-resolution) value, so no ceil is needed there.
-          if (hiTs.getNanos() % 1000 != 0 && hiMicros != std::numeric_limits<int64_t>::max()) {
-            hiMicros += 1;
-          }
-          pushU32(8);
-          pushI64LE(loMicros);
-          pushU32(8);
-          pushI64LE(hiMicros);
-          break;
-        }
-        case facebook::velox::TypeKind::VARCHAR: {
-          // Truncation already applied by computeStats (256B + carry); emit raw bytes with
-          // u32 LE length prefix. variant.value<VARCHAR>() returns owned std::string&.
-          const auto& loStr = s.lowerBound.value<facebook::velox::TypeKind::VARCHAR>();
-          const auto& hiStr = s.upperBound.value<facebook::velox::TypeKind::VARCHAR>();
-          pushU32(static_cast<uint32_t>(loStr.size()));
-          for (auto c : loStr) {
-            pushU8(static_cast<uint8_t>(c));
-          }
-          pushU32(static_cast<uint32_t>(hiStr.size()));
-          for (auto c : hiStr) {
-            pushU8(static_cast<uint8_t>(c));
-          }
-          break;
-        }
-        default:
-          break;
-      }
-    }
-  }
+  // Marshal the stats blob via the shared builder (same wire format as V3).
+  std::vector<uint8_t> statsBlob = buildStatsBlob(perCol, numRows, numCols);
   const uint32_t statsLen = static_cast<uint32_t>(statsBlob.size());
 
   // Produce bytesBlob via the existing serializer path.
@@ -676,6 +531,8 @@ std::vector<uint8_t> VeloxColumnarBatchSerializer::buildStatsBlob(
          kind == facebook::velox::TypeKind::TIMESTAMP || kind == facebook::velox::TypeKind::VARCHAR);
     pushU8(emitSupported ? 1 : 0);
     pushU32(static_cast<uint32_t>(s.nullCount));
+    // PartitionStatistics.count = numRows (vanilla gatherNullStats increments count for null
+    // rows too; subtracting nullCount inverts the IsNotNull predicate).
     pushU32(numRows);
     pushU64(0); // sizeInBytes placeholder
     if (emitSupported) {
@@ -705,6 +562,8 @@ std::vector<uint8_t> VeloxColumnarBatchSerializer::buildStatsBlob(
           pushU8(static_cast<uint8_t>(s.upperBound.value<int8_t>()));
           break;
         case facebook::velox::TypeKind::HUGEINT: {
+          // 16 LE bytes: int128 split into low/high uint64 halves, low first. JVM reconstructs
+          // via BigInteger from signed two's-complement big-endian byte array (reverse on read).
           auto pushI128LE = [&](int128_t v) {
             pushU64(static_cast<uint64_t>(v));
             pushU64(static_cast<uint64_t>(v >> 64));
@@ -744,11 +603,18 @@ std::vector<uint8_t> VeloxColumnarBatchSerializer::buildStatsBlob(
           pushU8(s.upperBound.value<bool>() ? 1 : 0);
           break;
         case facebook::velox::TypeKind::TIMESTAMP: {
+          // Spark Timestamp / TimestampNTZ physical = Long microseconds; share the JVM LongType
+          // 8B wire arm. Velox Timestamp::toMicros() floors toward -infinity. Floor on lo widens
+          // the prune interval downward (conservative) but floor on hi can shrink it and
+          // false-negative drop rows whose true ts has nanos % 1000 != 0. Fix: ceil hi by +1us
+          // when there is any sub-microsecond residue.
           const auto& loTs = s.lowerBound.value<facebook::velox::Timestamp>();
           const auto& hiTs = s.upperBound.value<facebook::velox::Timestamp>();
           int64_t loMicros = loTs.toMicros();
           int64_t hiMicros = hiTs.toMicros();
-          // See framedSerializeWithStats: guard the +1us ceil against int64 overflow at INT64_MAX.
+          // Guard int64 overflow at the max representable instant: a +1 at INT64_MAX would wrap
+          // negative and wrongly prune. INT64_MAX micros already bounds any Spark
+          // (micros-resolution) value, so no ceil is needed there.
           if (hiTs.getNanos() % 1000 != 0 && hiMicros != std::numeric_limits<int64_t>::max())
             hiMicros += 1;
           pushU32(8);
@@ -758,6 +624,8 @@ std::vector<uint8_t> VeloxColumnarBatchSerializer::buildStatsBlob(
           break;
         }
         case facebook::velox::TypeKind::VARCHAR: {
+          // Truncation already applied by computeStats (256B + carry); emit raw bytes with
+          // u32 LE length prefix. variant.value<VARCHAR>() returns owned std::string&.
           const auto& loStr = s.lowerBound.value<facebook::velox::TypeKind::VARCHAR>();
           const auto& hiStr = s.upperBound.value<facebook::velox::TypeKind::VARCHAR>();
           pushU32(static_cast<uint32_t>(loStr.size()));
