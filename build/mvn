@@ -132,6 +132,11 @@ install_mvn() {
         local MVN_SHA512="${MVN_TAR}.sha512"
         local DISTRIBUTION_PATH="maven/maven-${VERSION%%.*}/${VERSION}/binaries/apache-maven-${VERSION}-bin.tar.gz"
         local SOURCE DOWNLOAD_URL CHECKSUM_URL VERIFIED=false
+        # A missing checksum is not a reason to discard a pre-existing archive.
+        local DOWNLOAD_FILES=("$MVN_SHA512")
+        if [ ! -f "$MVN_TAR" ]; then
+            DOWNLOAD_FILES+=("$MVN_TAR")
+        fi
 
         for SOURCE in https://dlcdn.apache.org https://archive.apache.org/dist; do
             DOWNLOAD_URL="${SOURCE}/${DISTRIBUTION_PATH}"
@@ -151,7 +156,7 @@ install_mvn() {
                 break
             fi
 
-            rm -f "$MVN_TAR" "$MVN_SHA512"
+            rm -f "${DOWNLOAD_FILES[@]}"
             if [ "$SOURCE" = https://dlcdn.apache.org ]; then
                 echo "WARNING: Maven distribution or checksum unavailable; trying the Apache archive..." >&2
             fi

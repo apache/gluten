@@ -35,9 +35,9 @@ fi
 export digest="${expected%% *}"
 mv "$archive" "$checkout/build/.mvn/"
 
-# The distribution is cached; supply its checksum without a network request.
+# The distribution is cached. Only the fallback checksum is available.
 curl() {
-    [[ "${!#}" = *.sha512 ]] || return 1
+    [[ "${!#}" = https://archive.apache.org/dist/*.sha512 ]] || return 1
     while [[ $# -gt 1 && "$1" != -o ]]; do shift; done
     [[ "$1" = -o ]] && printf '%s\n' "$digest" > "$2"
 }
