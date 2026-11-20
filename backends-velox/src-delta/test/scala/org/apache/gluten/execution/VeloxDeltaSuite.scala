@@ -16,12 +16,40 @@
  */
 package org.apache.gluten.execution
 
-import org.apache.gluten.config.VeloxDeltaConfig
+import org.apache.gluten.config.{GlutenConfig, VeloxDeltaConfig}
 
 import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.execution.FileSourceScanExec
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.util.SparkVersionUtil
 
 class VeloxDeltaSuite extends DeltaSuite {
+  testWithMinSparkVersion("delta: converted existence defaults fall back only when read", "4.0") {
+    withSQLConf(
+      SQLConf.ENABLE_DEFAULT_COLUMNS.key -> "true",
+      "spark.databricks.delta.properties.defaults.columnMapping.mode" -> "none",
+      GlutenConfig.NATIVE_WRITER_ENABLED.key -> "false"
+    ) {
+      withTable("converted_defaults") {
+        spark.sql("CREATE TABLE converted_defaults (id INT) USING parquet")
+        spark.sql("INSERT INTO converted_defaults VALUES (0)")
+        spark.sql("ALTER TABLE converted_defaults ADD COLUMN value INT DEFAULT 1")
+        spark.sql("INSERT INTO converted_defaults VALUES (1, NULL), (2, 5)")
+        spark.sql("CONVERT TO DELTA converted_defaults")
+
+        val allColumns = spark.table("converted_defaults")
+        checkAnswer(allColumns, Seq(Row(0, 1), Row(1, null), Row(2, 5)))
+        val fallbackPlan = getExecutedPlan(allColumns)
+        assert(fallbackPlan.exists(_.isInstanceOf[FileSourceScanExec]))
+        assert(!fallbackPlan.exists(_.isInstanceOf[DeltaScanTransformer]))
+
+        val pruned = spark.sql("SELECT id FROM converted_defaults")
+        checkAnswer(pruned, Seq(Row(0), Row(1), Row(2)))
+        assert(getExecutedPlan(pruned).exists(_.isInstanceOf[DeltaScanTransformer]))
+      }
+    }
+  }
+
   test("delta: change data feed scan offload can be disabled") {
     withTable("delta_cdf_disabled") {
       spark.sql("""

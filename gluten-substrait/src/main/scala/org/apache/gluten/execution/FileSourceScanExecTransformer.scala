@@ -183,6 +183,12 @@ abstract class FileSourceScanExecTransformerBase(
   }
 
   override protected def doValidateInternal(): ValidationResult = {
+    if (hasNonNullExistenceDefaults) {
+      // Missing fields need their original default, while explicitly stored nulls must stay null.
+      return ValidationResult.failed(
+        "Native file scans do not support non-null existence defaults (EXISTS_DEFAULT).")
+    }
+
     if (
       !metadataColumns.isEmpty && !BackendsApiManager.getSettings.supportNativeMetadataColumns()
     ) {
