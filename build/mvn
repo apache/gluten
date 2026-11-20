@@ -85,7 +85,9 @@ verify_mvn() {
         echo "ERROR: Invalid SHA-512 checksum in ${CHECKSUM_FILE}" >&2
         return 1
     fi
-    if ! printf '%s  %s\n' "$CHECKSUM" "$ARCHIVE" | "${SHA512[@]}" -c - >&2; then
+    # Keep checkout paths out of the line-based checksum manifest.
+    if ! printf '%s  %s\n' "$CHECKSUM" "${ARCHIVE##*/}" |
+            (cd "${ARCHIVE%/*}" && "${SHA512[@]}" -c -) >&2; then
         echo "ERROR: SHA-512 checksum verification failed for ${ARCHIVE}" >&2
         return 1
     fi
@@ -160,9 +162,9 @@ install_mvn() {
             exit 1
         fi
 
-        # Extract Maven
+        # GNU tar interprets backslash escapes in -C paths.
         echo "Extracting Maven to ${MVN_DOWNLOAD_DIR}..." >&2
-        if ! tar -xzf "${MVN_TAR}" -C "${MVN_DOWNLOAD_DIR}"; then
+        if ! (cd "${MVN_DOWNLOAD_DIR}" && tar -xzf "${MVN_TAR##*/}"); then
             echo "ERROR: Failed to extract Maven" >&2
             rm -f "$MVN_TAR" "$MVN_SHA512"
             exit 1
