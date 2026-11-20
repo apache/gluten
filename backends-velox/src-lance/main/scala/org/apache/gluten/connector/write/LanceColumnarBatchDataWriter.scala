@@ -58,10 +58,11 @@ import scala.collection.JavaConverters._
  * under nulls are zeroed by [[LanceNullSlots]] so that Lance encodes as compactly as it does for
  * the row writer.
  *
- * The writer thread imports the batches through [[importAllocator]], under the task's Arrow
- * allocator, so they count as task memory while Lance holds them. That reserves task memory off the
- * task thread, which Gluten's memory targets allow and Velox's I/O threads do as well. A
- * reservation that fails releases the batch and makes the stream fail, which fails the task.
+ * Lance pulls the batches on its own Tokio threads, which import them through [[importAllocator]],
+ * under the task's Arrow allocator, so they count as task memory while Lance holds them. That
+ * reserves task memory off the task thread, which Gluten's memory targets allow and Velox's I/O
+ * threads do as well. A reservation that fails releases the batch and makes the stream fail, which
+ * fails the task.
  *
  * It reports the metrics lance-spark's row writer reports, under the same names, and fills the
  * native write metrics of the write node.
@@ -158,8 +159,8 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
   override def close(): Unit = {
     stopWriter()
     // A writer thread still running after stopWriter() waited StopTimeoutMs may still read the
-    // stream, so leave it rather than free it. The batch it holds then still has its memory
-    // reserved when the task ends.
+    // stream, so leave it rather than free it. The batches Lance holds then still hold Velox
+    // memory when the task ends, and Velox's memory manager check may then abort the executor.
     if (stream != null && (thread == null || !thread.isAlive)) {
       // Lance has taken the stream by now, unless it failed before reading it; release() then
       // closes the reader, and frees nothing otherwise.
@@ -274,7 +275,9 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
         Thread.currentThread().interrupt()
       }
       if (thread.isAlive) {
-        logWarning("Lance write thread is still running after the task stopped it")
+        logError(
+          s"Lance write thread is still running ${StopTimeoutMs / 1000} s after the task stopped " +
+            "it. The Velox batches it holds are not released, which may abort the executor.")
       }
     }
   }
@@ -295,8 +298,10 @@ class LanceColumnarBatchDataWriter(spec: FragmentWriteSpec, commitSchema: Schema
 
   /** Fails the task if Lance has failed, or stopped reading before the end of the stream. */
   private def checkWriter(): Unit = {
+    // Read first: a thread that has exited has already set `failure`, so its cause is kept.
+    val exited = !thread.isAlive
     throwIfFailed()
-    if (!thread.isAlive) {
+    if (exited) {
       throw new IllegalStateException("Lance write thread exited before the stream ended")
     }
   }

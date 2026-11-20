@@ -24,7 +24,7 @@ it does without Gluten (fallback, not an error); the tables under [Reading](#rea
 | Area | Status | Offloaded to Velox | Left on lance-spark |
 |------|--------|--------------------|---------------------|
 | Read | On whenever lance-spark is on the classpath | Scans with projection and filters, including vector columns | Pushed-down aggregation, full-text queries, `_rowid` / `_rowaddr` and blob columns |
-| Write | Experimental, off by default | Append, overwrite, saving to a new path; `CREATE TABLE AS SELECT` and `REPLACE TABLE AS SELECT` on Spark 3.5 and later | `UPDATE`, `DELETE`, `MERGE`, column backfills, sharded tables, blob columns and the column types listed under [Writing](#writing) |
+| Write | Experimental, off by default | Append, overwrite, saving to a new path, `CREATE TABLE AS SELECT`; `REPLACE TABLE AS SELECT` on Spark 3.5 and later | `UPDATE`, `DELETE`, `MERGE`, column backfills, sharded tables, blob columns and the column types listed under [Writing](#writing) |
 
 Gluten does not change lance-spark's commands, such as index creation and compaction, or its
 commit protocol: an offloaded write is committed by lance-spark on the driver.
@@ -117,7 +117,8 @@ A write is left on lance-spark's writer (fallback, not an error) when Velox cann
 |------------------------------------------------------------|----------|
 | Append, overwrite (`INSERT INTO`, `INSERT OVERWRITE`)      | Offload  |
 | Saving to a new path                                       | Offload  |
-| `CREATE TABLE AS SELECT`, `REPLACE TABLE AS SELECT`        | Offload on Spark 3.5 and later |
+| `CREATE TABLE AS SELECT`                                   | Offload  |
+| `REPLACE TABLE AS SELECT`                                  | Offload on Spark 3.5 and later |
 | Table with a sharding key                                  | Fallback |
 | Blob columns                                               | Fallback |
 | `TimestampNTZ` columns                                     | Fallback, unless Gluten's NTZ validation is turned off |
@@ -166,6 +167,12 @@ read offload engages automatically whenever lance-spark is present on the classp
   values need smaller batches.
 - The memory Lance itself uses to encode and write fragments is not counted as Spark task memory,
   as with lance-spark's own writer, so leave room for it in `spark.executor.memoryOverhead`. By
-  default Lance buffers up to 8 MiB per column for each file it writes, so this grows with the
-  number of columns and of concurrent write tasks per executor. The Arrow batches the native write
-  hands to Lance are counted.
+  default Lance buffers up to 8 MiB per column for each file it writes, and on an object store
+  also keeps up to 10 upload parts of 5 MiB in flight per file (`LANCE_UPLOAD_CONCURRENCY`). As a
+  rough guide, allow concurrent write tasks per executor × (columns × 8 MiB, plus 55 MiB on an
+  object store): 8 tasks writing 20 columns to S3 can use about 1.7 GiB. The Arrow batches the
+  native write hands to Lance are counted.
+- When a task stops while Lance is blocked, for example on an object-store request that keeps
+  retrying, it waits up to 5 minutes for Lance to stop. If Lance is still running then, the task
+  ends without releasing the Velox batches Lance holds, which may abort the executor. The task
+  logs an error when this happens.

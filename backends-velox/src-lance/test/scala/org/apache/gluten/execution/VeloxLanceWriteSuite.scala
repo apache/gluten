@@ -29,7 +29,7 @@ import org.apache.spark.sql.execution.datasources.v2.{AppendDataExec, OverwriteB
 import org.apache.spark.sql.functions.{col, udf}
 import org.apache.spark.sql.gluten.LanceTestUtils
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DoubleType, IntegerType, MapType, Metadata, MetadataBuilder, StringType, StructType, TimestampType}
+import org.apache.spark.sql.types.{DoubleType, IntegerType, MapType, Metadata, MetadataBuilder, StringType, StructType, TimestampNTZType, TimestampType}
 import org.apache.spark.sql.util.QueryExecutionListener
 import org.apache.spark.task.TaskResources
 
@@ -533,14 +533,13 @@ class VeloxLanceWriteSuite extends VeloxWholeStageTransformerSuite {
     withLanceCatalog {
       catalog =>
         val table = s"$catalog.default.ctas"
-        // Spark 3.5 and later write a staged table through a nested append or, for a replace on
-        // Spark 4.x, a nested overwrite. Either is offloaded. Spark 3.4 writes it directly, so it
+        // A staged table is written through a nested append or, for a replace on Spark 4.x, a
+        // nested overwrite, and either is offloaded. On Spark 3.4, Gluten's own
+        // RewriteCreateTableAsSelect plans a CTAS that way, but a replace is written directly, so it
         // stays on lance-spark's writer.
-        def assertNestedWriteOffloaded(plans: Seq[SparkPlan]): Unit =
-          if (isSparkVersionGE("3.5")) assertOffloaded[LanceWriteExec](plans)
         val created =
           executedPlans(spark.sql(s"CREATE TABLE $table USING lance AS ${sqlRows(0, 10)}"))
-        assertNestedWriteOffloaded(created)
+        assertOffloaded[LanceWriteExec](created)
         checkAnswer(spark.table(table), expectedSqlRows(0, 10))
 
         val replaced = executedPlans {
@@ -548,7 +547,11 @@ class VeloxLanceWriteSuite extends VeloxWholeStageTransformerSuite {
             s"REPLACE TABLE $table USING lance AS " +
               "SELECT id as k, cast(id as double) / 4 as d FROM range(0, 6)")
         }
-        assertNestedWriteOffloaded(replaced)
+        if (isSparkVersionGE("3.5")) {
+          assertOffloaded[LanceWriteExec](replaced)
+        } else {
+          assert(!replaced.exists(_.exists(_.isInstanceOf[LanceWriteExec])), replaced)
+        }
         checkAnswer(spark.table(table), (0 until 6).map(i => Row(i.toLong, i / 4.0)))
 
         // A failed write aborts the staged table, so it is never created.
@@ -817,6 +820,11 @@ class VeloxLanceWriteSuite extends VeloxWholeStageTransformerSuite {
           "i",
           IntegerType).add("str", StringType)))
         .contains("s.str"))
+    // TimestampNTZ columns are offloaded when Gluten's NTZ validation is off.
+    assert(
+      VeloxLanceWriteExec
+        .undefinedUnderNullStruct(inNullable(new StructType().add("ntz", TimestampNTZType)))
+        .contains("s.ntz"))
   }
 
   test("only float and double fixed-size lists are taken as vectors") {

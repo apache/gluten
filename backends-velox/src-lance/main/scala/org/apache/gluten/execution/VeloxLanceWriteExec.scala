@@ -18,7 +18,7 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.connector.write.{ColumnarBatchDataWriterFactory, LanceColumnarBatchDataWriterFactory}
 
-import org.apache.spark.sql.types.{ArrayType, BinaryType, DataType, MapType, StringType, StructType, TimestampType}
+import org.apache.spark.sql.types.{ArrayType, BinaryType, DataType, MapType, StringType, StructType, TimestampNTZType, TimestampType}
 
 import org.apache.arrow.vector.types.{DateUnit, FloatingPointPrecision, TimeUnit}
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field, Schema}
@@ -82,7 +82,7 @@ object VeloxLanceWriteExec {
             undefinedUnderNullStruct(f.dataType, child, f.nullable, inNullable)
         }
         .collectFirst { case Some(found) => found }
-    case TimestampType | _: StringType | BinaryType | _: ArrayType | _: MapType
+    case TimestampType | TimestampNTZType | _: StringType | BinaryType | _: ArrayType | _: MapType
         if inNullableStruct =>
       Some(name)
     case a: ArrayType =>
