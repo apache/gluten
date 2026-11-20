@@ -45,15 +45,14 @@ class GlutenSQLQuerySuite extends SQLQuerySuite with GlutenSQLTestsTrait {
 
           val isVelox = BackendTestUtils.isVeloxBackendLoaded()
           val cudfModes = if (isVelox) Seq(false, true) else Seq(false)
-          for (cudfEnabled <- cudfModes; buildOnce <- Seq(true, false)) {
-            withClue(s"cuDF=$cudfEnabled, buildOnce=$buildOnce: ") {
+          for (cudfEnabled <- cudfModes) {
+            withClue(s"cuDF=$cudfEnabled: ") {
               withSQLConf(
                 // Exercise CPU execution with both cuDF broadcast settings on CPU CI.
                 SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false",
                 SQLConf.SHUFFLE_PARTITIONS.key -> "2",
                 SQLConf.FILES_OPEN_COST_IN_BYTES.key -> "134217728",
                 GlutenConfig.COLUMNAR_CUDF_ENABLED.key -> cudfEnabled.toString,
-                "spark.gluten.velox.buildHashTableOncePerExecutor.enabled" -> buildOnce.toString,
                 "spark.gluten.velox.offHeapBroadcastBuildRelation.enabled" -> "false"
               ) {
                 // Exercise both broadcast expression-key projection and the exchange before TopN.

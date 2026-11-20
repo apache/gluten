@@ -46,15 +46,14 @@ class GlutenBroadcastValueStreamSuite
           spark.read.parquet(leftPath).createOrReplaceTempView("top_n_left")
           spark.read.parquet(rightPath).createOrReplaceTempView("top_n_right")
 
-          for (cudfEnabled <- Seq(false, true); buildOnce <- Seq(true, false)) {
-            withClue(s"cuDF=$cudfEnabled, buildOnce=$buildOnce: ") {
+          for (cudfEnabled <- Seq(false, true)) {
+            withClue(s"cuDF=$cudfEnabled: ") {
               withSQLConf(
                 // Exercise CPU execution with both cuDF broadcast settings on CPU CI.
                 SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false",
                 SQLConf.SHUFFLE_PARTITIONS.key -> "2",
                 SQLConf.FILES_OPEN_COST_IN_BYTES.key -> "134217728",
                 GlutenConfig.COLUMNAR_CUDF_ENABLED.key -> cudfEnabled.toString,
-                "spark.gluten.velox.buildHashTableOncePerExecutor.enabled" -> buildOnce.toString,
                 "spark.gluten.velox.offHeapBroadcastBuildRelation.enabled" -> "false"
               ) {
                 // Exercise both broadcast expression-key projection and the exchange before TopN.
@@ -75,8 +74,9 @@ class GlutenBroadcastValueStreamSuite
                 val exchange = exchanges.head
                 val relation = exchange.doExecuteBroadcast[BuildSideRelation]().value
                 val outputTypes = exchange.output.map(_.dataType)
-                // Broadcast preprojection appends the expression key in either cuDF mode.
-                val expectedColumns = outputTypes.size + (if (buildOnce) 1 else 0)
+                // The hash table is built once per executor, so the broadcast preprojection
+                // appends the expression key in either cuDF mode.
+                val expectedColumns = outputTypes.size + 1
 
                 TaskResources.runUnsafe {
                   // The iterator recycles loaded batches and closes its serializer when drained.

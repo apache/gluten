@@ -70,11 +70,11 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def broadcastBuildMergeBatches: Boolean =
     getConf(VELOX_BROADCAST_BUILD_MERGE_BATCHES)
 
-  // A hash table built once per executor reaches the native join through a process local cache
-  // rather than through the build side input iterator, so a dumped stage could not be replayed by
-  // the micro benchmark. Dumping therefore always builds the hash table per task.
-  def enableBroadcastBuildOncePerExecutor: Boolean =
-    getConf(VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR) && !benchmarkDumpRequested
+  // The broadcast hash table is built once per executor and reaches the native join through a
+  // process local cache rather than through the build side input iterator, so a dumped stage
+  // could not be replayed by the micro benchmark. Dumping therefore builds the hash table per
+  // task. This is the only case in which the table is not built once per executor.
+  def enableBroadcastBuildOncePerExecutor: Boolean = !benchmarkDumpRequested
 
   def broadcastNestedLoopJoinFullOuterRewriteThreshold: Long =
     getConf(VELOX_BROADCAST_NESTED_LOOP_JOIN_FULL_OUTER_REWRITE_THRESHOLD)
@@ -853,16 +853,6 @@ object VeloxConfig extends ConfigRegistry {
           "Value is integer based and range is [0, 100].")
       .intConf
       .createWithDefault(0)
-
-  val VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR =
-    buildConf("spark.gluten.velox.buildHashTableOncePerExecutor.enabled")
-      .internal()
-      .doc(
-        "When enabled, the hash table is " +
-          "constructed once per executor. If not enabled, " +
-          "the hash table is rebuilt for each task.")
-      .booleanConf
-      .createWithDefault(true)
 
   val VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD =
     buildConf("spark.gluten.sql.columnar.backend.velox.driverSideBroadcastHashTableBuild")

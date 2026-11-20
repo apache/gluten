@@ -495,7 +495,6 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
     withSQLConf(
       ("spark.sql.autoBroadcastJoinThreshold", "10MB"),
       ("spark.sql.adaptive.enabled", "false"),
-      (VeloxConfig.VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR.key, "true"),
       (VeloxConfig.VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD.key, "true"),
       (GlutenConfig.BENCHMARK_TASK_TASK_ID.key, "-1")
     ) {
@@ -592,8 +591,7 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
   test("Broadcast build once with generated build key alias") {
     withSQLConf(
       ("spark.sql.autoBroadcastJoinThreshold", "10MB"),
-      ("spark.sql.adaptive.enabled", "false"),
-      (VeloxConfig.VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR.key, "true")
+      ("spark.sql.adaptive.enabled", "false")
     ) {
       createTPCHNotNullTables()
       runQueryAndCompare(generatedBuildKeyAliasQuery) {
@@ -672,51 +670,43 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
   }
 
   test("Do not reuse broadcast exchange for different null aware flag") {
-    Seq("true", "false").foreach {
-      enableBroadcastBuildOncePerExecutor =>
-        withSQLConf(
-          ("spark.sql.adaptive.enabled", "false"),
-          (
-            VeloxConfig.VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR.key,
-            enableBroadcastBuildOncePerExecutor)
-        ) {
-          withTable("t1", "t2") {
-            spark
-              .range(100)
-              .selectExpr("id as key", "id as value")
-              .write
-              .saveAsTable("t1")
+    withSQLConf(("spark.sql.adaptive.enabled", "false")) {
+      withTable("t1", "t2") {
+        spark
+          .range(100)
+          .selectExpr("id as key", "id as value")
+          .write
+          .saveAsTable("t1")
 
-            spark
-              .range(100)
-              .selectExpr("id % 7 as key", "id as value")
-              .write
-              .saveAsTable("t2")
+        spark
+          .range(100)
+          .selectExpr("id % 7 as key", "id as value")
+          .write
+          .saveAsTable("t2")
 
-            val query = """
-              SELECT /*+ BROADCAST(t2) */ t1.key, t1.value
-              FROM t1
-              WHERE key not in (SELECT key FROM t2)
-              UNION ALL
-              SELECT /*+ BROADCAST(t2) */ t1.key, t1.value
-              from t1
-              JOIN t2 on t1.key = t2.key
-            """
+        val query = """
+          SELECT /*+ BROADCAST(t2) */ t1.key, t1.value
+          FROM t1
+          WHERE key not in (SELECT key FROM t2)
+          UNION ALL
+          SELECT /*+ BROADCAST(t2) */ t1.key, t1.value
+          from t1
+          JOIN t2 on t1.key = t2.key
+        """
 
-            runQueryAndCompare(query) {
-              df =>
-                val plan = df.queryExecution.executedPlan
-                // Columnar broadcast exchange is not reused because the
-                // HashedRelationBroadcastMode's isNullAware flag is different.
-                assert(collect(plan) { case b: ColumnarBroadcastExchangeExec => b }.size == 2)
-                val modes = collect(plan) {
-                  case ColumnarBroadcastExchangeExec(mode: HashedRelationBroadcastMode, _) => mode
-                }
-                assert(modes.size == 2)
-                assert(modes.exists(_.isNullAware) && modes.exists(!_.isNullAware))
+        runQueryAndCompare(query) {
+          df =>
+            val plan = df.queryExecution.executedPlan
+            // Columnar broadcast exchange is not reused because the
+            // HashedRelationBroadcastMode's isNullAware flag is different.
+            assert(collect(plan) { case b: ColumnarBroadcastExchangeExec => b }.size == 2)
+            val modes = collect(plan) {
+              case ColumnarBroadcastExchangeExec(mode: HashedRelationBroadcastMode, _) => mode
             }
-          }
+            assert(modes.size == 2)
+            assert(modes.exists(_.isNullAware) && modes.exists(!_.isNullAware))
         }
+      }
     }
   }
 
