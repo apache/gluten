@@ -25,7 +25,7 @@ import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.expression.{ExpressionBuilder, ExpressionNode}
 import org.apache.gluten.substrait.extensions.{AdvancedExtensionNode, ExtensionBuilder}
 import org.apache.gluten.substrait.rel.{RelBuilder, RelNode}
-import org.apache.gluten.utils.SubstraitUtil
+import org.apache.gluten.utils.{HiveFileFormatUtil, SubstraitUtil}
 
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
@@ -68,7 +68,15 @@ case class WriteFilesExecTransformer(
 
   override def output: Seq[Attribute] = Seq.empty
 
-  val caseInsensitiveOptions: CaseInsensitiveMap[String] = CaseInsensitiveMap(options)
+  /**
+   * Write options used for validation and to build the native writer configuration. For a
+   * `HiveFileFormat` the Hive table properties are merged in: `options` then only carries the
+   * bucket-write flag, while vanilla Spark resolves the Parquet compression codec from the table
+   * properties (e.g. `TBLPROPERTIES ('parquet.compression'='zstd')`) via
+   * `HiveOptions.getHiveWriteCompression`. Explicit `options` take precedence.
+   */
+  val caseInsensitiveOptions: CaseInsensitiveMap[String] =
+    CaseInsensitiveMap(HiveFileFormatUtil.tableProperties(fileFormat) ++ options)
 
   private def preProjectionNeeded(): Boolean = {
     if (
