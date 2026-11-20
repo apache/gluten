@@ -56,7 +56,36 @@ public class ArrowBufferAllocators {
       throw new IllegalStateException("This method must be called in a Spark task.");
     }
     String id = "ArrowBufferAllocatorManager:" + name;
-    return TaskResources.addResourceIfNotRegistered(id, () -> new ArrowBufferAllocatorManager(name))
+    return TaskResources.addResourceIfNotRegistered(
+            id, () -> new ArrowBufferAllocatorManager(name, true))
+        .managed;
+  }
+
+  public static BufferAllocator contextUntrackedInstance() {
+    return contextUntrackedInstance("Default");
+  }
+
+  /**
+   * A task allocator that doesn't reserve Spark memory. Use it to import Arrow buffers whose memory
+   * is already reserved by their owner, e.g. buffers exported from a native batch, which stay
+   * allocated from the native memory pool until they are released.
+   *
+   * <p>It's a separate root, not a child of {@link #contextInstance(String)}: Arrow repays a buffer
+   * through the listener of the allocator that owns it last, so a buffer shared within one tree
+   * could be reserved by one listener and repaid by the other. Arrow can't move or share buffers
+   * across roots, so only use it for batches that are read and closed within one operator, e.g. the
+   * input of a UDF evaluated row by row. Batches that leave the operator may be mixed with vectors
+   * of {@link #contextInstance(String)} downstream (e.g. loaded into one {@code VectorSchemaRoot}),
+   * so keep them in {@link #contextInstance(String)}.
+   */
+  public static BufferAllocator contextUntrackedInstance(String name) {
+    if (!TaskResources.inSparkTask()) {
+      throw new IllegalStateException("This method must be called in a Spark task.");
+    }
+    String untrackedName = "Untracked:" + name;
+    String id = "ArrowBufferAllocatorManager:" + untrackedName;
+    return TaskResources.addResourceIfNotRegistered(
+            id, () -> new ArrowBufferAllocatorManager(untrackedName, false))
         .managed;
   }
 
@@ -67,11 +96,13 @@ public class ArrowBufferAllocators {
   public static class ArrowBufferAllocatorManager implements TaskResource {
     private static Logger LOGGER = LoggerFactory.getLogger(ArrowBufferAllocatorManager.class);
     private static final List<BufferAllocator> LEAKED = new Vector<>();
-    private final AllocationListener listener;
     private final String name;
+    private final BufferAllocator managed;
 
-    {
-      if (GlutenConfig.get().memoryUntracked()) {
+    public ArrowBufferAllocatorManager(String name, boolean tracked) {
+      this.name = name;
+      final AllocationListener listener;
+      if (!tracked || GlutenConfig.get().memoryUntracked()) {
         listener = AllocationListener.NOOP;
       } else {
         listener =
@@ -82,12 +113,7 @@ public class ArrowBufferAllocators {
                             "ArrowContextInstance", Spillers.NOOP, Collections.emptyMap()))),
                 TaskResources.getSharedUsage());
       }
-    }
-
-    private final BufferAllocator managed = new RootAllocator(listener, Long.MAX_VALUE);
-
-    public ArrowBufferAllocatorManager(String name) {
-      this.name = name;
+      this.managed = new RootAllocator(listener, Long.MAX_VALUE);
     }
 
     private void close() {

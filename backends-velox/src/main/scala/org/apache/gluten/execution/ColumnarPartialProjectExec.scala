@@ -225,7 +225,9 @@ case class ColumnarPartialProjectExec(projectList: Seq[Expression], child: Spark
     val sparkColumnarBatch = if (childData.numCols() == 0) {
       childData
     } else {
-      ColumnarBatches.load(ArrowBufferAllocators.contextInstance(), childData)
+      // Only read here, and closed by this operator, so it can be untracked: its buffers stay
+      // reserved by the native batch.
+      ColumnarBatches.load(ArrowBufferAllocators.contextUntrackedInstance(), childData)
     }
     c2a += System.currentTimeMillis() - start
 

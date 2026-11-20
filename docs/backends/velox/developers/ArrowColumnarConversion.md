@@ -126,19 +126,30 @@ Composite paths that the planner builds from these edges:
 - A batch is released with `ColumnarBatches.release` or `ColumnarBatch.close()`, which decrements
   the reference count of its vectors. An operator that needs a batch after its child has moved on
   must retain it (`ColumnarBatches.retain`) and release it later, as `ColumnarArrowEvalPythonExec`
-  does.
+  does with its input batches until their results come back.
 - `ColumnarToColumnarExec` closes the batches it emits on the next call only when
   `needRecyclePayload` is true (e.g. `VeloxResizeBatchesExec`). The Arrow transitions keep the
   default, `false`.
 - Java Arrow memory comes from `ArrowBufferAllocators.contextInstance()`, Gluten's per-task
   allocator, whose listener reports to Spark's memory manager.
+- Operators that load a batch only to read it and close it themselves (`ColumnarPartialProjectExec`,
+  `ColumnarPartialGenerateExec`, `ColumnarArrowEvalPythonExec`, `VeloxColumnarWriteFilesExec`) load
+  it into
+  `ArrowBufferAllocators.contextUntrackedInstance()` instead: a separate per-task root allocator
+  whose listener doesn't reserve Spark memory, because the imported buffers stay reserved by the
+  native batch (see the release note below). It's a separate root rather than a child of the task
+  allocator, because Arrow repays a buffer through the listener of the allocator that owns it
+  last. So these batches can't be mixed with vectors of the task allocator (e.g. loaded into one
+  `VectorSchemaRoot`), and `LoadArrowDataExec`, whose batches leave the operator, still loads into
+  the task allocator.
 
 ## 4. Example: a Velox column through an Arrow UDF
 
 This follows one fixed-width column, a `BIGINT` column `x`, through
-`Velox op → LoadArrowDataExec → ColumnarArrowEvalPythonExec → OffloadArrowDataExec →
-ArrowColumnarToVeloxColumnarExec → Velox op`, for a query such as `SELECT x, f(x)` with a pandas or
-Arrow UDF `f`. .
+`Velox op → ColumnarArrowEvalPythonExec → Velox op`, for a query such as `SELECT x, f(x)` with a
+pandas or Arrow UDF `f`. `ColumnarArrowEvalPythonExec` takes and produces Velox batches: it loads
+only the UDF's input columns to Java, and merges the UDF's result back into the input batch
+natively, so the input columns stay in Velox and no Arrow transitions are planned around it.
 
 ![A Velox column through an Arrow UDF](../../../image/VeloxColumnArrowUdfLifecycle.png)
 
@@ -147,28 +158,23 @@ Three counts are involved, and none of them crosses JNI:
 - **Velox buffer references** (`BufferPtr`), held by Velox vectors and by an exported `ArrowArray`.
 - **Arrow Java `ArrowBuf` references**. An imported array is released through its C `release`
   callback once its last `ArrowBuf` is released.
-- **Gluten's `refCnt`** on `RefCountedArrowColumnVector`. It only decides when Gluten closes the Java
-  vector.
+- **Gluten's `refCnt`**, on the input batch's `IndicatorVector` and on
+  `RefCountedArrowColumnVector`. It only decides when Gluten closes the batch or the Java vector.
 
 The Arrow C Data interface has no reference count. Ownership of an `ArrowArray` moves once, and the
 holder calls `release` exactly once.
 
-| Step | Velox buffer refs | `x.refCnt` | What happens |
-|---|---|---|---|
-| 1. Export | 2 | – | `VeloxColumnarBatch::exportArrowArray` exports `ArrowArray` A, which keeps a reference to the buffer. No copy for a flat fixed-width vector |
-| 2. Import | 2 | 1 | `Data.importIntoVectorSchemaRoot` wraps the Velox memory as `ArrowBuf`s, and `ArrowColumnVectors.toBatch` creates `x` |
-| 3. Close the Velox batch | 1 | 1 | `load` closes the input batch: `ObjectStore::release` frees the `RowVector`. A keeps the buffer alive |
-| 4. Retain for the UDF | 1 | 2 | `ColumnarArrowEvalPythonExec` retains the input batch until the result comes back |
-| 5. Send to Python | 1 | 2 | `ArrowStreamWriter` serializes the UDF columns into the socket. The Python worker reads its own copy; when pyarrow releases it, only Python's memory is freed |
-| 6. Join the result | 1 | 1 | The output batch is `[x, r]`. `adjustRefCnt` sets every column to 1, because `offload` requires one count for the whole batch |
-| 7. Export to native | 1 | 0 | `offload` exports `ArrowArray` B, which retains the `ArrowBuf`s, then closes the input batch. `x` is closed, and B keeps the memory alive |
-| 8. Import into Velox | 1 | – | `importFromArrowAsOwner(B)` builds a Velox vector over the same memory. No copy |
-| 9. Release | 0 | – | When the downstream Velox operator frees the vector, B's `release` (Arrow Java's export callback) drops the last `ArrowBuf`, which calls A's `release` (Velox's export callback). The buffer goes back to Velox's memory pool |
-
-So the column's memory is freed by the last Velox operator that uses it, through two `release`
-callbacks: Velox → Arrow Java → Velox. If the UDF output goes to a vanilla Spark operator instead,
-step 7 doesn't happen, and the memory is freed when `ColumnarArrowEvalPythonExec` closes its output
-batch on the next call (`recyclePayload`).
+| Step | Velox buffer refs of `x` | What happens |
+|---|---|---|
+| 1. Retain the input | 1 | `ColumnarArrowEvalPythonExec` retains the input Velox batch `in` until the result comes back |
+| 2. Select the UDF inputs | 2 | `ColumnarBatches.select` builds a Velox batch `s` of the columns the UDF reads, sharing their buffers |
+| 3. Export | 3 | `VeloxColumnarBatch::exportArrowArray` exports `s` as `ArrowArray` A, which keeps a reference to the buffer. No copy for a flat fixed-width vector |
+| 4. Import | 2 | `ColumnarBatches.load` imports A into `ArrowBufferAllocators.contextUntrackedInstance()` (no Spark memory is reserved again) and closes `s` |
+| 5. Send to Python | 1 | The runner serializes the batch into the socket (`MessageSerializer`), then closes it: its last `ArrowBuf` calls A's `release`. The Python worker reads its own copy |
+| 6. Read the result | 1 | The runner reads the result `r` into the task allocator (`contextInstance()`, reserved in Spark) and moves its buffers into new vectors |
+| 7. Offload the result | 1 | `offload` exports `r` as `ArrowArray` B, and `toVeloxBatch` imports it (`importFromArrowAsOwner`) over the same memory. No copy |
+| 8. Merge | 1 | `VeloxColumnarBatches.compose(in, r)` builds the output `[x, r]` natively, and `in` is released |
+| 9. Release | 0 | When the downstream Velox operator frees the output, `x`'s buffer goes back to Velox's memory pool, and B's `release` frees `r`'s Java memory |
 
 <details>
 <summary>PlantUML source: Velox column through an Arrow UDF</summary>
@@ -180,47 +186,41 @@ skinparam sequenceMessageAlign left
 skinparam responseMessageBelowArrow true
 hide footbox
 
-title A Velox BIGINT column through an Arrow UDF and back (Gluten main)
+title A Velox BIGINT column through an Arrow UDF (Gluten main)
 
 box "Native (C++)" #EEF7EE
 participant "Velox buffer\n(values of x)" as Buf
-participant "VeloxColumnarBatch\n(upstream op)" as VB
-participant "Velox\n(downstream op)" as VD
+participant "Velox input batch in\n(upstream op)" as VB
+participant "Velox\n(compose, downstream op)" as VD
 end box
 box "JVM" #E8F0FB
-participant "LoadArrowDataExec\nColumnarBatches.load" as Load
-participant "RefCountedArrowColumnVector x\n(Arrow BigIntVector)" as X
 participant "ColumnarArrowEvalPythonExec" as Py
-participant "OffloadArrowDataExec\n+ ArrowColumnarToVelox" as Off
+participant "UDF input batch\n(untracked allocator)" as X
+participant "ColumnarArrowPythonRunner" as R
 end box
 participant "Python worker\n(pyarrow UDF)" as W
 
-== 1. Velox -> Arrow C -> Java (no copy) ==
-Load -> VB : JNI exportToArrow(handle)
-VB -> VB : ensureFlattened()\nvelox::exportToArrow()
-VB -> Buf : ArrowArray A keeps a buffer ref\n<b>Velox refs: 2</b> (vector + A)
-VB --> Load : ArrowArrayMove(A)
-Load -> X : Data.importIntoVectorSchemaRoot(A)\nArrowBuf wraps Velox memory\nArrowColumnVectors.toBatch()  <b>x.refCnt = 1</b>
-Load -> VB : input.close() -> ObjectStore::release\nRowVector freed
-VB -> Buf : <b>Velox refs: 1</b> (only A)
+== 1. Load the UDF inputs (no copy) ==
+Py -> VB : ColumnarBatches.retain(in), cache it
+Py -> VB : ColumnarBatches.select -> s\n<b>Velox refs: 2</b>
+Py -> VB : load(contextUntrackedInstance, s)\nexportToArrow -> ArrowArray A
+VB -> Buf : A keeps a buffer ref, s is closed
+VB --> X : Data.importIntoVectorSchemaRoot(A)\nno Spark memory reserved
 
 == 2. To Python and back (IPC copy) ==
-Py -> X : ColumnarBatches.retain  <b>x.refCnt = 2</b>\ncache input batch
-Py -> W : ArrowStreamWriter.writeBatch\n(serialize x into the socket)
-W -> W : pyarrow reads its own copy,\nruns the UDF, frees its copy\n(no effect on JVM memory)
-W --> Py : result batch r (IPC)
-Py -> X : join [x, r]\nadjustRefCnt(x, 1)  <b>x.refCnt = 1</b>
+R -> X : MessageSerializer.serialize\n(serialize x into the socket)
+R -> X : close: last ArrowBuf -> A.release()
+X -> Buf : <b>Velox refs: 1</b> (only in)
+W -> W : pyarrow reads its own copy,\nruns the UDF
+W --> R : result batch r (IPC), read into\ncontextInstance (reserved in Spark)
 
-== 3. Java -> Arrow C -> Velox (no copy) ==
-Off -> X : Data.exportVectorSchemaRoot -> ArrowArray B\nB retains the ArrowBufs
-Off -> X : offload closes the input batch\n<b>x.refCnt = 0</b> -> vector.close()\n(ArrowBufs still held by B)
-Off -> VD : createWithArrowArray(B)\nimportFromArrowAsOwner(B)
-note right of VD : Velox reads the same memory
-
-== 4. Release chain ==
-VD -> VD : downstream op done with the vector
-VD -> X : B.release()  (Arrow Java export callback)\nlast ArrowBuf released
-X -> Buf : A.release()  (Velox export callback)\n<b>Velox refs: 0</b>, buffer returned to the MemoryPool
+== 3. Merge natively (no copy) ==
+Py -> VD : offload(r) -> ArrowArray B\ntoVeloxBatch: importFromArrowAsOwner(B)
+Py -> VD : VeloxColumnarBatches.compose(in, r)
+Py -> VB : ColumnarBatches.release(in)
+VD -> VD : downstream op done with [x, r]
+VD -> Buf : <b>Velox refs: 0</b>, buffer returned to the MemoryPool
+VD -> R : B.release()\nr's Java memory freed
 @enduml
 ```
 
@@ -326,7 +326,7 @@ end note
 
 | Operator | Batch type in → out | How it's planned |
 |---|---|---|
-| `ColumnarArrowEvalPythonExec` (Arrow / pandas UDFs) | Java Arrow → Java Arrow | Gluten's own operator and Python runner, from `OffloadSingleNodeRules` |
+| `ColumnarArrowEvalPythonExec` (Arrow / pandas UDFs) | Velox → Velox | Gluten's own operator and Python runner, from `OffloadSingleNodeRules`. Loads the UDF inputs to Java Arrow inside the operator, and merges the results natively (`VeloxColumnarBatches.compose`) |
 | `ColumnarPartialProjectExec`, `ColumnarPartialGenerateExec` | Velox → Velox | Load to Java Arrow inside the operator, evaluate the Spark expressions row by row (`MutableProjection` / the generator), and write the results with Spark's `ArrowWriter` (`ArrowColumnVectors.fromRows`) |
 | `ColumnarRangeExec` | – → Java Arrow | Fills a `BigIntVector` from `ArrowColumnVectors.allocateRoot` and wraps it with `toBatch` |
 | `VeloxRDDScanTransformer`, `VeloxLocalTableScanTransformer` | – → Velox | Convert rows to Velox inside the operator, through the same JNI path as `RowToVeloxColumnarExec` (`toColumnarBatchIterator`) |
