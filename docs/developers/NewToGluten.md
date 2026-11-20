@@ -49,14 +49,6 @@ prevents installation; a verification failure does not trigger a fallback.
 Downloading requires `curl` or `wget` and either `sha512sum` (Linux) or
 `shasum` (macOS). Existing installations do not require these tools.
 
-The source and checksum tests use local fixtures and mocked downloads, requiring
-only Bash, Python 3, standard Unix utilities, and the checksum tools, without
-network access or a JDK:
-
-```bash
-python3 gluten-ut/test/src/test/python/test_mvn_distribution.py
-```
-
 ### GCC
 
 Gluten requires GCC 11 or above.
