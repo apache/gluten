@@ -131,14 +131,17 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       right: ExpressionTransformer,
       original: TryEval,
       checkArithmeticExprName: String): ExpressionTransformer = {
-    original.child.dataType match {
-      case LongType | IntegerType | ShortType | ByteType =>
+    val arithmeticExprName = (original.child, original.child.dataType) match {
+      case (_, LongType | IntegerType | ShortType | ByteType) => checkArithmeticExprName
+      // Velox's Spark interval add and subtract always throw on overflow, so try() returns NULL
+      // as Spark does. Day-time intervals have no Substrait type in Gluten yet and fall back.
+      case (_: Add, _: YearMonthIntervalType) => ExpressionNames.ADD
+      case (_: Subtract, _: YearMonthIntervalType) => ExpressionNames.SUBTRACT
       case _ => throw new GlutenNotSupportException(s"$substraitExprName is not supported")
     }
-    // Offload to velox for only IntegralTypes.
     GenericExpressionTransformer(
       substraitExprName,
-      Seq(GenericExpressionTransformer(checkArithmeticExprName, Seq(left, right), original)),
+      Seq(GenericExpressionTransformer(arithmeticExprName, Seq(left, right), original)),
       original)
   }
 
@@ -1299,6 +1302,11 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         ExpressionNames.FROM_JSON,
         FromJsonRestrictions.NOT_SUPPORT_COLUMN_CORRUPT_RECORD)
     }
+    if (ExpressionUtils.containsYearMonthInterval(expr.dataType)) {
+      GlutenExceptionUtil.throwsNotFullySupported(
+        ExpressionNames.FROM_JSON,
+        FromJsonRestrictions.NOT_SUPPORT_YEAR_MONTH_INTERVAL)
+    }
     VeloxFromJsonTransformer(substraitExprName, children, expr)
   }
 
@@ -1319,6 +1327,11 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       GlutenExceptionUtil.throwsNotFullySupported(
         ExpressionNames.TO_JSON,
         ToJsonRestrictions.NOT_SUPPORT_UPPERCASE_STRUCT)
+    }
+    if (ExpressionUtils.containsYearMonthInterval(expr.child.dataType)) {
+      GlutenExceptionUtil.throwsNotFullySupported(
+        ExpressionNames.TO_JSON,
+        ToJsonRestrictions.NOT_SUPPORT_YEAR_MONTH_INTERVAL)
     }
     ToJsonTransformer(substraitExprName, child, expr)
   }

@@ -18,7 +18,7 @@ package org.apache.gluten.expression
 
 import org.apache.spark.sql.catalyst.expressions.{Add, Attribute, AttributeReference, Cast, Divide, EvalMode, Expression, IntegralDivide, LeafExpression, Multiply, Subtract}
 import org.apache.spark.sql.execution.SparkPlan
-import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructField, StructType}
+import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructField, StructType, YearMonthIntervalType}
 
 object ExpressionUtils {
 
@@ -56,6 +56,17 @@ object ExpressionUtils {
       case ArrayType(elementType, _) => hasUppercaseStructFieldName(elementType)
       case MapType(keyType, valueType, _) =>
         hasUppercaseStructFieldName(keyType) || hasUppercaseStructFieldName(valueType)
+      case _ => false
+    }
+  }
+
+  def containsYearMonthInterval(dataType: DataType): Boolean = {
+    dataType match {
+      case _: YearMonthIntervalType => true
+      case StructType(fields) => fields.exists(f => containsYearMonthInterval(f.dataType))
+      case ArrayType(elementType, _) => containsYearMonthInterval(elementType)
+      case MapType(keyType, valueType, _) =>
+        containsYearMonthInterval(keyType) || containsYearMonthInterval(valueType)
       case _ => false
     }
   }
