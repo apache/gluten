@@ -21,6 +21,7 @@ import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators;
 import org.apache.gluten.test.VeloxBackendTestBase;
 
 import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.memory.OutOfMemoryException;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.IntVector;
 import org.apache.spark.sql.catalyst.InternalRow;
@@ -191,6 +192,55 @@ public class ArrowColumnVectorTest extends VeloxBackendTestBase {
               ClassCastException.class,
               () -> ArrowColumnVectors.fromRows(StructType.fromDDL("a int"), rows, allocator));
           Assert.assertEquals(before, allocator.getAllocatedMemory());
+          return null;
+        });
+  }
+
+  @Test
+  public void testOffloadReleasesAdoptedVectorsWhenExportFails() {
+    TaskResources$.MODULE$.runUnsafe(
+        () -> {
+          final int numRows = 10;
+          // Under Gluten's root, so adopting the vector moves its buffers into the allocator.
+          // The allocator has no room left for the C structs the offload exports through.
+          try (BufferAllocator allocator =
+                  ArrowBufferAllocators.contextInstance().newChildAllocator("full", 0, 1);
+              IntVector vector = new IntVector("a", ArrowBufferAllocators.contextInstance())) {
+            fill(vector, numRows);
+            final ColumnarBatch input =
+                new ColumnarBatch(new ColumnVector[] {new ArrowColumnVector(vector)}, numRows);
+            Assert.assertThrows(
+                OutOfMemoryException.class, () -> ColumnarBatches.offload(allocator, input));
+            Assert.assertEquals(0, allocator.getAllocatedMemory());
+          }
+          return null;
+        });
+  }
+
+  @Test
+  public void testOffloadReleasesAdoptedVectorsWhenACopyFails() {
+    TaskResources$.MODULE$.runUnsafe(
+        () -> {
+          final int numRows = 10;
+          // The first column moves into the allocator; the second, from another root, is copied
+          // and does not fit.
+          try (BufferAllocator allocator =
+                  ArrowBufferAllocators.contextInstance().newChildAllocator("full", 0, 1);
+              BufferAllocator foreign = new RootAllocator(Long.MAX_VALUE);
+              IntVector moved = new IntVector("a", ArrowBufferAllocators.contextInstance());
+              IntVector copied = new IntVector("b", foreign)) {
+            fill(moved, numRows);
+            fill(copied, numRows);
+            final ColumnarBatch input =
+                new ColumnarBatch(
+                    new ColumnVector[] {
+                      new ArrowColumnVector(moved), new ArrowColumnVector(copied)
+                    },
+                    numRows);
+            Assert.assertThrows(
+                OutOfMemoryException.class, () -> ColumnarBatches.offload(allocator, input));
+            Assert.assertEquals(0, allocator.getAllocatedMemory());
+          }
           return null;
         });
   }
