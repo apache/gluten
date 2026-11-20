@@ -448,6 +448,14 @@ class Spark43Shims extends SparkShims {
     scan.useSingleTaskExecution
   }
 
+  override def readsArchiveFiles(scan: FileSourceScanLike): Boolean = {
+    SQLConf.get.getConf(SQLConf.ARCHIVE_FORMAT_READER_ENABLED) &&
+    scan.selectedPartitions.filePartitionIterator.exists {
+      case ListingPartition(_, _, files) =>
+        files.exists(f => SupportsArchiveFormat.isArchivePath(f.getPath))
+    }
+  }
+
   override def unsupportedCodec: Seq[CompressionCodecName] = {
     Seq(CompressionCodecName.LZO, CompressionCodecName.BROTLI, CompressionCodecName.LZ4_RAW)
   }
