@@ -15,168 +15,107 @@
  * limitations under the License.
  */
 
-#include <stack>
-
+#include <Common/SparkRegexpToRe2.h>
 #include <DataTypes/DataTypeString.h>
-#include <IO/ReadBufferFromString.h>
 #include <Parser/FunctionParser.h>
-#include <Poco/Logger.h>
-#include <Common/logger_useful.h>
 #include <Common/re2.h>
 
-namespace DB
-{
-namespace ErrorCodes
+namespace DB::ErrorCodes
 {
 extern const int NUMBER_OF_ARGUMENTS_DOESNT_MATCH;
 extern const int ILLEGAL_TYPE_OF_ARGUMENT;
 }
-}
-
-using namespace DB;
 
 namespace local_engine
 {
-class FunctionParserRegexpExtract : public FunctionParser
+/// Translate literal patterns once before constructing the ClickHouse function.
+/// Unsupported Java constructs must not silently acquire RE2 semantics.
+class SparkRegexpFunctionParser : public FunctionParser
 {
 public:
-    explicit FunctionParserRegexpExtract(ParserContextPtr parser_context_) : FunctionParser(parser_context_) { }
-    ~FunctionParserRegexpExtract() override = default;
+    using FunctionParser::FunctionParser;
 
+protected:
+    const DB::ActionsDAG::Node * parseRegexpFunction(
+        const substrait::Expression_ScalarFunction & function,
+        DB::ActionsDAG & dag,
+        size_t min_args,
+        size_t max_args) const
+    {
+        const auto & args = function.arguments();
+        if (args.size() < min_args || args.size() > max_args)
+            throw DB::Exception(DB::ErrorCodes::NUMBER_OF_ARGUMENTS_DOESNT_MATCH, "Function {} requires {} to {} arguments", getName(), min_args, max_args);
+        const auto & pattern = args[1].value();
+        if (!pattern.has_literal() || !pattern.literal().has_string())
+            throw DB::Exception(DB::ErrorCodes::ILLEGAL_TYPE_OF_ARGUMENT, "Function {} requires a constant string pattern", getName());
+
+        const String translated = spark_regexp::re2::translatePattern(pattern.literal().string());
+        const ::re2::RE2 regex(translated);
+        if (!regex.ok())
+            throw DB::Exception(
+                DB::ErrorCodes::ILLEGAL_TYPE_OF_ARGUMENT, "Function {} cannot compile translated regexp pattern: {}", getName(), regex.error());
+        auto parsed_args = parseFunctionArguments(function, dag);
+        parsed_args[1] = addColumnToActionsDAG(dag, std::make_shared<DB::DataTypeString>(), translated);
+        const auto * node = toFunctionNode(dag, getCHFunctionName(function), parsed_args);
+        return convertNodeTypeIfNeeded(function, node, dag);
+    }
+};
+
+class FunctionParserRegexpExtract : public SparkRegexpFunctionParser
+{
+public:
+    using SparkRegexpFunctionParser::SparkRegexpFunctionParser;
     static constexpr auto name = "regexp_extract";
     String getName() const override { return name; }
-
-    const ActionsDAG::Node * parse(const substrait::Expression_ScalarFunction & substrait_func, ActionsDAG & actions_dag) const override
+    String getCHFunctionName(const substrait::Expression_ScalarFunction &) const override { return "regexpExtract"; }
+    const DB::ActionsDAG::Node * parse(const substrait::Expression_ScalarFunction & func, DB::ActionsDAG & dag) const override
     {
-        const auto & args = substrait_func.arguments();
-        if (args.size() != 3)
-            throw Exception(ErrorCodes::NUMBER_OF_ARGUMENTS_DOESNT_MATCH, "Function {} requires 3 arguments", getName());
-
-        if (args[1].value().has_literal())
-        {
-            const auto & literal_expr = args[1].value().literal();
-            if (literal_expr.has_string())
-            {
-                std::string expr_str = literal_expr.string();
-                /// FIXEDME:  This only works for RE2
-                expr_str = adaptPatternForRE2(expr_str);
-
-                String sparkRegexp = adjustSparkRegexpRule(expr_str);
-                const auto * regex_expr_node = addColumnToActionsDAG(actions_dag, std::make_shared<DataTypeString>(), sparkRegexp);
-                auto parsed_args = parseFunctionArguments(substrait_func, actions_dag);
-                parsed_args[1] = regex_expr_node;
-                const auto * result_node = toFunctionNode(actions_dag, "regexpExtract", parsed_args);
-                return convertNodeTypeIfNeeded(substrait_func, result_node, actions_dag);
-            }
-            else
-                throw Exception(ErrorCodes::ILLEGAL_TYPE_OF_ARGUMENT, "Function {} 2nd argument's type must be const string", getName());
-        }
-        else
-            throw Exception(ErrorCodes::ILLEGAL_TYPE_OF_ARGUMENT, "Function {} 2nd argument's type must be const", getName());
+        return parseRegexpFunction(func, dag, 3, 3);
     }
+};
 
-private:
-    String adaptPatternForRE2(const String & pattern_) const
+class FunctionParserRegexpExtractAll : public SparkRegexpFunctionParser
+{
+public:
+    using SparkRegexpFunctionParser::SparkRegexpFunctionParser;
+    static constexpr auto name = "regexp_extract_all";
+    String getName() const override { return name; }
+    String getCHFunctionName(const substrait::Expression_ScalarFunction &) const override { return "regexpExtractAllSpark"; }
+    const DB::ActionsDAG::Node * parse(const substrait::Expression_ScalarFunction & func, DB::ActionsDAG & dag) const override
     {
-        LOG_DEBUG(getLogger("FunctionParserRegexpExtract"), "xxx original pattern: {}", pattern_);
-        String res = pattern_;
-        // adaptation for $, see issue #8325. equal two cases in re2: $ and \n$, but not include strings which contains \n in middle.
-        static const std::string replaced_str = "($|\\\\n$)";
-        static const re2::RE2 replace_dollar_pattern("([^\\\\])(\\$)");
-        re2::RE2::GlobalReplace(&res, replace_dollar_pattern, "\\1" + replaced_str);
-        LOG_DEBUG(getLogger("FunctionParserRegexpExtract"), "xxx adaption for $: {}", res);
-
-        // adaption for `.` . Need to remove flag s.
-        res = "(?-s)" + res;
-        return res;
+        return parseRegexpFunction(func, dag, 2, 3);
     }
+};
 
-    String adjustSparkRegexpRule(String & str) const
+class FunctionParserRegexpReplace : public SparkRegexpFunctionParser
+{
+public:
+    using SparkRegexpFunctionParser::SparkRegexpFunctionParser;
+    static constexpr auto name = "regexp_replace";
+    String getName() const override { return name; }
+    String getCHFunctionName(const substrait::Expression_ScalarFunction &) const override { return "replaceRegexpAll"; }
+    const DB::ActionsDAG::Node * parse(const substrait::Expression_ScalarFunction & func, DB::ActionsDAG & dag) const override
     {
-        const auto left_bracket_pos = str.find('[');
-        const auto right_bracket_pos = str.find(']');
+        // The Scala transformer handles replacement backreferences and requires position = 1.
+        return parseRegexpFunction(func, dag, 3, 3);
+    }
+};
 
-        if (left_bracket_pos == str.npos || right_bracket_pos == str.npos || left_bracket_pos >= right_bracket_pos)
-            return str;
-
-        auto throw_message = [this, &str]() -> void {
-            throw Exception(
-                ErrorCodes::ILLEGAL_TYPE_OF_ARGUMENT, "The value of parameter(s) 'regexp' in `{}` is invalid: '{}'", getName(), str);
-        };
-
-        ReadBufferFromString buf(str);
-        std::stack<String> strs;
-        strs.emplace("");
-        bool nead_right_bracket = false;
-
-        auto copy_current = [&]()
-        {
-            strs.top() += *buf.position();
-            ++buf.position();
-        };
-
-        while (!buf.eof())
-        {
-            // Keep "\" plus the following character as a single unit, so that escaped brackets such
-            // as "\[" and "\]" (especially "\]" inside a character class, e.g. "[^\.\s\]]") are not
-            // mistaken for character class boundaries. See GLUTEN-13593.
-            if (*buf.position() == '\\')
-            {
-                copy_current();
-                if (!buf.eof())
-                    copy_current();
-                continue;
-            }
-
-            if (*buf.position() == '[')
-            {
-                strs.emplace("");
-            }
-            else if (*buf.position() == ']')
-            {
-                if (strs.size() == 1)
-                {
-                    // "ab]c"
-                    strs.top().append("]");
-                }
-                else
-                {
-                    String back = strs.top();
-                    strs.pop();
-                    if (strs.size() == 1)
-                    {
-                        // "abc[abc]abc"
-                        strs.top().append("[").append(back).append("]");
-                        nead_right_bracket = false;
-                    }
-                    else
-                    {
-                        // "abc[a[abc]c]abc"
-                        strs.top().append(back);
-                        nead_right_bracket = true;
-                    }
-                }
-            }
-            else
-            {
-                strs.top() += *buf.position();
-            }
-
-            ++buf.position();
-        }
-
-        if (nead_right_bracket && strs.size() != 1)
-            throw_message();
-
-        while (strs.size() != 1)
-        {
-            String back = strs.top();
-            strs.pop();
-            strs.top().append("[").append(back);
-        }
-        return strs.top();
+class FunctionParserRlike : public SparkRegexpFunctionParser
+{
+public:
+    using SparkRegexpFunctionParser::SparkRegexpFunctionParser;
+    static constexpr auto name = "rlike";
+    String getName() const override { return name; }
+    String getCHFunctionName(const substrait::Expression_ScalarFunction &) const override { return "match"; }
+    const DB::ActionsDAG::Node * parse(const substrait::Expression_ScalarFunction & func, DB::ActionsDAG & dag) const override
+    {
+        return parseRegexpFunction(func, dag, 2, 2);
     }
 };
 
 static FunctionParserRegister<FunctionParserRegexpExtract> register_regexp_extract;
+static FunctionParserRegister<FunctionParserRegexpExtractAll> register_regexp_extract_all;
+static FunctionParserRegister<FunctionParserRegexpReplace> register_regexp_replace;
+static FunctionParserRegister<FunctionParserRlike> register_rlike;
 }

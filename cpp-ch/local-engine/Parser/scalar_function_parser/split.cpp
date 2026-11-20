@@ -14,7 +14,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <Common/SparkRegexpToRe2.h>
+#include <DataTypes/DataTypeString.h>
 #include <Parser/FunctionParser.h>
+#include <Common/re2.h>
+
+namespace DB::ErrorCodes
+{
+extern const int ILLEGAL_TYPE_OF_ARGUMENT;
+}
 
 namespace local_engine
 {
@@ -36,7 +44,18 @@ public:
         /// In Spark: split(str, regex [, limit] )
         /// In CH: splitByRegexpSpark(regexp, str [, limit])
         if (parsed_args.size() >= 2)
+        {
+            const auto & pattern = args[1].value();
+            if (!pattern.has_literal() || !pattern.literal().has_string())
+                throw DB::Exception(DB::ErrorCodes::ILLEGAL_TYPE_OF_ARGUMENT, "Function {} requires a constant string pattern", getName());
+            const auto translated = spark_regexp::re2::translatePattern(pattern.literal().string());
+            const ::re2::RE2 regex(translated);
+            if (!regex.ok())
+                throw DB::Exception(
+                    DB::ErrorCodes::ILLEGAL_TYPE_OF_ARGUMENT, "Function {} cannot compile translated regexp pattern: {}", getName(), regex.error());
+            parsed_args[1] = addColumnToActionsDAG(actions_dag, std::make_shared<DB::DataTypeString>(), translated);
             std::swap(parsed_args[0], parsed_args[1]);
+        }
         auto ch_function_name = getCHFunctionName(substrait_func);
         const auto * func_node = toFunctionNode(actions_dag, ch_function_name, parsed_args);
         return convertNodeTypeIfNeeded(substrait_func, func_node, actions_dag);
