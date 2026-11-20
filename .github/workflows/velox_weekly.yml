@@ -21,6 +21,7 @@ on:
     paths:
       - '.github/workflows/velox_weekly.yml'
       - 'build/mvn'
+      - 'dev/vcpkg/vcpkg-configuration.json'
   schedule:
     - cron: '0 20 * * 0'
 
