@@ -109,6 +109,7 @@ const std::string kShuffleFileBufferSize = "spark.shuffle.file.buffer";
 const std::string kSparkMapKeyDedupPolicy = "spark.sql.mapKeyDedupPolicy";
 
 const std::string kSparkLegacyStatisticalAggregate = "spark.sql.legacy.statisticalAggregate";
+const std::string kSparkLegacyCodingErrorAction = "spark.sql.legacy.codingErrorAction";
 
 const std::string kSparkJsonIgnoreNullFields = "spark.sql.jsonGenerator.ignoreNullFields";
 

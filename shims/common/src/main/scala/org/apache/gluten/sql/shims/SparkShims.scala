@@ -262,6 +262,9 @@ trait SparkShims {
    */
   def isBinaryCollationString(dt: StringType): Boolean = true
 
+  // Spark 3.x uses String.getBytes, which replaces unmappable characters.
+  def legacyCodingErrorActionDefault: Boolean = true
+
   def getShuffleBlockFetcherIterator(params: ShuffleBlockFetcherIteratorParams)
       : GlutenShuffleBlockFetcherIteratorBase
 }

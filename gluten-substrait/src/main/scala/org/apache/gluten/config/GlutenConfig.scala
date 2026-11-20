@@ -18,6 +18,7 @@ package org.apache.gluten.config
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.shuffle.SupportsColumnarShuffle
+import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.network.util.{ByteUnit, JavaUtils}
 import org.apache.spark.sql.internal.{GlutenConfigUtil, SQLConf}
@@ -73,6 +74,15 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   // FIXME the option currently controls both JVM and native validation against a Substrait plan.
   def enableNativeValidation: Boolean = getConf(NATIVE_VALIDATION_ENABLED)
+
+  def enableNativeEncode: Boolean = getConf(NATIVE_ENCODE_ENABLED)
+
+  def legacyCodingErrorAction: Boolean =
+    conf
+      .getConfString(
+        SPARK_LEGACY_CODING_ERROR_ACTION,
+        SparkShimLoader.getSparkShims.legacyCodingErrorActionDefault.toString)
+      .toBoolean
 
   def enableColumnarBatchScan: Boolean = getConf(COLUMNAR_BATCHSCAN_ENABLED)
 
@@ -500,6 +510,7 @@ object GlutenConfig extends ConfigRegistry {
   val SPARK_SHUFFLE_SPILL_COMPRESS_DEFAULT: Boolean = true
   val SPARK_IO_COMPRESSION_CODEC = "spark.io.compression.codec"
   val SPARK_MAX_BROADCAST_TABLE_SIZE = "spark.sql.maxBroadcastTableSize"
+  val SPARK_LEGACY_CODING_ERROR_ACTION = "spark.sql.legacy.codingErrorAction"
 
   def get: GlutenConfig = {
     new GlutenConfig(GlutenCoreConfig.activeSQLConf)
@@ -585,6 +596,9 @@ object GlutenConfig extends ConfigRegistry {
         SQLConf.LEGACY_STATISTICAL_AGGREGATE.key,
         SQLConf.LEGACY_STATISTICAL_AGGREGATE.defaultValueString),
       (
+        SPARK_LEGACY_CODING_ERROR_ACTION,
+        SparkShimLoader.getSparkShims.legacyCodingErrorActionDefault.toString),
+      (
         COLUMNAR_MEMORY_BACKTRACE_ALLOCATION.key,
         COLUMNAR_MEMORY_BACKTRACE_ALLOCATION.defaultValueString),
       (
@@ -594,6 +608,10 @@ object GlutenConfig extends ConfigRegistry {
       (SQLConf.SESSION_LOCAL_TIMEZONE.key, SQLConf.SESSION_LOCAL_TIMEZONE.defaultValueString),
       (SQLConf.ANSI_ENABLED.key, SQLConf.ANSI_ENABLED.defaultValueString)
     ).foreach { case (k, defaultValue) => nativeConfMap.put(k, conf.getOrElse(k, defaultValue)) }
+
+    nativeConfMap.update(
+      SPARK_LEGACY_CODING_ERROR_ACTION,
+      nativeConfMap(SPARK_LEGACY_CODING_ERROR_ACTION).toBoolean.toString)
 
     Seq(
       (SPARK_UNSAFE_SORTER_SPILL_READER_BUFFER_SIZE, ByteUnit.BYTE, (v: Long) => v.toString),
@@ -1472,6 +1490,15 @@ object GlutenConfig extends ConfigRegistry {
       .internal()
       .stringConf
       .createWithDefault("")
+
+  val NATIVE_ENCODE_ENABLED =
+    buildConf("spark.gluten.sql.native.encode.enabled")
+      .doc(
+        "Enable native encode in the Velox backend for constant supported charsets and " +
+          "replacement coding-error mode. Strict coding-error mode and dynamic charsets " +
+          "fall back to Spark.")
+      .booleanConf
+      .createWithDefault(true)
 
   val NATIVE_WRITER_ENABLED =
     buildConf("spark.gluten.sql.native.writer.enabled")
