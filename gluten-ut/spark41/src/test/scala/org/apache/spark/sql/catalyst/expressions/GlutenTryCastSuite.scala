@@ -16,6 +16,8 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
+import org.apache.gluten.tags.AnsiTest
+
 import org.apache.spark.SparkThrowable
 import org.apache.spark.sql.GlutenExpressionOffloadTracker
 import org.apache.spark.sql.catalyst.InternalRow
@@ -31,6 +33,7 @@ import java.util.{Calendar, TimeZone}
 
 import scala.reflect.ClassTag
 
+@AnsiTest
 class GlutenTryCastSuite
   extends TryCastSuite
   with GlutenExpressionOffloadTracker
