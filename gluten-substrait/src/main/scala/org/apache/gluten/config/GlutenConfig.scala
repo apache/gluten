@@ -525,6 +525,8 @@ object GlutenConfig extends ConfigRegistry {
     SQLConf.RUNTIME_BLOOM_FILTER_MAX_NUM_ITEMS.key,
     "spark.sql.decimalOperations.allowPrecisionLoss",
     "spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing",
+    // Spark 4.0+.
+    "spark.sql.binaryOutputStyle",
     // s3 config
     SPARK_S3_ACCESS_KEY,
     SPARK_S3_SECRET_KEY,
