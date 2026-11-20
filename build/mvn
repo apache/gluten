@@ -15,7 +15,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# This script downloads and installs Apache Maven if it's not already installed
+# Use the Maven version pinned in pom.xml, reusing a matching system installation
+# or the one under build/.mvn. Otherwise fetch from the Apache CDN with curl or
+# wget, falling back to the Apache archive if the tarball or checksum is unavailable.
+# Cached tarballs need only a fresh checksum. Verify SHA-512 with sha512sum or
+# shasum before extraction; a mismatch is an error, not a reason to try another source.
 # Usage: build/mvn <maven-args>
 #
 
