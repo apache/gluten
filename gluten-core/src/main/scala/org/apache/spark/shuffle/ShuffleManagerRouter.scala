@@ -21,6 +21,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.network.buffer.ManagedBuffer
 import org.apache.spark.network.shuffle.MergedBlockMeta
 import org.apache.spark.storage.{BlockId, ShuffleBlockBatchId, ShuffleBlockId, ShuffleMergedBlockId}
+import org.apache.spark.util.Utils
 
 import java.lang.reflect.Method
 
@@ -135,20 +136,25 @@ private object ShuffleManagerRouter {
     }
   }
 
-  private val shuffleBlockResolverAccessor = new ClassValue[Method] {
-    override def computeValue(clazz: Class[_]): Method = clazz.getMethod("shuffleBlockResolver")
+  /**
+   * `shuffleBlockResolver` is declared by `ShuffleManager` before Spark 4.3 and by its
+   * `BlockingShuffleManager` subtype (which doesn't exist before 4.3) since then, so it is looked
+   * up reflectively to compile against every supported Spark version. The method is resolved on the
+   * public declaring type rather than the manager's own class, which may not be public.
+   */
+  private lazy val shuffleBlockResolverMethod: Method = {
+    val declaringClass: Class[_] =
+      if (classOf[ShuffleManager].getMethods.exists(_.getName == "shuffleBlockResolver")) {
+        classOf[ShuffleManager]
+      } else {
+        Utils.classForName("org.apache.spark.shuffle.BlockingShuffleManager")
+      }
+    declaringClass.getMethod("shuffleBlockResolver")
   }
 
-  /**
-   * Returns the block resolver of a registered shuffle manager. Spark 4.3 declares
-   * `shuffleBlockResolver` only on `BlockingShuffleManager` (which doesn't exist before 4.3), so it
-   * is looked up reflectively to compile against every supported Spark version.
-   */
+  /** Returns the block resolver of a registered shuffle manager. */
   private def shuffleBlockResolverOf(manager: ShuffleManager): ShuffleBlockResolver = {
-    shuffleBlockResolverAccessor
-      .get(manager.getClass)
-      .invoke(manager)
-      .asInstanceOf[ShuffleBlockResolver]
+    shuffleBlockResolverMethod.invoke(manager).asInstanceOf[ShuffleBlockResolver]
   }
 
   private class BlockResolver(cache: Cache) extends ShuffleBlockResolver {

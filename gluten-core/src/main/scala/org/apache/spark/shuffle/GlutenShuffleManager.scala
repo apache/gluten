@@ -33,6 +33,9 @@ import org.apache.spark.annotation.Experimental
  * TODO: Spark 4.3 requires `spark.shuffle.manager` to be a `BlockingShuffleManager` (a
  * `private[spark]` subtype of `ShuffleManager` that doesn't exist before 4.3) and rejects any other
  * implementation at startup, so this class can't be used as the shuffle manager on Spark 4.3 yet.
+ * The same applies to `CelebornShuffleManager` (gluten-celeborn) and the backends'
+ * `UniffleShuffleManager` (src-uniffle, through Uniffle's `RssShuffleManagerBase`), which also
+ * implement `ShuffleManager` directly.
  */
 @Experimental
 class GlutenShuffleManager(conf: SparkConf, isDriver: Boolean) extends ShuffleManager {
