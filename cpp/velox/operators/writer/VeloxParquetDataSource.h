@@ -51,6 +51,8 @@
 
 namespace gluten {
 
+class SparkCalendarFileSink;
+
 inline bool isSupportedS3SdkPath(const std::string& filePath) {
   // support scheme
   const std::array<const char*, 5> supported_schemes = {"s3:", "s3a:", "oss:", "cos:", "cosn:"};
@@ -106,6 +108,7 @@ class VeloxParquetDataSource : public VeloxDataSource {
  private:
   std::shared_ptr<arrow::Schema> schema_;
   std::shared_ptr<facebook::velox::parquet::Writer> parquetWriter_;
+  SparkCalendarFileSink* calendarSink_{nullptr}; // Owned by parquetWriter_.
   std::shared_ptr<facebook::velox::memory::MemoryPool> pool_;
 };
 

@@ -16,6 +16,8 @@
  */
 
 #include "Runtime.h"
+#include <arrow/c/bridge.h>
+#include "utils/Exception.h"
 #include "utils/Registry.h"
 
 namespace gluten {
@@ -31,6 +33,13 @@ Registry<Runtime::Releaser>& runtimeReleasers() {
 }
 
 } // namespace
+
+std::shared_ptr<ShuffleReader> Runtime::createShuffleReader(
+    ArrowSchema* schema,
+    const std::shared_ptr<ShuffleReaderOptions>& options) {
+  GLUTEN_ASSIGN_OR_THROW(auto imported, arrow::ImportSchema(schema));
+  return createShuffleReader(std::move(imported), options);
+}
 
 void Runtime::registerFactory(const std::string& kind, Runtime::Factory factory, Runtime::Releaser releaser) {
   runtimeFactories().registerObj(kind, std::move(factory));

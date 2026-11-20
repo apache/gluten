@@ -19,8 +19,8 @@ package org.apache.spark.sql.execution.datasources
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.utils.BackendTestUtils
 
-import org.apache.spark.SparkConf
-import org.apache.spark.sql.{DataFrame, GlutenQueryTest, Row}
+import org.apache.spark.{SPARK_VERSION_SHORT, SparkConf}
+import org.apache.spark.sql.{DataFrame, GlutenQueryTest, Row, SPARK_VERSION_METADATA_KEY}
 import org.apache.spark.sql.delta.DeltaLog
 import org.apache.spark.sql.delta.actions.AddFile
 import org.apache.spark.sql.delta.util.DeltaFileOperations
@@ -120,10 +120,7 @@ class GlutenDeltaTimestampNtzWriteSuite extends GlutenQueryTest with SharedSpark
       expected: Seq[Row],
       timestampLeaves: Int,
       copies: Int = 1): Unit =
-    // Both writers use the corrected calendar; native files have no Spark rebase metadata.
-    withSQLConf(
-      GlutenConfig.GLUTEN_ENABLED.key -> "false",
-      SQLConf.PARQUET_REBASE_MODE_IN_READ.key -> "CORRECTED") {
+    withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
       val referenceFiles = files(reference)
       val byPartition = referenceFiles.map(file => file.partitionValues -> file).toMap
       assert(byPartition.size == referenceFiles.size)
@@ -222,6 +219,127 @@ class GlutenDeltaTimestampNtzWriteSuite extends GlutenQueryTest with SharedSpark
                 Row(null, null, ntz, true, false),
                 Row(null, null, null, true, false)))
             assert(!hasNativeProject(input.selectExpr("to_json(mixed)")))
+            for (predicate <- Seq("mixed.ltz IS NULL", "mixed.ltz IS NOT NULL")) {
+              assert(!hasNativeProject(input.selectExpr(s"if($predicate, to_json(mixed), 'x')")))
+              assert(hasNativeProject(input.selectExpr(
+                "mixed.ntz",
+                s"if($predicate, 1, 0)")) == !validateNtz)
+            }
+          }
+        }
+    }
+  }
+
+  private def checkFileFooters(path: String)(check: ParquetFileReader => Unit): Unit = {
+    val written = files(path)
+    assert(written.nonEmpty)
+    written.foreach {
+      file =>
+        val reader = ParquetFileReader.open(HadoopInputFile.fromPath(
+          DeltaFileOperations.absolutePath(path, file.path),
+          spark.sessionState.newHadoopConf()))
+        try {
+          assert(reader.getFooter.getFileMetaData.getCreatedBy.startsWith("parquet-cpp-velox"))
+          check(reader)
+        } finally {
+          reader.close()
+        }
+    }
+  }
+
+  test("a case-insensitive NTZ write preserves nested names for case-sensitive readers") {
+    assume(BackendTestUtils.isVeloxBackendLoaded())
+    withTempDir {
+      dir =>
+        val path = new File(dir, "table").getCanonicalPath
+        val nested = new StructType().add("EventTime", TimestampNTZType)
+        val schema = new StructType().add("payload", nested).add("events", ArrayType(nested))
+        val pair = Row(times(1))
+        val expected = Seq(Row(pair, Seq(pair)), Row(null, null))
+        withSQLConf(SQLConf.CASE_SENSITIVE.key -> "false") {
+          write(dataFrame(expected, schema), path)
+        }
+        withSQLConf(
+          GlutenConfig.GLUTEN_ENABLED.key -> "false",
+          SQLConf.CASE_SENSITIVE.key -> "true") {
+          checkFileFooters(path) {
+            reader =>
+              assert(reader.getFooter.getFileMetaData.getSchema.getColumns.asScala.map(
+                _.getPath.last).toList ==
+                List("EventTime", "EventTime"))
+          }
+          checkAnswer(spark.read.format("delta").load(path), expected)
+        }
+    }
+  }
+
+  test("NTZ map keys survive a native shuffle before the Delta write") {
+    assume(BackendTestUtils.isVeloxBackendLoaded())
+    withTempDir {
+      dir =>
+        val source = new File(dir, "source").getCanonicalPath
+        val path = new File(dir, "table").getCanonicalPath
+        val schema =
+          new StructType().add("id", LongType).add("m", MapType(TimestampNTZType, LongType))
+        val expected =
+          times.take(6).zipWithIndex.map { case (ntz, i) => Row(i.toLong, Map(ntz -> i.toLong)) }
+        withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+          dataFrame(expected, schema).write.parquet(source)
+        }
+        val scan = spark.read.parquet(source)
+        val shuffled = scan.repartition(2, scan("id"))
+        assert(shuffled.queryExecution.executedPlan.treeString.contains("ColumnarExchange"))
+        shuffled.write.format("delta").save(path)
+        withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+          checkFileFooters(path) {
+            reader =>
+              val key = reader.getFooter.getFileMetaData.getSchema.getColumns.asScala.find(
+                _.getPath.last == "key").get
+              assert(key.getPrimitiveType.getLogicalTypeAnnotation ==
+                LogicalTypeAnnotation.timestampType(false, TimeUnit.MICROS))
+          }
+          checkAnswer(spark.read.format("delta").load(path), expected)
+        }
+    }
+  }
+
+  test("mixed ancient dates and timestamps read correctly under every Spark rebase policy") {
+    assume(BackendTestUtils.isVeloxBackendLoaded())
+    withTempDir {
+      dir =>
+        val path = new File(dir, "native").getCanonicalPath
+        val reference = new File(dir, "reference").getCanonicalPath
+        val input = spark.range(8).selectExpr(
+          "id",
+          "timestamp_ntz '1500-01-03 04:05:06' AS ntz",
+          "timestamp '1500-01-03 04:05:06' AS ltz",
+          "date '1500-01-03' AS d")
+        withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+          write(input, reference)
+        }
+        withSQLConf(GlutenConfig.COLUMNAR_PARQUET_WRITE_BLOCK_ROWS.key -> "2") {
+          write(input, path)
+        }
+        withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+          checkFileFooters(path) {
+            reader =>
+              val footer = reader.getFooter
+              assert(footer.getFileMetaData.getKeyValueMetaData.get(
+                SPARK_VERSION_METADATA_KEY) == SPARK_VERSION_SHORT)
+              assert(footer.getBlocks.size() > 1)
+              footer.getBlocks.asScala.foreach {
+                block =>
+                  val idColumn = block.getColumns.get(0)
+                  assert(reader.readOffsetIndex(idColumn).getPageCount > 0)
+                  assert(!reader.readColumnIndex(idColumn).getMinValues.isEmpty)
+              }
+          }
+          for (mode <- Seq("LEGACY", "EXCEPTION", "CORRECTED")) {
+            withSQLConf(SQLConf.PARQUET_REBASE_MODE_IN_READ.key -> mode) {
+              checkAnswer(
+                spark.read.format("delta").load(path),
+                spark.read.format("delta").load(reference))
+            }
           }
         }
     }

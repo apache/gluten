@@ -189,12 +189,15 @@ These checks are in `GlutenDeltaNativeWriteGate` (from code).
 `TIMESTAMP_NTZ` data is written natively as Parquet `INT64` microseconds with
 `isAdjustedToUTC=false`, including fields inside structs, arrays and map keys or values.
 The Spark-to-Arrow schema preserves Velox's NTZ logical-type metadata for both row conversion
-and the file writer. The native writer also recognizes timezone-less Arrow timestamps when
-Arrow C++ drops map-key metadata; ordinary `TIMESTAMP` fields in the same file remain
-adjusted-to-UTC. Direct field access and null checks on ordinary fields inside mixed NTZ
-structs remain eligible for native statistics, including deeper field-access chains.
+and the file writer. Native shuffle readers import the logical type before Arrow C++ drops
+map-key metadata. Files retain the original nested field names even when the writing session
+resolves names case-insensitively. Ordinary `TIMESTAMP` fields remain adjusted-to-UTC.
+Direct field access and null checks inside mixed NTZ structs remain eligible for native
+statistics; a supported null check does not enable unrelated NTZ expressions in the same projection.
 NTZ-only files do not depend on `spark.sql.parquet.outputTimestampType` or datetime rebasing.
-Mixed schemas still follow the ordinary `TIMESTAMP` and `DATE` checks above. Partitioned
+Mixed schemas still follow the ordinary `TIMESTAMP` and `DATE` checks above. For files with
+these calendar-sensitive types, the footer identifies the Spark version so that Spark readers
+recognize the corrected calendar regardless of their rebase policy for unmarked files. Partitioned
 writes still require `delta.writePartitionColumnsToParquet=false`, and setting
 `spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation=true` still rejects NTZ
 native writes. This writer support does not change NTZ literal conversion or reading older
@@ -412,7 +415,7 @@ Delta data files are Parquet, and Gluten reads them with Velox's Parquet reader.
 | TIMESTAMP_NTZ | INT64 microseconds with `isAdjustedToUTC=false`, independently of the session timezone, `spark.sql.parquet.outputTimestampType` and datetime rebase mode. Mixed files retain `isAdjustedToUTC=true` for ordinary TIMESTAMP columns. |
 | Parquet field IDs | Not written. Writes to column-mapped and UniForm tables fall back. On Spark 4.x, so do writes of other columns with `parquet.field.id` metadata. From code. |
 | Spark schema footer entry | `org.apache.spark.sql.parquet.row.metadata` is not written ([#13288](https://github.com/apache/gluten/issues/13288)). Seen on 4.1. |
-| Nested field names | Lowercased below the top level when `spark.sql.caseSensitive=false`. Spark and Gluten match them case-insensitively. A case-sensitive reader can miss them. From code. |
+| Nested field names | The native writer preserves the names in the Delta schema, including when `spark.sql.caseSensitive=false`, so case-sensitive readers see the same fields. |
 | Page index | Always written. From code. |
 | `spark.sql.parquet.writeLegacyFormat=true` | Applies to DECIMAL only. Arrays and maps keep the standard layout. On Spark 4.x, a write with array or map columns falls back when it is set. From code. |
 | File statistics | numRecords, min, max and nullCount are computed in Velox (checked on Spark 3.5). Gluten's tests check the values against the rows in each file on Spark 3.5 to 4.1. Most tests in Delta's data-skipping suites pass (seen on 4.1). Of the 34 that fail, 22 check statistics and expect specific rows in each file after `repartition(2)`. The other 12 hit the `_metadata.file_name` failure in [Read problems](#read-problems). |

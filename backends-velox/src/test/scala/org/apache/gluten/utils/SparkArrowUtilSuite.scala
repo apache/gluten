@@ -16,8 +16,10 @@
  */
 package org.apache.gluten.utils
 
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.utils.SparkArrowUtil
+import org.apache.spark.sql.utils.{SparkArrowUtil, SparkSchemaUtil}
+import org.apache.spark.util.SparkVersionUtil
 
 import org.apache.arrow.vector.types.{TimeUnit => ArrowTimeUnit}
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field}
@@ -55,5 +57,27 @@ class SparkArrowUtilSuite extends AnyFunSuite {
         }
     }
     assert(SparkArrowUtil.fromArrowSchema(schema) == mixedSchema)
+  }
+
+  test("file schemas preserve nested field names and NTZ tags with either Arrow offset width") {
+    val schema =
+      StructType.fromDDL("items array<struct<EventTime:timestamp_ntz,Labels:map<string,binary>>>")
+    for (enabled <- Seq(false, true)) {
+      val conf = new SQLConf
+      conf.setConf(SQLConf.CASE_SENSITIVE, false)
+      conf.setConfString("spark.sql.execution.arrow.useLargeVarTypes", enabled.toString)
+      val fileSchema = SQLConf.withExistingConf(conf) {
+        SparkSchemaUtil.toArrowSchemaForWrite(schema)
+      }
+      assert(SparkArrowUtil.fromArrowSchema(fileSchema) == schema)
+      val fields = fileSchema.getFields.get(0).getChildren.get(0).getChildren
+      assert(fields.get(0).getMetadata.get("velox.logical_timestamp") == "utc")
+      val entries = fields.get(1).getChildren.get(0).getChildren
+      val large = enabled && SparkVersionUtil.gteSpark35
+      assert(entries.get(0).getType == (if (large) ArrowType.LargeUtf8.INSTANCE
+                                        else ArrowType.Utf8.INSTANCE))
+      assert(entries.get(1).getType == (if (large) ArrowType.LargeBinary.INSTANCE
+                                        else ArrowType.Binary.INSTANCE))
+    }
   }
 }
