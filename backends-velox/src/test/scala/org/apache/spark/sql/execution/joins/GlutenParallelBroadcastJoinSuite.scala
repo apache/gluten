@@ -16,11 +16,22 @@
  */
 package org.apache.spark.sql.execution.joins
 
+import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.backendsapi.velox.VeloxListenerApi
 import org.apache.gluten.execution.{BroadcastHashJoinExecTransformer, VeloxWholeStageTransformerSuite}
+import org.apache.gluten.runtime.Runtimes
+import org.apache.gluten.utils.SubstraitUtil
+import org.apache.gluten.vectorized.HashJoinBuilder
 
 import org.apache.spark.SparkConf
+import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference}
 import org.apache.spark.sql.execution.ColumnarBroadcastExchangeExec
+import org.apache.spark.sql.types.LongType
+import org.apache.spark.task.TaskResources
+
+import io.substrait.proto.JoinRel
+
+import scala.collection.JavaConverters._
 
 class GlutenParallelBroadcastJoinSuite extends VeloxWholeStageTransformerSuite {
 
@@ -36,6 +47,32 @@ class GlutenParallelBroadcastJoinSuite extends VeloxWholeStageTransformerSuite {
   private val threadsKey =
     "spark.gluten.sql.columnar.backend.velox.broadcastHashTableBuildThreads"
   private val taskSlotsKey = "spark.gluten.numTaskSlotsPerExecutor"
+
+  test("broadcast build: a failure in a build worker is reported as an exception") {
+    TaskResources.runUnsafe {
+      val runtime = Runtimes.contextInstance(BackendsApiManager.getBackendName, "BuildFailureTest")
+      val output = Seq[Attribute](AttributeReference("k", LongType)())
+      val error = intercept[Exception] {
+        HashJoinBuilder
+          .create(runtime)
+          .nativeBuild(
+            "failed-build-worker",
+            Array.empty[Long],
+            Array("missing_key"),
+            null,
+            false,
+            JoinRel.JoinType.JOIN_TYPE_INNER.ordinal(),
+            false,
+            false,
+            SubstraitUtil.toNameStruct(output.asJava).toByteArray,
+            false,
+            -1L,
+            4
+          )
+      }
+      assert(error.getMessage.contains("missing_key"))
+    }
+  }
 
   test("broadcast build threads: resolve process defaults without modifying SparkConf") {
     val conf = new SparkConf(false)
