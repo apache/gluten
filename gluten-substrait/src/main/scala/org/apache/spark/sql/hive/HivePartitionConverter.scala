@@ -62,12 +62,16 @@ class HivePartitionConverter(hadoopConf: Configuration, session: SparkSession)
       codec.getClass.getSimpleName)
   }
 
+  private def isVisiblePath(f: FileStatus): Boolean = {
+    val name = f.getPath.getName
+    !((name.startsWith("_") && !name.contains("=")) || name.startsWith("."))
+  }
+
   private def isNonEmptyDataFile(f: FileStatus): Boolean = {
     if (!f.isFile || f.getLen == 0) {
       false
     } else {
-      val name = f.getPath.getName
-      !((name.startsWith("_") && !name.contains("=")) || name.startsWith("."))
+      isVisiblePath(f)
     }
   }
 
@@ -98,8 +102,11 @@ class HivePartitionConverter(hadoopConf: Configuration, session: SparkSession)
       case (directory, partValues) =>
         val path = new Path(directory)
         val fs = path.getFileSystem(hadoopConf)
+        // Filter directories before descending: filtering leaf names alone would include data
+        // files stored under hidden directories such as _temporary and .backup.
         val dirContents = fs
           .listStatus(path)
+          .filter(isVisiblePath)
           .flatMap(
             f => {
               if (f.isFile) {
@@ -120,6 +127,7 @@ class HivePartitionConverter(hadoopConf: Configuration, session: SparkSession)
       Seq(files)
     } else {
       fs.listStatus(files.getPath)
+        .filter(isVisiblePath)
         .flatMap(
           file => {
             if (file.isFile) {
