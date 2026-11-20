@@ -19,10 +19,12 @@ package org.apache.gluten.table.runtime.operators;
 import org.apache.gluten.streaming.api.operators.GlutenOperator;
 import org.apache.gluten.table.runtime.stream.common.Velox4jEnvironment;
 import org.apache.gluten.table.runtime.typeutils.GlutenStatefulRecordSerializer;
+import org.apache.gluten.table.runtime.typeutils.GlutenStatefulRecordSerializer.RowVectorSerializerSnapshot;
 import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.vectorized.FlinkRowToVLVectorConvertor;
 
 import io.github.zhztheplayer.velox4j.data.RowVector;
+import io.github.zhztheplayer.velox4j.exception.VeloxException;
 import io.github.zhztheplayer.velox4j.plan.StatefulPlanNode;
 import io.github.zhztheplayer.velox4j.stateful.StatefulRecord;
 
@@ -40,6 +42,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -49,6 +54,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 public class GlutenStatefulRecordSerializerTest {
   private static final String OPERATOR_ID = "serializer-test-operator";
@@ -130,6 +136,106 @@ public class GlutenStatefulRecordSerializerTest {
     } finally {
       executor.shutdownNow();
     }
+  }
+
+  @Test
+  public void testBytesWireRoundTrip() throws Exception {
+    io.github.zhztheplayer.velox4j.type.RowType veloxRowType = createVeloxRowType();
+    GlutenStatefulRecordSerializer serializer =
+        new GlutenStatefulRecordSerializer(veloxRowType, new TestGlutenOperator(veloxRowType));
+
+    sourceResource = new GlutenSessionResource();
+    RowVector sourceVector =
+        FlinkRowToVLVectorConvertor.fromRowData(
+            GenericRowData.of(7, StringData.fromString("Alice")),
+            sourceResource.getAllocator(),
+            sourceResource.getSession(),
+            veloxRowType);
+    StatefulRecord sourceRecord = new StatefulRecord(OPERATOR_ID, sourceVector.id(), 0, false, 3);
+    sourceRecord.setRowVector(sourceVector);
+
+    DataOutputSerializer output = new DataOutputSerializer(128);
+    serializer.serialize(sourceRecord, output);
+
+    byte[] frame = output.getCopyOfBuffer();
+    byte[] raw = sourceVector.serialize();
+    assertThat(frame).hasSize(4 + raw.length);
+    assertThat(frame[0]).isEqualTo((byte) (raw.length >>> 24));
+    assertThat(frame[1]).isEqualTo((byte) (raw.length >>> 16));
+    assertThat(frame[2]).isEqualTo((byte) (raw.length >>> 8));
+    assertThat(frame[3]).isEqualTo((byte) raw.length);
+    assertThat(Arrays.copyOfRange(frame, 4, frame.length)).isEqualTo(raw);
+
+    targetResource = new GlutenSessionResource();
+    GlutenTaskSessionContext.addSessionResource(OPERATOR_ID, targetResource);
+
+    StatefulRecord restoredRecord = serializer.deserialize(new DataInputDeserializer(frame));
+    List<RowData> restoredRows =
+        FlinkRowToVLVectorConvertor.toRowData(
+            restoredRecord.getRowVector(), targetResource.getAllocator(), veloxRowType);
+
+    assertThat(restoredRows).hasSize(1);
+    RowData restoredRow = restoredRows.get(0);
+    assertThat(restoredRow.getInt(0)).isEqualTo(7);
+    assertThat(restoredRow.getString(1)).isEqualTo(StringData.fromString("Alice"));
+
+    restoredRecord.close();
+    sourceRecord.close();
+  }
+
+  @Test
+  public void testOldBase64WireFormatFailsLoud() throws Exception {
+    io.github.zhztheplayer.velox4j.type.RowType veloxRowType = createVeloxRowType();
+    GlutenStatefulRecordSerializer serializer =
+        new GlutenStatefulRecordSerializer(veloxRowType, new TestGlutenOperator(veloxRowType));
+
+    sourceResource = new GlutenSessionResource();
+    GlutenTaskSessionContext.addSessionResource(OPERATOR_ID, sourceResource);
+    RowVector sourceVector =
+        FlinkRowToVLVectorConvertor.fromRowData(
+            GenericRowData.of(7, StringData.fromString("Alice")),
+            sourceResource.getAllocator(),
+            sourceResource.getSession(),
+            veloxRowType);
+
+    byte[] legacyBytes =
+        Base64.getEncoder()
+            .encodeToString(sourceVector.serialize())
+            .getBytes(StandardCharsets.UTF_8);
+    DataOutputSerializer output = new DataOutputSerializer(legacyBytes.length + 8);
+    output.writeInt(legacyBytes.length);
+    output.write(legacyBytes);
+
+    assertThatThrownBy(
+            () -> serializer.deserialize(new DataInputDeserializer(output.getCopyOfBuffer())))
+        .isInstanceOf(VeloxException.class);
+  }
+
+  @Test
+  public void testSnapshotRejectsV1AndAcceptsV2() throws Exception {
+    io.github.zhztheplayer.velox4j.type.RowType veloxRowType = createVeloxRowType();
+    GlutenStatefulRecordSerializer serializer =
+        new GlutenStatefulRecordSerializer(veloxRowType, new TestGlutenOperator(veloxRowType));
+
+    final RowVectorSerializerSnapshot v1Snapshot = new RowVectorSerializerSnapshot();
+    v1Snapshot.readSnapshot(1, new DataInputDeserializer(new byte[0]), getClass().getClassLoader());
+    assertThat(
+            serializer
+                .snapshotConfiguration()
+                .resolveSchemaCompatibility(v1Snapshot)
+                .isIncompatible())
+        .isTrue();
+    assertThatThrownBy(v1Snapshot::restoreSerializer).isInstanceOf(IllegalStateException.class);
+
+    final RowVectorSerializerSnapshot v2Snapshot = new RowVectorSerializerSnapshot();
+    v2Snapshot.readSnapshot(2, new DataInputDeserializer(new byte[0]), getClass().getClassLoader());
+    assertThat(
+            serializer
+                .snapshotConfiguration()
+                .resolveSchemaCompatibility(v2Snapshot)
+                .isCompatibleAsIs())
+        .isTrue();
+    assertThat(v2Snapshot.restoreSerializer()).isNotNull();
   }
 
   private static void assertTaskLocalSessionIsIsolated(CyclicBarrier barrier) throws Exception {

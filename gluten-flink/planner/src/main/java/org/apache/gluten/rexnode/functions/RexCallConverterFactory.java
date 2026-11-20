@@ -113,7 +113,13 @@ public class RexCallConverterFactory {
                   () -> new StringNumberCompareRexCallConverter("lessthanorequal"),
                   () -> new TimestampIntervalRexCallConverter("lessthanorequal"),
                   () -> new IntervalCompareRexCallConverter("interval_lessthanorequal"))),
-          Map.entry("PROCTIME", Arrays.asList(() -> new DefaultRexCallConverter("unix_timestamp"))),
+          // The proctime materialization must return a TIMESTAMP: the plan
+          // declares the column as TIMESTAMP (TIMESTAMP_LTZ), and a BIGINT
+          // result (the old unix_timestamp mapping) breaks every typed
+          // consumer downstream - e.g. the rank operator copying the column
+          // by its declared kind (rank2 B1: proctime-sorted rank shapes).
+          Map.entry(
+              "PROCTIME", Arrays.asList(() -> new DefaultRexCallConverter("current_timestamp"))),
           Map.entry("OR", Arrays.asList(() -> new DefaultRexCallConverter("or"))),
           Map.entry("IS NOT NULL", Arrays.asList(() -> new DefaultRexCallConverter("isnotnull"))),
           Map.entry("IS NULL", Arrays.asList(() -> new DefaultRexCallConverter("isnull"))),

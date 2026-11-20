@@ -44,8 +44,10 @@ public class GlutenStreamingFileWriterOperator<IN>
   private static final Logger LOG =
       LoggerFactory.getLogger(GlutenStreamingFileWriterOperator.class);
 
-  private transient ListState<String> checkpointState;
-  private transient String[] restoredCheckpointRecords = new String[0];
+  // The records are raw checkpoint bytes, not text: a String channel would
+  // corrupt them (JNI strings are modified UTF-8).
+  private transient ListState<byte[]> checkpointState;
+  private transient byte[][] restoredCheckpointRecords = new byte[0][];
 
   public GlutenStreamingFileWriterOperator(
       StatefulPlanNode plan,
@@ -75,34 +77,39 @@ public class GlutenStreamingFileWriterOperator<IN>
   @Override
   protected void snapshotNativeState(StateSnapshotContext context) throws Exception {
     checkpointState.clear();
-    String[] checkpointRecords = task.snapshotState(context.getCheckpointId());
-    for (String checkpointRecord : checkpointRecords) {
+    byte[][] checkpointRecords = task.snapshotState(context.getCheckpointId());
+    for (byte[] checkpointRecord : checkpointRecords) {
       checkpointState.add(checkpointRecord);
     }
   }
 
   @Override
   protected void initializeNativeState(StateInitializationContext context) throws Exception {
+    // Union mode: the native snapshot is key-group sharded and every
+    // subtask must receive every writer's shard at restore (the same
+    // interim home as the operator checkpoint state).
     checkpointState =
         context
             .getOperatorStateStore()
-            .getListState(
-                new ListStateDescriptor<>("gluten-native-file-writer-checkpoint", String.class));
+            .getUnionListState(
+                new ListStateDescriptor<>("gluten-native-file-writer-checkpoint", byte[].class));
     if (context.isRestored()) {
-      List<String> records = new ArrayList<>();
-      for (String checkpointRecord : checkpointState.get()) {
+      List<byte[]> records = new ArrayList<>();
+      for (byte[] checkpointRecord : checkpointState.get()) {
         records.add(checkpointRecord);
       }
-      restoredCheckpointRecords = records.toArray(new String[0]);
+      restoredCheckpointRecords = records.toArray(new byte[0][]);
     }
     if (restoredCheckpointRecords != null) {
       LOG.info(
-          "Restore native file writer state for operator {}, restored {}, records {}, contents {}",
+          "Restore native file writer state for operator {}, restored {}, records {}, sizes {}",
           getDescription(),
           context.isRestored(),
           restoredCheckpointRecords.length,
           Arrays.toString(
-              restoredCheckpointRecords != null ? restoredCheckpointRecords : new String[0]));
+              Arrays.stream(restoredCheckpointRecords)
+                  .mapToInt(record -> record.length)
+                  .toArray()));
     }
     if (task == null) {
       initSession();
