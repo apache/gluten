@@ -35,6 +35,7 @@
 #include "velox/type/Type.h"
 
 #include "FilePathGenerator.h"
+#include "RequiredSubfieldsExtension.pb.h"
 #include "compute/VeloxBackend.h"
 #ifdef ENABLE_KAFKA
 #include "kafka.pb.h"
@@ -679,6 +680,88 @@ TEST_F(Substrait2VeloxPlanConversionTest, aggregateMaskMustBeTopLevelField) {
   VELOX_ASSERT_USER_THROW(
       makeConverter()->toVeloxPlan(makeAggregateRel(/*nestedMask=*/true)),
       "Aggregation Operator only supports a top-level field mask.");
+}
+
+TEST_F(Substrait2VeloxPlanConversionTest, requiredSubfieldsPruneDwrfMapKeys) {
+  const auto data = makeRowVector(
+      {"id", "m", "n"},
+      {
+          makeFlatVector<int64_t>({0, 1, 2, 3, 4}),
+          makeNullableMapVector<StringView, int64_t>({
+              {{{"a", 1}, {"b", 2}, {"c", 3}}},
+              std::nullopt,
+              {{}},
+              {{{"b", 20}, {"d", 40}}},
+              {{{"c", 30}}},
+          }),
+          makeNullableMapVector<int32_t, double>({
+              {{{1, 1.5}, {2, 2.5}, {3, 3.5}}},
+              {{}},
+              std::nullopt,
+              {{{3, 30.5}, {4, 40.5}}},
+              {{{-4, -4.5}, {7, 7.5}}},
+          }),
+      });
+  const auto expected = makeRowVector(
+      {"id", "m", "n"},
+      {
+          data->childAt(0),
+          makeNullableMapVector<StringView, int64_t>({
+              {{{"a", 1}, {"b", 2}}},
+              std::nullopt,
+              {{}},
+              {{{"b", 20}}},
+              {{}},
+          }),
+          makeNullableMapVector<int32_t, double>({
+              {{{3, 3.5}}},
+              {{}},
+              std::nullopt,
+              {{{3, 30.5}}},
+              {{{-4, -4.5}}},
+          }),
+      });
+  const auto rowType = asRowType(data->type());
+
+  RequiredSubfieldsExtension requiredSubfields;
+  auto* m = requiredSubfields.add_columns();
+  m->set_column("m");
+  for (const auto* key : {"a", "b", "x"}) {
+    m->add_subfields()->add_elements()->set_string_key(key);
+  }
+  auto* n = requiredSubfields.add_columns();
+  n->set_column("n");
+  for (const int64_t key : {3, -4}) {
+    n->add_subfields()->add_elements()->set_long_key(key);
+  }
+
+  auto flatMapConfig = std::make_shared<dwrf::Config>();
+  flatMapConfig->set(dwrf::Config::FLATTEN_MAP, true);
+  flatMapConfig->set(dwrf::Config::MAP_FLAT_COLS, {1, 2});
+
+  for (const bool flatMap : {false, true}) {
+    SCOPED_TRACE(fmt::format("flatMap={}", flatMap));
+    const std::string fileName = flatMap ? "/flat_map_keys.dwrf" : "/map_keys.dwrf";
+    writeToFile(tmpDir_->getPath() + fileName, {data}, flatMap ? flatMapConfig : std::make_shared<dwrf::Config>());
+
+    ::substrait::ReadRel_LocalFiles files;
+    auto* file = files.add_items();
+    file->set_uri_file(fileName);
+    file->set_length(std::numeric_limits<uint64_t>::max());
+    file->mutable_dwrf();
+
+    auto read = [&](bool declare) {
+      auto rel = makeRead(rowType);
+      if (declare) {
+        rel.mutable_advanced_extension()->mutable_enhancement()->PackFrom(requiredSubfields);
+      }
+      auto scan = convertRead(rel, files);
+      auto result = exec::test::AssertQueryBuilder(scan).splits(makeSplits(scan)).copyResults(pool());
+      return makeRowVector(rowType->names(), result->children());
+    };
+    assertEqualVectors(data, read(false));
+    assertEqualVectors(expected, read(true));
+  }
 }
 
 #ifdef ENABLE_KAFKA
