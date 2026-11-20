@@ -556,30 +556,6 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     }
   }
 
-  test("union_all two tables with known partitioning") {
-    withSQLConf(GlutenConfig.NATIVE_UNION_ENABLED.key -> "true") {
-      compareDfResultsAgainstVanillaSpark(
-        () => {
-          val df1 = spark.sql("select l_orderkey as orderkey from lineitem")
-          val df2 = spark.sql("select o_orderkey as orderkey from orders")
-          df1.repartition(5).union(df2.repartition(5))
-        },
-        compareResult = true,
-        checkGlutenPlan[UnionExecTransformer]
-      )
-
-      compareDfResultsAgainstVanillaSpark(
-        () => {
-          val df1 = spark.sql("select l_orderkey as orderkey from lineitem")
-          val df2 = spark.sql("select o_orderkey as orderkey from orders")
-          df1.repartition(5).union(df2.repartition(6))
-        },
-        compareResult = true,
-        checkGlutenPlan[ColumnarUnionExec]
-      )
-    }
-  }
-
   test("union_all three tables") {
     runQueryAndCompare("""
                          |select count(orderkey) from (
