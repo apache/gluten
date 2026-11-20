@@ -41,7 +41,7 @@ on:
 
 jobs:
   build-native-lib:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: apache/gluten:vcpkg-almalinux-8-gcc13
     steps:
       - uses: actions/checkout@v7
@@ -77,7 +77,7 @@ jobs:
 
   build-bundle-package-centos8:
     needs: build-native-lib
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: centos:8
     steps:
       - uses: actions/checkout@v7

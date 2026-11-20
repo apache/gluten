@@ -16,32 +16,136 @@
  */
 package org.apache.spark.sql
 
+import org.apache.gluten.exception.GlutenException
+
 import org.apache.spark.SparkException
 import org.apache.spark.sql.connector.catalog.{Column => ColumnV2, Identifier, TableInfo}
-import org.apache.spark.sql.types.{IntegerType, MapType, StructType}
+import org.apache.spark.sql.types.{ArrayType, IntegerType, MapType, StructType}
 
 class GlutenRuntimeNullChecksV2Writes extends RuntimeNullChecksV2Writes with GlutenSQLTestsTrait {
 
   /**
    * Shadows Spark's `assertNotNullException`, which is private and so cannot be reused.
    *
-   * Spark expects a `SparkRuntimeException` carrying `NOT_NULL_ASSERT_VIOLATION`, asserts nothing
-   * else, and never reads `colPath`. Velox raises a `VeloxUserError` that Gluten surfaces as a
-   * `SparkException`, which carries the same reason text but not the error condition, so this
-   * asserts the reason and reports `colPath` on failure. The reason match is case insensitive
-   * because Spark 3.5 words it "Null value appeared ..." and Spark 4.x "NULL value appeared ...".
+   * Spark expects a `SparkRuntimeException` carrying `NOT_NULL_ASSERT_VIOLATION` and never reads
+   * `colPath`. When the projection is offloaded, Velox `assert_not_null` raises a `VeloxUserError`
+   * instead, which reaches the test as a `SparkException` whose cause is a `GlutenException`
+   * carrying the reason text but not the error condition.
    */
   private def assertNotNullException(e: SparkException, colPath: Seq[String]): Unit = {
-    val messages = Iterator
-      .iterate[Throwable](e)(_.getCause)
-      .takeWhile(_ != null)
-      .flatMap(t => Option(t.getMessage))
-      .mkString("\n")
+    e.getCause match {
+      case ge: GlutenException =>
+        assert(
+          ge.getMessage.contains("Null value appeared in non-nullable field"),
+          s"expected a not-null violation for ${colPath.mkString(".")}, got:\n${ge.getMessage}"
+        )
+      case other =>
+        fail(s"Unexpected exception cause: $other")
+    }
+  }
 
-    assert(
-      messages.toLowerCase(java.util.Locale.ROOT).contains("value appeared in non-nullable field"),
-      s"expected a not-null violation for ${colPath.mkString(".")}, got:\n$messages"
-    )
+  testGluten("NOT NULL checks for nullable array with required element (byName)") {
+    checkNullableArrayWithNotNullElement(byName = true)
+  }
+
+  testGluten("NOT NULL checks for nullable array with required element (byPosition)") {
+    checkNullableArrayWithNotNullElement(byName = false)
+  }
+
+  private def checkNullableArrayWithNotNullElement(byName: Boolean): Unit = {
+    withTable("t") {
+      val structType = new StructType().add("x", "int").add("y", "int")
+      val tableInfo = new TableInfo.Builder()
+        .withColumns(Array(
+          ColumnV2.create("i", IntegerType),
+          ColumnV2.create("arr", ArrayType(structType, containsNull = false))))
+        .build()
+      catalog.createTable(
+        ident = Identifier.of(Array(), "t"),
+        tableInfo = tableInfo)
+
+      if (byName) {
+        val inputDF = sql("SELECT 1 AS i, null AS arr")
+        inputDF.writeTo("t").append()
+      } else {
+        sql("INSERT INTO t VALUES (1 AS i, null AS arr)")
+      }
+      checkAnswer(spark.table("t"), Row(1, null))
+
+      val e = intercept[SparkException] {
+        if (byName) {
+          val inputDF = sql(
+            s"""SELECT
+               | 1 AS i,
+               | array(null, named_struct('x', 1, 'y', 1)) AS arr
+             """.stripMargin)
+          inputDF.writeTo("t").append()
+        } else {
+          sql(
+            s"""INSERT INTO t VALUES (
+               | 1 AS i,
+               | array(null, named_struct('x', 1, 'y', 1)) AS arr)
+             """.stripMargin)
+        }
+      }
+      assertNotNullException(e, Seq("arr", "element"))
+    }
+  }
+
+  testGluten("NOT NULL checks for fields inside nullable array (byName)") {
+    checkNotNullFieldsInsideNullableArray(byName = true)
+  }
+
+  testGluten("not null checks for fields inside nullable array (byPosition)") {
+    checkNotNullFieldsInsideNullableArray(byName = false)
+  }
+
+  private def checkNotNullFieldsInsideNullableArray(byName: Boolean): Unit = {
+    withTable("t") {
+      val structType = new StructType().add("x", "int", nullable = false).add("y", "int")
+      val tableInfo = new TableInfo.Builder()
+        .withColumns(Array(
+          ColumnV2.create("i", IntegerType),
+          ColumnV2.create("arr", ArrayType(structType, containsNull = true))))
+        .build()
+      catalog.createTable(
+        ident = Identifier.of(Array(), "t"),
+        tableInfo = tableInfo)
+
+      if (byName) {
+        val inputDF = sql(
+          s"""SELECT
+             | 1 AS i,
+             | array(null, named_struct('x', 1, 'y', 1)) AS arr
+           """.stripMargin)
+        inputDF.writeTo("t").append()
+      } else {
+        sql(
+          s"""INSERT INTO t VALUES (
+             | 1 AS i,
+             | array(null, named_struct('x', 1, 'y', 1)) AS arr)
+           """.stripMargin)
+      }
+      checkAnswer(spark.table("t"), Row(1, List(null, Row(1, 1))))
+
+      val e = intercept[SparkException] {
+        if (byName) {
+          val inputDF = sql(
+            s"""SELECT
+               | 1 AS i,
+               | array(null, named_struct('x', null, 'y', 1)) AS arr
+             """.stripMargin)
+          inputDF.writeTo("t").append()
+        } else {
+          sql(
+            s"""INSERT INTO t VALUES (
+               | 1 AS i,
+               | array(null, named_struct('x', null, 'y', 1)) AS arr)
+             """.stripMargin)
+        }
+      }
+      assertNotNullException(e, Seq("arr", "element", "x"))
+    }
   }
 
   testGluten("NOT NULL checks for nullable map with required values (byName)") {
@@ -71,7 +175,6 @@ class GlutenRuntimeNullChecksV2Writes extends RuntimeNullChecksV2Writes with Glu
       }
       checkAnswer(spark.table("t"), Row(1, null))
 
-      // Gluten exception differs from Spark
       val e = intercept[SparkException] {
         if (byName) {
           val inputDF = sql("SELECT 1 AS i, map(1, null) AS m")
@@ -84,7 +187,10 @@ class GlutenRuntimeNullChecksV2Writes extends RuntimeNullChecksV2Writes with Glu
     }
   }
 
-  /** Only the byPosition case is overridden. */
+  testGluten("NOT NULL checks for fields inside nullable maps (byName)") {
+    checkNotNullFieldsInsideNullableMap(byName = true)
+  }
+
   testGluten("NOT NULL checks for fields inside nullable maps (byPosition)") {
     checkNotNullFieldsInsideNullableMap(byName = false)
   }
@@ -109,7 +215,6 @@ class GlutenRuntimeNullChecksV2Writes extends RuntimeNullChecksV2Writes with Glu
       }
       checkAnswer(spark.table("t"), Row(1, Map(Row(1, 1) -> null)))
 
-      // Gluten exception differs from Spark
       val e1 = intercept[SparkException] {
         if (byName) {
           val inputDF = sql(
@@ -128,7 +233,6 @@ class GlutenRuntimeNullChecksV2Writes extends RuntimeNullChecksV2Writes with Glu
       }
       assertNotNullException(e1, Seq("m", "key", "x"))
 
-      // Gluten exception differs from Spark
       val e2 = intercept[SparkException] {
         if (byName) {
           val inputDF = sql(
