@@ -287,7 +287,7 @@ case class ColumnarUnionExec(children: Seq[SparkPlan], partitioning: Partitionin
       SparkContextUtils.createPartitioningAwareUnionRDD(
         sparkContext,
         nonEmptyRdds,
-        outputPartitioning.numPartitions)
+        outputPartitioning)
     }
   }
 }

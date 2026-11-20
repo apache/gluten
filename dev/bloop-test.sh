@@ -78,6 +78,7 @@ declare -A MODULE_MAP=(
   ["shims/spark40"]="spark-sql-columnar-shims-spark40"
   ["shims/spark41"]="spark-sql-columnar-shims-spark41"
   ["shims/spark42"]="spark-sql-columnar-shims-spark42"
+  ["shims/spark43"]="spark-sql-columnar-shims-spark43"
 
   # Unit test modules
   ["gluten-ut/common"]="gluten-ut-common"

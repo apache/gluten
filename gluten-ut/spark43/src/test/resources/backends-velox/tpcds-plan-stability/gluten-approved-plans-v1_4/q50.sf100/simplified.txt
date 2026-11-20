@@ -1,0 +1,55 @@
+VeloxColumnarToRow
+  TakeOrderedAndProjectExecTransformer [s_store_name,s_company_id,s_street_number,s_street_name,s_street_type,s_suite_number,s_city,s_county,s_state,s_zip,30 days ,31 - 60 days ,61 - 90 days ,91 - 120 days ,>120 days ]
+    WholeStageCodegenTransformer (8)
+      RegularHashAggregateExecTransformer [s_store_name,s_company_id,s_street_number,s_street_name,s_street_type,s_suite_number,s_city,s_county,s_state,s_zip,sum,sum,sum,sum,sum] [sum(CASE WHEN ((sr_returned_date_sk - ss_sold_date_sk) <= 30) THEN 1 ELSE 0 END),sum(CASE WHEN (((sr_returned_date_sk - ss_sold_date_sk) > 30) AND ((sr_returned_date_sk - ss_sold_date_sk) <= 60)) THEN 1 ELSE 0 END),sum(CASE WHEN (((sr_returned_date_sk - ss_sold_date_sk) > 60) AND ((sr_returned_date_sk - ss_sold_date_sk) <= 90)) THEN 1 ELSE 0 END),sum(CASE WHEN (((sr_returned_date_sk - ss_sold_date_sk) > 90) AND ((sr_returned_date_sk - ss_sold_date_sk) <= 120)) THEN 1 ELSE 0 END),sum(CASE WHEN ((sr_returned_date_sk - ss_sold_date_sk) > 120) THEN 1 ELSE 0 END),30 days ,31 - 60 days ,61 - 90 days ,91 - 120 days ,>120 days ,sum,sum,sum,sum,sum]
+        InputIteratorTransformer
+          InputAdapter
+            ColumnarExchange [s_store_name,s_company_id,s_street_number,s_street_name,s_street_type,s_suite_number,s_city,s_county,s_state,s_zip,sum,sum,sum,sum,sum] #1
+              VeloxResizeBatches
+                WholeStageCodegenTransformer (7)
+                  ProjectExecTransformer [s_store_name,s_company_id,s_street_number,s_street_name,s_street_type,s_suite_number,s_city,s_county,s_state,s_zip,sum,sum,sum,sum,sum]
+                    FlushableHashAggregateExecTransformer [s_store_name,s_company_id,s_street_number,s_street_name,s_street_type,s_suite_number,s_city,s_county,s_state,s_zip,_pre_x,_pre_x,_pre_x,_pre_x,_pre_x] [sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum,sum]
+                      ProjectExecTransformer [s_store_name,s_company_id,s_street_number,s_street_name,s_street_type,s_suite_number,s_city,s_county,s_state,s_zip,sr_returned_date_sk,ss_sold_date_sk]
+                        BroadcastHashJoinExecTransformer [ss_store_sk,s_store_sk]
+                          ProjectExecTransformer [sr_returned_date_sk,ss_store_sk,ss_sold_date_sk]
+                            BroadcastHashJoinExecTransformer [ss_sold_date_sk,d_date_sk]
+                              ProjectExecTransformer [sr_returned_date_sk,ss_store_sk,ss_sold_date_sk]
+                                ShuffledHashJoinExecTransformer [sr_ticket_number,sr_item_sk,sr_customer_sk,ss_ticket_number,ss_item_sk,ss_customer_sk]
+                                  InputIteratorTransformer
+                                    InputAdapter
+                                      ColumnarExchange [sr_ticket_number,sr_item_sk,sr_customer_sk,sr_returned_date_sk] #2
+                                        VeloxResizeBatches
+                                          WholeStageCodegenTransformer (3)
+                                            ProjectExecTransformer [sr_ticket_number,sr_item_sk,sr_customer_sk,sr_returned_date_sk]
+                                              BroadcastHashJoinExecTransformer [sr_returned_date_sk,d_date_sk]
+                                                FilterExecTransformer [sr_ticket_number,sr_item_sk,sr_customer_sk]
+                                                  FileSourceScanExecTransformer parquet spark_catalog.default.store_returns [sr_item_sk,sr_customer_sk,sr_ticket_number,sr_returned_date_sk]
+                                                    ColumnarSubqueryBroadcast [d_date_sk] #1
+                                                      ColumnarBroadcastExchange #3
+                                                        WholeStageCodegenTransformer (1)
+                                                          ProjectExecTransformer [d_date_sk]
+                                                            FilterExecTransformer [d_year,d_moy,d_date_sk]
+                                                              FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_date_sk,d_year,d_moy]
+                                                InputIteratorTransformer
+                                                  InputAdapter
+                                                    ReusedExchange [d_date_sk] #3
+                                  InputIteratorTransformer
+                                    InputAdapter
+                                      ColumnarExchange [ss_ticket_number,ss_item_sk,ss_customer_sk,ss_store_sk,ss_sold_date_sk] #4
+                                        VeloxResizeBatches
+                                          WholeStageCodegenTransformer (4)
+                                            ProjectExecTransformer [ss_ticket_number,ss_item_sk,ss_customer_sk,ss_store_sk,ss_sold_date_sk]
+                                              FilterExecTransformer [ss_ticket_number,ss_item_sk,ss_customer_sk,ss_store_sk]
+                                                FileSourceScanExecTransformer parquet spark_catalog.default.store_sales [ss_item_sk,ss_customer_sk,ss_store_sk,ss_ticket_number,ss_sold_date_sk]
+                              InputIteratorTransformer
+                                InputAdapter
+                                  ColumnarBroadcastExchange #5
+                                    WholeStageCodegenTransformer (5)
+                                      FilterExecTransformer [d_date_sk]
+                                        FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_date_sk]
+                          InputIteratorTransformer
+                            InputAdapter
+                              ColumnarBroadcastExchange #6
+                                WholeStageCodegenTransformer (6)
+                                  FilterExecTransformer [s_store_sk]
+                                    FileSourceScanExecTransformer parquet spark_catalog.default.store [s_store_sk,s_store_name,s_company_id,s_street_number,s_street_name,s_street_type,s_suite_number,s_city,s_county,s_state,s_zip]
