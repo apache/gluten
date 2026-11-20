@@ -71,6 +71,10 @@ add_bolt_test(spark_functions_test SOURCES SparkFunctionTest.cc FunctionTest.cc)
 add_bolt_test(runtime_test SOURCES RuntimeTest.cc)
 add_bolt_test(bolt_memory_test SOURCES MemoryManagerTest.cc)
 add_bolt_test(buffer_outputstream_test SOURCES BufferOutputStreamTest.cc)
+add_bolt_test(
+  jni_file_system_test SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../../gluten-ut/native/JniFileSystemTest.cc)
+target_compile_definitions(jni_file_system_test PRIVATE GLUTEN_TEST_BOLT)
 
 if(BUILD_EXAMPLES)
   # The UDF plugin and its test must share one engine, including its function
