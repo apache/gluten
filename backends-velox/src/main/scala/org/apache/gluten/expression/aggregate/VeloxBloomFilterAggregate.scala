@@ -132,6 +132,11 @@ case class VeloxBloomFilterAggregate(
 
   override def eval(buffer: BloomFilter): Any = {
     assert(buffer.isInstanceOf[VeloxBloomFilter])
+    if (buffer.cardinality() == 0L) {
+      // There's no set bit in the BloomFilter, thus no non-null value is processed.
+      // Aggregate output should be null.
+      return null
+    }
     serialize(buffer)
   }
 

@@ -31,6 +31,8 @@ import java.io.OutputStream;
 import java.nio.ByteBuffer;
 
 public class VeloxBloomFilter extends BloomFilter {
+  private static final int SERIALIZED_HEADER_SIZE = 5;
+
   private final VeloxBloomFilterJniWrapper jni =
       VeloxBloomFilterJniWrapper.create(
           Runtimes.contextInstance(BackendsApiManager.getBackendName(), "VeloxBloomFilter"));
@@ -78,6 +80,16 @@ public class VeloxBloomFilter extends BloomFilter {
   @Override
   public long bitSize() {
     throw new UnsupportedOperationException("Not yet implemented");
+  }
+
+  @Override
+  public long cardinality() {
+    byte[] data = jni.serialize(handle);
+    long bitsSet = 0L;
+    for (int i = SERIALIZED_HEADER_SIZE; i < data.length; i++) {
+      bitsSet += Integer.bitCount(data[i] & 0xFF);
+    }
+    return bitsSet;
   }
 
   @Override
