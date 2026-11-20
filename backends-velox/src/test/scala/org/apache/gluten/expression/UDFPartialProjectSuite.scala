@@ -17,9 +17,10 @@
 package org.apache.gluten.expression
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.execution.{ColumnarPartialProjectExec, SortExecTransformer, WholeStageTransformerSuite}
+import org.apache.gluten.execution.{ColumnarPartialProjectExec, ProjectExecTransformer, SortExecTransformer, WholeStageTransformerSuite}
 
 import org.apache.spark.SparkConf
+import org.apache.spark.sql.catalyst.expressions.LambdaFunction
 import org.apache.spark.sql.catalyst.optimizer.{ConstantFolding, NullPropagation}
 import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.functions.udf
@@ -134,6 +135,44 @@ class UDFPartialProjectSuite extends WholeStageTransformerSuite {
   test("test plus_one with many columns in project") {
     runQueryAndCompare("SELECT plus_one(cast(l_orderkey as long)), hash(l_partkey) from lineitem") {
       checkGlutenPlan[ColumnarPartialProjectExec]
+    }
+  }
+
+  test("lambda expression with nullable arrays uses partial project") {
+    withTable("partial_project_arrays") {
+      sql("""CREATE TABLE partial_project_arrays
+            |(id BIGINT, items ARRAY<BIGINT>, extra BIGINT) USING PARQUET""".stripMargin)
+      sql("""INSERT INTO partial_project_arrays VALUES
+            |(1, array(1L, CAST(NULL AS BIGINT), 3L), 10), (2, array(), 20), (3, NULL, 30)
+            |""".stripMargin)
+      Seq("true", "false").foreach {
+        nativeValidation =>
+          withSQLConf(
+            GlutenConfig.ENABLE_COLUMNAR_PARTIAL_PROJECT.key -> "true",
+            GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> nativeValidation) {
+            runQueryAndCompare("""SELECT plus_one(id), transform(items, x -> x + 1), hash(extra)
+                                 |FROM partial_project_arrays""".stripMargin) {
+              df =>
+                checkGlutenPlan[ColumnarPartialProjectExec](df)
+                assert(!getExecutedPlan(df).exists {
+                  case p: ProjectExecTransformer =>
+                    p.projectList.exists(_.exists(_.isInstanceOf[LambdaFunction]))
+                  case _ => false
+                })
+            }
+          }
+      }
+    }
+  }
+
+  test("nested lambda with UDF and captured columns uses partial project") {
+    withSQLConf(GlutenConfig.ENABLE_COLUMNAR_PARTIAL_PROJECT.key -> "true") {
+      runQueryAndCompare("""SELECT transform(array(l_orderkey),
+                           |         x -> transform(array(x, x + 1),
+                           |           y -> plus_one(x + y + l_suppkey))), hash(l_partkey)
+                           |FROM lineitem""".stripMargin) {
+        checkGlutenPlan[ColumnarPartialProjectExec]
+      }
     }
   }
 
