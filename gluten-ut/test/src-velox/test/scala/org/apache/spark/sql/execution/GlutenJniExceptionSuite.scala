@@ -47,7 +47,7 @@ class GlutenJniExceptionSuite extends GlutenQueryTest with SharedSparkSession {
       .set(GlutenConfig.BENCHMARK_TASK_STAGEID.key, "0")
   }
 
-  private def withNativeIterator(input: JIterator[ColumnarBatch])(
+  private def withNativeIterator(input: JIterator[ColumnarBatch], lateSplit: Boolean = false)(
       f: ColumnarBatchOutIterator => Unit): Unit = {
     assume(BackendTestUtils.isVeloxBackendLoaded())
     withTempDir {
@@ -62,15 +62,19 @@ class GlutenJniExceptionSuite extends GlutenQueryTest with SharedSparkSession {
             context.nextOperatorId("exception-test"))
           val plan = PlanBuilder.makePlan(context, Collections.singletonList(read), names)
           val backend = BackendsApiManager.getBackendName
+          val inputs = Array(new ColumnarBatchInIterator(backend, input))
           val out = NativePlanEvaluator
             .create(backend)
             .createKernelWithBatchIterator(
               plan.toProtobuf.toByteArray,
               Array.empty[Array[Byte]],
-              Array(new ColumnarBatchInIterator(backend, input)),
+              if (lateSplit) Array.empty[ColumnarBatchInIterator] else inputs,
               0,
               spillDir.getCanonicalPath)
           try {
+            if (lateSplit) {
+              out.addIteratorSplits(inputs)
+            }
             out.noMoreSplits()
             f(out)
           } finally {
@@ -95,8 +99,8 @@ class GlutenJniExceptionSuite extends GlutenQueryTest with SharedSparkSession {
     }
   }
 
-  for (failInHasNext <- Seq(true, false)) {
-    test(s"Java throwable identity and Spark metadata survive JNI (hasNext=$failInHasNext)") {
+  for (lateSplit <- Seq(false, true); failInHasNext <- Seq(true, false)) {
+    test(s"JNI preserves the Spark throwable (lateSplit=$lateSplit, hasNext=$failInHasNext)") {
       val errors = Seq(
         new SparkArithmeticException(
           "CAST_OVERFLOW",
@@ -129,7 +133,7 @@ class GlutenJniExceptionSuite extends GlutenQueryTest with SharedSparkSession {
           val parameters = original.getMessageParameters
           val errorClass = original.getErrorClass
           val sqlState = original.getSqlState
-          withNativeIterator(failingInput(original, failInHasNext)) {
+          withNativeIterator(failingInput(original, failInHasNext), lateSplit) {
             out =>
               val actual = intercept[Exception] {
                 out.hasNext0()

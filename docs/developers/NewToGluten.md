@@ -128,8 +128,9 @@ If carrier restoration leaves no pending Java exception, the boundary attempts
 that same fallback using the caught exception's diagnostic. A newer pending Java
 exception is left untouched; failure to throw the fallback is logged.
 
-Velox input-stream callbacks use `wrapJavaException` before returning to the
-driver, whose generic native-exception handler otherwise keeps only the message.
+The Velox JNI input iterator uses `wrapJavaException` for both initial inputs
+and inputs added later through `addIteratorSplits`. This preserves the throwable
+before the driver, whose generic native-exception handler keeps only the message.
 At the output boundary, including lazy-vector loading, `rethrowJavaException`
 recovers the carrier through Velox and standard nested exception wrappers. The
 runtime/system wrapper prevents TRY expressions from suppressing failed Java
