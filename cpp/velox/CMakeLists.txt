@@ -156,6 +156,7 @@ get_filename_component(VELOX_PROTO_DIR ${VELOX_PROTO_SRC_DIR}/ DIRECTORY)
 # Build Velox backend.
 set(VELOX_SRCS
     ${VELOX_PROTO_SRCS}
+    compute/HookedExecutor.cc
     compute/VeloxBackend.cc
     compute/VeloxRuntime.cc
     compute/VeloxPlanConverter.cc
