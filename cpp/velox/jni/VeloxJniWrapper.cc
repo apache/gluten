@@ -1046,10 +1046,9 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
 
   auto* executor = VeloxBackend::get()->broadcastHashTableBuildExecutor();
   if (numThreads == 1 || executor == nullptr) {
-    // Allocate the hash table from the backend-global memory pool because it may outlive the runtime that initiated the
-    // build. Driver-side builds are serialized for broadcast, while executor-side builds may be cached and reused
-    // across tasks.
-    auto memoryPool = defaultLeafVeloxMemoryPool();
+    // Broadcast hash tables can outlive the runtime that builds them. Use the dedicated pool
+    // without requesting Spark storage memory during construction.
+    auto memoryPool = broadcastLeafVeloxMemoryPool();
 
     auto builder = nativeHashTableBuild(
         hashJoinKeys,
@@ -1082,7 +1081,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
     auto* cache = facebook::velox::exec::HashTableCache::instance();
 
     if (!cache->exist(hashTableId)) {
-      cache->add(hashTableId, builder->hashTable(), builder->joinHasNullKeys(), defaultLeafVeloxMemoryPool());
+      cache->add(hashTableId, builder->hashTable(), builder->joinHasNullKeys(), broadcastLeafVeloxMemoryPool());
     }
 
     return gluten::getHashTableObjStore()->save(builder);
@@ -1107,10 +1106,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
         threadBatches.push_back(cb[i]);
       }
 
-      // Allocate the hash table from the backend-global memory pool because it may outlive the runtime that initiated
-      // the build. Driver-side builds are serialized for broadcast, while executor-side builds may be cached and reused
-      // across tasks.
-      auto threadMemoryPool = defaultLeafVeloxMemoryPool();
+      auto threadMemoryPool = broadcastLeafVeloxMemoryPool();
 
       auto builder = nativeHashTableBuild(
           hashJoinKeys,
@@ -1179,7 +1175,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
         hashTableId,
         hashTableBuilders[0]->hashTable(),
         hashTableBuilders[0]->joinHasNullKeys(),
-        defaultLeafVeloxMemoryPool());
+        broadcastLeafVeloxMemoryPool());
   }
 
   return gluten::getHashTableObjStore()->save(hashTableBuilders[0]);
@@ -1197,7 +1193,10 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_cloneH
   auto* cache = facebook::velox::exec::HashTableCache::instance();
   if (!cache->exist(cacheKeyStr)) {
     cache->add(
-        cacheKeyStr, hashTableHandler->hashTable(), hashTableHandler->joinHasNullKeys(), defaultLeafVeloxMemoryPool());
+        cacheKeyStr,
+        hashTableHandler->hashTable(),
+        hashTableHandler->joinHasNullKeys(),
+        broadcastLeafVeloxMemoryPool());
   }
 
   return gluten::getHashTableObjStore()->save(hashTableHandler);
@@ -1233,7 +1232,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_deseri
       static_cast<bool>(joinHasNullKeys));
   auto* cache = facebook::velox::exec::HashTableCache::instance();
   if (!cache->exist(cacheKeyStr)) {
-    cache->add(cacheKeyStr, builder->hashTable(), builder->joinHasNullKeys(), defaultLeafVeloxMemoryPool());
+    cache->add(cacheKeyStr, builder->hashTable(), builder->joinHasNullKeys(), broadcastLeafVeloxMemoryPool());
   }
   return gluten::getHashTableObjStore()->save(builder);
   JNI_METHOD_END(kInvalidObjectHandle)

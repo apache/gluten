@@ -224,7 +224,9 @@ deserializeHashTable(const uint8_t* data, size_t size, bool ignoreNullKeys, bool
   VELOX_CHECK_NOT_NULL(data, "Serialized data cannot be null");
   VELOX_CHECK_GT(size, 0, "Invalid data size");
 
-  auto pool = defaultLeafVeloxMemoryPool();
+  // Broadcast hash tables are shared by multiple tasks, so use the backend's broadcast pool.
+  // Spark storage accounting is attempted after restoration.
+  auto pool = broadcastLeafVeloxMemoryPool();
   auto* poolPtr = pool.get();
 
   std::unique_ptr<facebook::velox::exec::BaseHashTable> hashTable;
@@ -261,6 +263,7 @@ deserializeHashTable(const uint8_t* data, size_t size, bool ignoreNullKeys, bool
       100000,
       0);
 
+  builder->setHashTableMemoryUsage(hashTable->allocatedBytes());
   builder->setHashTable(std::move(hashTable));
   // Restore the joinHasNullKeys flag
   builder->setJoinHasNullKeys(joinHasNullKeys);
