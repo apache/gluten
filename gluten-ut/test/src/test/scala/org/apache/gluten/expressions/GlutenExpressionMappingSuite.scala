@@ -74,6 +74,21 @@ class GlutenExpressionMappingSuite
     }
   }
 
+  test("expression mappings are reused until the blacklist changes") {
+    val first = ExpressionMappings.expressionsMap
+    assert(ExpressionMappings.expressionsMap eq first)
+    assert(first.values.toSet.contains("add"))
+
+    withSQLConf(GlutenConfig.EXPRESSION_BLACK_LIST.key -> "add") {
+      val blacklisted = ExpressionMappings.expressionsMap
+      assert(!blacklisted.values.toSet.contains("add"))
+      assert(ExpressionMappings.blacklistExpressionMap.values.toSet == Set("add"))
+      assert(ExpressionMappings.expressionsMap eq blacklisted)
+    }
+
+    assert(ExpressionMappings.expressionsMap == first)
+  }
+
   test("test blacklisting regexp expressions") {
     val names = ExpressionMappings.expressionsMap.values.toSet
     assert(names.contains("rlike"))
