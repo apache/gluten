@@ -238,6 +238,7 @@ VeloxMemoryManager::VeloxMemoryManager(
   mmOptions.checkUsageLeak = checkUsageLeak; // leak check
   mmOptions.coreOnAllocationFailureEnabled = false;
   mmOptions.allocatorCapacity = velox::memory::kMaxMemory;
+  mmOptions.mallocContiguousEnabled = backendConf.get<bool>(kMallocContiguousEnabled, kMallocContiguousEnabledDefault);
   mmOptions.arbitratorKind = afr.getKind();
   mmOptions.extraArbitratorConfigs = getExtraArbitratorConfigs(backendConf);
   veloxMemoryManager_ = std::make_unique<velox::memory::MemoryManager>(mmOptions);

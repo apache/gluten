@@ -322,6 +322,7 @@ void VeloxBackend::init(
   LOG(INFO) << "Setting global Velox memory manager with capacity: " << memoryManagerCapacity;
   facebook::velox::memory::MemoryManager::Options options;
   options.allocatorCapacity = memoryManagerCapacity;
+  options.mallocContiguousEnabled = backendConf_->get<bool>(kMallocContiguousEnabled, kMallocContiguousEnabledDefault);
   facebook::velox::memory::initializeMemoryManager(options);
 
   // local cache persistent relies on the cache pool from root memory pool so we need to init this
