@@ -274,4 +274,32 @@ case class BroadcastHashJoinContext(
         substraitJoinType == JoinRel.JoinType.JOIN_TYPE_LEFT_ANTI
     )
   }
+
+  /**
+   * The join parameters the native hash table depends on, besides the build-side rows. Joins that
+   * reuse one broadcast exchange can differ in them, so they can't share a hash table.
+   */
+  def hashTableBuildKey: HashTableBuildKey = {
+    val buildColumns = buildSideStructure.map(ConverterUtils.genColumnNameWithExprId)
+    HashTableBuildKey(
+      substraitJoinType.getNumber,
+      hasMixedFiltCondition,
+      isExistenceJoin,
+      isNullAwareAntiJoin,
+      // Positions rather than names: a reused exchange gives its columns other expression IDs.
+      filterBuildColumns.map(buildColumns.indexOf(_)).sorted.distinct.toList,
+      filterPropagatesNulls,
+      bloomFilterPushdownSize
+    )
+  }
 }
+
+/** See [[BroadcastHashJoinContext.hashTableBuildKey]]. */
+case class HashTableBuildKey(
+    joinType: Int,
+    hasMixedFiltCondition: Boolean,
+    isExistenceJoin: Boolean,
+    isNullAwareAntiJoin: Boolean,
+    filterBuildColumns: List[Int],
+    filterPropagatesNulls: Boolean,
+    bloomFilterPushdownSize: Long)
