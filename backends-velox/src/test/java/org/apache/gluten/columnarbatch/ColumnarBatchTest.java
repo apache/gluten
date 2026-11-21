@@ -17,15 +17,20 @@
 package org.apache.gluten.columnarbatch;
 
 import org.apache.gluten.backendsapi.BackendsApiManager;
+import org.apache.gluten.execution.OffloadArrowDataIterator;
 import org.apache.gluten.execution.RowToVeloxColumnarExec;
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators;
 import org.apache.gluten.test.VeloxBackendTestBase;
 import org.apache.gluten.vectorized.ArrowColumnVectors;
 
+import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.IntVector;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructType;
+import org.apache.spark.sql.vectorized.ArrowColumnVector;
 import org.apache.spark.sql.vectorized.ColumnVector;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 import org.apache.spark.task.TaskResources$;
@@ -33,6 +38,8 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Spliterator;
 import java.util.Spliterators;
@@ -242,5 +249,74 @@ public class ColumnarBatchTest extends VeloxBackendTestBase {
         StructType.fromDDL(schema),
         JavaConverters.asScalaIterator(rows.iterator()),
         ArrowBufferAllocators.contextInstance());
+  }
+
+  @Test
+  public void testOffloadArrowDataReleasesTheBatchesItBuilds() {
+    TaskResources$.MODULE$.runUnsafe(
+        () -> {
+          final int numRows = 10;
+          try (BufferAllocator foreign = new RootAllocator(Long.MAX_VALUE);
+              IntVector first = new IntVector("a", foreign);
+              IntVector second = new IntVector("a", foreign)) {
+            fillInts(first, numRows);
+            fillInts(second, numRows);
+            // Batches of plain Spark ArrowColumnVectors, owned by their producer.
+            final List<ColumnarBatch> input =
+                Arrays.asList(
+                    new ColumnarBatch(new ColumnVector[] {new ArrowColumnVector(first)}, numRows),
+                    new ColumnarBatch(new ColumnVector[] {new ArrowColumnVector(second)}, numRows));
+            final OffloadArrowDataIterator out =
+                new OffloadArrowDataIterator(JavaConverters.asScalaIterator(input.iterator()));
+            final ColumnarBatch firstOut = out.next();
+            Assert.assertTrue(ColumnarBatches.isLightBatch(firstOut));
+            Assert.assertEquals(1, ColumnarBatches.getRefCnt(firstOut));
+            final ColumnarBatch secondOut = out.next();
+            Assert.assertEquals(0, ColumnarBatches.getRefCnt(firstOut));
+            Assert.assertEquals(1, ColumnarBatches.getRefCnt(secondOut));
+            Assert.assertFalse(out.hasNext());
+            out.close();
+            Assert.assertEquals(0, ColumnarBatches.getRefCnt(secondOut));
+            // The producer's vectors are unchanged.
+            Assert.assertEquals(numRows, first.getValueCount());
+            Assert.assertEquals(9, first.get(3));
+          }
+          return null;
+        });
+  }
+
+  @Test
+  public void testOffloadArrowDataLeavesGlutenBatchesToTheirProducer() {
+    TaskResources$.MODULE$.runUnsafe(
+        () -> {
+          final ColumnarBatch batch =
+              ArrowColumnVectors.fromRows(
+                  StructType.fromDDL("a int"),
+                  JavaConverters.asScalaIterator(
+                      Collections.<InternalRow>singletonList(
+                              new GenericInternalRow(new Object[] {42}))
+                          .iterator()),
+                  ArrowBufferAllocators.contextInstance());
+          final OffloadArrowDataIterator out =
+              new OffloadArrowDataIterator(
+                  JavaConverters.asScalaIterator(Collections.singletonList(batch).iterator()));
+          final ColumnarBatch offloaded = out.next();
+          // Offloading moves the data into the producer's batch, which the producer closes.
+          Assert.assertSame(batch, offloaded);
+          Assert.assertTrue(ColumnarBatches.isLightBatch(offloaded));
+          out.close();
+          Assert.assertEquals(1, ColumnarBatches.getRefCnt(offloaded));
+          batch.close();
+          Assert.assertEquals(0, ColumnarBatches.getRefCnt(offloaded));
+          return null;
+        });
+  }
+
+  private static void fillInts(IntVector vector, int numRows) {
+    vector.allocateNew(numRows);
+    for (int i = 0; i < numRows; i++) {
+      vector.set(i, i * 3);
+    }
+    vector.setValueCount(numRows);
   }
 }
