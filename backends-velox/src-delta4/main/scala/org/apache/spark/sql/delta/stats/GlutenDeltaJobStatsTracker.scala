@@ -22,7 +22,6 @@ import org.apache.gluten.columnarbatch.ColumnarBatches
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution._
 import org.apache.gluten.expression.{ConverterUtils, TransformerState}
-import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
 import org.apache.gluten.extension.columnar.offload.OffloadOthers
 import org.apache.gluten.extension.columnar.rewrite.PullOutPreProject
@@ -90,13 +89,7 @@ private[stats] class GlutenDeltaJobStatsTracker(val delegate: DeltaJobStatistics
         }
         new GlutenDeltaTaskStatsTracker(statsColExpr, aggregates, child)
       case _ =>
-        val reasons = plan
-          .flatMap(node => FallbackTags.getOption(node).map(_.reason()))
-          .distinct
-          .mkString("; ")
-        logWarning(
-          "Gluten Delta: Statistics plan could not be fully offloaded. Falling back to " +
-            s"row-based Delta statistics with columnar-to-row conversion. $reasons")
+        logWarning(GlutenDeltaJobStatsFallbackTracker.fallbackMessage(plan))
         new GlutenDeltaJobStatsFallbackTracker(delegate).newTaskInstance()
     }
   }
