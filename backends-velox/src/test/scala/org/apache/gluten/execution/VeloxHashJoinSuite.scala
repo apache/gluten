@@ -315,13 +315,20 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
           spark.read.parquet(s"$dir/probe").createOrReplaceTempView("probe")
           spark.read.parquet(s"$dir/build").createOrReplaceTempView("build")
           // (1, 5) matches (1, null): coalesce(null, 0) = 0 < 5.
-          Seq(
-            "SELECT * FROM probe WHERE NOT EXISTS (SELECT 1 FROM build " +
-              "WHERE probe.k = build.k AND probe.x > coalesce(build.y, 0))",
-            "SELECT * FROM probe LEFT ANTI JOIN build " +
-              "ON probe.k = build.k AND probe.x > nvl(build.y, 0)"
-          ).foreach {
-            query =>
+          for {
+            driverSideBuild <- Seq(false, true)
+            query <- Seq(
+              "SELECT * FROM probe WHERE NOT EXISTS (SELECT 1 FROM build " +
+                "WHERE probe.k = build.k AND probe.x > coalesce(build.y, 0))",
+              "SELECT * FROM probe LEFT ANTI JOIN build " +
+                "ON probe.k = build.k AND probe.x > nvl(build.y, 0)"
+            )
+          } {
+            // The driver-side build computes the filter flags on its own, so check both builds.
+            withSQLConf(
+              "spark.sql.adaptive.enabled" -> (!driverSideBuild).toString,
+              VeloxConfig.VELOX_DRIVER_SIDE_BROADCAST_HASH_TABLE_BUILD.key ->
+                driverSideBuild.toString) {
               val df = spark.sql(query)
               checkAnswer(df, Seq(Row(2, 1)))
               assert(
@@ -329,13 +336,12 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
                   case j: BroadcastHashJoinExecTransformer => j
                 }.nonEmpty,
                 query)
+              assert(
+                collectBroadcastRelations(df).exists(
+                  _.isInstanceOf[SerializedHashTableBroadcastRelation]) == driverSideBuild,
+                query)
+            }
           }
-          // A null-intolerant filter still lets the build leave out the rows with a null y.
-          checkAnswer(
-            spark.sql(
-              "SELECT * FROM probe WHERE NOT EXISTS (SELECT 1 FROM build " +
-                "WHERE probe.k = build.k AND probe.x > build.y)"),
-            Seq(Row(1, 5), Row(2, 1)))
       }
     }
   }

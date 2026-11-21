@@ -159,7 +159,7 @@ case class BroadcastHashJoinExecTransformer(
           case a: Attribute if buildOutputSet.contains(a) =>
             ConverterUtils.genColumnNameWithExprId(a)
         }.toArray
-        (cols, BroadcastHashJoinFilter.isNullOnNullBuildColumn(expr, buildPlan.outputSet))
+        (cols, BroadcastHashJoinFilter.isNullOnNullBuildColumn(expr, buildOutputSet))
       case None =>
         (Array.empty[String], false)
     }
