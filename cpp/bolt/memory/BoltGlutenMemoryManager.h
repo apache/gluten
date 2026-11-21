@@ -87,10 +87,14 @@ class BoltGlutenMemoryManager final {
 
   static bytedance::bolt::memory::sparksql::TaskMemoryManagerPtr getOrCreateTaskMemoryManagerLocked(int64_t taskId);
 
+  static void releaseTaskMemoryManagerIfUnusedLocked(int64_t taskId);
+
   inline static bool enabled_{false}, hasInit_{false};
   inline static std::mutex lock_;
   inline static std::unordered_map<std::string, std::string> conf_;
   inline static std::map<int64_t, bytedance::bolt::memory::sparksql::TaskMemoryManagerPtr> tmmCache_;
+  // Holders are destroyed outside lock_; retain task accounting until all deletions finish.
+  inline static std::unordered_map<int64_t, size_t> pendingDestructions_;
   inline static std::map<
       bytedance::bolt::memory::sparksql::BoltMemoryManagerHolderKey,
       bytedance::bolt::memory::sparksql::BoltMemoryManagerHolder*>

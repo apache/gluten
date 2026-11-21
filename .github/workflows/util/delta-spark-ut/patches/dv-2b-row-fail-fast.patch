@@ -1,0 +1,34 @@
+Subject: [PATCH] Fail fast in memory-hog DeletionVectorsSuite 2B-row tests
+
+These tests read from or delete from a 2-billion-row table. With Gluten,
+row-index materialization balloons the forked test JVM to about 13 GiB of
+native memory and the kernel/cgroup OOM-kills it. The dead fork wedges sbt
+until the workflow watchdog intervenes, skipping suites queued after it.
+
+Fail fast rather than silently ignoring these tests so the gap stays visible
+in test reports and the known-failures baseline. Remove this patch and refresh
+the baseline when the native memory issue is fixed.
+
+Keep the fail calls first in each test body and below Delta's 100-character
+line limit. Delta does not enable fatal dead-code warnings, so the original
+test bodies can remain unchanged.
+
+diff --git a/spark/src/test/scala/org/apache/spark/sql/delta/deletionvectors/DeletionVectorsSuite.scala b/spark/src/test/scala/org/apache/spark/sql/delta/deletionvectors/DeletionVectorsSuite.scala
+--- a/spark/src/test/scala/org/apache/spark/sql/delta/deletionvectors/DeletionVectorsSuite.scala
++++ b/spark/src/test/scala/org/apache/spark/sql/delta/deletionvectors/DeletionVectorsSuite.scala
+@@ -664,6 +664,7 @@ class DeletionVectorsSuite extends QueryTest
+   }
+
+   test("huge table: read from tables of 2B rows with existing DV of many zeros") {
++    fail("[Gluten CI] Force-failed: 2B-row DV read OOMs the test JVM; see setup-delta.sh")
+     val canonicalTable5Path = new File(table5Path).getCanonicalPath
+
+     val predicatePushDownEnabled =
+@@ -784,6 +785,7 @@ class DeletionVectorsSuite extends QueryTest
+   for (deleteSpec <- Seq(deleteUsingDvSmallScale)) {
+     test(
+       s"huge table: delete a ${deleteSpec.scale} number of rows from tables of 2B rows with DVs") {
++      fail("[Gluten CI] Force-failed: 2B-row DV delete OOMs the test JVM; see setup-delta.sh")
+       val predicatePushDownEnabled =
+         spark.conf.get(DeltaSQLConf.DELETION_VECTORS_USE_METADATA_ROW_INDEX)
+       withTempDir { dir =>

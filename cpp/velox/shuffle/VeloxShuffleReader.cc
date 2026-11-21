@@ -28,6 +28,8 @@
 #include "utils/Timer.h"
 #include "utils/VeloxArrowUtils.h"
 
+#include "velox/buffer/Buffer.h"
+#include "velox/common/base/SimdUtil.h"
 #include "velox/common/memory/ByteStream.h"
 #include "velox/row/CompactRow.h"
 #include "velox/serializers/PrestoHeader.h"
@@ -39,6 +41,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <sstream>
 
 #include "VeloxGpuAsyncShuffleReader.h"
@@ -88,9 +91,19 @@ BufferPtr wrapInBufferViewAsOwner(const void* buffer, size_t length, std::shared
       static_cast<const uint8_t*>(buffer), length, {std::move(bufferReleaser)});
 }
 
-BufferPtr convertToVeloxBuffer(std::shared_ptr<arrow::Buffer> buffer) {
+static_assert(kSimdPadding >= simd::kPadding, "Shuffle buffers must keep Velox's SIMD padding");
+
+BufferPtr convertToVeloxBuffer(std::shared_ptr<arrow::Buffer> buffer, memory::MemoryPool* pool) {
   if (buffer == nullptr) {
     return nullptr;
+  }
+  // Velox may read up to simd::kPadding bytes past the end with SIMD loads, e.g. when
+  // gathering null bits. Wrap the buffer without a copy only if that is addressable.
+  // Payload deserialization allocates with the padding, so the copy is a fallback.
+  if (buffer->size() > 0 && buffer->capacity() - buffer->size() < simd::kPadding) {
+    auto copy = AlignedBuffer::allocate<char>(buffer->size(), pool);
+    std::memcpy(copy->asMutable<char>(), buffer->data(), buffer->size());
+    return copy;
   }
   return wrapInBufferViewAsOwner(buffer->data(), buffer->size(), buffer);
 }
@@ -308,7 +321,7 @@ std::shared_ptr<VeloxColumnarBatch> makeColumnarBatch(
   std::vector<BufferPtr> veloxBuffers;
   veloxBuffers.reserve(arrowBuffers.size());
   for (auto& buffer : arrowBuffers) {
-    veloxBuffers.push_back(convertToVeloxBuffer(std::move(buffer)));
+    veloxBuffers.push_back(convertToVeloxBuffer(std::move(buffer), pool));
   }
   auto rowVector = deserialize(type, numRows, veloxBuffers, dictionaryFields, dictionaries, pool);
   return std::make_shared<VeloxColumnarBatch>(std::move(rowVector));
@@ -325,7 +338,7 @@ std::shared_ptr<VeloxColumnarBatch> makeColumnarBatch(
   veloxBuffers.reserve(numBuffers);
   for (size_t i = 0; i < numBuffers; ++i) {
     GLUTEN_ASSIGN_OR_THROW(auto buffer, payload->readBufferAt(i));
-    veloxBuffers.push_back(convertToVeloxBuffer(std::move(buffer)));
+    veloxBuffers.push_back(convertToVeloxBuffer(std::move(buffer), pool));
   }
   auto rowVector = deserialize(type, payload->numRows(), veloxBuffers, {}, {}, pool);
   return std::make_shared<VeloxColumnarBatch>(std::move(rowVector));

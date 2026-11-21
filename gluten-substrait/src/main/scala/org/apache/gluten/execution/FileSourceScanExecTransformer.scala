@@ -145,6 +145,13 @@ abstract class FileSourceScanExecTransformerBase(
 
   override def getMetadataColumns(): Seq[AttributeReference] = metadataColumns
 
+  // An output named like an input file function is the injected attribute unless the scan reads
+  // a real column of that name, in which case it is user data and must not get the file path.
+  override protected def neededInputFileRelatedMetadataKeys: Seq[String] = {
+    val readColumnNames = requiredSchema.fieldNames.toSet
+    super.neededInputFileRelatedMetadataKeys.filterNot(readColumnNames.contains)
+  }
+
   override def getPartitions: Seq[Partition] = {
     if (SparkVersionUtil.gteSpark40) {
       getPartitionsSeq()
@@ -234,6 +241,8 @@ abstract class FileSourceScanExecTransformerBase(
   override val nodeName: String = {
     s"${getClass.getSimpleName} $relation ${tableIdentifier.map(_.unquotedString).getOrElse("")}"
   }
+
+  override def getReadOptions: Map[String, String] = relation.options
 
   override def getProperties: Map[String, String] = {
     this.fileFormat match {

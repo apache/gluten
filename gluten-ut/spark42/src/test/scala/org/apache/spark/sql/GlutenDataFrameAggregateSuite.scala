@@ -19,6 +19,8 @@ package org.apache.spark.sql
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.{HashAggregateExecBaseTransformer, HashAggregateExecTransformer}
 
+import org.apache.spark.sql.catalyst.expressions.aggregate.{Partial, PartialMerge}
+import org.apache.spark.sql.catalyst.optimizer.EliminateDistinct
 import org.apache.spark.sql.execution.WholeStageCodegenExec
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
@@ -282,6 +284,36 @@ class GlutenDataFrameAggregateSuite extends DataFrameAggregateSuite with GlutenS
       rand(Random.nextLong()),
       randn(Random.nextLong())
     ).foreach(assertNoExceptions)
+  }
+
+  testGluten("collect_set RESPECT NULLS in an aggregate that also merges another aggregate") {
+    // Without EliminateDistinct, the distinct stage runs collect_set (Partial) and avg
+    // (PartialMerge) in one aggregate, which takes the row-construct path.
+    withSQLConf(SQLConf.OPTIMIZER_EXCLUDED_RULES.key -> EliminateDistinct.ruleName) {
+      withTempView("t") {
+        Seq((1, Some(2)), (2, None), (3, Some(2)), (4, Some(5))).toDF("a", "b")
+          .createOrReplaceTempView("t")
+        val df = sql("SELECT avg(a), sort_array(collect_set(DISTINCT b) RESPECT NULLS) FROM t")
+        checkAnswer(df, Row(2.5, Seq(null, 2, 5)))
+        val plan = df.queryExecution.executedPlan
+        assert(
+          collect(plan) {
+            case agg: HashAggregateExecTransformer
+                if agg.aggregateExpressions.exists(_.mode == PartialMerge) &&
+                  agg.aggregateExpressions.exists(_.mode == Partial) =>
+              agg
+          }.nonEmpty,
+          plan
+        )
+        assert(
+          collect(plan) {
+            case agg @ (_: HashAggregateExec | _: ObjectHashAggregateExec |
+                _: SortAggregateExec) =>
+              agg
+          }.isEmpty,
+          plan)
+      }
+    }
   }
 
   testGluten("SPARK-22223: ObjectHashAggregate should not introduce unnecessary shuffle") {

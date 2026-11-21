@@ -24,7 +24,7 @@ import org.apache.gluten.execution.{GlutenWholeStageColumnarRDD, WholeStageZippe
 import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
 import org.apache.gluten.runtime.Runtimes
-import org.apache.gluten.vectorized.{ArrowWritableColumnVector, NativeColumnarToRowInfo, NativeColumnarToRowJniWrapper, NativePartitioning, SettableColumnarBatchSerializer}
+import org.apache.gluten.vectorized.{ArrowColumnVectors, NativeColumnarToRowInfo, NativeColumnarToRowJniWrapper, NativePartitioning, SettableColumnarBatchSerializer}
 
 import org.apache.spark.{Partitioner, RangePartitioner, ShuffleDependency}
 import org.apache.spark.internal.Logging
@@ -40,8 +40,10 @@ import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{IntegerType, StructType}
-import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
+import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.MutablePair
+
+import org.apache.arrow.vector.IntVector
 
 object ExecUtil extends Logging {
 
@@ -144,18 +146,20 @@ object ExecUtil extends Logging {
             .filter(cb => cb.numRows != 0 && cb.numCols != 0)
             .map {
               cb =>
-                val pidVec = ArrowWritableColumnVector
-                  .allocateColumns(cb.numRows, new StructType().add("pid", IntegerType))
-                  .head
+                val pidRoot =
+                  ArrowColumnVectors.allocateRoot(new StructType().add("pid", IntegerType))
+                val pidVec = pidRoot.getVector(0).asInstanceOf[IntVector]
+                pidVec.allocateNew(cb.numRows)
                 convertColumnarToRow(cb).zipWithIndex.foreach {
                   case (row, i) =>
                     val pid = rangePartitioner.get.getPartition(partitionKeyExtractor(row))
-                    pidVec.putInt(i, pid)
+                    pidVec.set(i, pid)
                 }
+                pidRoot.setRowCount(cb.numRows)
                 val pidBatch = BoltColumnarBatches.toBoltBatch(
                   ColumnarBatches.offload(
                     ArrowBufferAllocators.contextInstance(),
-                    new ColumnarBatch(Array[ColumnVector](pidVec), cb.numRows)))
+                    ArrowColumnVectors.toBatch(pidRoot)))
                 val newBatch = BoltColumnarBatches.compose(pidBatch, cb)
                 // Composed batch already hold pidBatch's shared ref, so close is safe.
                 ColumnarBatches.forceClose(pidBatch)

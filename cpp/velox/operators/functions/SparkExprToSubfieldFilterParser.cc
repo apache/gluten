@@ -16,6 +16,8 @@
  */
 #include "operators/functions/SparkExprToSubfieldFilterParser.h"
 
+#include <unordered_map>
+
 #include "utils/Exception.h"
 #include "velox/common/base/BloomFilter.h"
 #include "velox/expression/Expr.h"
@@ -117,6 +119,21 @@ SparkExprToSubfieldFilterParser::leafCallToSubfieldFilter(
   const auto* leftSide = call.inputs()[0].get();
 
   common::Subfield subfield;
+  // Spark keeps a literal-on-left comparison such as `5 < col` as written. Swap the operands
+  // and mirror the operator so it is handled like `col > 5`.
+  static const std::unordered_map<std::string, std::string> kMirroredComparisons = {
+      {"equalto", "equalto"},
+      {"lessthan", "greaterthan"},
+      {"lessthanorequal", "greaterthanorequal"},
+      {"greaterthan", "lessthan"},
+      {"greaterthanorequal", "lessthanorequal"}};
+  if (call.inputs().size() == 2 && !toSubfield(leftSide, subfield) && toSubfield(call.inputs()[1].get(), subfield)) {
+    auto it = kMirroredComparisons.find(call.name());
+    if (it != kMirroredComparisons.end()) {
+      const core::CallTypedExpr swapped(call.type(), {call.inputs()[1], call.inputs()[0]}, it->second);
+      return leafCallToSubfieldFilter(swapped, evaluator, negated);
+    }
+  }
   if (call.name() == "equalto") {
     if (toSubfield(leftSide, subfield)) {
       auto filter =

@@ -60,6 +60,11 @@ void UdfLoader::loadUdfLibrariesInternal(const std::vector<std::string>& libPath
   for (const auto& libPath : libPaths) {
     if (handles_.find(libPath) == handles_.end()) {
       void* handle = dlopen(libPath.c_str(), RTLD_LAZY);
+      if (handle == nullptr) {
+        const char* error = dlerror();
+        throw gluten::GlutenException(
+            fmt::format("Failed to load udf library {}: {}", libPath, error != nullptr ? error : "unknown error"));
+      }
       handles_[libPath] = handle;
     }
     LOG(INFO) << "Successfully loaded udf library: " << libPath;

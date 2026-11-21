@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.expression.aggregate
 
+import org.apache.gluten.config.BoltConfig
 import org.apache.gluten.utils.BoltBloomFilter
 
 import org.apache.spark.sql.catalyst.InternalRow
@@ -23,7 +24,6 @@ import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.expressions.aggregate.{BloomFilterAggregate, TypedImperativeAggregate}
 import org.apache.spark.sql.catalyst.trees.TernaryLike
-import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 import org.apache.spark.task.TaskResources
 import org.apache.spark.unsafe.types.UTF8String
@@ -54,14 +54,15 @@ case class BoltBloomFilterAggregate(
 
   override def prettyName: String = "bolt_bloom_filter_agg"
 
-  // Mark as lazy so that `estimatedNumItems` is not evaluated during tree transformation.
-  private lazy val estimatedNumItems: Long =
-    Math.min(
-      estimatedNumItemsExpression.eval().asInstanceOf[Number].longValue,
-      SQLConf.get
-        .getConfString("spark.sql.optimizer.runtime.bloomFilter.maxNumItems", "4000000")
-        .toLong
-    )
+  // Match bolt/functions/sparksql/aggregates/BloomFilterAggAggregate.cpp::computeCapacity:
+  // min(numBits, maxNumBits) / 16. QueryConfig.h::kSparkBloomFilterMaxNumBits is a bit budget.
+  // This is a capacity conversion, not an exact bits-per-item allocation guarantee (the native
+  // filter can round allocations). Keep evaluation lazy during expression transformation.
+  private lazy val capacityFromNumBits: Int = {
+    val numBits = numBitsExpression.eval().asInstanceOf[Number].longValue
+    val maxNumBits = BoltConfig.get.boltBloomFilterMaxNumBits
+    Math.max(1, Math.toIntExact(Math.min(numBits, maxNumBits) / 16))
+  }
 
   // Mark as lazy so that `updater` is not evaluated during tree transformation.
   private lazy val updater: BloomFilterUpdater = child.dataType match {
@@ -98,7 +99,7 @@ case class BoltBloomFilterAggregate(
     if (!TaskResources.inSparkTask()) {
       throw new UnsupportedOperationException("bolt_bloom_filter_agg is not evaluable on Driver")
     }
-    BoltBloomFilter.empty(Math.toIntExact(estimatedNumItems))
+    BoltBloomFilter.empty(capacityFromNumBits)
   }
 
   override def update(buffer: BloomFilter, input: InternalRow): BloomFilter = {

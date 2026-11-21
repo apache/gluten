@@ -25,7 +25,8 @@ import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
 import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Cast, ConvertTimezone, Expression, GetStructField, Hour, IsNotNull, IsNull, MakeTimestamp, Minute, Second, TimestampAdd}
+import org.apache.spark.sql.catalyst.analysis.PartitionSpec
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Cast, ConvertTimezone, Expression, GetStructField, Hour, IsNotNull, IsNull, MakeTimestamp, Minute, Second, TimestampAdd, WindowFrame, WindowSpecDefinition}
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
 import org.apache.spark.sql.execution.datasources.WriteFilesExec
@@ -93,9 +94,12 @@ object Validators {
       builder.add(new FallbackByTestInjects())
     }
 
-    /** Fails validation if a plan node's input or output schema contains TimestampNTZType. */
+    /**
+     * Fails validation for unsupported TimestampNTZType schemas, and for NTZ expressions on
+     * backends without TimestampNTZ support.
+     */
     def fallbackByTimestampNTZ(): Validator.Builder = {
-      builder.add(new FallbackByTimestampNTZ(veloxConf))
+      builder.add(new FallbackByTimestampNTZ(veloxConf, settings.supportTimestampNtz))
     }
 
     /**
@@ -232,7 +236,10 @@ object Validators {
     }
   }
 
-  private class FallbackByTimestampNTZ(veloxConf: Option[Any]) extends Validator {
+  private[validator] class FallbackByTimestampNTZ(
+      veloxConf: Option[Any],
+      backendSupportsTimestampNtz: Boolean)
+    extends Validator {
     // Check if TimestampNTZ validation is enabled via VeloxConfig
     // Default to true (enabled) if VeloxConfig is not available or method call fails
     private val enableValidation: Boolean = veloxConf
@@ -246,8 +253,6 @@ object Validators {
           }
       }
       .getOrElse(true)
-
-    private val backendSupportsTimestampNtz = BackendsApiManager.getSettings.supportTimestampNtz
 
     override def validate(plan: SparkPlan): Validator.OutCome = {
       def containsNTZ(dataType: DataType): Boolean = dataType match {
@@ -267,6 +272,16 @@ object Validators {
       val hasNTZ = plan.output.exists(a => containsNTZ(a.dataType)) ||
         plan.children.exists(_.output.exists(a => containsNTZ(a.dataType)))
       if (!hasNTZ) {
+        if (
+          !backendSupportsTimestampNtz &&
+          plan.expressions.exists(_.exists {
+            // These metadata nodes have no dataType; exists still visits their children.
+            case _: WindowSpecDefinition | _: WindowFrame | _: PartitionSpec => false
+            case expr => containsNTZ(expr.dataType)
+          })
+        ) {
+          return fail(s"${plan.nodeName} has TimestampNTZType in expressions")
+        }
         return pass()
       }
 

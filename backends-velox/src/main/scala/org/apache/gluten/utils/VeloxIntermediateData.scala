@@ -17,8 +17,11 @@
 package org.apache.gluten.utils
 
 import org.apache.gluten.expression.ConverterUtils
+import org.apache.gluten.expression.aggregate.VeloxCollectSet
+import org.apache.gluten.extension.CollectRewriteRule
 import org.apache.gluten.substrait.`type`.{TypeBuilder, TypeNode}
 
+import org.apache.spark.sql.catalyst.expressions.{Expression, Literal}
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.types._
 
@@ -109,6 +112,24 @@ object VeloxIntermediateData {
   }
 
   /**
+   * Get the arguments passed to a Velox aggregate function when it consumes raw input (Partial or
+   * Complete mode).
+   *
+   * @param aggregateFunc
+   *   The input aggregate function.
+   * @return
+   *   The raw input arguments of a Velox aggregate function.
+   */
+  def getRawInputs(aggregateFunc: AggregateFunction): Seq[Expression] = aggregateFunc match {
+    // Velox's collect_set takes RESPECT NULLS as a constant `ignoreNulls` argument. Window
+    // functions keep Spark's CollectSet, because CollectRewriteRule only rewrites aggregates.
+    case c: VeloxCollectSet if !c.ignoreNulls => Seq(c.child, Literal.FalseLiteral)
+    case c: CollectSet if !CollectRewriteRule.getIgnoreNulls(c) =>
+      Seq(c.child, Literal.FalseLiteral)
+    case _ => aggregateFunc.children
+  }
+
+  /**
    * Get the compatible input types for a Velox aggregate function.
    *
    * @param aggregateFunc
@@ -120,7 +141,7 @@ object VeloxIntermediateData {
    */
   def getInputTypes(aggregateFunc: AggregateFunction, forMergeCompanion: Boolean): Seq[DataType] = {
     if (!forMergeCompanion) {
-      return aggregateFunc.children.map(_.dataType)
+      return getRawInputs(aggregateFunc).map(_.dataType)
     }
     aggregateFunc match {
       case _ @Type(veloxDataTypes: Seq[DataType]) =>

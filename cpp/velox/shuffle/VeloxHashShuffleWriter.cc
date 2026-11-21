@@ -229,12 +229,9 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> VeloxHashShuffleWriter::generateCo
   const facebook::velox::IndexRange allRows{0, vector->size()};
   serializer->append(vector, folly::Range(&allRows, 1));
   auto serializedSize = serializer->maxSerializedSize();
-  auto flushBuffer = complexTypeFlushBuffer_[0];
-  if (flushBuffer == nullptr) {
-    ARROW_ASSIGN_OR_RAISE(flushBuffer, arrow::AllocateResizableBuffer(serializedSize, partitionBufferPool_.get()));
-  } else if (serializedSize > flushBuffer->capacity()) {
-    RETURN_NOT_OK(flushBuffer->Reserve(serializedSize));
-  }
+  ARROW_ASSIGN_OR_RAISE(
+      std::shared_ptr<arrow::ResizableBuffer> flushBuffer,
+      arrow::AllocateResizableBuffer(serializedSize, partitionBufferPool_.get()));
 
   auto valueBuffer = arrow::SliceMutableBuffer(flushBuffer, 0, serializedSize);
   auto output = std::make_shared<arrow::io::FixedSizeBufferWriter>(valueBuffer);
@@ -483,13 +480,6 @@ std::vector<int64_t> VeloxHashShuffleWriter::estimatePartitionBufferBytes() cons
           partitionBytes[pid] += buffer->capacity();
         }
       }
-    }
-  }
-
-  for (uint32_t pid = 0; pid < complexTypeFlushBuffer_.size(); ++pid) {
-    const auto& buffer = complexTypeFlushBuffer_[pid];
-    if (buffer) {
-      partitionBytes[pid] += buffer->capacity();
     }
   }
 
@@ -865,7 +855,6 @@ arrow::Status VeloxHashShuffleWriter::initColumnTypes(const facebook::velox::Row
   inputHasNull_.resize(simpleColumnIndices_.size(), false);
 
   complexTypeData_.resize(numPartitions_);
-  complexTypeFlushBuffer_.resize(numPartitions_);
 
   complexWriteType_ = std::make_shared<facebook::velox::RowType>(std::move(complexNames), std::move(complexChildrens));
 
@@ -1172,13 +1161,10 @@ arrow::Result<std::vector<std::shared_ptr<arrow::Buffer>>> VeloxHashShuffleWrite
     }
   }
   if (hasComplexType_ && complexTypeData_[partitionId] != nullptr) {
-    auto flushBuffer = complexTypeFlushBuffer_[partitionId];
     auto serializedSize = complexTypeData_[partitionId]->maxSerializedSize();
-    if (flushBuffer == nullptr) {
-      ARROW_ASSIGN_OR_RAISE(flushBuffer, arrow::AllocateResizableBuffer(serializedSize, partitionBufferPool_.get()));
-    } else if (serializedSize > flushBuffer->capacity()) {
-      RETURN_NOT_OK(flushBuffer->Reserve(serializedSize));
-    }
+    ARROW_ASSIGN_OR_RAISE(
+        std::shared_ptr<arrow::ResizableBuffer> flushBuffer,
+        arrow::AllocateResizableBuffer(serializedSize, partitionBufferPool_.get()));
     auto valueBuffer = arrow::SliceMutableBuffer(flushBuffer, 0, serializedSize);
     auto output = std::make_shared<arrow::io::FixedSizeBufferWriter>(valueBuffer);
     facebook::velox::serializer::presto::PrestoOutputStreamListener listener;
@@ -1298,7 +1284,7 @@ arrow::Status VeloxHashShuffleWriter::resizePartitionBuffer(uint32_t partitionId
           binaryBuf.lengthPtr = lengthBuffer->mutable_data();
           break;
         }
-        auto valueOffset = 0;
+        uint64_t valueOffset = 0;
         // If preserve data, the new valueBufferSize should not be smaller than the current offset.
         if (preserveData) {
           valueBufferSize = std::max(binaryBuf.valueOffset, valueBufferSize);
@@ -1513,7 +1499,7 @@ arrow::Result<int64_t> VeloxHashShuffleWriter::shrinkPartitionBuffersMinSize(int
   std::sort(pidToSize.begin(), pidToSize.end(), [&](const auto& a, const auto& b) { return a.second > b.second; });
 
   auto beforeShrink = partitionBufferPool_->bytes_allocated();
-  auto shrunken = 0;
+  int64_t shrunken = 0;
   auto iter = pidToSize.begin();
 
   // Shrink in order to reclaim the largest amount of space with fewer resizes.
@@ -1655,21 +1641,11 @@ void VeloxHashShuffleWriter::computeRowBasedChecksums(const facebook::velox::Row
 
   auto numRows = rv.size();
   VELOX_DCHECK(rv.nulls() == nullptr, "RowVector with top-level nulls not supported for checksum");
-  // Get the RowVector to serialize (strip pid column if present).
-  facebook::velox::RowVectorPtr dataVector;
-  if (partitioner_->hasPid()) {
-    // Strip the first column (partition id).
-    auto rowType = std::dynamic_pointer_cast<const facebook::velox::RowType>(rv.type());
-    std::vector<std::string> names(rowType->names().begin() + 1, rowType->names().end());
-    std::vector<facebook::velox::TypePtr> types(rowType->children().begin() + 1, rowType->children().end());
-    std::vector<facebook::velox::VectorPtr> children(rv.children().begin() + 1, rv.children().end());
-    auto dataType = facebook::velox::ROW(std::move(names), std::move(types));
-    dataVector =
-        std::make_shared<facebook::velox::RowVector>(rv.pool(), dataType, nullptr, numRows, std::move(children));
-  } else {
-    auto rowType = std::dynamic_pointer_cast<const facebook::velox::RowType>(rv.type());
-    dataVector = std::make_shared<facebook::velox::RowVector>(rv.pool(), rowType, nullptr, numRows, rv.children());
-  }
+  // Every doSplit caller has already removed the partition id column, so rv holds only data
+  // columns.
+  auto rowType = std::dynamic_pointer_cast<const facebook::velox::RowType>(rv.type());
+  facebook::velox::RowVectorPtr dataVector =
+      std::make_shared<facebook::velox::RowVector>(rv.pool(), rowType, nullptr, numRows, rv.children());
 
   facebook::velox::row::UnsafeRowFast fast(dataVector);
   auto dataType = std::dynamic_pointer_cast<const facebook::velox::RowType>(dataVector->type());

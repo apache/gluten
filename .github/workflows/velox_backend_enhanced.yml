@@ -43,7 +43,7 @@ jobs:
   # Detect which parts of the codebase were modified so downstream jobs can
   # skip work that is irrelevant to the change.
   detect-changes:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     outputs:
       cpp:     ${{ steps.filter.outputs.cpp }}
       java:    ${{ steps.filter.outputs.java }}
@@ -77,7 +77,7 @@ jobs:
 
   build-native-lib-centos-8:
     needs: detect-changes
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: apache/gluten:vcpkg-almalinux-8-gcc13
     steps:
       - name: Install CI tools (temporary - until image is rebuilt with gh/jq/bison/python3.9)
@@ -130,7 +130,7 @@ jobs:
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims35 == 'true' ||
       needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v7
@@ -187,7 +187,7 @@ jobs:
       needs.detect-changes.outputs.java == 'true' ||
       needs.detect-changes.outputs.shims35 == 'true' ||
       needs.detect-changes.outputs.cpp == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: apache/gluten:centos-8-jdk8
     steps:
       - uses: actions/checkout@v7
@@ -231,7 +231,7 @@ jobs:
   #     needs.detect-changes.outputs.java == 'true' ||
   #     needs.detect-changes.outputs.shims40 == 'true' ||
   #     needs.detect-changes.outputs.cpp == 'true'
-  #   runs-on: ubuntu-22.04
+  #   runs-on: ubuntu-24.04
   #   strategy:
   #     fail-fast: false
   #     matrix:

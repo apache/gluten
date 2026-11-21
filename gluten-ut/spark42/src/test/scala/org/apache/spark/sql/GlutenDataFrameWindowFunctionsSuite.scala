@@ -23,6 +23,7 @@ import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Expression
 import org.apache.spark.sql.catalyst.plans.physical.HashPartitioning
 import org.apache.spark.sql.execution.ColumnarShuffleExchangeExec
 import org.apache.spark.sql.execution.exchange.ENSURE_REQUIREMENTS
+import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.internal.SQLConf
@@ -204,6 +205,33 @@ class GlutenDataFrameWindowFunctionsSuite
       }
 
       assert(shuffleByRequirement, "Can't find desired shuffle node from the query plan")
+    }
+  }
+
+  testGluten("collect_set RESPECT NULLS over a window frame") {
+    withTempView("t") {
+      Seq((1, Some(2)), (2, None), (3, Some(2)), (4, Some(5))).toDF("a", "b")
+        .createOrReplaceTempView("t")
+      val df = sql(
+        """
+          |SELECT a,
+          |  sort_array(collect_set(b) RESPECT NULLS
+          |    OVER (ORDER BY a ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)),
+          |  sort_array(collect_set(b) RESPECT NULLS OVER (ORDER BY a)),
+          |  sort_array(collect_set(b) OVER (ORDER BY a ROWS BETWEEN 1 PRECEDING AND CURRENT ROW))
+          |FROM t""".stripMargin)
+      checkAnswer(
+        df,
+        Seq(
+          Row(1, Seq(2), Seq(2), Seq(2)),
+          Row(2, Seq(null, 2), Seq(null, 2), Seq(2)),
+          Row(3, Seq(null, 2), Seq(null, 2), Seq(2)),
+          Row(4, Seq(2, 5), Seq(null, 2, 5), Seq(2, 5))
+        )
+      )
+      val plan = df.queryExecution.executedPlan
+      assert(collect(plan) { case w: WindowExecTransformer => w }.nonEmpty, plan)
+      assert(collect(plan) { case w: WindowExec => w }.isEmpty, plan)
     }
   }
 }

@@ -18,13 +18,13 @@
 #pragma once
 
 #include "GlutenDirectBufferedInput.h"
-#include "velox/connectors/hive/BufferedInputBuilder.h"
+#include "velox/connectors/common/BufferedInputBuilder.h"
 #include "velox/connectors/hive/FileHandle.h"
 #include "velox/dwio/common/CachedBufferedInput.h"
 
 namespace gluten {
 
-class GlutenBufferedInputBuilder : public facebook::velox::connector::hive::BufferedInputBuilder {
+class GlutenBufferedInputBuilder : public facebook::velox::connector::BufferedInputBuilder {
  public:
   std::unique_ptr<facebook::velox::dwio::common::BufferedInput> create(
       const facebook::velox::FileHandle& fileHandle,

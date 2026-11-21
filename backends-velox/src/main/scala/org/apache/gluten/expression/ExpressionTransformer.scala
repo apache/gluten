@@ -124,3 +124,24 @@ case class ToUnixTimestampTransformer(
     }
   }
 }
+
+/**
+ * Transformer for Spark's `from_json`. Velox matches JSON keys against the field names of the
+ * result type exactly (as Spark does), so the struct field names must not be lowercased.
+ */
+case class VeloxFromJsonTransformer(
+    substraitExprName: String,
+    children: Seq[ExpressionTransformer],
+    original: Expression)
+  extends ExpressionTransformer {
+  override def doTransform(context: SubstraitContext): ExpressionNode = {
+    val funcName: String =
+      ConverterUtils.makeFuncName(substraitExprName, original.children.map(_.dataType))
+    val functionId = context.registerFunction(funcName)
+    val childNodes = new JArrayList[ExpressionNode]()
+    children.foreach(c => childNodes.add(c.doTransform(context)))
+    val typeNode =
+      ConverterUtils.getTypeNode(dataType, nullable, preserveStructFieldNames = true)
+    ExpressionBuilder.makeScalarFunction(functionId, childNodes, typeNode)
+  }
+}

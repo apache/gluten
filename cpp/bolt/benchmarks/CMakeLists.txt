@@ -16,7 +16,8 @@
 find_package(Arrow CONFIG REQUIRED)
 find_package(gfx-timsort REQUIRED CONFIG)
 
-set(BOLT_BENCHMARK_COMMON_SRCS common/BenchmarkUtils.cc)
+set(BOLT_BENCHMARK_COMMON_SRCS common/BenchmarkUtils.cc
+                               ../tests/utils/LocalRssClient.cc)
 add_library(bolt_benchmark_common STATIC ${BOLT_BENCHMARK_COMMON_SRCS})
 target_include_directories(
   bolt_benchmark_common PUBLIC ${CMAKE_SOURCE_DIR}/bolt

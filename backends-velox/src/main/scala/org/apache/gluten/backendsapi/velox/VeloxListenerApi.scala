@@ -312,6 +312,22 @@ object VeloxListenerApi {
 
     var parsed: Map[String, String] = GlutenConfigUtil.parseConfig(conf.getAll.toMap)
 
+    val broadcastBuildThreadsKey = COLUMNAR_VELOX_BROADCAST_HASH_TABLE_BUILD_THREADS.key
+    if (!parsed.contains(broadcastBuildThreadsKey)) {
+      val defaultThreads = if (isDriver) {
+        if (inLocalMode(conf)) {
+          SparkResourceUtil.getExecutorCores(conf)
+        } else {
+          conf.getInt("spark.driver.cores", 1)
+        }
+      } else {
+        conf.getInt(GlutenCoreConfig.NUM_TASK_SLOTS_PER_EXECUTOR.key, 1)
+      }
+      // Resolve defaults per process without writing the driver's value back to SparkConf,
+      // which is also propagated to executors. Local mode shares the driver's thread pool.
+      parsed += (broadcastBuildThreadsKey -> math.max(1, defaultThreads).toString)
+    }
+
     // Workaround for https://github.com/apache/gluten/issues/7837
     if (isDriver && !inLocalMode(conf)) {
       parsed += (COLUMNAR_VELOX_CACHE_ENABLED.key -> "false")

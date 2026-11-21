@@ -19,7 +19,7 @@
 
 #include "compute/ResultIterator.h"
 #include "memory/AllocationListener.h"
-#include "shuffle/ShuffleWriter.h"
+#include "memory/Reclaimable.h"
 
 namespace gluten {
 
@@ -40,7 +40,7 @@ class TestAllocationListener final : public AllocationListener {
     iterator_ = iterator;
   }
 
-  void setShuffleWriter(ShuffleWriter* shuffleWriter) {
+  void setShuffleWriter(Reclaimable* shuffleWriter) {
     shuffleWriter_ = shuffleWriter;
   }
 
@@ -60,7 +60,7 @@ class TestAllocationListener final : public AllocationListener {
 
   uint64_t limit_{std::numeric_limits<uint64_t>::max()};
   ResultIterator* iterator_{nullptr};
-  ShuffleWriter* shuffleWriter_{nullptr};
+  Reclaimable* shuffleWriter_{nullptr};
 };
 
 } // namespace gluten

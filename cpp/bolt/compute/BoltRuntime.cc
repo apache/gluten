@@ -356,9 +356,19 @@ std::shared_ptr<ShuffleWriterBase> BoltRuntime::createShuffleWriter(
   using bytedance::bolt::shuffle::sparksql::toPartitioning;
   // for partitioning support adaptive shuffle writer, should pass first batch information to compute preAllocSize
   if (info.forced_writer_type() == 0 && supportAdaptiveShuffleWriter(toPartitioning(info.partitioning_name()))) {
-    auto boltColumnBatch = BoltColumnarBatch::from(leafPool_.get(), cb);
-    BOLT_CHECK_NOT_NULL(boltColumnBatch);
-    const auto& rv = boltColumnBatch->getRowVector();
+    bytedance::bolt::RowVectorPtr rv;
+    if (std::dynamic_pointer_cast<ArrowCStructColumnarBatch>(cb)) {
+      // Sizing must leave the first batch's Arrow ownership available for split().
+      auto options = ArrowUtils::getBridgeOptions();
+      options.exportToArrowIPC = true;
+      rv = std::dynamic_pointer_cast<bytedance::bolt::RowVector>(bytedance::bolt::importFromArrowAsViewer(
+          *cb->exportArrowSchema(), *cb->exportArrowArray(), options, leafPool_.get()));
+    } else {
+      auto boltColumnBatch = BoltColumnarBatch::from(leafPool_.get(), cb);
+      BOLT_CHECK_NOT_NULL(boltColumnBatch);
+      rv = boltColumnBatch->getRowVector();
+    }
+    BOLT_CHECK_NOT_NULL(rv);
     firstBatchRowNumber = rv->size();
     firstBatchFlatSize = rv->estimateFlatSize();
   }

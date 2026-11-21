@@ -34,8 +34,11 @@ import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
 
 import org.apache.arrow.c.{ArrowArrayStream, Data}
 import org.apache.arrow.memory.BufferAllocator
-import org.apache.arrow.vector.FieldVector
+import org.apache.arrow.vector.{FieldVector, VectorSchemaRoot}
+import org.apache.arrow.vector.complex.{BaseRepeatedValueVector, FixedSizeListVector}
 import org.apache.arrow.vector.ipc.ArrowReader
+import org.apache.arrow.vector.ipc.message.ArrowFieldNode
+import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType}
 import org.lance.spark.internal.LanceArrowStreamScanner
 import org.lance.spark.read.{LanceInputPartition, LanceScan}
 
@@ -202,17 +205,7 @@ private class LanceFragmentIterator(
     advanced = false
     val root = reader.getVectorSchemaRoot
     val rowCount = root.getRowCount
-    // Transfer (zero-copy move) each column out of the reader's reused root so the emitted batch
-    // owns its buffers: it stays valid after the reader is closed, and is safe for the offload
-    // transition to close.
-    val transferred = new java.util.ArrayList[FieldVector](root.getFieldVectors.size())
-    root.getFieldVectors.asScala.foreach {
-      fv =>
-        val pair = fv.getTransferPair(allocator)
-        pair.transfer()
-        transferred.add(pair.getTo.asInstanceOf[FieldVector])
-    }
-    val vectors = ArrowColumnVectors.wrap(transferred)
+    val vectors = ArrowColumnVectors.wrap(LanceFragmentIterator.takeColumns(root, allocator))
     new ColumnarBatch(vectors.map(_.asInstanceOf[ColumnVector]), rowCount)
   }
 
@@ -225,6 +218,118 @@ private class LanceFragmentIterator(
       } finally {
         // Frees the caller-owned stream struct and closes the scanner + dataset.
         handle.close()
+      }
+    }
+}
+
+private object LanceFragmentIterator {
+
+  /**
+   * Transfers (zero-copy moves) each column out of the reader's reused `root` so the emitted batch
+   * owns its buffers: it stays valid after the reader is closed, and is safe for the offload
+   * transition to close. Columns holding a FixedSizeList (Lance vectors) are rebuilt as Lists on
+   * the way out, still without copying their values. If a column fails, the columns already taken
+   * are released.
+   */
+  def takeColumns(
+      root: VectorSchemaRoot,
+      allocator: BufferAllocator): java.util.List[FieldVector] = {
+    val taken = new java.util.ArrayList[FieldVector](root.getFieldVectors.size())
+    try {
+      root.getFieldVectors.asScala.foreach {
+        fv =>
+          if (FixedSizeLists.contains(fv.getField)) {
+            taken.add(FixedSizeLists.toLists(fv, allocator))
+          } else {
+            val pair = fv.getTransferPair(allocator)
+            pair.transfer()
+            taken.add(pair.getTo.asInstanceOf[FieldVector])
+          }
+      }
+      taken
+    } catch {
+      case t: Throwable =>
+        taken.asScala.foreach(_.close())
+        throw t
+    }
+  }
+}
+
+/**
+ * Rewrites FixedSizeList vectors, which is how Lance stores vector (embedding) columns, as
+ * variable-size Lists. Neither Spark's [[org.apache.spark.sql.vectorized.ArrowColumnVector]], which
+ * wraps the emitted batches, nor Velox's Arrow import supports FixedSizeList, while a List holds
+ * the same values and matches the ArrayType that lance-spark declares for the column. Element `i`
+ * of a FixedSizeList of size `n` is child range `[i * n, (i + 1) * n)` also for null entries, so
+ * the offsets are `i * n` throughout and the child values are reused as is: only the offsets buffer
+ * is new. Nested FixedSizeLists, e.g. a vector inside a struct or a list of vectors, are rewritten
+ * too.
+ */
+private object FixedSizeLists {
+
+  /** Whether `field` is a FixedSizeList or has one among its descendants. */
+  def contains(field: Field): Boolean =
+    field.getType.isInstanceOf[ArrowType.FixedSizeList] ||
+      field.getChildren.asScala.exists(contains)
+
+  /**
+   * Builds a vector in `allocator` holding the data of `source`, with every FixedSizeList rewritten
+   * as a List. Buffers are shared or moved rather than copied, so `source` may be left without its
+   * child data; its owner still closes it.
+   */
+  def toLists(source: FieldVector, allocator: BufferAllocator): FieldVector = {
+    val target = toListField(source.getField).createVector(allocator)
+    try {
+      load(source, target, allocator)
+      target
+    } catch {
+      case t: Throwable =>
+        target.close()
+        throw t
+    }
+  }
+
+  private def toListField(field: Field): Field =
+    if (!contains(field)) {
+      field
+    } else {
+      val fieldType = field.getType match {
+        case _: ArrowType.FixedSizeList =>
+          new FieldType(
+            field.isNullable,
+            ArrowType.List.INSTANCE,
+            field.getDictionary,
+            field.getMetadata)
+        case _ => field.getFieldType
+      }
+      new Field(field.getName, fieldType, field.getChildren.asScala.map(toListField).asJava)
+    }
+
+  /** Loads `source` into `target`, whose field is `toListField(source.getField)`. */
+  private def load(source: FieldVector, target: FieldVector, allocator: BufferAllocator): Unit =
+    if (!contains(source.getField)) {
+      // Same type on both sides: move the buffers.
+      source.makeTransferPair(target).transfer()
+    } else {
+      val node = new ArrowFieldNode(source.getValueCount, source.getNullCount)
+      source match {
+        case fixed: FixedSizeListVector =>
+          val width = BaseRepeatedValueVector.OFFSET_WIDTH
+          val offsets = allocator.buffer((fixed.getValueCount + 1).toLong * width)
+          try {
+            (0 to fixed.getValueCount).foreach {
+              i => offsets.setInt(i.toLong * width, i * fixed.getListSize)
+            }
+            target.loadFieldBuffers(node, java.util.Arrays.asList(fixed.getValidityBuffer, offsets))
+          } finally {
+            // loadFieldBuffers took its own reference.
+            offsets.close()
+          }
+        case _ =>
+          target.loadFieldBuffers(node, source.getFieldBuffers)
+      }
+      source.getChildrenFromFields.asScala.zip(target.getChildrenFromFields.asScala).foreach {
+        case (s, t) => load(s, t, allocator)
       }
     }
 }

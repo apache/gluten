@@ -1365,6 +1365,28 @@ core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::Re
   // The columns present in the table, if not available default to the baseSchema.
   auto tableSchema = splitInfo->tableSchema ? splitInfo->tableSchema : baseSchema;
 
+  // Partition values come from the path, so their types must not be checked against the file.
+  std::unordered_set<std::string> partitionColNames;
+  for (int idx = 0; idx < colNameList.size(); idx++) {
+    if (columnTypes[idx] == ColumnType::kPartitionKey) {
+      partitionColNames.insert(colNameList[idx]);
+    }
+  }
+  RowTypePtr dataColumns;
+  if (partitionColNames.empty()) {
+    dataColumns = tableSchema;
+  } else {
+    std::vector<std::string> dataColNames;
+    std::vector<TypePtr> dataColTypes;
+    for (int idx = 0; idx < tableSchema->size(); idx++) {
+      if (partitionColNames.find(tableSchema->nameOf(idx)) == partitionColNames.end()) {
+        dataColNames.push_back(tableSchema->nameOf(idx));
+        dataColTypes.push_back(tableSchema->childAt(idx));
+      }
+    }
+    dataColumns = ROW(std::move(dataColNames), std::move(dataColTypes));
+  }
+
   std::shared_ptr<connector::ConnectorTableHandle> tableHandle;
   auto remainingFilter = readRel.has_filter() ? exprConverter_->toBoltExpr(readRel.filter(), baseSchema) : nullptr;
   auto connectorId = kHiveConnectorId;
@@ -1381,7 +1403,7 @@ core::PlanNodePtr SubstraitToBoltPlanConverter::toBoltPlan(const ::substrait::Re
       filterPushdownEnabled,
       std::move(subfieldFilters),
       remainingFilter,
-      tableSchema,
+      dataColumns,
       tableParameters);
 
   // Get assignments and out names.
