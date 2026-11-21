@@ -92,6 +92,7 @@ for patch in \
   parquet-fixture-row-groups.patch \
   dv-predicate-pushdown-row-groups.patch \
   merge-delete-duplicate-file-layout.patch \
+  data-skipping-stats-file-layout.patch \
   dv-2b-row-fail-fast.patch; do
   echo "Applying $patch"
   if ! git -C "$DELTA_DIR" apply "$PATCH_DIR/$patch"; then
