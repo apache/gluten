@@ -19,8 +19,7 @@ package org.apache.gluten.functions
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.ProjectExecTransformer
 
-import org.apache.spark.SparkConf
-import org.apache.spark.SparkException
+import org.apache.spark.{SparkConf, SparkException, SparkThrowable}
 import org.apache.spark.sql.internal.SQLConf
 
 class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
@@ -88,6 +87,28 @@ class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
     // Spark 3.4+ throws exception for division by zero in ANSI mode
     intercept[SparkException] {
       sql("SELECT 1 / 0").collect()
+    }
+  }
+
+  test("divide by zero throws Spark DIVIDE_BY_ZERO error") {
+    withTempPath {
+      path =>
+        sql("SELECT 1 AS a, 0 AS b").write.parquet(path.getCanonicalPath)
+        withTempView("div_tab") {
+          spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("div_tab")
+          val df = sql("SELECT a / b FROM div_tab")
+          checkGlutenPlan[ProjectExecTransformer](df)
+          val e = intercept[Exception](df.collect())
+          val sparkError = Iterator
+            .iterate[Throwable](e)(_.getCause)
+            .takeWhile(_ != null)
+            .collectFirst { case t: ArithmeticException with SparkThrowable => t }
+          assert(sparkError.isDefined, e)
+          assert(sparkError.get.getMessage.startsWith("[DIVIDE_BY_ZERO]"), e)
+          assert(sparkError.get.getSqlState == "22012")
+          // The native error is kept as the cause.
+          assert(sparkError.get.getCause.getMessage.contains("division by zero"))
+        }
     }
   }
 
