@@ -159,8 +159,7 @@ case class BroadcastHashJoinExecTransformer(
           case a: Attribute if buildOutputSet.contains(a) =>
             ConverterUtils.genColumnNameWithExprId(a)
         }.toArray
-        val propagates = SparkShimLoader.getSparkShims.isNullIntolerant(expr)
-        (cols, propagates)
+        (cols, BroadcastHashJoinFilter.isNullOnNullBuildColumn(expr, buildPlan.outputSet))
       case None =>
         (Array.empty[String], false)
     }
@@ -248,6 +247,27 @@ case class BroadcastHashJoinExecTransformer(
 
     // FIXME: Do we have to make build side a RDD?
     streamedRDD :+ broadcastRDD
+  }
+}
+
+object BroadcastHashJoinFilter {
+
+  /**
+   * Whether `condition` is null when any build-side column it references is null. The native hash
+   * table build of an anti join then leaves out the build rows that are null in these columns,
+   * since they can't match.
+   */
+  def isNullOnNullBuildColumn(condition: Expression, buildOutput: AttributeSet): Boolean = {
+    val buildColumns = condition.references.filter(buildOutput.contains)
+    buildColumns.nonEmpty && buildColumns.subsetOf(nullPropagatingColumns(condition))
+  }
+
+  // The columns whose null makes `expr` null.
+  private def nullPropagatingColumns(expr: Expression): AttributeSet = expr match {
+    case a: Attribute => AttributeSet(a)
+    case e if SparkShimLoader.getSparkShims.isNullIntolerant(e) =>
+      AttributeSet(e.children.flatMap(nullPropagatingColumns(_)))
+    case _ => AttributeSet.empty
   }
 }
 

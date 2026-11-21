@@ -21,13 +21,14 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.{SparkConf, SparkException}
 import org.apache.spark.sql.Row
-import org.apache.spark.sql.catalyst.expressions.AttributeReference
+import org.apache.spark.sql.catalyst.expressions.{Add, AttributeReference, AttributeSet, Coalesce, Expression, GreaterThan, IsNull, Literal, Or}
 import org.apache.spark.sql.execution.{ColumnarBroadcastExchangeExec, ColumnarBuildSideRelation, ColumnarSubqueryBroadcastExec, InputIteratorTransformer, SerializedHashTableBroadcastRelation}
 import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
 import org.apache.spark.sql.execution.joins.BuildSideRelation
 import org.apache.spark.sql.execution.joins.HashedRelationBroadcastMode
 import org.apache.spark.sql.execution.unsafe.UnsafeColumnarBuildSideRelation
 import org.apache.spark.sql.functions.broadcast
+import org.apache.spark.sql.types.IntegerType
 
 class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
   override protected val resourcePath: String = "/tpch-data-parquet"
@@ -300,6 +301,59 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
         }
       }
     }
+  }
+
+  test("anti join keeps build rows its filter can match through a null-tolerant expression") {
+    withTempView("probe", "build") {
+      withTempPath {
+        dir =>
+          Seq((1, 5), (2, 1)).toDF("k", "x").write.parquet(s"$dir/probe")
+          Seq[(Int, Option[Int])]((1, None), (2, Some(3)))
+            .toDF("k", "y")
+            .write
+            .parquet(s"$dir/build")
+          spark.read.parquet(s"$dir/probe").createOrReplaceTempView("probe")
+          spark.read.parquet(s"$dir/build").createOrReplaceTempView("build")
+          // (1, 5) matches (1, null): coalesce(null, 0) = 0 < 5.
+          Seq(
+            "SELECT * FROM probe WHERE NOT EXISTS (SELECT 1 FROM build " +
+              "WHERE probe.k = build.k AND probe.x > coalesce(build.y, 0))",
+            "SELECT * FROM probe LEFT ANTI JOIN build " +
+              "ON probe.k = build.k AND probe.x > nvl(build.y, 0)"
+          ).foreach {
+            query =>
+              val df = spark.sql(query)
+              checkAnswer(df, Seq(Row(2, 1)))
+              assert(
+                collect(df.queryExecution.executedPlan) {
+                  case j: BroadcastHashJoinExecTransformer => j
+                }.nonEmpty,
+                query)
+          }
+          // A null-intolerant filter still lets the build leave out the rows with a null y.
+          checkAnswer(
+            spark.sql(
+              "SELECT * FROM probe WHERE NOT EXISTS (SELECT 1 FROM build " +
+                "WHERE probe.k = build.k AND probe.x > build.y)"),
+            Seq(Row(1, 5), Row(2, 1)))
+      }
+    }
+  }
+
+  test("anti join filter null propagation is decided per build column") {
+    val x = AttributeReference("x", IntegerType)()
+    val y = AttributeReference("y", IntegerType)()
+    val z = AttributeReference("z", IntegerType)()
+    val build = AttributeSet(Seq(y, z))
+    def check(condition: Expression): Boolean =
+      BroadcastHashJoinFilter.isNullOnNullBuildColumn(condition, build)
+    assert(check(GreaterThan(x, y)))
+    assert(check(GreaterThan(Add(x, y), z)))
+    assert(check(GreaterThan(y, Literal(0))))
+    assert(!check(GreaterThan(x, Coalesce(Seq(y, Literal(0))))))
+    assert(!check(GreaterThan(Add(x, y), Coalesce(Seq(z, Literal(0))))))
+    assert(!check(Or(GreaterThan(x, y), IsNull(y))))
+    assert(!check(GreaterThan(x, Literal(0))))
   }
 
   test("Broadcast join preserves original cast expression in join keys") {
