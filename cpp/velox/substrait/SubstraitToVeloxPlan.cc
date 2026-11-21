@@ -1293,17 +1293,6 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
   }
   const std::optional<std::string> rowNumberColumnName = std::nullopt;
 
-  if (sortingKeys.empty()) {
-    // Handle if all sorting keys are also used as partition keys.
-
-    return std::make_shared<core::RowNumberNode>(
-        nextPlanNodeId(),
-        partitionKeys,
-        rowNumberColumnName,
-        static_cast<int32_t>(windowGroupLimitRel.limit()),
-        childNode);
-  }
-
   auto windowFunc = core::TopNRowNumberNode::RankFunction::kRowNumber;
   if (windowGroupLimitRel.has_advanced_extension()) {
     if (SubstraitParser::checkWindowFunction(windowGroupLimitRel.advanced_extension(), "rank")) {
@@ -1311,6 +1300,33 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
     } else if (SubstraitParser::checkWindowFunction(windowGroupLimitRel.advanced_extension(), "dense_rank")) {
       windowFunc = core::TopNRowNumberNode::RankFunction::kDenseRank;
     }
+  }
+
+  if (sortingKeys.empty()) {
+    // All sorting keys are also partition keys, so all rows of a partition are peers.
+    if (windowFunc != core::TopNRowNumberNode::RankFunction::kRowNumber) {
+      // Every row has rank (and dense rank) 1, and Spark only plans a limit of at least 1, so the
+      // limit keeps all rows. Pass them through with an identity projection, which keeps one
+      // Velox node for this relation, as operator metrics expect.
+      VELOX_USER_CHECK_GT(windowGroupLimitRel.limit(), 0, "Window group limit must be positive.");
+      std::vector<std::string> names;
+      std::vector<core::TypedExprPtr> expressions;
+      names.reserve(inputType->size());
+      expressions.reserve(inputType->size());
+      for (auto i = 0; i < inputType->size(); ++i) {
+        names.emplace_back(inputType->nameOf(i));
+        expressions.emplace_back(
+            std::make_shared<core::FieldAccessTypedExpr>(inputType->childAt(i), inputType->nameOf(i)));
+      }
+      return std::make_shared<core::ProjectNode>(nextPlanNodeId(), std::move(names), std::move(expressions), childNode);
+    }
+    // row_number numbers peers in any order, so keeping the first rows of each partition is valid.
+    return std::make_shared<core::RowNumberNode>(
+        nextPlanNodeId(),
+        partitionKeys,
+        rowNumberColumnName,
+        static_cast<int32_t>(windowGroupLimitRel.limit()),
+        childNode);
   }
 
   return std::make_shared<core::TopNRowNumberNode>(
