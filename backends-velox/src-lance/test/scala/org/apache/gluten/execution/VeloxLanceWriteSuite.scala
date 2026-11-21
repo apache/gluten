@@ -828,7 +828,8 @@ class VeloxLanceWriteSuite extends VeloxWholeStageTransformerSuite {
   }
 
   test("only float and double fixed-size lists are taken as vectors") {
-    // lance-spark writes a fixed-size list only for float and double arrays.
+    // lance-spark writes fixed-size lists for float and double arrays, and for Float16 ones when the
+    // column's metadata asks for it. Velox has no half float.
     def vectors(element: ArrowType): Schema =
       new Schema(
         Seq(
@@ -840,6 +841,11 @@ class VeloxLanceWriteSuite extends VeloxWholeStageTransformerSuite {
     val float64 = new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)
     assert(VeloxLanceWriteExec.unexportableColumn(vectors(float32)).isEmpty)
     assert(VeloxLanceWriteExec.unexportableColumn(vectors(float64)).isEmpty)
+    assert(
+      VeloxLanceWriteExec
+        .unexportableColumn(vectors(new ArrowType.FloatingPoint(FloatingPointPrecision.HALF)))
+        .exists(_.startsWith(
+          "Fixed-size list column v has elements of Arrow type FloatingPoint(HALF)")))
     assert(
       VeloxLanceWriteExec
         .unexportableColumn(vectors(new ArrowType.Int(32, true)))

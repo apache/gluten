@@ -127,8 +127,9 @@ A write is left on lance-spark's writer (fallback, not an error) when Velox cann
 | Row-level operations (`UPDATE`, `DELETE`, `MERGE`) and column backfills | Fallback |
 
 Fixed-size list columns, such as vectors, are written natively when they are top-level columns of
-floats or doubles, the only ones lance-spark writes as fixed-size lists: Velox exports them as plain
-lists, and each list must hold exactly the column's number of elements.
+floats or doubles: Velox exports them as plain lists, and each list must hold exactly the column's
+number of elements. Float16 vectors, which lance-spark writes when the column's metadata asks for
+them, fall back, since Velox has no half-float type.
 
 The offload decision is made at plan time. Each batch a task exports is also checked against the
 table's Arrow schema, so a type Velox exports differently fails the task, naming the column, rather

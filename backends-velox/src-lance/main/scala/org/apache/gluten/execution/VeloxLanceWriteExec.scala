@@ -47,8 +47,9 @@ object VeloxLanceWriteExec {
   /**
    * The first column whose committed Arrow type Velox cannot export with the same layout, if any.
    * Velox exports plain Utf8, Binary and List, microsecond timestamps and 128-bit decimals. The
-   * writer converts the plain lists of top-level fixed-size list columns, which lance-spark writes
-   * for float and double vectors.
+   * writer converts the plain lists of top-level fixed-size list columns of floats or doubles.
+   * lance-spark also writes Float16 vectors when a column's metadata asks for them, which Velox
+   * cannot export.
    */
   def unexportableColumn(schema: Schema): Option[String] =
     firstUnexportable(schema.getFields, "", topLevel = true)
@@ -130,6 +131,8 @@ object VeloxLanceWriteExec {
     }
   }
 
-  private def isFloatOrDouble(f: ArrowType.FloatingPoint): Boolean =
-    f.getPrecision != FloatingPointPrecision.HALF
+  private def isFloatOrDouble(f: ArrowType.FloatingPoint): Boolean = f.getPrecision match {
+    case FloatingPointPrecision.SINGLE | FloatingPointPrecision.DOUBLE => true
+    case _ => false
+  }
 }
