@@ -188,11 +188,12 @@ object PushDownInputFileExpression {
 
   object PostOffload extends Rule[SparkPlan] {
     override def apply(plan: SparkPlan): SparkPlan = plan.transformUp {
+      // The project that PreOffload added over the scan: the scan can produce its output.
       case p @ ProjectExec(projectList, child: FileSourceScanExecTransformer)
-          if projectList.exists(containsInputFileRelatedExpr) =>
+          if projectList.exists(containsInputFileRelatedExpr) && canCollapseProject(p) =>
         child.copy(output = p.output)
       case p @ ProjectExec(projectList, child: HiveTableScanExecTransformer)
-          if projectList.exists(containsInputFileRelatedExpr) =>
+          if projectList.exists(containsInputFileRelatedExpr) && canCollapseProject(p) =>
         child.copy(
           requestedAttributes = p.output,
           relation = child.relation,

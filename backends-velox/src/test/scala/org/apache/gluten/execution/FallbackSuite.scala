@@ -655,4 +655,30 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
         }
     }
   }
+
+  test("input_file_name() next to an expression that stays on Spark") {
+    spark.udf.register("upper_on_spark", (s: String) => s.toUpperCase)
+    withTempPath {
+      dir =>
+        import testImplicits._
+        Seq(("a", 1), ("b", 2)).toDF("name", "id").write.parquet(dir.getCanonicalPath)
+        withTempView("t") {
+          spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("t")
+          // The Scala UDF, or a disabled project offload, keeps the project on Spark over the
+          // offloaded scan, which can't produce the project's computed columns.
+          Seq(
+            "true" -> "SELECT input_file_name() AS f, upper_on_spark(name) AS u FROM t",
+            "false" -> "SELECT input_file_name() AS f, name, id + 1 AS i FROM t",
+            "false" -> "SELECT concat(input_file_name(), name) AS f FROM t"
+          ).foreach {
+            case (projectEnabled, query) =>
+              withSQLConf(GlutenConfig.COLUMNAR_PROJECT_ENABLED.key -> projectEnabled) {
+                runQueryAndCompare(query, noFallBack = false) {
+                  df => assert(hasNativeScan(df), df.queryExecution.executedPlan)
+                }
+              }
+          }
+        }
+    }
+  }
 }
