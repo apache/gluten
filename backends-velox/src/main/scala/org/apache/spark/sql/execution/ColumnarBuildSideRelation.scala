@@ -167,8 +167,9 @@ case class ColumnarBuildSideRelation(
 
   override def asReadOnlyCopy(): ColumnarBuildSideRelation = this
 
-  // Joins that reuse this relation can need different hash tables, one per build key.
-  private val hashTableData = Map.empty[HashTableBuildKey, Long]
+  // Joins that reuse this relation can need different hash tables, one per build key. The handles
+  // are native, so they are not serialized with the relation.
+  @transient private lazy val hashTableData = Map.empty[HashTableBuildKey, Long]
 
   def buildHashTable(
       broadcastContext: BroadcastHashJoinContext)

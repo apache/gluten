@@ -276,30 +276,35 @@ case class BroadcastHashJoinContext(
   }
 
   /**
-   * The join parameters the native hash table depends on, besides the build-side rows. Joins that
-   * reuse one broadcast exchange can differ in them, so they can't share a hash table.
+   * Identifies the native hash table this join needs from a broadcast relation, which every join
+   * reusing the broadcast exchange shares. Joins with the same key can share a hash table. For an
+   * anti join, `droppedDuplicates` also tells whether it has a filter.
    */
   def hashTableBuildKey: HashTableBuildKey = {
-    val buildColumns = buildSideStructure.map(ConverterUtils.genColumnNameWithExprId)
+    // An anti join with a null-intolerant filter leaves out the build rows that are null in the
+    // filter's build columns (HashTableBuilder::removeInputRowsForAntiJoinFilter). The columns
+    // are given by position: a reused exchange gives them other expression IDs.
+    val nullFilteredColumns =
+      if (
+        substraitJoinType == JoinRel.JoinType.JOIN_TYPE_LEFT_ANTI &&
+        hasMixedFiltCondition && filterPropagatesNulls
+      ) {
+        val buildColumns = buildSideStructure.map(ConverterUtils.genColumnNameWithExprId)
+        filterBuildColumns.map(buildColumns.indexOf(_)).sorted.distinct.toList
+      } else {
+        Nil
+      }
     HashTableBuildKey(
-      substraitJoinType.getNumber,
-      hasMixedFiltCondition,
-      isExistenceJoin,
+      droppedDuplicates,
       isNullAwareAntiJoin,
-      // Positions rather than names: a reused exchange gives its columns other expression IDs.
-      filterBuildColumns.map(buildColumns.indexOf(_)).sorted.distinct.toList,
-      filterPropagatesNulls,
-      bloomFilterPushdownSize
-    )
+      nullFilteredColumns,
+      bloomFilterPushdownSize)
   }
 }
 
 /** See [[BroadcastHashJoinContext.hashTableBuildKey]]. */
 case class HashTableBuildKey(
-    joinType: Int,
-    hasMixedFiltCondition: Boolean,
-    isExistenceJoin: Boolean,
+    droppedDuplicates: Boolean,
     isNullAwareAntiJoin: Boolean,
-    filterBuildColumns: List[Int],
-    filterPropagatesNulls: Boolean,
+    nullFilteredColumns: List[Int],
     bloomFilterPushdownSize: Long)

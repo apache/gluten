@@ -166,7 +166,6 @@ object VeloxBroadcastBuildSideCache
               hashTableHandle,
               broadcastId,
               relation,
-              broadcastContext.droppedDuplicates,
               numRows)
           val serializeTimeMs = System.currentTimeMillis() - startSerializeTime
 

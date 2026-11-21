@@ -767,7 +767,7 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
   }
 
   test("joins that reuse a broadcast but filter nulls differently get their own hash table") {
-    withSQLConf(("spark.sql.autoBroadcastJoinThreshold", "10MB")) {
+    withTempView("probe", "build") {
       withTempPath {
         dir =>
           Seq((1, 5), (2, 1), (3, 7), (4, 2), (5, 9), (6, 0), (7, 4))
@@ -809,10 +809,12 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
                   query =>
                     val df = spark.sql(query)
                     checkAnswer(df, expected)
+                    val plan = df.queryExecution.executedPlan
                     assert(
-                      collectWithSubqueries(df.queryExecution.executedPlan) {
-                        case r: ReusedExchangeExec => r
-                      }.nonEmpty,
+                      collect(plan) { case j: BroadcastHashJoinExecTransformer => j }.size == 2,
+                      plan)
+                    assert(
+                      collectWithSubqueries(plan) { case r: ReusedExchangeExec => r }.nonEmpty,
                       s"Expected the joins to share one broadcast: $query")
                 }
           }
