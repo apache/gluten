@@ -307,6 +307,30 @@ class GlutenDeltaNativeWriteGateSuite extends SharedSparkSession {
     }
   }
 
+  test("a filesystem probe that cannot run falls back and says so") {
+    for (
+      failure <- Seq[Throwable](
+        new UnsatisfiedLinkError("allSupportedByRegisteredFileSystems"),
+        new IllegalStateException("backend not initialized"))
+    ) {
+      val failing: String => Boolean = _ => throw failure
+      for (path <- Seq("file:/tmp/t", "s3a://b/t")) {
+        val reason = GlutenDeltaNativeWriteGate.unsupportedPath(new Path(path), failing)
+        assert(
+          reason.exists(_.contains("Could not check Velox filesystem registration")),
+          s"$path: $reason")
+        assert(reason.exists(_.contains(failure.getMessage)), s"$path: $reason")
+        assert(!reason.exists(_.contains("not available in this build")), s"$path: $reason")
+      }
+    }
+    // A scheme the Velox writer never opens is refused before the probe runs.
+    val neverCalled: String => Boolean = _ => fail("The probe must not run")
+    assert(
+      GlutenDeltaNativeWriteGate
+        .unsupportedPath(new Path("viewfs://cluster/t"), neverCalled)
+        .exists(_.contains("are not written by the Velox writer")))
+  }
+
   test("the default filesystem probe does not throw") {
     // This suite loads no Gluten plugin, so the native probe cannot run here. The gate must still
     // return a reason (or none, if another suite loaded the library) without throwing.
