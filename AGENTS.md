@@ -104,8 +104,10 @@ Do not commit code that fails CI checks.
 
 ## Testing
 
-Add at least one unit test (under `gluten-ut/`) for any fix or feature not
-covered by existing Spark UTs.
+Add a regression test for any fix or feature not covered by existing Spark tests.
+For JVM behavior specific to one backend, prefer that backend module's existing
+test directory. Use `gluten-ut` for tests shared across backends or that need its
+Spark-version-specific fixtures.
 
 ```bash
 # gluten-ut — must select backend, Spark and Scala profiles
