@@ -694,7 +694,10 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
           val queries = Seq(
             "SELECT concat(f, name) AS g FROM (SELECT input_file_name() AS f, name FROM t)",
             "SELECT concat(input_file_name, '#') AS g FROM " +
-              "(SELECT input_file_name() AS input_file_name, name FROM t)"
+              "(SELECT input_file_name() AS input_file_name, name FROM t)",
+            "SELECT concat(input_file_name, '#') AS g FROM " +
+              "(SELECT input_file_name() AS input_file_name, name FROM t) " +
+              "WHERE input_file_name LIKE '%.parquet'"
           )
           for {
             // Parquet read through DataSource V1 and V2.
@@ -707,7 +710,12 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
               GlutenConfig.COLUMNAR_PROJECT_ENABLED.key -> projectEnabled) {
               spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("t")
               runQueryAndCompare(query, noFallBack = false) {
-                df => df.collect().foreach(row => assert(row.getString(0).contains(".parquet")))
+                df =>
+                  val plan = df.queryExecution.executedPlan
+                  assert(
+                    find(plan)(_.isInstanceOf[BasicScanExecTransformer]).nonEmpty,
+                    s"$v1Sources/$projectEnabled: $query\n$plan")
+                  df.collect().foreach(row => assert(row.getString(0).contains(".parquet")))
               }
             }
           }

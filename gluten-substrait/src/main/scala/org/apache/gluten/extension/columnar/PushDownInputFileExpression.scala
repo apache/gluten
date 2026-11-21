@@ -108,8 +108,8 @@ object PushDownInputFileExpression {
 
   object PreOffload extends Rule[SparkPlan] {
     override def apply(plan: SparkPlan): SparkPlan = plan.transformUp {
-      // Only a call to an input file function needs rewriting: a reference to the attribute an
-      // earlier rewrite added has nothing to push down.
+      // Only a call to an input file function needs rewriting: a column that is only named like
+      // input_file_name has nothing to push down.
       case ProjectExec(projectList, child)
           if projectList.exists(containsInputFileFunctionExpr) && hasInputFileRelatedSource(
             child) =>
