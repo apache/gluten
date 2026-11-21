@@ -18,7 +18,6 @@ package org.apache.gluten.execution.kafka
 
 import org.apache.gluten.execution.{MicroBatchScanExecTransformer, WholeStageTransformerSuite}
 
-import org.apache.spark.sql.execution.streaming.StreamingQueryWrapper
 import org.apache.spark.sql.functions.{col, split}
 import org.apache.spark.sql.streaming.Trigger
 
@@ -75,11 +74,8 @@ trait GlutenKafkaScanSuite extends WholeStageTransformerSuite {
             .start(dir.getCanonicalPath)
 
           eventually(timeout(60.seconds), interval(5.seconds)) {
-            val size = streamQuery
-              .asInstanceOf[StreamingQueryWrapper]
-              .streamingQuery
-              .lastExecution
-              .executedPlan
+            val size = KafkaTestUtils
+              .executedPlan(streamQuery)
               .collect { case p: MicroBatchScanExecTransformer => p }
             assert(size.size == 1)
             streamQuery.awaitTermination(1000)
