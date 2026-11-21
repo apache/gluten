@@ -128,6 +128,10 @@ public abstract class ArrowVectorWriter {
     throw new UnsupportedOperationException("writeArray is not supported");
   }
 
+  void writeNull() {
+    throw new UnsupportedOperationException("writeNull is not supported");
+  }
+
   int getValueCount() {
     return valueCount;
   }
@@ -245,10 +249,14 @@ abstract class BaseVectorWriter<T extends FieldVector, V> extends ArrowVectorWri
 
   protected abstract void setValue(int index, V value);
 
+  protected void setNull(int index) {
+    this.typedVector.setNull(index);
+  }
+
   @Override
   public void write(int fieldIndex, RowData rowData) {
     if (rowData.isNullAt(fieldIndex)) {
-      this.typedVector.setNull(valueCount);
+      setNull(valueCount);
     } else {
       setValue(valueCount, getValue(rowData, fieldIndex));
     }
@@ -256,10 +264,16 @@ abstract class BaseVectorWriter<T extends FieldVector, V> extends ArrowVectorWri
   }
 
   @Override
+  void writeNull() {
+    setNull(valueCount);
+    valueCount++;
+  }
+
+  @Override
   public void writeArray(ArrayData arrayData) {
     for (int i = 0; i < arrayData.size(); i++) {
       if (arrayData.isNullAt(i)) {
-        this.typedVector.setNull(valueCount);
+        setNull(valueCount);
       } else {
         setValue(valueCount, getValue(arrayData, i));
       }
@@ -516,6 +530,15 @@ class StructVectorWriter extends BaseVectorWriter<StructVector, RowData> {
     this.typedVector.setIndexDefined(index);
     for (int i = 0; i < fieldCount; ++i) {
       fieldWriters.get(i).write(i, value);
+    }
+  }
+
+  // The fields take a null for a null row too, so they stay aligned with the struct's rows.
+  @Override
+  protected void setNull(int index) {
+    this.typedVector.setNull(index);
+    for (ArrowVectorWriter fieldWriter : fieldWriters) {
+      fieldWriter.writeNull();
     }
   }
 
