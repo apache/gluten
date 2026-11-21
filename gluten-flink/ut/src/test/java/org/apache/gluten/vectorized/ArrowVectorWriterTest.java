@@ -115,4 +115,54 @@ public class ArrowVectorWriterTest {
     assertThat(values.isNullAt(1)).isTrue();
     assertRow(values.getRow(2, 2), 3, "c");
   }
+
+  @Test
+  public void testArrayWithNullRowElementOfNestedFields() {
+    RowType nested =
+        RowType.of(
+            new LogicalType[] {
+              new ArrayType(new IntType()), RowType.of(new LogicalType[] {new IntType()})
+            },
+            new String[] {"a", "r"});
+    Object[] elements = {
+      GenericRowData.of(new GenericArrayData(new Object[] {1, 2}), GenericRowData.of(10)),
+      null,
+      GenericRowData.of(new GenericArrayData(new Object[] {3}), GenericRowData.of(30))
+    };
+    ArrayData array =
+        (ArrayData) writeAndRead(new ArrayType(nested), new GenericArrayData(elements));
+
+    assertThat(array.getRow(0, 2).getRow(1, 1).getInt(0)).isEqualTo(10);
+    assertThat(array.isNullAt(1)).isTrue();
+    RowData last = array.getRow(2, 2);
+    assertThat(last.getArray(0).size()).isEqualTo(1);
+    assertThat(last.getArray(0).getInt(0)).isEqualTo(3);
+    assertThat(last.getRow(1, 1).getInt(0)).isEqualTo(30);
+  }
+
+  @Test
+  public void testArrayWithNullRowFieldInElement() {
+    RowType inner = RowType.of(new LogicalType[] {new IntType()}, new String[] {"x"});
+    RowType element = RowType.of(new LogicalType[] {inner}, new String[] {"r"});
+    Object[] elements = {GenericRowData.of((Object) null), GenericRowData.of(GenericRowData.of(5))};
+    ArrayData array =
+        (ArrayData) writeAndRead(new ArrayType(element), new GenericArrayData(elements));
+
+    assertThat(array.getRow(0, 1).isNullAt(0)).isTrue();
+    assertThat(array.getRow(1, 1).getRow(0, 1).getInt(0)).isEqualTo(5);
+  }
+
+  @Test
+  public void testNullRowKeepsFieldsAsLongAsTheRow() {
+    ArrowVectorWriter writer =
+        ArrowVectorWriter.create("c", LogicalTypeConverter.toVLType(ROW_TYPE), allocator);
+    writer.write(0, GenericRowData.of((Object) null));
+    writer.finish();
+    try (FieldVector vector = writer.getVector()) {
+      assertThat(vector.getValueCount()).isEqualTo(1);
+      for (FieldVector field : vector.getChildrenFromFields()) {
+        assertThat(field.getValueCount()).isEqualTo(1);
+      }
+    }
+  }
 }

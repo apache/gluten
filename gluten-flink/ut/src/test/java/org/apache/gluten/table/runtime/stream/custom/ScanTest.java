@@ -178,15 +178,6 @@ class ScanTest extends GlutenStreamingTestBase {
 
     rows =
         Arrays.asList(
-            Row.of(1, new Row[] {Row.of(1, 2), null, Row.of(3, 4)}),
-            Row.of(2, new Row[] {null, Row.of(5, 6)}));
-    createSimpleBoundedValuesTable("nullStrctArrayTbl", "a int, b array<ROW<x int, y int>>", rows);
-    query = "select a, b from nullStrctArrayTbl where a > 0";
-    runAndCheck(
-        query, Arrays.asList("+I[1, [+I[1, 2], null, +I[3, 4]]]", "+I[2, [null, +I[5, 6]]]"));
-
-    rows =
-        Arrays.asList(
             Row.of(1, null),
             Row.of(2, orderedMap(new String[] {"a", "b", null}, new Integer[] {null, 2, 3})),
             Row.of(3, orderedMap(new String[] {"c", "d"}, new Integer[] {3, 4})));

@@ -24,9 +24,12 @@ import io.github.zhztheplayer.velox4j.memory.AllocationListener;
 import io.github.zhztheplayer.velox4j.memory.MemoryManager;
 import io.github.zhztheplayer.velox4j.session.Session;
 
+import org.apache.flink.table.data.ArrayData;
+import org.apache.flink.table.data.GenericArrayData;
 import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.data.StringData;
+import org.apache.flink.table.types.logical.ArrayType;
 import org.apache.flink.table.types.logical.IntType;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.RowType;
@@ -168,6 +171,42 @@ public class FlinkRowToVLVectorConvertorTest {
       } finally {
         rv.close();
       }
+    }
+  }
+
+  @Test
+  public void testRoundTripArrayWithNullRowElement() {
+    RowType elementType =
+        RowType.of(
+            new LogicalType[] {new IntType(), new VarCharType(VarCharType.MAX_LENGTH)},
+            new String[] {"x", "y"});
+    io.github.zhztheplayer.velox4j.type.RowType type =
+        (io.github.zhztheplayer.velox4j.type.RowType)
+            org.apache.gluten.util.LogicalTypeConverter.toVLType(
+                RowType.of(
+                    new LogicalType[] {new IntType(), new ArrayType(elementType)},
+                    new String[] {"id", "items"}));
+    Object[] elements = {
+      GenericRowData.of(1, StringData.fromString("a")),
+      null,
+      GenericRowData.of(2, StringData.fromString("b")),
+      GenericRowData.of(3, StringData.fromString("c"))
+    };
+    RowData input = GenericRowData.of(7, new GenericArrayData(elements));
+    RowVector rv = FlinkRowToVLVectorConvertor.fromRowData(input, allocator, session, type);
+    try {
+      List<RowData> rows = FlinkRowToVLVectorConvertor.toRowData(rv, allocator, type);
+      assertThat(rows).hasSize(1);
+      ArrayData items = rows.get(0).getArray(1);
+      assertThat(items.size()).isEqualTo(4);
+      assertThat(items.isNullAt(1)).isTrue();
+      for (int i : new int[] {0, 2, 3}) {
+        RowData item = items.getRow(i, 2);
+        assertThat(item.getInt(0)).isEqualTo(((RowData) elements[i]).getInt(0));
+        assertThat(item.getString(1)).isEqualTo(((RowData) elements[i]).getString(1));
+      }
+    } finally {
+      rv.close();
     }
   }
 }
