@@ -29,17 +29,18 @@ using namespace facebook::velox;
 
 namespace {
 
+// Child types are taken from the source RowVector's declared row type rather than from the child
+// vectors. A child vector may carry a type with the same physical kind but a different logical type
+// than the declared column type (e.g. TIMESTAMP from the row-to-columnar converter vs TIMESTAMP_UTC
+// declared by the Velox plan for Spark TimestampNTZType). Deriving the row type from the vectors
+// makes the composed row type vary between batches of the same stream.
 RowVectorPtr makeRowVector(
     velox::memory::MemoryPool* pool,
     int32_t numRows,
     std::vector<std::string> childNames,
+    std::vector<TypePtr> childTypes,
     BufferPtr nulls,
     const std::vector<VectorPtr>& children) {
-  std::vector<std::shared_ptr<const Type>> childTypes;
-  childTypes.resize(children.size());
-  for (int i = 0; i < children.size(); i++) {
-    childTypes[i] = children[i]->type();
-  }
   auto rowType = ROW(std::move(childNames), std::move(childTypes));
   return std::make_shared<RowVector>(pool, rowType, nulls, numRows, std::move(children));
 }
@@ -124,18 +125,24 @@ std::shared_ptr<VeloxColumnarBatch> VeloxColumnarBatch::compose(
   GLUTEN_CHECK(numRows > 0, "Illegal state");
 
   std::vector<std::string> childNames;
+  std::vector<TypePtr> childTypes;
   std::vector<VectorPtr> children;
   for (const auto& batch : batches) {
     auto vb = std::dynamic_pointer_cast<VeloxColumnarBatch>(batch);
     auto rv = vb->getRowVector();
-    for (const std::string& name : rv->type()->asRow().names()) {
+    const auto& rowType = rv->type()->asRow();
+    for (const std::string& name : rowType.names()) {
       childNames.push_back(name);
+    }
+    for (const TypePtr& type : rowType.children()) {
+      childTypes.push_back(type);
     }
     for (const VectorPtr& vec : rv->children()) {
       children.push_back(vec);
     }
   }
-  RowVectorPtr outRv = makeRowVector(pool, numRows, std::move(childNames), nullptr, std::move(children));
+  RowVectorPtr outRv =
+      makeRowVector(pool, numRows, std::move(childNames), std::move(childTypes), nullptr, std::move(children));
   return std::make_shared<VeloxColumnarBatch>(outRv);
 }
 
@@ -143,8 +150,10 @@ std::shared_ptr<VeloxColumnarBatch> VeloxColumnarBatch::select(
     facebook::velox::memory::MemoryPool* pool,
     const std::vector<int32_t>& columnIndices) {
   std::vector<std::string> childNames;
+  std::vector<TypePtr> childTypes;
   std::vector<VectorPtr> childVectors;
   childNames.reserve(columnIndices.size());
+  childTypes.reserve(columnIndices.size());
   childVectors.reserve(columnIndices.size());
   auto type = facebook::velox::asRowType(rowVector_->type());
 
@@ -152,10 +161,12 @@ std::shared_ptr<VeloxColumnarBatch> VeloxColumnarBatch::select(
     auto index = columnIndices[i];
     auto child = rowVector_->childAt(index);
     childNames.push_back(type->nameOf(index));
+    childTypes.push_back(type->childAt(index));
     childVectors.push_back(child);
   }
 
-  auto rowVector = makeRowVector(pool, numRows(), std::move(childNames), rowVector_->nulls(), std::move(childVectors));
+  auto rowVector = makeRowVector(
+      pool, numRows(), std::move(childNames), std::move(childTypes), rowVector_->nulls(), std::move(childVectors));
   return std::make_shared<VeloxColumnarBatch>(rowVector);
 }
 

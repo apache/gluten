@@ -108,4 +108,26 @@ TEST_F(VeloxColumnarBatchTest, firstNullColumnIndexRowNullsAndTruncatedChildren)
   ASSERT_EQ(std::make_shared<VeloxColumnarBatch>(truncated)->firstNullColumnIndex({0}), -1);
 }
 
+TEST_F(VeloxColumnarBatchTest, composeAndSelectKeepDeclaredRowType) {
+  // The row-to-columnar converter produces TIMESTAMP vectors for Spark TimestampNTZType, while the
+  // Velox plan declares the column as TIMESTAMP_UTC. Composing or selecting must keep the declared
+  // row type, otherwise the row type seen by the shuffle writer varies between batches.
+  auto declaredType = ROW({"ts", "v"}, {TIMESTAMP_UTC(), BIGINT()});
+  auto ts = makeFlatVector<Timestamp>({Timestamp(1, 0), Timestamp(2, 0)});
+  ASSERT_FALSE(ts->type()->equivalent(*TIMESTAMP_UTC()));
+  auto rv = std::make_shared<RowVector>(
+      pool(), declaredType, nullptr, 2, std::vector<VectorPtr>{ts, makeFlatVector<int64_t>({1, 2})});
+  auto batch = std::make_shared<VeloxColumnarBatch>(rv);
+  auto pidBatch = std::make_shared<VeloxColumnarBatch>(makeRowVector({"pid"}, {makeFlatVector<int32_t>({0, 1})}));
+
+  auto composed = VeloxColumnarBatch::compose(pool(), {pidBatch, batch});
+  auto expectedComposedType = ROW({"pid", "ts", "v"}, {INTEGER(), TIMESTAMP_UTC(), BIGINT()});
+  ASSERT_TRUE(composed->getRowVector()->type()->equivalent(*expectedComposedType))
+      << composed->getRowVector()->type()->toString();
+
+  auto selected = batch->select(pool(), {0});
+  ASSERT_TRUE(selected->getRowVector()->type()->equivalent(*ROW({"ts"}, {TIMESTAMP_UTC()})))
+      << selected->getRowVector()->type()->toString();
+}
+
 } // namespace gluten

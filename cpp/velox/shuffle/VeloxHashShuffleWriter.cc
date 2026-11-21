@@ -868,7 +868,11 @@ arrow::Status VeloxHashShuffleWriter::initFromRowVector(const facebook::velox::R
     calculateSimpleColumnBytes();
     rowType_ = rv.rowType();
   } else {
-    VELOX_CHECK(rowType_->equivalent(*rv.rowType()));
+    VELOX_CHECK(
+        rowType_->equivalent(*rv.rowType()),
+        "Shuffle input row type changed between batches. First batch: {}, current batch: {}",
+        rowType_->toString(),
+        rv.rowType()->toString());
   }
   return arrow::Status::OK();
 }
