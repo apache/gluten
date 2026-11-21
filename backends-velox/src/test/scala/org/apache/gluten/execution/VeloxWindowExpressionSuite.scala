@@ -90,6 +90,43 @@ class VeloxWindowExpressionSuite extends WholeStageTransformerSuite {
     )
   }
 
+  testWithMinSparkVersion("rank-like limit when every sort key is a partition key", "3.5") {
+    withTable("t") {
+      // Every row of a (p, o) partition ties, so rank and dense_rank are 1 for all of them and the
+      // limit keeps them all; row_number keeps `limit` rows of each partition.
+      (0 until 400)
+        .map(i => (if (i % 9 == 0) None else Some(i % 5), i % 7, i))
+        .toDF("p", "o", "id")
+        .write
+        .saveAsTable("t")
+      Seq(
+        ("rank", "partition by p, o order by o", "rn <= 1", Some(400L)),
+        ("dense_rank", "partition by p, o order by o desc nulls last", "rn <= 2", Some(400L)),
+        ("rank", "partition by p order by p", "rn = 1", Some(400L)),
+        ("row_number", "partition by p, o order by o", "rn <= 2", None)
+      ).foreach {
+        case (function, spec, filter, expectedRows) =>
+          // row_number picks any rows of a tied partition, so `id` is only compared for ranks.
+          val columns = if (function == "row_number") "p, o, rn" else "*"
+          val query =
+            s"select $columns from (select *, $function() over ($spec) as rn from t) where $filter"
+          runQueryAndCompare(query)(checkGlutenPlan[WindowGroupLimitExecTransformer])
+          expectedRows.foreach {
+            rows =>
+              // Run once more to read metrics from a single execution: both the partial and the
+              // final limit must report every row as their own output.
+              val df = spark.sql(query)
+              assert(df.collect().length == rows, s"$function over ($spec)")
+              val limits = getExecutedPlan(df).collect {
+                case limit: WindowGroupLimitExecTransformer => limit
+              }
+              assert(limits.size == 2)
+              limits.foreach(limit => assert(limit.metrics("numOutputRows").value == rows))
+          }
+      }
+    }
+  }
+
   test("collect_list / collect_set") {
     withTable("t") {
       val data = Seq(
