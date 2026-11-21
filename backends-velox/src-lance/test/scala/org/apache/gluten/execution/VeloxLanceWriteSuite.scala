@@ -29,7 +29,7 @@ import org.apache.spark.sql.execution.datasources.v2.{AppendDataExec, OverwriteB
 import org.apache.spark.sql.functions.{col, udf}
 import org.apache.spark.sql.gluten.LanceTestUtils
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DoubleType, IntegerType, MapType, Metadata, MetadataBuilder, StringType, StructType, TimestampNTZType, TimestampType}
+import org.apache.spark.sql.types.{Metadata, MetadataBuilder}
 import org.apache.spark.sql.util.QueryExecutionListener
 import org.apache.spark.task.TaskResources
 
@@ -754,9 +754,9 @@ class VeloxLanceWriteSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
-  test("strings, arrays, maps and timestamps inside a struct that may be null fall back") {
-    // Velox would export the values under the struct's null rows too, where a CASE WHEN or a join
-    // may leave any value. The row writer reads through ColumnarToRow, which skips them.
+  test("strings, arrays, maps and timestamps inside a struct that may be null are offloaded") {
+    // A CASE WHEN or a join may leave any value under the struct's null rows. Velox exports those
+    // rows of the children as null (facebookincubator/velox#20126), so the values never reach Lance.
     Seq(
       "timestamp_seconds(id * 37)",
       "concat('s', cast(id as string))",
@@ -775,56 +775,10 @@ class VeloxLanceWriteSuite extends VeloxWholeStageTransformerSuite {
             val plans = executedPlans {
               nullable(10, 50).write.format("lance").mode("append").option("path", uri).save()
             }
-            assertFellBack(plans)
+            assertOffloaded[VeloxLanceAppendDataExec](plans)
             checkAnswer(read(uri), nullable(0, 60))
         }
     }
-    // Structs that are never null, such as map entries, keep those values offloaded.
-    def neverNull(start: Long, n: Long): DataFrame =
-      spark
-        .range(start, start + n)
-        .selectExpr(
-          "cast(id as int) as id",
-          "named_struct('t', timestamp_seconds(id * 37), 's', cast(id as string), " +
-            "'a', array(id)) as st",
-          "map('k', timestamp_seconds(id * 37)) as m"
-        )
-    withLanceTable(neverNull(0, 10)) {
-      uri =>
-        val plans = executedPlans {
-          neverNull(10, 50).write.format("lance").mode("append").option("path", uri).save()
-        }
-        assertOffloaded[VeloxLanceAppendDataExec](plans)
-        checkAnswer(read(uri), neverNull(0, 60))
-    }
-  }
-
-  test("the check for values under null structs looks inside map keys and skips fixed widths") {
-    val maybeNull = new StructType().add("t", TimestampType)
-    def keyed(nullable: Boolean): StructType =
-      new StructType()
-        .add("m", MapType(new StructType().add("s", maybeNull, nullable), IntegerType))
-    assert(VeloxLanceWriteExec.undefinedUnderNullStruct(keyed(nullable =
-      true)).contains("m.key.s.t"))
-    assert(VeloxLanceWriteExec.undefinedUnderNullStruct(keyed(nullable = false)).isEmpty)
-    def inNullable(fields: StructType): StructType = new StructType().add("s", fields, true)
-    assert(
-      VeloxLanceWriteExec
-        .undefinedUnderNullStruct(inNullable(new StructType().add(
-          "i",
-          IntegerType).add("d", DoubleType)))
-        .isEmpty)
-    assert(
-      VeloxLanceWriteExec
-        .undefinedUnderNullStruct(inNullable(new StructType().add(
-          "i",
-          IntegerType).add("str", StringType)))
-        .contains("s.str"))
-    // TimestampNTZ columns are offloaded when Gluten's NTZ validation is off.
-    assert(
-      VeloxLanceWriteExec
-        .undefinedUnderNullStruct(inNullable(new StructType().add("ntz", TimestampNTZType)))
-        .contains("s.ntz"))
   }
 
   test("only float and double fixed-size lists are taken as vectors") {

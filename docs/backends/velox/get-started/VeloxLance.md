@@ -122,7 +122,6 @@ A write is left on lance-spark's writer (fallback, not an error) when Velox cann
 | Table with a sharding key                                  | Fallback |
 | Blob columns                                               | Fallback |
 | `TimestampNTZ` columns                                     | Fallback, unless Gluten's NTZ validation is turned off |
-| Timestamps, strings, binaries, arrays and maps inside a struct that can be null | Fallback, until Gluten's Velox exports a null struct's children as null |
 | Large strings or binaries, half floats, unsigned integers, fixed-size lists inside other columns | Fallback |
 | Row-level operations (`UPDATE`, `DELETE`, `MERGE`) and column backfills | Fallback |
 
