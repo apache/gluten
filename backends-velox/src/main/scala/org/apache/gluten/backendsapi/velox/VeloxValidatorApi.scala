@@ -19,6 +19,7 @@ package org.apache.gluten.backendsapi.velox
 import org.apache.gluten.backendsapi.{BackendsApiManager, ValidatorApi}
 import org.apache.gluten.config.VeloxConfig
 import org.apache.gluten.execution.ValidationResult
+import org.apache.gluten.expression.AnsiModeMismatch
 import org.apache.gluten.substrait.`type`.TypeNode
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.expression.ExpressionNode
@@ -42,14 +43,18 @@ import scala.collection.mutable.ArrayBuffer
 class VeloxValidatorApi extends ValidatorApi {
   import VeloxValidatorApi._
 
-  /** For velox backend, key validation is on native side. */
+  /**
+   * For velox backend, key validation is on native side. Two checks are done here: an expression
+   * that captured a different ANSI mode than the session's is not offloaded (see
+   * [[AnsiModeMismatch]]), and format_string / printf need a supported format string.
+   */
   override def doExprValidate(substraitExprName: String, expr: Expression): Boolean = {
-    expr match {
+    !AnsiModeMismatch(expr) && (expr match {
       // Both format_string and printf resolve to Spark's FormatString expression.
       case formatString: FormatString =>
         supportsFormatString(formatString)
       case _ => true
-    }
+    })
   }
 
   override def doNativeValidateWithFailureReason(plan: PlanNode): ValidationResult = {
