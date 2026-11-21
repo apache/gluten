@@ -17,9 +17,9 @@
 package org.apache.spark.sql.execution
 
 import org.apache.gluten.execution.WindowGroupLimitExecTransformer
+import org.apache.gluten.utils.BackendTestUtils
 
-import org.apache.spark.sql.DataFrame
-import org.apache.spark.sql.GlutenSQLTestsBaseTrait
+import org.apache.spark.sql.{DataFrame, GlutenSQLTestsBaseTrait, Row}
 import org.apache.spark.sql.functions.lit
 
 class GlutenRemoveRedundantWindowGroupLimitsSuite
@@ -67,6 +67,22 @@ class GlutenRemoveRedundantWindowGroupLimitsSuite
           |WHERE rn < 3
           |""".stripMargin
       checkWindowGroupLimits(query2, 2)
+    }
+  }
+
+  testGluten("WindowGroupLimit with sort keys equal to partition keys") {
+    assume(BackendTestUtils.isVeloxBackendLoaded())
+    val rankingFunctions = Seq("rank" -> 12L, "dense_rank" -> 12L, "row_number" -> 2L)
+    rankingFunctions.foreach {
+      case (function, expectedRows) =>
+        val df =
+          sql(s"""
+                 |WITH src AS (SELECT CAST(id % 2 AS INT) AS g FROM range(0, 24, 1, 4)),
+                 |ranked AS (SELECT g, $function() OVER (PARTITION BY g ORDER BY g) AS r FROM src)
+                 |SELECT g, COUNT(*) FROM ranked WHERE r <= 2 GROUP BY g
+                 |""".stripMargin)
+        checkAnswer(df, Seq(Row(0, expectedRows), Row(1, expectedRows)))
+        assert(getExecutedPlan(df).exists(_.isInstanceOf[WindowGroupLimitExecTransformer]))
     }
   }
 }
