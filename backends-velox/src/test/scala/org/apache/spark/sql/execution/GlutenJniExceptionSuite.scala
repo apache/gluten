@@ -23,7 +23,6 @@ import org.apache.gluten.substrait.`type`.TypeBuilder
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.plan.PlanBuilder
 import org.apache.gluten.substrait.rel.RelBuilder
-import org.apache.gluten.utils.BackendTestUtils
 import org.apache.gluten.vectorized.{ColumnarBatchInIterator, ColumnarBatchOutIterator, NativePlanEvaluator}
 
 import org.apache.spark.{QueryContext, SparkArithmeticException, SparkConf, SparkNumberFormatException, SparkThrowable}
@@ -49,7 +48,7 @@ class GlutenJniExceptionSuite extends GlutenQueryTest with SharedSparkSession {
 
   private def withNativeIterator(input: JIterator[ColumnarBatch], lateSplit: Boolean = false)(
       f: ColumnarBatchOutIterator => Unit): Unit = {
-    assume(BackendTestUtils.isVeloxBackendLoaded())
+    assume(BackendsApiManager.getBackendName == "velox")
     withTempDir {
       spillDir =>
         TaskResources.runUnsafe {
