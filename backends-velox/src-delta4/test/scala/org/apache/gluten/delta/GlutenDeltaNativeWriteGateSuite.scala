@@ -25,6 +25,8 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types._
 
+import org.apache.hadoop.fs.Path
+
 class GlutenDeltaNativeWriteGateSuite extends SharedSparkSession {
 
   private val plainSchema = new StructType().add("id", LongType).add("s", StringType)
@@ -263,5 +265,75 @@ class GlutenDeltaNativeWriteGateSuite extends SharedSparkSession {
       assert(GlutenDeltaNativeWriteGate.unsupportedSchema(schema).isDefined, dataType)
       assert(unsupported(schema = schema).isDefined, dataType)
     }
+  }
+
+  test("filesystems the Velox writer does not open fall back") {
+    val registered: String => Boolean = _ => true
+    for (
+      path <- Seq(
+        "file:/tmp/t",
+        "hdfs://nn:8020/t",
+        "s3://b/t",
+        "s3a://b/t",
+        "oss://b/t",
+        "gs://b/t",
+        "abfss://c@a.dfs.core.windows.net/t")
+    ) {
+      assert(GlutenDeltaNativeWriteGate.unsupportedPath(new Path(path), registered).isEmpty, path)
+    }
+    for (
+      path <- Seq(
+        "viewfs://cluster/t",
+        "wasbs://c@a.blob.core.windows.net/t",
+        "s3n://b/t",
+        "failing-fs:/tmp/t",
+        "/tmp/t")
+    ) {
+      assert(GlutenDeltaNativeWriteGate.unsupportedPath(new Path(path), registered).isDefined, path)
+    }
+  }
+
+  test("filesystems compiled out of the Velox build fall back") {
+    val localOnly: String => Boolean = _.startsWith("file:")
+    assert(GlutenDeltaNativeWriteGate.unsupportedPath(new Path("file:/tmp/t"), localOnly).isEmpty)
+    for (
+      path <- Seq("hdfs://nn:8020/t", "s3a://b/t", "gs://b/t", "abfss://c@a.dfs.core.windows.net/t")
+    ) {
+      assert(
+        GlutenDeltaNativeWriteGate
+          .unsupportedPath(new Path(path), localOnly)
+          .exists(_.contains("not available in this build")),
+        path)
+    }
+  }
+
+  test("a filesystem probe that cannot run falls back and says so") {
+    for (
+      failure <- Seq[Throwable](
+        new UnsatisfiedLinkError("allSupportedByRegisteredFileSystems"),
+        new IllegalStateException("backend not initialized"))
+    ) {
+      val failing: String => Boolean = _ => throw failure
+      for (path <- Seq("file:/tmp/t", "s3a://b/t")) {
+        val reason = GlutenDeltaNativeWriteGate.unsupportedPath(new Path(path), failing)
+        assert(
+          reason.exists(_.contains("Could not check Velox filesystem registration")),
+          s"$path: $reason")
+        assert(reason.exists(_.contains(failure.getMessage)), s"$path: $reason")
+        assert(!reason.exists(_.contains("not available in this build")), s"$path: $reason")
+      }
+    }
+    // A scheme the Velox writer never opens is refused before the probe runs.
+    val neverCalled: String => Boolean = _ => fail("The probe must not run")
+    assert(
+      GlutenDeltaNativeWriteGate
+        .unsupportedPath(new Path("viewfs://cluster/t"), neverCalled)
+        .exists(_.contains("are not written by the Velox writer")))
+  }
+
+  test("the default filesystem probe does not throw") {
+    // This suite loads no Gluten plugin, so the native probe cannot run here. The gate must still
+    // return a reason (or none, if another suite loaded the library) without throwing.
+    GlutenDeltaNativeWriteGate.unsupportedPath(new Path("s3a://b/t"))
   }
 }
