@@ -108,8 +108,11 @@ object PushDownInputFileExpression {
 
   object PreOffload extends Rule[SparkPlan] {
     override def apply(plan: SparkPlan): SparkPlan = plan.transformUp {
+      // Only a call to an input file function needs rewriting: a column that is only named like
+      // input_file_name has nothing to push down.
       case ProjectExec(projectList, child)
-          if projectList.exists(containsInputFileRelatedExpr) && hasInputFileRelatedSource(child) =>
+          if projectList.exists(containsInputFileFunctionExpr) && hasInputFileRelatedSource(
+            child) =>
         val replacedExprs = mutable.Map[String, Alias]()
         val newProjectList = projectList.map {
           expr => rewriteExpr(expr, replacedExprs).asInstanceOf[NamedExpression]
@@ -117,7 +120,7 @@ object PushDownInputFileExpression {
         val newChild = addMetadataCol(child, replacedExprs)
         ProjectExec(newProjectList, newChild)
       case f @ FilterExec(condition, child)
-          if containsInputFileRelatedExpr(condition) && hasInputFileRelatedSource(child) =>
+          if containsInputFileFunctionExpr(condition) && hasInputFileRelatedSource(child) =>
         val replacedExprs = mutable.Map[String, Alias]()
         val newCondition = rewriteExpr(condition, replacedExprs)
         val newChild = addMetadataCol(child, replacedExprs)
@@ -188,11 +191,12 @@ object PushDownInputFileExpression {
 
   object PostOffload extends Rule[SparkPlan] {
     override def apply(plan: SparkPlan): SparkPlan = plan.transformUp {
+      // The project that PreOffload added over the scan: the scan can produce its output.
       case p @ ProjectExec(projectList, child: FileSourceScanExecTransformer)
-          if projectList.exists(containsInputFileRelatedExpr) =>
+          if projectList.exists(containsInputFileRelatedExpr) && canCollapseProject(p) =>
         child.copy(output = p.output)
       case p @ ProjectExec(projectList, child: HiveTableScanExecTransformer)
-          if projectList.exists(containsInputFileRelatedExpr) =>
+          if projectList.exists(containsInputFileRelatedExpr) && canCollapseProject(p) =>
         child.copy(
           requestedAttributes = p.output,
           relation = child.relation,
@@ -215,7 +219,8 @@ object PushDownInputFileExpression {
           projectList = newProjectList,
           child = child.withOutput(child.output ++ inputFileAttrs))
       case p1 @ ProjectExec(_, ProjectExec(childProjectList, scan: BatchScanExecTransformerBase))
-          if childProjectList.exists(containsInputFileRelatedExpr) =>
+          if childProjectList.exists(containsInputFileRelatedExpr) &&
+            isPassThrough(childProjectList) =>
         val newOutput = childProjectList.map(_.toAttribute.asInstanceOf[AttributeReference])
         p1.copy(child = scan.withOutput(newOutput))
       case p1 @ ProjectExec(_, p2: ProjectExec) if canCollapseProject(p2) =>
@@ -227,6 +232,15 @@ object PushDownInputFileExpression {
           p2.copy(projectList =
             CollapseProjectShim.buildCleanedProjectList(p1.projectList, p2.projectList)))
     }
+
+    // Whether `projectList` only passes columns through, as the project PreOffload added over a
+    // scan does once its input file functions are rewritten to attributes.
+    private def isPassThrough(projectList: Seq[NamedExpression]): Boolean =
+      projectList.forall {
+        case _: Attribute => true
+        case Alias(a: Attribute, name) => isInputFileAttrName(a.name) && name == a.name
+        case _ => false
+      }
 
     private def canCollapseProject(project: ProjectExec): Boolean = {
       project.projectList.forall {
