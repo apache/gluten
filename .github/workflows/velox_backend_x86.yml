@@ -166,6 +166,7 @@ jobs:
       shims40:  ${{ steps.filter.outputs.shims40 }}
       shims41:  ${{ steps.filter.outputs.shims41 }}
       shims42:  ${{ steps.filter.outputs.shims42 }}
+      shims43:  ${{ steps.filter.outputs.shims43 }}
       tools_it: ${{ steps.filter.outputs.tools_it }}
       spark35_needed: >-
         ${{ steps.filter.outputs.java == 'true' ||
@@ -190,7 +191,7 @@ jobs:
               recent=$(git log --oneline --after="24 hours ago" HEAD | wc -l)
               if [ "$recent" -eq 0 ]; then
                 echo "No commits in the last 24 hours -- skipping nightly run."
-                for flag in cpp java udf jni_test shims34 shims35 shims40 shims41 shims42 tools_it; do
+                for flag in cpp java udf jni_test shims34 shims35 shims40 shims41 shims42 shims43 tools_it; do
                   echo "$flag=false" >> $GITHUB_OUTPUT
                 done
                 echo "full_run=false" >> $GITHUB_OUTPUT
@@ -198,7 +199,7 @@ jobs:
               fi
             fi
             # Run everything, including the extended matrices PR runs skip.
-            for flag in cpp java udf jni_test shims34 shims35 shims40 shims41 shims42 tools_it; do
+            for flag in cpp java udf jni_test shims34 shims35 shims40 shims41 shims42 shims43 tools_it; do
               echo "$flag=true" >> $GITHUB_OUTPUT
             done
             echo "full_run=true" >> $GITHUB_OUTPUT
@@ -206,7 +207,7 @@ jobs:
           fi
           echo "full_run=false" >> $GITHUB_OUTPUT
           if [ "${{ needs.merge-upstream.outputs.relevant }}" = "false" ]; then
-            for flag in cpp java udf shims34 shims35 shims40 shims41 shims42 tools_it; do
+            for flag in cpp java udf shims34 shims35 shims40 shims41 shims42 shims43 tools_it; do
               echo "$flag=false" >> $GITHUB_OUTPUT
             done
             exit 0
@@ -232,6 +233,7 @@ jobs:
           echo "shims40=$(match  '^(shims/(spark40|common)/|gluten-ut/spark40/)')"                           >> $GITHUB_OUTPUT
           echo "shims41=$(match  '^(shims/(spark41|common)/|gluten-ut/spark41/)')"                           >> $GITHUB_OUTPUT
           echo "shims42=$(match  '^(shims/(spark42|common)/|gluten-ut/spark42/)')"                           >> $GITHUB_OUTPUT
+          echo "shims43=$(match  '^(shims/(spark43|common)/|gluten-ut/spark43/)')"                           >> $GITHUB_OUTPUT
           echo "tools_it=$(match '^tools/gluten-it/')"                                                       >> $GITHUB_OUTPUT
 
   build-native-lib-centos-8:
@@ -1424,6 +1426,23 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/
           $MVN_CMD clean install -Pspark-4.2 -Pjava-17 -Pscala-2.13 -Pbackends-velox -Pdelta -DskipTests
+
+  build-test-spark43:
+    needs: detect-changes
+    if: >-
+      needs.detect-changes.outputs.java == 'true' ||
+      needs.detect-changes.outputs.shims43 == 'true' ||
+      needs.detect-changes.outputs.cpp == 'true'
+    runs-on: ubuntu-24.04
+    container: apache/gluten:centos-8-jdk17
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.detect-changes.outputs.revision }}
+      - name: Build Spark 4.3 Velox (Java 17, Scala 2.13)
+        run: |
+          cd $GITHUB_WORKSPACE/
+          $MVN_CMD clean install -Pspark-4.3 -Pjava-17 -Pscala-2.13 -Pbackends-velox -DskipTests
 
   spark-test-spark40:
     needs: [detect-changes, build-native-lib-centos-8]
