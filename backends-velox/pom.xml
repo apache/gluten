@@ -465,6 +465,11 @@
         <activeByDefault>false</activeByDefault>
       </activation>
       <dependencies>
+        <dependency>
+          <groupId>org.apache.gluten</groupId>
+          <artifactId>gluten-lance</artifactId>
+          <version>${project.version}</version>
+        </dependency>
         <!--
           lance-core declares a newer Arrow than Gluten. Keep Gluten's Arrow on the classpath (the
           lance-spark bundle ships the same Arrow line as Gluten for Spark 3.x), and only add the

@@ -29,6 +29,7 @@ on:
       - 'gluten-arrow/**'
       - 'gluten-delta/**'
       - 'gluten-iceberg/**'
+      - 'gluten-lance/**'
       - 'gluten-hudi/**'
       - 'gluten-paimon/**'
       - 'gluten-ut/**'
@@ -93,7 +94,7 @@ jobs:
         uses: ./.github/actions/squash-merge-upstream
         with:
           # The `paths:` list above. Keep the two in sync.
-          paths: '^(\.github/workflows/velox_backend_arm\.yml$|\.github/actions/|pom\.xml$|build/mvn$|(backends-velox|gluten-(uniffle|celeborn|core|substrait|arrow|delta|iceberg|hudi|paimon|ut)|package|shims|tools/gluten-it|ep/build-velox|cpp|dev)/)'
+          paths: '^(\.github/workflows/velox_backend_arm\.yml$|\.github/actions/|pom\.xml$|build/mvn$|(backends-velox|gluten-(uniffle|celeborn|core|substrait|arrow|delta|iceberg|lance|hudi|paimon|ut)|package|shims|tools/gluten-it|ep/build-velox|cpp|dev)/)'
           paths-ignore: '^cpp/bolt/|^cpp/bolt\.CMakeLists\.cmake$'
 
   # Detect which parts of the codebase were modified so downstream jobs can
@@ -137,7 +138,7 @@ jobs:
           match() { echo "$changed" | grep -qE "$1" && echo true || echo false; }
 
           echo "cpp=$(match      '^(cpp/|ep/build-velox/|dev/)')"                                            >> $GITHUB_OUTPUT
-          echo "java=$(match     '^(\.github/(workflows|actions)/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|hudi|paimon)/|gluten-ut/(common/|test/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
+          echo "java=$(match     '^(\.github/(workflows|actions)/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|lance|hudi|paimon)/|gluten-ut/(common/|test/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
           echo "tools_it=$(match '^tools/gluten-it/')"                                                       >> $GITHUB_OUTPUT
 
   build-native-lib-centos-9:
