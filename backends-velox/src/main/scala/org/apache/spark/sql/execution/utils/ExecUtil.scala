@@ -20,9 +20,11 @@ import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.columnarbatch.{ColumnarBatches, VeloxColumnarBatches}
 import org.apache.gluten.config.ShuffleWriterType
 import org.apache.gluten.exception.GlutenNotSupportException
+import org.apache.gluten.execution.VeloxColumnarToRowExec
 import org.apache.gluten.iterator.Iterators
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
 import org.apache.gluten.runtime.Runtimes
+import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.vectorized.{ArrowColumnVectors, NativeColumnarToRowInfo, NativeColumnarToRowJniWrapper, NativePartitioning}
 
 import org.apache.spark.{Partitioner, RangePartitioner, ShuffleDependency}
@@ -30,20 +32,32 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.serializer.Serializer
 import org.apache.spark.shuffle.{ColumnarShuffleDependency, GlutenShuffleUtils}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Attribute, BoundReference, UnsafeProjection, UnsafeRow}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, BindReferences, BoundReference, GenericInternalRow, RowOrdering, UnsafeProjection, UnsafeRow}
 import org.apache.spark.sql.catalyst.expressions.codegen.LazilyGeneratedOrdering
 import org.apache.spark.sql.catalyst.plans.physical._
+import org.apache.spark.sql.catalyst.util.InternalRowComparableWrapper
 import org.apache.spark.sql.execution.SQLExecution
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{IntegerType, StructType}
+import org.apache.spark.sql.types.{DataType, IntegerType, StructType}
 import org.apache.spark.sql.vectorized.ColumnarBatch
-import org.apache.spark.util.MutablePair
+import org.apache.spark.util.{MutablePair, Utils}
 
 import org.apache.arrow.vector.IntVector
 
+import scala.collection.immutable.TreeMap
+
 object ExecUtil {
+
+  private[spark] def keyGroupedFallbackHash(values: Seq[Any]): Int = {
+    values
+      .map {
+        case bytes: Array[Byte] => java.util.Arrays.hashCode(bytes)
+        case value => value
+      }
+      .hashCode()
+  }
 
   def convertColumnarToRow(batch: ColumnarBatch): Iterator[InternalRow] = {
     val runtime =
@@ -84,6 +98,44 @@ object ExecUtil {
       .create()
   }
 
+  private[spark] def computeAndAddPartitionId(
+      cbIter: Iterator[ColumnarBatch],
+      partitioner: Partitioner,
+      partitionKeyExtractor: InternalRow => Any,
+      converter: VeloxColumnarToRowExec.Converter): Iterator[(Int, ColumnarBatch)] = {
+    // Per-batch iterator recyclers would retain completed C2R arrays until task completion.
+    Iterators
+      .wrap(
+        cbIter
+          .filter(cb => cb.numRows != 0 && cb.numCols != 0)
+          .map {
+            cb =>
+              val pidRoot =
+                ArrowColumnVectors.allocateRoot(new StructType().add("pid", IntegerType))
+              val pidVec = pidRoot.getVector(0).asInstanceOf[IntVector]
+              pidVec.allocateNew(cb.numRows)
+              converter.toRowIterator(cb).zipWithIndex.foreach {
+                case (row, i) =>
+                  val pid = partitioner.getPartition(partitionKeyExtractor(row))
+                  pidVec.set(i, pid)
+              }
+              pidRoot.setRowCount(cb.numRows)
+              val pidBatch = VeloxColumnarBatches.toVeloxBatch(
+                ColumnarBatches.offload(
+                  ArrowBufferAllocators.contextInstance(),
+                  ArrowColumnVectors.toBatch(pidRoot)))
+              val newBatch = VeloxColumnarBatches.compose(pidBatch, cb)
+              // Composed batch already hold pidBatch's shared ref, so close is safe.
+              ColumnarBatches.forceClose(pidBatch)
+              (0, newBatch)
+          })
+      .recyclePayload(p => ColumnarBatches.forceClose(p._2)) // FIXME why force close?
+      .recycleIterator {
+        converter.close()
+      }
+      .create()
+  }
+
   // scalastyle:off argcount
   def genShuffleDependency(
       rdd: RDD[ColumnarBatch],
@@ -94,14 +146,40 @@ object ExecUtil {
       metrics: Map[String, SQLMetric],
       shuffleWriterType: ShuffleWriterType)
       : ShuffleDependency[Int, ColumnarBatch, ColumnarBatch] = {
-    metrics("numPartitions").set(newPartitioning.numPartitions)
+    val keyGroupedShuffleInfo =
+      SparkShimLoader.getSparkShims.getKeyGroupedShuffleInfo(newPartitioning)
+    val numPartitions =
+      keyGroupedShuffleInfo.map(
+        _.partitioning.numPartitions).getOrElse(newPartitioning.numPartitions)
+    metrics("numPartitions").set(numPartitions)
     val executionId = rdd.sparkContext.getLocalProperty(SQLExecution.EXECUTION_ID_KEY)
     SQLMetrics.postDriverMetricUpdates(
       rdd.sparkContext,
       executionId,
       metrics("numPartitions") :: Nil)
+    val keyGroupedPartitionValueBytes = keyGroupedShuffleInfo.map {
+      info =>
+        val partitionValueProjection = UnsafeProjection.create(
+          info.expressions.zipWithIndex.map {
+            case (expression, index) =>
+              BoundReference(index, expression.dataType.asNullable, nullable = true)
+          })
+        val comparablePartitionValues = info.partitionValues.map {
+          partition => InternalRowComparableWrapper(partition, info.expressions)
+        }
+        if (comparablePartitionValues.distinct.size != info.partitioning.numPartitions) {
+          throw new GlutenNotSupportException(
+            "Key grouped partition values do not map one-to-one to shuffle partitions")
+        }
+        info.partitionValues.zipWithIndex.map {
+          case (partition, index) =>
+            (partitionValueProjection(partition).copy().getBytes, index)
+        }
+    }
+    val keyGroupedUnknownKeyUsesComparableHash = keyGroupedShuffleInfo.exists(
+      _ => SparkShimLoader.getSparkShims.keyGroupedUnknownKeyUsesComparableHash)
     // scalastyle:on argcount
-    // only used for fallback range partitioning
+    // Range partition IDs are computed on the JVM using this driver-built partitioner.
     val rangePartitioner: Option[Partitioner] = newPartitioning match {
       case RangePartitioning(sortingExpressions, numPartitions) =>
         // Extract only fields used for sorting to avoid collecting large fields that does not
@@ -134,39 +212,6 @@ object ExecUtil {
       case _ => None
     }
 
-    // only used for fallback range partitioning
-    def computeAndAddPartitionId(
-        cbIter: Iterator[ColumnarBatch],
-        partitionKeyExtractor: InternalRow => Any): Iterator[(Int, ColumnarBatch)] = {
-      Iterators
-        .wrap(
-          cbIter
-            .filter(cb => cb.numRows != 0 && cb.numCols != 0)
-            .map {
-              cb =>
-                val pidRoot =
-                  ArrowColumnVectors.allocateRoot(new StructType().add("pid", IntegerType))
-                val pidVec = pidRoot.getVector(0).asInstanceOf[IntVector]
-                pidVec.allocateNew(cb.numRows)
-                convertColumnarToRow(cb).zipWithIndex.foreach {
-                  case (row, i) =>
-                    val pid = rangePartitioner.get.getPartition(partitionKeyExtractor(row))
-                    pidVec.set(i, pid)
-                }
-                pidRoot.setRowCount(cb.numRows)
-                val pidBatch = VeloxColumnarBatches.toVeloxBatch(
-                  ColumnarBatches.offload(
-                    ArrowBufferAllocators.contextInstance(),
-                    ArrowColumnVectors.toBatch(pidRoot)))
-                val newBatch = VeloxColumnarBatches.compose(pidBatch, cb)
-                // Composed batch already hold pidBatch's shared ref, so close is safe.
-                ColumnarBatches.forceClose(pidBatch)
-                (0, newBatch)
-            })
-        .recyclePayload(p => ColumnarBatches.forceClose(p._2)) // FIXME why force close?
-        .create()
-    }
-
     val nativePartitioning: NativePartitioning = newPartitioning match {
       case SinglePartition =>
         new NativePartitioning(GlutenShuffleUtils.SinglePartitioningShortName, 1)
@@ -177,6 +222,8 @@ object ExecUtil {
       // range partitioning fall back to row-based partition id computation
       case RangePartitioning(orders, n) =>
         new NativePartitioning(GlutenShuffleUtils.RangePartitioningShortName, n)
+      case _ if keyGroupedShuffleInfo.nonEmpty =>
+        new NativePartitioning(GlutenShuffleUtils.RangePartitioningShortName, numPartitions)
       case other =>
         throw new GlutenNotSupportException(
           s"Partitioning $other is not supported by native shuffle")
@@ -200,8 +247,55 @@ object ExecUtil {
                 UnsafeProjection.create(sortingExpressions.map(_.child), outputAttributes)
               row => projection(row)
             }
-            val newIter = computeAndAddPartitionId(cbIter, partitionKeyExtractor)
-            newIter
+            computeAndAddPartitionId(
+              cbIter,
+              rangePartitioner.get,
+              partitionKeyExtractor,
+              new VeloxColumnarToRowExec.Converter(new SQLMetric("convertTime")))
+          },
+          isOrderSensitive = isOrderSensitive
+        )
+      case _ if keyGroupedShuffleInfo.nonEmpty =>
+        val expressions = keyGroupedShuffleInfo.get.expressions
+        val partitionValueBytes = keyGroupedPartitionValueBytes.get
+        rdd.mapPartitionsWithIndexInternal(
+          (_, cbIter) => {
+            val dataTypes = expressions.map(_.dataType)
+            val ordering = RowOrdering.createNaturalAscendingOrdering(dataTypes)
+            val partitionIds = partitionValueBytes.foldLeft(
+              TreeMap.empty[InternalRow, Int](ordering)) {
+              case (ids, (bytes, index)) =>
+                val partitionValue = new UnsafeRow(expressions.size)
+                partitionValue.pointTo(bytes, bytes.length)
+                ids.updated(partitionValue, index)
+            }
+            val boundExpressions =
+              BindReferences.bindReferences(expressions, outputAttributes).toArray
+            val partitionKey = new GenericInternalRow(boundExpressions.length)
+            val comparableUnknownKey = if (keyGroupedUnknownKeyUsesComparableHash) {
+              Some(InternalRowComparableWrapper(partitionKey, expressions))
+            } else {
+              None
+            }
+            val partitioner =
+              new KeyGroupedPartitionIdPartitioner(
+                partitionIds,
+                dataTypes,
+                comparableUnknownKey)
+            val partitionKeyExtractor: InternalRow => Any = {
+              row =>
+                var index = 0
+                while (index < boundExpressions.length) {
+                  partitionKey.update(index, boundExpressions(index).eval(row))
+                  index += 1
+                }
+                partitionKey
+            }
+            computeAndAddPartitionId(
+              cbIter,
+              partitioner,
+              partitionKeyExtractor,
+              new VeloxColumnarToRowExec.Converter(new SQLMetric("convertTime")))
           },
           isOrderSensitive = isOrderSensitive
         )
@@ -214,7 +308,7 @@ object ExecUtil {
     val dependency =
       new ColumnarShuffleDependency[Int, ColumnarBatch, ColumnarBatch](
         rddWithDummyKey,
-        new PartitionIdPassThrough(newPartitioning.numPartitions),
+        new PartitionIdPassThrough(numPartitions),
         serializer,
         shuffleWriterProcessor = ShuffleExchangeExec.createShuffleWriteProcessor(writeMetrics),
         nativePartitioning = nativePartitioning,
@@ -227,4 +321,23 @@ object ExecUtil {
 }
 private[spark] class PartitionIdPassThrough(override val numPartitions: Int) extends Partitioner {
   override def getPartition(key: Any): Int = key.asInstanceOf[Int]
+}
+
+private[spark] class KeyGroupedPartitionIdPartitioner(
+    partitionIds: TreeMap[InternalRow, Int],
+    dataTypes: Seq[DataType],
+    comparableUnknownKey: Option[InternalRowComparableWrapper]) extends Partitioner {
+  override val numPartitions: Int = partitionIds.size
+
+  override def getPartition(key: Any): Int = {
+    partitionIds.getOrElse(
+      key.asInstanceOf[InternalRow], {
+        val fallbackHash = comparableUnknownKey
+          .map(_.hashCode())
+          .getOrElse(
+            ExecUtil.keyGroupedFallbackHash(key.asInstanceOf[InternalRow].toSeq(dataTypes)))
+        Utils.nonNegativeMod(fallbackHash, numPartitions)
+      }
+    )
+  }
 }
