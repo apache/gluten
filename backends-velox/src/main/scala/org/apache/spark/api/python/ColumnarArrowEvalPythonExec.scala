@@ -44,6 +44,7 @@ import java.io.{DataInputStream, DataOutputStream}
 import java.util.concurrent.atomic.AtomicBoolean
 
 import scala.annotation.nowarn
+import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 import scala.util.control.NonFatal
@@ -92,10 +93,15 @@ class ColumnarArrowPythonRunner(
       private var reader: ArrowStreamReader = _
       private var root: VectorSchemaRoot = _
       private var schema: StructType = _
-      private var vectors: Array[ColumnVector] = _
+      // The last batch read but not returned by next() yet, e.g. one that hasNext() read ahead.
+      private var unclaimed: ColumnarBatch = _
 
       context.addTaskCompletionListener[Unit] {
         _ =>
+          if (unclaimed != null) {
+            unclaimed.close()
+            unclaimed = null
+          }
           if (reader != null) {
             reader.close(false)
           }
@@ -106,6 +112,12 @@ class ColumnarArrowPythonRunner(
 
       private var batchLoaded = true
 
+      override def next(): ColumnarBatch = {
+        val batch = super.next()
+        unclaimed = null
+        batch
+      }
+
       override protected def read(): ColumnarBatch = {
         if (writer.exception.isDefined) {
           throw writer.exception.get
@@ -114,9 +126,14 @@ class ColumnarArrowPythonRunner(
           if (reader != null && batchLoaded) {
             batchLoaded = reader.loadNextBatch()
             if (batchLoaded) {
-              val batch = new ColumnarBatch(vectors)
-              batch.setNumRows(root.getRowCount)
-              batch
+              // The reader loads every batch into the vectors of `root`. Move the buffers to new
+              // vectors, so that each batch owns its data and closing it frees only that batch.
+              val numRows = root.getRowCount
+              val vectors = root.getFieldVectors.asScala.map(ArrowColumnVectors.adopt(_, allocator))
+              unclaimed = new ColumnarBatch(
+                ArrowColumnVectors.wrap(vectors.asJava).toArray[ColumnVector],
+                numRows)
+              unclaimed
             } else {
               reader.close(false)
               // Reach end of stream. Call `read()` again to read control data.
@@ -128,9 +145,6 @@ class ColumnarArrowPythonRunner(
                 reader = new ArrowStreamReader(stream, allocator)
                 root = reader.getVectorSchemaRoot()
                 schema = SparkArrowUtil.fromArrowSchema(root.getSchema())
-                vectors = ArrowColumnVectors
-                  .wrap(root.getFieldVectors)
-                  .toArray[ColumnVector]
                 read()
               case SpecialLengths.TIMING_DATA =>
                 handleTimingData()
@@ -479,8 +493,8 @@ case class ColumnarArrowEvalPythonExec(
               val joinedVectors = (0 until inputCb.numCols).toArray.map(
                 i => inputCb.column(i)) ++ (0 until outputCb.numCols).toArray.map(
                 i => outputCb.column(i))
-              // Columns in outputCb has random 0 or 1 refCnt and will fail checks in ensureOffload,
-              // so we do a hard reset here.
+              // The input columns hold the extra reference taken for inputCbCache, and offloading
+              // requires the same reference count on every column, so we do a hard reset here.
               (0 until joinedVectors.length).foreach(
                 i => {
                   adjustRefCnt(joinedVectors(i).asInstanceOf[RefCountedArrowColumnVector], 1)
