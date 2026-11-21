@@ -161,6 +161,10 @@
     </dependencies>
   </dependencyManagement>
 
+  <!--
+    Keep these plugin repositories in sync with the root pom.xml.
+    Use Google Cloud Storage mirror for faster Maven Central downloads.
+  -->
   <pluginRepositories>
     <pluginRepository>
       <releases>
