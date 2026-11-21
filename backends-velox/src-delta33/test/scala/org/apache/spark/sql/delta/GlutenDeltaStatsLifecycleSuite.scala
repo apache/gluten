@@ -20,7 +20,7 @@ import org.apache.gluten.config.{GlutenConfig, VeloxDeltaConfig}
 import org.apache.gluten.execution.HashAggregateExecTransformer
 
 import org.apache.spark.{SparkConf, TaskContext}
-import org.apache.spark.sql.{GlutenQueryTest, Row, SparkSession}
+import org.apache.spark.sql.{DataFrame, GlutenQueryTest, Row, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.ScalaUDF
 import org.apache.spark.sql.catalyst.plans.logical.Aggregate
 import org.apache.spark.sql.delta.actions.Metadata
@@ -33,9 +33,10 @@ import org.apache.spark.sql.types.{LongType, StringType, StructType}
 import org.apache.spark.task.{TaskResourceRegistry, TaskResources}
 
 import org.apache.hadoop.fs.Path
+import org.scalatest.concurrent.Eventually
 
 import java.lang.management.ManagementFactory
-import java.util.concurrent.{ConcurrentLinkedQueue, CountDownLatch, TimeUnit}
+import java.util.concurrent.{CompletableFuture, ConcurrentHashMap, ConcurrentLinkedQueue, CountDownLatch, TimeUnit}
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 
 import scala.collection.JavaConverters._
@@ -111,15 +112,19 @@ class GlutenDeltaStatsLifecycleSuite extends GlutenQueryTest with SharedSparkSes
         DeltaLog.forTable(spark, path).startTransaction()
           .commit(Seq(Metadata(schemaString = schema.json)), DeltaOperations.ManualUpdate)
         spark.read.format("delta").load(path).write.format("delta").mode("overwrite").save(path)
-        val invalid = spark.createDataFrame(Seq(Row(1L), Row(null)).asJava, schema.asNullable)
-        withNativeStatistics(path) {
-          val failure = intercept[Exception] {
-            invalid.write.format("delta").mode("append").save(path)
+        withSQLConf(GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> "1") {
+          AbortingDeltaWrite.withInput(spark, path, schema.asNullable) {
+            invalid =>
+              withNativeStatistics(path) {
+                val failure = intercept[Exception] {
+                  invalid.write.format("delta").mode("append").save(path)
+                }
+                assert(
+                  Iterator.iterate[Throwable](failure)(_.getCause).takeWhile(_ != null)
+                    .exists(_.isInstanceOf[InvariantViolationException]),
+                  failure.toString)
+              }
           }
-          assert(
-            Iterator.iterate[Throwable](failure)(_.getCause).takeWhile(_ != null)
-              .exists(_.isInstanceOf[InvariantViolationException]),
-            failure.toString)
         }
         assert(spark.read.format("delta").load(path).count() == 0)
         withNativeStatistics(path) {
@@ -243,5 +248,47 @@ class GlutenDeltaStatsLifecycleSuite extends GlutenQueryTest with SharedSparkSes
     assert(resourceReleased.get(), "Worker-registered resource was not released")
     assert(cancellationPreserved.get(), "Cleanup cleared the task cancellation interrupt")
     completionChecks.asScala.foreach(_())
+  }
+}
+
+private object AbortingDeltaWrite extends Eventually {
+  // Local Spark tasks share this registry, not the serialized copies of their closures.
+  private val writers = new ConcurrentHashMap[String, CompletableFuture[TaskContext]]()
+
+  def withInput(spark: SparkSession, path: String, schema: StructType)(
+      write: DataFrame => Unit): Unit = {
+    val writer = new CompletableFuture[TaskContext]()
+    writers.put(path, writer)
+    try {
+      val rows = spark.sparkContext.parallelize(Seq(0, 1), 2).flatMap(partitionRows(path, _))
+      write(spark.createDataFrame(rows, schema))
+      assert(writer.get(30, TimeUnit.SECONDS).isInterrupted(), "The valid writer was not canceled")
+    } finally {
+      writers.remove(path)
+    }
+  }
+
+  private def partitionRows(path: String, partition: Int): Iterator[Row] = {
+    val writer = writers.get(path)
+    if (partition == 0) {
+      Iterator(1L, 2L).map {
+        id =>
+          if (id == 2L) {
+            // With one row per batch, the worker has accepted the first batch by this point.
+            val context = TaskContext.get()
+            writer.complete(context)
+            eventually(timeout(30.seconds), interval(10.millis)) {
+              assert(
+                context.isInterrupted(),
+                "Timed out waiting for the invalid partition to abort")
+            }
+            context.killTaskIfInterrupted()
+          }
+          Row(id)
+      }
+    } else {
+      writer.get(30, TimeUnit.SECONDS)
+      Iterator.single(Row(null))
+    }
   }
 }
