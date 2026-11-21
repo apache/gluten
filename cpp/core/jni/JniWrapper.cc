@@ -458,7 +458,7 @@ JNIEXPORT jboolean JNICALL Java_org_apache_gluten_vectorized_ColumnarBatchOutIte
         "When hasNext() is called on a closed iterator, an exception is thrown. To prevent this, consider using the protectInvocationFlow() method when creating the iterator in scala side. This will allow the hasNext() method to be called multiple times without issue.";
     throw GlutenException(errorMessage);
   }
-  return iter->hasNext();
+  return readJniOutputIterator(*iter, &ResultIterator::hasNext);
   JNI_METHOD_END(false)
 }
 
@@ -470,11 +470,10 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ColumnarBatchOutIterat
   auto ctx = getRuntime(env, wrapper);
 
   auto iter = ObjectStore::retrieve<ResultIterator>(iterHandle);
-  if (!iter->hasNext()) {
+  auto batch = readJniOutputIterator(*iter, &ResultIterator::next);
+  if (batch == nullptr) {
     return kInvalidObjectHandle;
   }
-
-  std::shared_ptr<ColumnarBatch> batch = iter->next();
   return ctx->saveObject(batch);
   JNI_METHOD_END(kInvalidObjectHandle)
 }

@@ -18,8 +18,10 @@
 #include <gtest/gtest.h>
 
 #include "compute/VeloxBackend.h"
+#include "compute/VeloxRuntime.h"
 #include "compute/WholeStageResultIterator.h"
 #include "config/GlutenConfig.h"
+#include "jni/JniError.h"
 #include "jni/VeloxJavaException.h"
 #include "tests/utils/TestJniEnvironment.h"
 #include "velox/exec/Driver.h"
@@ -124,47 +126,79 @@ TEST_F(VeloxJavaExceptionTest, javaCauseInStandardNestedVeloxException) {
   EXPECT_EQ(jni.deletedGlobalRefs, 1);
 }
 
-TEST_F(VeloxJavaExceptionTest, lazyOutputRestoresOriginalOutsideDriver) {
-  TestJniEnvironment jni;
+TEST_F(VeloxJavaExceptionTest, lazyOutputRestoresOriginalOnlyAtJniBoundary) {
   auto* backend = VeloxBackend::get();
   auto* memoryManager = backend->getGlobalMemoryManager();
   auto* pool = memoryManager->getLeafMemoryPool().get();
-  bool loaded = false;
-  bool loadedInDriver = false;
-  {
+  std::unique_ptr<ThreadManager, decltype(&ThreadManager::release)> threads(
+      ThreadManager::create(kVeloxBackendKind, ThreadInitializer::noop()), &ThreadManager::release);
+  VeloxRuntime runtime(kVeloxBackendKind, memoryManager, threads.get(), {{kSessionTimezone, "UTC"}});
+  auto spillDir = exec::test::TempDirectoryPath::create();
+
+  enum class Read { kNative, kJniHasNext, kJniNext, kJniNativeError };
+  for (const auto read : {Read::kNative, Read::kJniHasNext, Read::kJniNext, Read::kJniNativeError}) {
+    SCOPED_TRACE(static_cast<int>(read));
+    TestJniEnvironment jni;
+    const auto nativeError = std::make_exception_ptr(
+        VeloxRuntimeError(std::make_exception_ptr(std::runtime_error("native cause")), "native lazy load", false));
+    bool loaded = false;
+    bool loadedInDriver = false;
     auto lazy = std::make_shared<LazyVector>(
         pool, INTEGER(), 1, std::make_unique<test::SimpleVectorLoader>([&](RowSet) -> VectorPtr {
           loaded = true;
           loadedInDriver = exec::driverThreadContext() != nullptr;
-          return wrapJavaException([&]() -> VectorPtr { throw JavaException(jni.env(), &jni.original); });
+          if (read == Read::kJniNativeError) {
+            std::rethrow_exception(nativeError);
+          }
+          // This wrapper has no std::nested_exception link; only the Velox cause points to Java.
+          throw VeloxRuntimeError(
+              std::make_exception_ptr(JavaException(jni.env(), &jni.original)), "lazy Java callback", false);
         }));
     auto batch =
         std::make_shared<RowVector>(pool, ROW({"value"}, {INTEGER()}), nullptr, 1, std::vector<VectorPtr>{lazy});
     auto plan = std::make_shared<core::ValuesNode>("values", std::vector<RowVectorPtr>{batch});
-    auto spillDir = exec::test::TempDirectoryPath::create();
-    WholeStageResultIterator iterator(
-        memoryManager,
-        plan,
-        {},
-        {},
-        {},
-        backend->executor(),
-        backend->spillExecutor(),
-        {},
-        spillDir->getPath(),
-        backend->getBackendConf(),
-        {});
-    try {
-      iterator.next();
-      FAIL() << "Expected JavaException";
-    } catch (const JavaException& error) {
-      error.throwToJava(jni.env());
+    {
+      ResultIterator iterator(
+          std::make_unique<WholeStageResultIterator>(
+              memoryManager,
+              plan,
+              std::vector<core::PlanNodeId>{},
+              std::vector<std::shared_ptr<SplitInfo>>{},
+              std::vector<core::PlanNodeId>{},
+              runtime.executor(),
+              runtime.spillExecutor(),
+              runtime.connectorIds(),
+              spillDir->getPath(),
+              runtime.veloxCfg(),
+              SparkTaskInfo{}),
+          &runtime);
+      if (read == Read::kNative) {
+        EXPECT_THROW(iterator.next(), VeloxException);
+        EXPECT_EQ(jni.pending, nullptr);
+      } else if (read == Read::kJniNativeError) {
+        try {
+          readJniOutputIterator(iterator, &ResultIterator::next);
+          FAIL() << "Expected native lazy-load error";
+        } catch (const VeloxException&) {
+          // JNI_METHOD_END must receive the untouched native wrapper for its normal fallback.
+          EXPECT_EQ(std::current_exception(), nativeError);
+        }
+        EXPECT_EQ(jni.pending, nullptr);
+      } else {
+        auto readAtBoundary = [&](JNIEnv* env) {
+          JNI_METHOD_START
+          return read == Read::kJniHasNext ? readJniOutputIterator(iterator, &ResultIterator::hasNext)
+                                           : readJniOutputIterator(iterator, &ResultIterator::next) != nullptr;
+          JNI_METHOD_END(false)
+        };
+        EXPECT_FALSE(readAtBoundary(jni.env()));
+        EXPECT_EQ(jni.pending, &jni.original);
+      }
     }
+    EXPECT_TRUE(loaded);
+    EXPECT_FALSE(loadedInDriver);
+    EXPECT_EQ(jni.createdGlobalRefs, jni.deletedGlobalRefs);
   }
-  EXPECT_TRUE(loaded);
-  EXPECT_FALSE(loadedInDriver);
-  EXPECT_EQ(jni.pending, &jni.original);
-  EXPECT_EQ(jni.createdGlobalRefs, jni.deletedGlobalRefs);
 }
 
 } // namespace

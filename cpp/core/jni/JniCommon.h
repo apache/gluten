@@ -193,6 +193,18 @@ inline JniCommonState* getJniCommonState() {
 
 Runtime* getRuntime(JNIEnv* env, jobject runtimeAware);
 
+template <typename T>
+T readJniOutputIterator(ResultIterator& iter, T (ResultIterator::*read)()) {
+  try {
+    return (iter.*read)();
+  } catch (const std::exception&) {
+    if (auto* runtime = iter.runtime()) {
+      runtime->rethrowJniOutputException(std::current_exception());
+    }
+    throw;
+  }
+}
+
 using JniInputIteratorFactory = std::function<
     std::unique_ptr<ColumnarBatchIterator>(JNIEnv* env, jobject iterator, Runtime* runtime, int32_t iteratorIndex)>;
 

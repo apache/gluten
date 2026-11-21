@@ -19,6 +19,8 @@
 
 #include <glog/logging.h>
 
+#include <exception>
+
 #include "compute/ProtobufUtils.h"
 #include "compute/ResultIterator.h"
 #include "memory/ColumnarBatch.h"
@@ -189,6 +191,9 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
   virtual WholeStageDumper* getDumper() {
     return dumper_.get();
   }
+
+  // Called only when an output read fails at the JNI boundary. Return to keep the original error.
+  virtual void rethrowJniOutputException(std::exception_ptr) const {}
 
   ObjectHandle saveObject(std::shared_ptr<void> obj) {
     return objStore_->save(obj);

@@ -52,6 +52,10 @@ class ResultIterator {
     return std::move(next_);
   }
 
+  const Runtime* runtime() const {
+    return runtime_;
+  }
+
   // For testing and benchmarking.
   ColumnarBatchIterator* getInputIter() {
     return iter_.get();

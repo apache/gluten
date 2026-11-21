@@ -33,6 +33,7 @@
 #include "compute/VeloxPlanConverter.h"
 #include "compute/delta/DeltaConnector.h"
 #include "config/VeloxConfig.h"
+#include "jni/VeloxJavaException.h"
 #include "operators/plannodes/IteratorSplit.h"
 #include "operators/serializer/VeloxRowToColumnarConverter.h"
 #include "shuffle/VeloxShuffleReader.h"
@@ -508,6 +509,10 @@ std::shared_ptr<ResultIterator> VeloxRuntime::createResultIterator(
   }
 
   return std::make_shared<ResultIterator>(std::move(wholeStageIter), this);
+}
+
+void VeloxRuntime::rethrowJniOutputException(std::exception_ptr error) const {
+  rethrowJavaException(std::move(error));
 }
 
 void VeloxRuntime::noMoreSplits(ResultIterator* iter) {

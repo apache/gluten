@@ -31,7 +31,7 @@ decltype(auto) wrapJavaException(F&& callback) {
   } catch (const JavaException& error) {
     // Driver's std::exception catch keeps only what(); VeloxException keeps the exception_ptr.
     // Use a runtime error so TRY expressions cannot suppress a failed Java callback.
-    // Standard nesting also lets core JNI recover callbacks outside WholeStageResultIterator.
+    // Standard nesting also lets other JNI boundaries recover the callback without knowing about Velox.
     std::throw_with_nested(facebook::velox::VeloxException(
         std::current_exception(),
         error.what(),
