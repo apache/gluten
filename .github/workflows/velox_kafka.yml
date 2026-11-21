@@ -140,9 +140,11 @@ jobs:
           export CCACHE_BASEDIR=$GITHUB_WORKSPACE
           ./dev/builddeps-veloxbe.sh --enable_vcpkg=ON --enable_kafka=ON \
             --build_arrow=OFF --build_tests=ON --build_benchmarks=OFF --build_examples=OFF \
-            --enable_s3=OFF --enable_gcs=OFF --enable_hdfs=OFF --enable_abfs=OFF
+            --enable_s3=ON --enable_gcs=OFF --enable_hdfs=OFF --enable_abfs=OFF
       - name: Run native Kafka connector tests
         run: ./cpp/build/velox/tests/velox_kafka_connector_test
+      - name: Run native S3 filesystem tests
+        run: ./cpp/build/velox/tests/gluten_s3_file_system_test
       - name: Run Kafka and file plan conversion tests
         run: |
           ./cpp/build/velox/tests/velox_plan_conversion_test \
