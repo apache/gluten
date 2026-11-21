@@ -657,26 +657,59 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
   }
 
   test("input_file_name() next to an expression that stays on Spark") {
-    spark.udf.register("upper_on_spark", (s: String) => s.toUpperCase)
+    withUserDefinedFunction("upper_on_spark" -> true) {
+      spark.udf.register("upper_on_spark", (s: String) => if (s == null) null else s.toUpperCase)
+      withTempPath {
+        dir =>
+          import testImplicits._
+          Seq(("a", 1), ("b", 2)).toDF("name", "id").write.parquet(dir.getCanonicalPath)
+          withTempView("t") {
+            spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("t")
+            // The Scala UDF, or a disabled project offload, keeps the project on Spark over the
+            // offloaded scan, which can't produce the project's computed columns.
+            Seq(
+              "true" -> "SELECT input_file_name() AS f, upper_on_spark(name) AS u FROM t",
+              "false" -> "SELECT input_file_name() AS f, name, id + 1 AS i FROM t",
+              "false" -> "SELECT concat(input_file_name(), name) AS f FROM t"
+            ).foreach {
+              case (projectEnabled, query) =>
+                withSQLConf(GlutenConfig.COLUMNAR_PROJECT_ENABLED.key -> projectEnabled) {
+                  runQueryAndCompare(query, noFallBack = false) {
+                    df => assert(hasNativeScan(df), df.queryExecution.executedPlan)
+                  }
+                }
+            }
+          }
+      }
+    }
+  }
+
+  test("input_file_name() used through a column of an earlier projection") {
     withTempPath {
       dir =>
         import testImplicits._
         Seq(("a", 1), ("b", 2)).toDF("name", "id").write.parquet(dir.getCanonicalPath)
         withTempView("t") {
-          spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("t")
-          // The Scala UDF, or a disabled project offload, keeps the project on Spark over the
-          // offloaded scan, which can't produce the project's computed columns.
-          Seq(
-            "true" -> "SELECT input_file_name() AS f, upper_on_spark(name) AS u FROM t",
-            "false" -> "SELECT input_file_name() AS f, name, id + 1 AS i FROM t",
-            "false" -> "SELECT concat(input_file_name(), name) AS f FROM t"
-          ).foreach {
-            case (projectEnabled, query) =>
-              withSQLConf(GlutenConfig.COLUMNAR_PROJECT_ENABLED.key -> projectEnabled) {
-                runQueryAndCompare(query, noFallBack = false) {
-                  df => assert(hasNativeScan(df), df.queryExecution.executedPlan)
-                }
+          // input_file_name() is nondeterministic, so Spark keeps both projections.
+          val queries = Seq(
+            "SELECT concat(f, name) AS g FROM (SELECT input_file_name() AS f, name FROM t)",
+            "SELECT concat(input_file_name, '#') AS g FROM " +
+              "(SELECT input_file_name() AS input_file_name, name FROM t)"
+          )
+          for {
+            // Parquet read through DataSource V1 and V2.
+            v1Sources <- Seq(SQLConf.USE_V1_SOURCE_LIST.defaultValueString, "")
+            projectEnabled <- Seq("true", "false")
+            query <- queries
+          } {
+            withSQLConf(
+              SQLConf.USE_V1_SOURCE_LIST.key -> v1Sources,
+              GlutenConfig.COLUMNAR_PROJECT_ENABLED.key -> projectEnabled) {
+              spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("t")
+              runQueryAndCompare(query, noFallBack = false) {
+                df => df.collect().foreach(row => assert(row.getString(0).contains(".parquet")))
               }
+            }
           }
         }
     }
