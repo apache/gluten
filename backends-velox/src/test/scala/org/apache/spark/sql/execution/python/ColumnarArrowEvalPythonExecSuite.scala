@@ -94,7 +94,12 @@ class ColumnarArrowEvalPythonExecSuite extends WholeStageTransformerSuite {
   ).foreach {
     case (name, body) =>
       test(s"scalar iterator UDF that $name batches returns every row") {
-        withSQLConf(GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> "2") {
+        withSQLConf(
+          GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> "2",
+          // Spark 4.2's columnar input path also joins the UDF output with its input batch by
+          // batch, so it fails these UDFs. The key is unknown, and ignored, before Spark 4.2.
+          "spark.sql.execution.arrow.pythonUDF.columnarInput.enabled" -> "false"
+        ) {
           withTempPath {
             path =>
               (1L to 8L).toDF("id").coalesce(1).write.parquet(path.getCanonicalPath)
