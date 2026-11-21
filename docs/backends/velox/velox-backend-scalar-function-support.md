@@ -1,6 +1,6 @@
 # Scalar Functions Support Status
 
-**Out of 433 scalar functions in Spark 4.1, Gluten currently fully supports 262 functions and partially supports 32 functions.**
+**Out of 433 scalar functions in Spark 4.1, Gluten currently fully supports 261 functions and partially supports 33 functions.**
 
 The status applies to `spark.sql.ansi.enabled=false`. When ANSI mode is enabled, Gluten falls back to vanilla Spark
 (see `spark.gluten.sql.ansiFallback.enabled`).
@@ -297,7 +297,7 @@ The status applies to `spark.sql.ansi.enabled=false`. When ANSI mode is enabled,
 | randn             | Randn                  | S        |                |
 | random            | Rand                   | S        |                |
 | rint              | Rint                   | S        |                |
-| round             | Round                  | S        |                |
+| round             | Round                  | PS       | Integral inputs use Velox for INTEGER literal scales in [0, 400] or NULL; otherwise Spark fallback. NULL skips child evaluation. |
 | sec               | Sec                    | S        |                |
 | sign              | Signum                 | S        |                |
 | signum            | Signum                 | S        |                |
@@ -538,4 +538,3 @@ The status applies to `spark.sql.ansi.enabled=false`. When ANSI mode is enabled,
 | xpath_number      | XPathDouble         |          |                |
 | xpath_short       | XPathShort          |          |                |
 | xpath_string      | XPathString         |          |                |
-

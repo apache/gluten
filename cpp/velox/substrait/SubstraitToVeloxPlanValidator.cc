@@ -58,6 +58,8 @@ const std::unordered_set<std::string> kRegexFunctions =
 
 const std::unordered_set<std::string> kBlackList = {"split_part", "approx_percentile"};
 
+constexpr int32_t kMaxQualifiedIntegralRoundScale = 400;
+
 // DATE and the interval types share a TypeKind with the integer types, so compare exact types.
 bool isIntegerType(const TypePtr& type) {
   return TINYINT()->equivalent(*type) || SMALLINT()->equivalent(*type) || INTEGER()->equivalent(*type) ||
@@ -141,15 +143,27 @@ bool SubstraitToVeloxPlanValidator::flattenDualLevel(const TypePtr& type, std::v
 
 bool SubstraitToVeloxPlanValidator::validateRound(
     const ::substrait::Expression::ScalarFunction& scalarFunction,
-    const RowTypePtr& inputType) {
+    const std::vector<core::TypedExprPtr>& params) {
   const auto& arguments = scalarFunction.arguments();
   if (arguments.size() < 2) {
     return false;
   }
+  if (params.empty() || !params[0]) {
+    LOG_VALIDATION_MSG("Round value expression is unavailable.");
+    return false;
+  }
+  const bool integralInput = isIntegerType(params[0]->type());
 
   if (!arguments[1].value().has_literal()) {
-    LOG_VALIDATION_MSG("Round scale is expected.");
+    LOG_VALIDATION_MSG("Round scale must be a literal integer for native execution.");
     return false;
+  }
+
+  const auto& scale = arguments[1].value().literal();
+  if (scale.has_null() && scale.null().has_i32()) {
+    if (integralInput) {
+      return true;
+    }
   }
 
   // Velox has different result with Spark on negative scale.
@@ -159,6 +173,11 @@ bool SubstraitToVeloxPlanValidator::validateRound(
       int32_t scale = arguments[1].value().literal().i32();
       if (scale < 0) {
         LOG_VALIDATION_MSG("Round scale validation failed: scale " + std::to_string(scale) + " is negative.");
+        return false;
+      }
+      if (integralInput && scale > kMaxQualifiedIntegralRoundScale) {
+        LOG_VALIDATION_MSG(
+            fmt::format("Integral ROUND scale must be in [0, {}], got {}.", kMaxQualifiedIntegralRoundScale, scale));
         return false;
       }
       return true;
@@ -260,7 +279,7 @@ bool SubstraitToVeloxPlanValidator::validateScalarFunction(
   std::vector<std::string> types = SubstraitParser::getSubFunctionTypes(function);
 
   if (name == "round") {
-    return validateRound(scalarFunction, inputType);
+    return validateRound(scalarFunction, params);
   }
   if (name == "extract") {
     return validateExtractExpr(params);
