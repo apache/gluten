@@ -21,11 +21,13 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.ResolvedPartitionSpec
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.catalyst.expressions.aggregate.Sum
+import org.apache.spark.sql.catalyst.expressions.aggregate.{Max, Sum}
+import org.apache.spark.sql.catalyst.plans.Inner
 import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.connector.catalog.SupportsPartitionManagement
-import org.apache.spark.sql.execution.{FilterExec, LeafExecNode, ProjectExec, SparkPlan}
+import org.apache.spark.sql.execution.{FilterExec, LeafExecNode, ProjectExec, SortExec, SparkPlan, UnionExec}
 import org.apache.spark.sql.execution.datasources.v2.DropPartitionExec
+import org.apache.spark.sql.execution.joins.SortMergeJoinExec
 import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.types._
 
@@ -169,6 +171,98 @@ class GlutenTimestampNtzValidatorSuite extends SparkFunSuite {
         assert(plan.output.isEmpty)
         assert(validator(supportsNtz, enableValidation).validate(plan) == Validator.Passed)
       }
+    }
+  }
+
+  test("operators passing NTZ values through are allowed when NTZ is supported") {
+    val ts = AttributeReference("ts", TimestampNTZType)()
+    val ts2 = AttributeReference("ts2", TimestampNTZType)()
+    val left = InputPlan(Seq(id, ts))
+    val right = InputPlan(Seq(ts2))
+    val ntzLiteral = Literal(1704067200000000L, TimestampNTZType)
+    val rowFrame = SpecifiedWindowFrame(RowFrame, UnboundedPreceding, CurrentRow)
+    val rangeFrame = SpecifiedWindowFrame(RangeFrame, UnboundedPreceding, CurrentRow)
+    val plans = Seq[SparkPlan](
+      SortExec(Seq(SortOrder(ts, Descending)), global = true, left),
+      FilterExec(And(IsNotNull(ts), GreaterThan(ts, ntzLiteral)), left),
+      SortMergeJoinExec(Seq(ts), Seq(ts2), Inner, None, left, right),
+      UnionExec(Seq(left, InputPlan(Seq(id, ts2)))),
+      WindowExec(
+        Seq(Alias(
+          WindowExpression(
+            Max(ts).toAggregateExpression(),
+            WindowSpecDefinition(
+              Seq(id),
+              Seq(SortOrder(ts, Ascending)),
+              rangeFrame)),
+          "max_ts")()),
+        Seq(id),
+        Seq(SortOrder(ts, Ascending)),
+        left
+      ),
+      WindowExec(
+        Seq(Alias(
+          WindowExpression(
+            RowNumber(),
+            WindowSpecDefinition(
+              Seq(id),
+              Seq(SortOrder(ts, Descending)),
+              rowFrame)),
+          "rn")()),
+        Seq(id),
+        Seq(SortOrder(ts, Descending)),
+        left
+      )
+    )
+    for {
+      plan <- plans
+      supportsNtz <- Seq(false, true)
+      enableValidation <- Seq(false, true)
+    } {
+      withClue(s"supportsNtz=$supportsNtz, validation=$enableValidation, $plan") {
+        val expected = if (supportsNtz && !enableValidation) {
+          Validator.Passed
+        } else {
+          Validator.Failed(s"${plan.nodeName} has TimestampNTZType in input/output schema")
+        }
+        assert(validator(supportsNtz, enableValidation).validate(plan) == expected)
+      }
+    }
+  }
+
+  test("pass-through operators with unsupported NTZ expressions still fall back") {
+    val ts = AttributeReference("ts", TimestampNTZType)()
+    val input = InputPlan(Seq(id, ts))
+    val offsetFrame = SpecifiedWindowFrame(RangeFrame, Literal(-1L), CurrentRow)
+    val plans = Seq[SparkPlan](
+      // date_format on NTZ is not in the supported set.
+      FilterExec(EqualTo(DateFormatClass(ts, Literal("yyyy")), Literal("2024")), input),
+      SortExec(
+        Seq(SortOrder(DateFormatClass(ts, Literal("yyyy")), Ascending)),
+        global = true,
+        input),
+      // RANGE frames with value offsets over an NTZ order key.
+      WindowExec(
+        Seq(Alias(
+          WindowExpression(
+            Max(id).toAggregateExpression(),
+            WindowSpecDefinition(
+              Seq(id),
+              Seq(SortOrder(ts, Ascending)),
+              offsetFrame)),
+          "max_id")()),
+        Seq(id),
+        Seq(SortOrder(ts, Ascending)),
+        input
+      )
+    )
+    plans.foreach {
+      plan =>
+        withClue(plan.toString) {
+          assert(
+            validator(supportsNtz = true, enableValidation = false).validate(plan) ==
+              Validator.Failed(s"${plan.nodeName} has TimestampNTZType in input/output schema"))
+        }
     }
   }
 
