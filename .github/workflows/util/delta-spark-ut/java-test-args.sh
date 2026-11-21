@@ -45,6 +45,9 @@
 # Keep Delta's extensions and catalog suite-specific: some tests deliberately
 # omit them to check Delta's configuration errors.
 #
+# Preserve upstream SparkContext parallelism defaults: overriding them changes
+# small fixture file layouts and Delta DML data skipping for projected views.
+#
 # NOTE: no -Xmx here on purpose. JAVA_TOOL_OPTIONS is processed BEFORE the JVM
 # command line, so Delta's own -Xmx (build.sbt) would win; run-delta-tests.sh bumps
 # the forked-test-JVM heap via `set spark / Test / javaOptions ++= ...` instead.
@@ -73,7 +76,6 @@ export JAVA_TOOL_OPTIONS="\
 -Dspark.shuffle.manager=org.apache.spark.shuffle.sort.ColumnarShuffleManager \
 -Dspark.memory.offHeap.enabled=true \
 -Dspark.memory.offHeap.size=2g \
--Dspark.default.parallelism=1 \
 -Dspark.sql.shuffle.partitions=5 \
 -Dspark.unsafe.exceptionOnMemoryLeak=true \
 -Dspark.sql.ansi.enabled=false \

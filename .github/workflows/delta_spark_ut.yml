@@ -181,7 +181,7 @@ jobs:
         startsWith(github.event.comment.body, '/delta-test ') ||
         startsWith(github.event.comment.body, format('/delta-test{0}', fromJSON('"\r"'))) ||
         startsWith(github.event.comment.body, format('/delta-test{0}', fromJSON('"\n"')))))
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     permissions:
       pull-requests: write
     steps:
@@ -203,7 +203,7 @@ jobs:
     needs: delta-test-requested
     # This workflow always builds its own native lib -- there is no caller to
     # provide one, and the `paths:` filter already decided whether the run happens.
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: apache/gluten:vcpkg-almalinux-8-gcc13
     steps:
       - name: Install CI tools (temporary - until image is rebuilt with gh/jq/bison/python3.9)
@@ -265,7 +265,7 @@ jobs:
 
   build-gluten-bundle:
     needs: build-native-lib-centos-8
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: apache/gluten:centos-9-jdk17
     steps:
       - uses: actions/checkout@v7
@@ -349,7 +349,7 @@ jobs:
     # the matrix bounded to a genuinely successful bundle, and stays correct if the
     # upstream jobs' conditions change again.
     if: ${{ !cancelled() && needs.build-gluten-bundle.result == 'success' }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: apache/gluten:centos-9-jdk17
     # 350-min safety cap. With 4 forks per shard the per-shard suites run
     # 4-at-a-time, so a shard finishes well under this.
@@ -569,7 +569,7 @@ jobs:
     # skipped because the bundle build failed -- so a single upstream failure
     # doesn't surface as a second, misleading red job.
     if: ${{ !cancelled() && needs.delta-spark-test.result != 'skipped' }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:

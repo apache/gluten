@@ -31,6 +31,125 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class HashFunctionsTest extends GlutenStreamingTestBase {
 
+  // MD5/SHA1 digests pinned from Flink's test suite and independently probed
+  // (lowercase hex over the string's UTF-8 bytes).
+  private static final String MD5_EMPTY = "d41d8cd98f00b204e9800998ecf8427e";
+  private static final String MD5_TEST = "098f6bcd4621d373cade4e832627b4f6";
+  private static final String MD5_ABC = "900150983cd24fb0d6963f7d28e17f72";
+  private static final String MD5_MULTIBYTE = "7eca689f0d3389d9dea66ae112e5cfd7";
+  private static final String MD5_LONG = "e9b1713db620f1e3a14b6812de523f4b";
+  private static final String SHA1_EMPTY = "da39a3ee5e6b4b0d3255bfef95601890afd80709";
+  private static final String SHA1_ABC = "a9993e364706816aba3e25717850c26c9cd0d89d";
+  private static final String SHA1_MULTIBYTE = "440ee0853ad1e99f962b63e459ef992d7c211722";
+  private static final String SHA1_LONG = "a26704c04fc5f10db5aab58468035531cc542485";
+
+  // MD5/SHA1 are driven by a column so the digest is really computed by the
+  // native function at runtime (a literal operand would be constant-folded by
+  // the planner). The trailing int column keeps the empty string off the
+  // trailing position, and the rows cover empty / ASCII / UTF-8 / long / NULL.
+  @Test
+  void testMd5() {
+    List<Row> rows =
+        Arrays.asList(
+            Row.of("", 1),
+            Row.of("test", 2),
+            Row.of("abc", 3),
+            Row.of("你好", 4),
+            Row.of(LONG_INPUT, 5),
+            Row.of(null, 6));
+    createSimpleBoundedValuesTable("tblMd5", "s varchar, a int", rows);
+    runAndCheck(
+        "select MD5(s) from tblMd5 where a > 0",
+        Arrays.asList(
+            "+I[" + MD5_EMPTY + "]",
+            "+I[" + MD5_TEST + "]",
+            "+I[" + MD5_ABC + "]",
+            "+I[" + MD5_MULTIBYTE + "]",
+            "+I[" + MD5_LONG + "]",
+            "+I[null]"));
+  }
+
+  @Test
+  void testSha1() {
+    List<Row> rows =
+        Arrays.asList(
+            Row.of("", 1),
+            Row.of("test", 2),
+            Row.of("abc", 3),
+            Row.of("你好", 4),
+            Row.of(LONG_INPUT, 5),
+            Row.of(null, 6));
+    createSimpleBoundedValuesTable("tblSha1", "s varchar, a int", rows);
+    runAndCheck(
+        "select SHA1(s) from tblSha1 where a > 0",
+        Arrays.asList(
+            "+I[" + SHA1_EMPTY + "]",
+            "+I[" + SHA1_TEST + "]",
+            "+I[" + SHA1_ABC + "]",
+            "+I[" + SHA1_MULTIBYTE + "]",
+            "+I[" + SHA1_LONG + "]",
+            "+I[null]"));
+  }
+
+  @Test
+  void testMd5Nested() {
+    List<Row> rows = Arrays.asList(Row.of(1, "Hello"));
+    createSimpleBoundedValuesTable("tblMd5Nested", "a int, s string", rows);
+    // MD5 over the output of another scalar function (LOWER is offloaded).
+    String query = "select MD5(LOWER(s)) from tblMd5Nested";
+    runAndCheck(query, Arrays.asList("+I[5d41402abc4b2a76b9719d911017c592]"));
+  }
+
+  @Test
+  void testSha1Nested() {
+    List<Row> rows = Arrays.asList(Row.of(1, "Hello"));
+    createSimpleBoundedValuesTable("tblSha1Nested", "a int, s string", rows);
+    String query = "select SHA1(LOWER(s)) from tblSha1Nested";
+    runAndCheck(query, Arrays.asList("+I[aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d]"));
+  }
+
+  @Test
+  void testMd5NonStringInput() {
+    List<Row> rows = Arrays.asList(Row.of(1, 123), Row.of(2, 456));
+    createSimpleBoundedValuesTable("tblMd5Int", "a int, n int", rows);
+    // An explicit cast stringifies the int before hashing (column-driven, so
+    // this exercises the native function).
+    runAndCheck(
+        "select MD5(CAST(n AS STRING)) from tblMd5Int",
+        Arrays.asList(
+            "+I[202cb962ac59075b964b07152d234b70]", "+I[250cf8b51c773f3f8dc8b4be867a9a02]"));
+    // A bare int argument is rejected by Flink's own validator at planning
+    // (there is no varchar signature) before any offload decision, so this is a
+    // regression check on Flink behavior rather than on velox.
+    tEnv().executeSql("CREATE TABLE printT (s VARCHAR) WITH ('connector' = 'print')");
+    try {
+      assertThatThrownBy(() -> tEnv().executeSql("insert into printT select MD5(n) from tblMd5Int"))
+          .hasStackTraceContaining("Cannot apply 'MD5'");
+    } finally {
+      tEnv().executeSql("drop table if exists printT");
+    }
+  }
+
+  @Test
+  void testSha1NonStringInput() {
+    List<Row> rows = Arrays.asList(Row.of(1, 123), Row.of(2, 456));
+    createSimpleBoundedValuesTable("tblSha1Int", "a int, n int", rows);
+    runAndCheck(
+        "select SHA1(CAST(n AS STRING)) from tblSha1Int",
+        Arrays.asList(
+            "+I[40bd001563085fc35165329ea1ff5c5ecbdbbeef]",
+            "+I[51eac6b471a284d3341d8c0c63d0f1a286262a18]"));
+    // Same as testMd5NonStringInput: the rejection comes from Flink's validator.
+    tEnv().executeSql("CREATE TABLE printT (s VARCHAR) WITH ('connector' = 'print')");
+    try {
+      assertThatThrownBy(
+              () -> tEnv().executeSql("insert into printT select SHA1(n) from tblSha1Int"))
+          .hasStackTraceContaining("Cannot apply 'SHA1'");
+    } finally {
+      tEnv().executeSql("drop table if exists printT");
+    }
+  }
+
   // Digests pinned from Flink's own test suite for "" and "test" (lowercase hex
   // over the string's UTF-8 bytes); the multi-byte row pins the encoding and the
   // long row pins inputs past one digest block.

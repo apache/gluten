@@ -619,12 +619,23 @@ class GlutenDynamicPartitionPruningV1SuiteAEOff
           case rs: ReusedSubqueryExec => rs.child.id
         }
 
-        // By default Gluten pushes more filters than vanilla Spark.
+        // By default Gluten pushes more filters than vanilla Spark. When the file scan is offloaded
+        // (COLUMNAR_FILESCAN_ENABLED), the native scan also takes the subquery filter, which adds
+        // one subquery and one reuse. With the file scan disabled, the plan has vanilla Spark's
+        // counts.
         //
         // See also org.apache.gluten.execution.FilterHandler#applyFilterPushdownToScan
         // See also DynamicPartitionPruningSuite.scala:1362
-        assert(subqueryIds.size == 3, "Whole plan subquery reusing not working correctly")
-        assert(reusedSubqueryIds.size == 2, "Whole plan subquery reusing not working correctly")
+        val scanOffloaded = GlutenConfig.get.enableColumnarFileScan
+        val nativeScan = plan.collectWithSubqueries { case s: FileSourceScanExecTransformer => s }
+        assert(nativeScan.nonEmpty == scanOffloaded, "Unexpected file scan offloading")
+        val (expectedSubqueries, expectedReused) = if (scanOffloaded) (3, 2) else (2, 1)
+        assert(
+          subqueryIds.size == expectedSubqueries,
+          "Whole plan subquery reusing not working correctly")
+        assert(
+          reusedSubqueryIds.size == expectedReused,
+          "Whole plan subquery reusing not working correctly")
         assert(
           reusedSubqueryIds.forall(subqueryIds.contains(_)),
           "ReusedSubqueryExec should reuse an existing subquery")
@@ -746,7 +757,7 @@ class GlutenDynamicPartitionPruningV1SuiteAEOnDisableScan
 
 // Same as above except AQE is off.
 class GlutenDynamicPartitionPruningV1SuiteAEOffDisableScan
-  extends GlutenDynamicPartitionPruningV2SuiteAEOff {
+  extends GlutenDynamicPartitionPruningV1SuiteAEOff {
   override def sparkConf: SparkConf = {
     super.sparkConf.set(GlutenConfig.COLUMNAR_FILESCAN_ENABLED.key, "false")
   }
@@ -772,7 +783,7 @@ class GlutenDynamicPartitionPruningV2SuiteAEOffDisableScan
 // Test DPP with project disabled by user for some reason, which can also mock the situation
 // that project is not transformable.
 class GlutenDynamicPartitionPruningV1SuiteAEOffWSCGOnDisableProject
-  extends GlutenDynamicPartitionPruningV2SuiteAEOff {
+  extends GlutenDynamicPartitionPruningV1SuiteAEOff {
   override def sparkConf: SparkConf = {
     super.sparkConf.set(GlutenConfig.COLUMNAR_PROJECT_ENABLED.key, "false")
   }
@@ -780,7 +791,7 @@ class GlutenDynamicPartitionPruningV1SuiteAEOffWSCGOnDisableProject
 
 // Same as above except whole-stage codegen is off.
 class GlutenDynamicPartitionPruningV1SuiteAEOffWSCGOffDisableProject
-  extends GlutenDynamicPartitionPruningV2SuiteAEOff {
+  extends GlutenDynamicPartitionPruningV1SuiteAEOff {
   override def sparkConf: SparkConf = {
     super.sparkConf
       .set(GlutenConfig.COLUMNAR_PROJECT_ENABLED.key, "false")

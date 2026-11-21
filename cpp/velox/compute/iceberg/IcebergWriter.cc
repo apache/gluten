@@ -44,7 +44,7 @@ class GlutenIcebergFileNameGenerator : public connector::hive::FileNameGenerator
 
   std::pair<std::string, std::string> gen(
       std::optional<uint32_t> bucketId,
-      const std::shared_ptr<const connector::hive::HiveInsertTableHandle> insertTableHandle,
+      const connector::hive::HiveInsertTableHandlePtr& insertTableHandle,
       const connector::ConnectorQueryCtx& connectorQueryCtx,
       uint32_t maxNumBuckets,
       bool commitRequired) const override {

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <memory>
 #include <string>
 #include <vector>
@@ -64,6 +65,12 @@ class KafkaDataSource : public facebook::velox::connector::DataSource {
 
  private:
   friend class KafkaConnectorTest;
+  friend class KafkaPollTimeoutArgumentTest;
+
+  // Keep time and record consumption replaceable for deterministic timeout tests.
+  virtual std::chrono::steady_clock::time_point pollTime() const;
+
+  virtual RdKafka::Message* consume(int timeoutMs);
 
   // Polls up to 'maxRows' messages of the current split. Sets 'splitDone_' once the end offset is
   // reached.

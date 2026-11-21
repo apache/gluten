@@ -56,6 +56,10 @@
   <build>
     <resources>
       <resource>
+        <targetPath>META-INF/licenses-binary</targetPath>
+        <directory>../licenses-binary</directory>
+      </resource>
+      <resource>
         <directory>../gluten-core/target/generated-resources/</directory>
         <includes>
           <include>gluten-build-info.properties</include>
@@ -77,6 +81,16 @@
             <phase>package</phase>
             <configuration>
               <createSourcesJar>true</createSourcesJar>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
+                  <resource>META-INF/LICENSE</resource>
+                  <file>${project.basedir}/../LICENSE-binary</file>
+                </transformer>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
+                  <resource>META-INF/NOTICE</resource>
+                  <file>${project.basedir}/../NOTICE-binary</file>
+                </transformer>
+              </transformers>
               <relocations>
                 <relocation>
                   <pattern>com.google.protobuf</pattern>
@@ -149,6 +163,8 @@
                     <exclude>META-INF/*.DSA</exclude>
                     <exclude>META-INF/*.RSA</exclude>
                     <exclude>META-INF/DEPENDENCIES</exclude>
+                    <exclude>META-INF/LICENSE</exclude>
+                    <exclude>META-INF/NOTICE</exclude>
                     <exclude>META-INF/LICENSE.txt</exclude>
                     <exclude>META-INF/NOTICE.txt</exclude>
                     <exclude>LICENSE.txt</exclude>

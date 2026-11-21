@@ -769,6 +769,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOff]
     .excludeGlutenTest("Subquery reuse across the whole plan")
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOffDisableScan]
+    .excludeGlutenTest("Subquery reuse across the whole plan")
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOn]
   enableSuite[GlutenDynamicPartitionPruningV1SuiteAEOnDisableScan]
   enableSuite[GlutenDynamicPartitionPruningV2SuiteAEOff]

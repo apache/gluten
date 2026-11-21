@@ -62,4 +62,50 @@ TEST_F(VeloxColumnarBatchTest, flattenTruncatedVector) {
   ASSERT_NO_THROW(batchOfMap->getFlattenedRowVector());
 }
 
+TEST_F(VeloxColumnarBatchTest, firstNullColumnIndex) {
+  auto noNulls = makeFlatVector<int64_t>({1, 2, 3});
+  auto withNull = makeNullableFlatVector<int64_t>({1, std::nullopt, 3});
+  auto batch = std::make_shared<VeloxColumnarBatch>(makeRowVector({noNulls, withNull, noNulls}));
+
+  ASSERT_EQ(batch->firstNullColumnIndex({}), -1);
+  ASSERT_EQ(batch->firstNullColumnIndex({0, 2}), -1);
+  ASSERT_EQ(batch->firstNullColumnIndex({1}), 0);
+  ASSERT_EQ(batch->firstNullColumnIndex({0, 2, 1}), 2);
+  ASSERT_ANY_THROW(batch->firstNullColumnIndex({3}));
+  ASSERT_ANY_THROW(batch->firstNullColumnIndex({-1}));
+}
+
+TEST_F(VeloxColumnarBatchTest, firstNullColumnIndexIgnoresCachedNullCount) {
+  // A stale cached null count of 0 must not hide a null in the nulls buffer.
+  auto staleCount = makeNullableFlatVector<int64_t>({1, std::nullopt, 3});
+  staleCount->setNullCount(0);
+  ASSERT_EQ(std::make_shared<VeloxColumnarBatch>(makeRowVector({staleCount}))->firstNullColumnIndex({0}), 0);
+
+  // A dictionary without nulls of its own, and with a null count of 0, over base values with a null.
+  auto base = makeNullableFlatVector<int64_t>({std::nullopt, 1, 2});
+  auto dictionary = wrapInDictionary(makeIndices({1, 0, 2}), 3, base);
+  dictionary->setNullCount(0);
+  ASSERT_EQ(std::make_shared<VeloxColumnarBatch>(makeRowVector({dictionary}))->firstNullColumnIndex({0}), 0);
+
+  // The same base values, with indices that skip the null.
+  auto dictionaryWithoutNull = wrapInDictionary(makeIndices({1, 2, 1}), 3, base);
+  ASSERT_EQ(
+      std::make_shared<VeloxColumnarBatch>(makeRowVector({dictionaryWithoutNull}))->firstNullColumnIndex({0}), -1);
+
+  auto nullConstant = makeNullConstant(TypeKind::BIGINT, 3);
+  ASSERT_EQ(std::make_shared<VeloxColumnarBatch>(makeRowVector({nullConstant}))->firstNullColumnIndex({0}), 0);
+}
+
+TEST_F(VeloxColumnarBatchTest, firstNullColumnIndexRowNullsAndTruncatedChildren) {
+  // A null row is a null in every column.
+  auto rowVector = makeRowVector({makeFlatVector<int64_t>({1, 2, 3})});
+  rowVector->setNull(1, true);
+  ASSERT_EQ(std::make_shared<VeloxColumnarBatch>(rowVector)->firstNullColumnIndex({0}), 0);
+
+  // A null past the end of the batch, in a child longer than the batch, is not in the batch.
+  auto child = makeNullableFlatVector<int64_t>({1, 2, std::nullopt});
+  auto truncated = std::make_shared<RowVector>(pool(), ROW({BIGINT()}), nullptr, 2, std::vector<VectorPtr>{child});
+  ASSERT_EQ(std::make_shared<VeloxColumnarBatch>(truncated)->firstNullColumnIndex({0}), -1);
+}
+
 } // namespace gluten

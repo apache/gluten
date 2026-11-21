@@ -18,14 +18,20 @@ package org.apache.gluten.extension
 
 import org.apache.gluten.execution.DeltaFilterExecTransformer
 import org.apache.gluten.extension.DeltaPostTransformRules.containsIncrementMetricExpr
+import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
 
 import org.apache.spark.sql.execution.{FilterExec, SparkPlan}
 
 case class OffloadDeltaFilter() extends OffloadSingleNode {
   override def offload(plan: SparkPlan): SparkPlan = plan match {
-    case FilterExec(condition, child) if containsIncrementMetricExpr(condition) =>
-      DeltaFilterExecTransformer(condition, child)
+    case filter @ FilterExec(condition, child) if containsIncrementMetricExpr(condition) =>
+      if (IncrementMetricOffload.canOffloadFilter(condition)) {
+        DeltaFilterExecTransformer(condition, child)
+      } else {
+        FallbackTags.add(filter, IncrementMetricOffload.conditionalFilterReason)
+        filter
+      }
     case p => p
   }
 }

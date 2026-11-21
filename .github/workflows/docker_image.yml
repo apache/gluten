@@ -35,7 +35,7 @@ env:
 jobs:
   build-ubuntu22-runtime:
     if: ${{ startsWith(github.repository, 'apache/') }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -60,7 +60,7 @@ jobs:
 
   build-centos-8-runtime:
     if: ${{ startsWith(github.repository, 'apache/') }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -86,7 +86,7 @@ jobs:
   # arm64 only: the image is used by the ARM TPC job, and nothing runs it on x86.
   build-centos-9-runtime:
     if: ${{ startsWith(github.repository, 'apache/') }}
-    runs-on: ubuntu-22.04-arm
+    runs-on: ubuntu-24.04-arm
 
     steps:
       - name: Checkout repository
@@ -111,7 +111,7 @@ jobs:
 
   build-centos-9-jdk17-cuda13_1-cudf:
     if: ${{ startsWith(github.repository, 'apache/') }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
       - name: "node-cleanup" # by default the free runner does not have enough disk space
@@ -145,7 +145,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ ubuntu-22.04, ubuntu-22.04-arm ]
+        os: [ ubuntu-24.04, ubuntu-24.04-arm ]
 
     steps:
       - name: Checkout repository
@@ -259,12 +259,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ ubuntu-22.04, ubuntu-22.04-arm ]
+        os: [ ubuntu-24.04, ubuntu-24.04-arm ]
         jdk: [jdk8, jdk17]
         # Only centos-9-jdk8 is needed on arm64: the ARM cpp-test-udf-test job and the default
         # dev container (Apple-silicon Macs) use it.
         exclude:
-          - os: ubuntu-22.04-arm
+          - os: ubuntu-24.04-arm
             jdk: jdk17
     env:
       JDK_VERSION: 1.8.0

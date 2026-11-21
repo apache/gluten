@@ -22,29 +22,33 @@ import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.execution.IcebergScanTransformer.{containsMetadataColumn, containsUuidOrFixedType}
 import org.apache.gluten.expression.ConverterUtils
 import org.apache.gluten.sql.shims.SparkShimLoader
-import org.apache.gluten.substrait.rel.{LocalFilesNode, SplitInfo}
+import org.apache.gluten.substrait.SubstraitContext
+import org.apache.gluten.substrait.expression.{ExpressionBuilder, ExpressionNode}
+import org.apache.gluten.substrait.rel.{LocalFilesNode, RelBuilder, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ColumnMappingMode
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.Partition
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{AttributeReference, DynamicPruningExpression, Expression, Literal}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, DynamicPruningExpression, Expression, Literal}
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.connector.catalog.Table
 import org.apache.spark.sql.connector.read.Scan
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.execution.metric.SQLMetrics
-import org.apache.spark.sql.types.{ArrayType, DataType, StructType}
+import org.apache.spark.sql.types.{ArrayType, DataType, IntegerType, LongType, StringType, StructType}
 
 import org.apache.iceberg.{BaseTable, MetadataColumns, SnapshotSummary, TableProperties}
 import org.apache.iceberg.avro.AvroSchemaUtil
-import org.apache.iceberg.spark.source.{GlutenIcebergSourceUtil, SparkTable}
+import org.apache.iceberg.spark.source.GlutenIcebergSourceUtil
 import org.apache.iceberg.spark.source.metrics.NumSplits
-import org.apache.iceberg.types.{Type, Types}
+import org.apache.iceberg.types.{Type, Types, TypeUtil}
 import org.apache.iceberg.types.Type.TypeID
 import org.apache.iceberg.types.Types.{ListType, MapType, NestedField}
 
 import java.util.{HashMap => JHashMap}
+
+import scala.collection.JavaConverters._
 
 case class IcebergScanTransformer(
     override val output: Seq[AttributeReference],
@@ -92,58 +96,57 @@ case class IcebergScanTransformer(
         "Iceberg scan uses catalog-vended credentials, which native readers do not support")
     }
 
+    if (GlutenIcebergSourceUtil.hasOrcScanTask(scan)) {
+      if (output.exists(_.name.equalsIgnoreCase(MetadataColumns.ROW_POSITION.name()))) {
+        return ValidationResult.failed(
+          "Iceberg row position reads with ORC files are not supported")
+      }
+      val hasTimestampWithZone = GlutenIcebergSourceUtil.getTable(scan).schemas().values().stream()
+        .flatMap(schema => TypeUtil.indexById(schema.asStruct()).values().stream())
+        .anyMatch(
+          field =>
+            field.`type`() match {
+              case timestamp: Types.TimestampType => timestamp.shouldAdjustToUTC()
+              case _ => false
+            })
+      if (hasTimestampWithZone) {
+        return ValidationResult.failed("Iceberg ORC timestamp-with-zone reads are not supported")
+      }
+    }
+
     val validationResult = super.doValidateInternal()
     if (!validationResult.ok()) {
       return validationResult
     }
 
     if (!BackendsApiManager.getSettings.supportIcebergEqualityDeleteRead()) {
-      val notSupport = table match {
-        case t: SparkTable =>
-          t.table() match {
-            case t: BaseTable =>
-              t.operations()
-                .current()
-                .schema()
-                .columns()
-                .stream
-                .anyMatch(c => containsUuidOrFixedType(c.`type`()) || containsMetadataColumn(c))
-            case _ => false
-          }
+      val notSupport = GlutenIcebergSourceUtil.getTable(scan) match {
+        case t: BaseTable =>
+          t.operations()
+            .current()
+            .schema()
+            .columns()
+            .stream
+            .anyMatch(c => containsUuidOrFixedType(c.`type`()) || containsMetadataColumn(c))
         case _ => false
       }
       if (notSupport) {
         return ValidationResult.failed("Contains not supported data type or metadata column")
       }
-      // Allow input_file_name() and related metadata functions
-      val allowedMetadataColumns =
-        IcebergScanTransformer.InputFileRelatedMetadataColumnNames
       val hasUnsupportedMetadata = scan.readSchema().fieldNames.exists {
         f =>
           MetadataColumns.isMetadataColumn(f) &&
-          !allowedMetadataColumns.contains(ConverterUtils.normalizeColName(f))
+          !IcebergScanTransformer.NativeSupportedMetadataColumnNames
+            .contains(ConverterUtils.normalizeColName(f))
       }
       if (hasUnsupportedMetadata) {
         return ValidationResult.failed("Read unsupported metadata column")
       }
-      val containsEqualityDelete = table match {
-        case t: SparkTable =>
-          t.table() match {
-            case t: BaseTable =>
-              val snapshot = t
-                .operations()
-                .current()
-                .currentSnapshot()
-              if (snapshot == null) {
-                false
-              } else {
-                snapshot
-                  .summary()
-                  .getOrDefault(SnapshotSummary.TOTAL_EQ_DELETES_PROP, "0")
-                  .toInt > 0
-              }
-            case _ => false
-          }
+      val containsEqualityDelete = GlutenIcebergSourceUtil.getTable(scan) match {
+        case t: BaseTable =>
+          val snapshot = t.operations().current().currentSnapshot()
+          snapshot != null &&
+          snapshot.summary().getOrDefault(SnapshotSummary.TOTAL_EQ_DELETES_PROP, "0").toInt > 0
         case _ => false
       }
       if (containsEqualityDelete) {
@@ -156,12 +159,8 @@ case class IcebergScanTransformer(
       }
     }
 
-    val baseTable = table match {
-      case t: SparkTable =>
-        t.table() match {
-          case t: BaseTable => t
-          case _ => null
-        }
+    val baseTable = GlutenIcebergSourceUtil.getTable(scan) match {
+      case t: BaseTable => t
       case _ => null
     }
     if (baseTable == null) {
@@ -217,15 +216,56 @@ case class IcebergScanTransformer(
   }
 
   override def getMetadataColumns(): Seq[AttributeReference] = {
-    val extraMetadataColumns = inputFileRelatedMetadataColumns.filterNot {
-      metadataAttr =>
-        metadataColumns.exists {
-          existingAttr =>
-            ConverterUtils.normalizeColName(existingAttr.name) ==
-              ConverterUtils.normalizeColName(metadataAttr.name)
-        }
-    }
+    val extraMetadataColumns =
+      (inputFileRelatedMetadataColumns ++ output.filter(
+        _.name.equalsIgnoreCase(MetadataColumns.FILE_PATH.name()))).filterNot {
+        metadataAttr =>
+          metadataColumns.exists {
+            existingAttr =>
+              ConverterUtils.normalizeColName(existingAttr.name) ==
+                ConverterUtils.normalizeColName(metadataAttr.name)
+          }
+      }
     metadataColumns ++ extraMetadataColumns
+  }
+
+  override protected def isRowIndexMetadataColumn(attr: Attribute): Boolean = {
+    attr.name.equalsIgnoreCase(MetadataColumns.ROW_POSITION.name()) ||
+    super.isRowIndexMetadataColumn(attr)
+  }
+
+  // Velox's Iceberg reader does not fill row-index columns, so read `_pos` from the
+  // `$target_table_row_id` column it synthesizes and project out its `row_position` field.
+  // TODO: Remove once https://github.com/facebookincubator/velox/pull/20324 is merged.
+  override protected def doTransform(context: SubstraitContext): TransformContext = {
+    val rowPositionIndex =
+      output.indexWhere(_.name.equalsIgnoreCase(MetadataColumns.ROW_POSITION.name()))
+    if (rowPositionIndex < 0) {
+      return super.doTransform(context)
+    }
+    val targetTableRowId = AttributeReference(
+      "$target_table_row_id",
+      new StructType()
+        .add("file_path", StringType)
+        .add("row_position", LongType)
+        .add("spec_id", IntegerType)
+        .add("partition_data", StringType)
+    )()
+    val readOutput: Seq[Attribute] = output.updated(rowPositionIndex, targetTableRowId)
+    val operatorId = context.nextOperatorId(this.nodeName)
+    val readRel = makeReadRel(context, readOutput, operatorId)
+    val projections: Seq[ExpressionNode] = output.indices.map {
+      case `rowPositionIndex` => ExpressionBuilder.makeSelection(rowPositionIndex, 1)
+      case i => ExpressionBuilder.makeSelection(i)
+    }
+    val projectRel = RelBuilder.makeProjectRel(
+      readRel,
+      projections.asJava,
+      RelBuilder.createExtensionNode(readOutput.asJava),
+      context,
+      operatorId,
+      output.size)
+    TransformContext(output, projectRel)
   }
 
   override lazy val fileFormat: ReadFileFormat = fileFormatAndRootPaths._1
@@ -274,6 +314,8 @@ case class IcebergScanTransformer(
       runtimeFilters = QueryPlan.normalizePredicates(
         runtimeFilters.filterNot(_ == DynamicPruningExpression(Literal.TrueLiteral)),
         output),
+      keyGroupedPartitioning = keyGroupedPartitioning.map(
+        _.map(QueryPlan.normalizeExpressions(_, output))),
       pushDownFilters = pushDownFilters.map(QueryPlan.normalizePredicates(_, output))
     )
   }
@@ -285,12 +327,8 @@ case class IcebergScanTransformer(
   private[execution] def getKeyGroupPartitioning: Option[Seq[Expression]] = keyGroupedPartitioning
 
   private def hasRenamedColumn: Boolean = {
-    val icebergTable = table match {
-      case t: SparkTable =>
-        t.table() match {
-          case t: BaseTable => t
-          case _ => null
-        }
+    val icebergTable = GlutenIcebergSourceUtil.getTable(scan) match {
+      case t: BaseTable => t
       case _ => null
     }
     if (icebergTable == null) {
@@ -301,11 +339,13 @@ case class IcebergScanTransformer(
     // but may have different id in history schemas
     val ops = icebergTable.operations().current()
     val currentSchema = ops.schema()
+    val dataReadSchema = StructType(
+      scan.readSchema().fields.filterNot(f => MetadataColumns.isMetadataColumn(f.name)))
     val oldSchemas = icebergTable.operations().current().schemas()
     oldSchemas
       .stream()
       .filter(s => s.schemaId() != ops.currentSchemaId())
-      .anyMatch(s => !typesMatch(s.asStruct(), currentSchema.asStruct(), scan.readSchema()))
+      .anyMatch(s => !typesMatch(s.asStruct(), currentSchema.asStruct(), dataReadSchema))
   }
 
   private def typesMatch(icebergType: Type, currentType: Type, sparkType: DataType): Boolean = {
@@ -365,6 +405,10 @@ case class IcebergScanTransformer(
 object IcebergScanTransformer {
   private val InputFileRelatedMetadataColumnNames =
     Set("input_file_name", "input_file_block_start", "input_file_block_length")
+
+  private val NativeSupportedMetadataColumnNames = InputFileRelatedMetadataColumnNames ++
+    Set(MetadataColumns.FILE_PATH.name(), MetadataColumns.ROW_POSITION.name())
+      .map(ConverterUtils.normalizeColName)
 
   def apply(batchScan: BatchScanExec): IcebergScanTransformer = {
     val transformer = new IcebergScanTransformer(

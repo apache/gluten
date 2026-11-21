@@ -374,7 +374,10 @@ if __name__ == "__main__":
                     args.key,
                     args.revision,
                     args.branch,
-                    GitHub(os.environ["GITHUB_REPOSITORY"]),
+                    GitHub(
+                        os.environ.get("ICEBERG_BASELINE_REPOSITORY")
+                        or os.environ["GITHUB_REPOSITORY"]
+                    ),
                 )
             except (ValueError, KeyError, OSError) as error:
                 args.directory.mkdir(parents=True, exist_ok=True)

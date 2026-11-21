@@ -83,6 +83,12 @@ object GlutenDeltaFileFormatWriter extends Logging {
    */
   private var executedPlan: Option[SparkPlan] = None
 
+  private[delta] def getExecutedPlanForTesting: Option[SparkPlan] = executedPlan
+
+  private[delta] def clearExecutedPlanForTesting(): Unit = {
+    executedPlan = None
+  }
+
   // scalastyle:off argcount
   /**
    * Basic work flow of this command is:
