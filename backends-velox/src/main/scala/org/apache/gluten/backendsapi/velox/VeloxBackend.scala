@@ -492,6 +492,11 @@ object VeloxBackendSettings extends BackendSettingsApi {
             case _: NthValue =>
             case _: Lag =>
             case _: Lead =>
+            case ae: AggregateExpression if ae.filter.isDefined =>
+              // Velox window functions have no mask. RewriteWindowAggregateFilter folds the
+              // FILTER clause into the inputs of null-ignoring aggregates. Any FILTER left here
+              // would be silently dropped, so fall back to vanilla Spark.
+              allSupported = false
             case ae: AggregateExpression =>
               // Velox only supports count() and count(T) signatures for the window count
               // function. Spark's count(c1, c2, ...) (counts rows where ALL arguments are

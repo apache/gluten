@@ -173,6 +173,50 @@ class VeloxWindowExpressionSuite extends WholeStageTransformerSuite {
     }
   }
 
+  testWithMinSparkVersion("window aggregate with FILTER", "4.2") {
+    withTable("t") {
+      Seq[(Int, Int, java.lang.Integer, java.lang.Boolean)](
+        (0, 0, 10, true),
+        (0, 1, null, true),
+        (0, 2, 30, false),
+        (0, 3, 40, null),
+        (0, 4, 50, true),
+        (1, 5, 60, false),
+        (1, 6, 70, null),
+        (1, 7, null, false),
+        (2, 8, 80, true)
+      ).toDF("g", "id", "v", "p")
+        .write
+        .saveAsTable("t")
+
+      // Null-ignoring aggregates are rewritten into agg(IF(p, x, NULL)) and stay native.
+      runQueryAndCompare(
+        """
+          |SELECT g, id,
+          | COUNT(*) FILTER (WHERE p) OVER (PARTITION BY g) AS c_star,
+          | COUNT(v) FILTER (WHERE id % 2 = 0) OVER (PARTITION BY g) AS c_v,
+          | COUNT(id, v) FILTER (WHERE p) OVER (PARTITION BY g) AS c_multi,
+          | SUM(v) FILTER (WHERE p) OVER (PARTITION BY g) AS s,
+          | AVG(v) FILTER (WHERE NOT p) OVER (PARTITION BY g) AS a,
+          | MIN(v) FILTER (WHERE p) OVER (PARTITION BY g ORDER BY id) AS mn,
+          | MAX(v) FILTER (WHERE p) OVER (PARTITION BY g ORDER BY id
+          |   ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS mx,
+          | SUM(v) OVER (PARTITION BY g) AS s_all
+          |FROM t
+          |""".stripMargin
+      ) {
+        checkGlutenPlan[WindowExecTransformer]
+      }
+
+      // first/last that respect nulls cannot use the IF rewrite and must fall back.
+      runQueryAndCompare(
+        "SELECT g, id, FIRST(v) FILTER (WHERE id > 0) OVER (PARTITION BY g ORDER BY id) FROM t",
+        noFallBack = false) {
+        checkSparkPlan[WindowExec]
+      }
+    }
+  }
+
   testWithMinSparkVersion("range frame with a day interval bound on a date key falls back", "4.0") {
     // Spark 4.0 also accepts a day-time interval bound on a date key.
     runQueryAndCompare(
