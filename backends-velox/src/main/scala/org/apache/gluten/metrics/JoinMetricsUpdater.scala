@@ -16,7 +16,6 @@
  */
 package org.apache.gluten.metrics
 
-import org.apache.gluten.metrics.Metrics.SingleMetric
 import org.apache.gluten.substrait.JoinParams
 
 import org.apache.spark.sql.execution.metric.SQLMetric
@@ -30,7 +29,6 @@ import scala.collection.JavaConverters._
 trait JoinMetricsUpdater extends MetricsUpdater {
   def updateJoinMetrics(
       joinMetrics: java.util.ArrayList[OperatorMetrics],
-      singleMetrics: SingleMetric,
       joinParams: JoinParams): Unit
 }
 
@@ -44,7 +42,6 @@ abstract class JoinMetricsUpdaterBase(val metrics: Map[String, SQLMetric])
 
   final override def updateJoinMetrics(
       joinMetrics: util.ArrayList[OperatorMetrics],
-      singleMetrics: SingleMetric,
       joinParams: JoinParams): Unit = {
     if (joinParams.postProjectionNeeded) {
       val postProjectMetrics = joinMetrics.remove(0)

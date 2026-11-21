@@ -170,7 +170,7 @@ readUncompressedBuffer(arrow::io::InputStream* inputStream, arrow::MemoryPool* p
   if (bufferLength == kNullBuffer) {
     return nullptr;
   }
-  ARROW_ASSIGN_OR_RAISE(auto buffer, arrow::AllocateResizableBuffer(bufferLength, pool));
+  ARROW_ASSIGN_OR_RAISE(auto buffer, allocatePaddedBuffer(bufferLength, pool));
   RETURN_NOT_OK(inputStream->Read(bufferLength, buffer->mutable_data()));
   return buffer;
 }
@@ -204,7 +204,7 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> readCompressedBuffer(
     RETURN_NOT_OK(inputStream->Read(actualCompressedLen, compressed->mutable_data()));
 
     timer.switchTo(&decompressTime);
-    ARROW_ASSIGN_OR_RAISE(auto output, arrow::AllocateResizableBuffer(uncompressedLength, pool));
+    ARROW_ASSIGN_OR_RAISE(auto output, allocatePaddedBuffer(uncompressedLength, pool));
     RETURN_NOT_OK(TypeAwareCompressCodec::decompress(
                       compressed->data(), actualCompressedLen, output->mutable_data(), uncompressedLength)
                       .status());
@@ -212,7 +212,7 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> readCompressedBuffer(
   }
 
   if (compressedLength == kUncompressedBuffer) {
-    ARROW_ASSIGN_OR_RAISE(auto uncompressed, arrow::AllocateResizableBuffer(uncompressedLength, pool));
+    ARROW_ASSIGN_OR_RAISE(auto uncompressed, allocatePaddedBuffer(uncompressedLength, pool));
     RETURN_NOT_OK(inputStream->Read(uncompressedLength, uncompressed->mutable_data()));
     return uncompressed;
   }
@@ -220,7 +220,7 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> readCompressedBuffer(
   RETURN_NOT_OK(inputStream->Read(compressedLength, compressed->mutable_data()));
 
   timer.switchTo(&decompressTime);
-  ARROW_ASSIGN_OR_RAISE(auto output, arrow::AllocateResizableBuffer(uncompressedLength, pool));
+  ARROW_ASSIGN_OR_RAISE(auto output, allocatePaddedBuffer(uncompressedLength, pool));
   RETURN_NOT_OK(codec->Decompress(compressedLength, compressed->data(), uncompressedLength, output->mutable_data()));
   return output;
 }
@@ -451,8 +451,7 @@ arrow::Result<std::unique_ptr<InMemoryPayload>> InMemoryPayload::merge(
         if (!appendBuffer) {
           merged[i] = nullptr;
         } else {
-          ARROW_ASSIGN_OR_RAISE(
-              auto buffer, arrow::AllocateResizableBuffer(arrow::bit_util::BytesForBits(mergedRows), pool));
+          ARROW_ASSIGN_OR_RAISE(auto buffer, allocatePaddedBuffer(arrow::bit_util::BytesForBits(mergedRows), pool));
           // Source is null, fill all true.
           arrow::bit_util::SetBitsTo(buffer->mutable_data(), 0, source->numRows(), true);
           // Write append bits.
@@ -467,10 +466,10 @@ arrow::Result<std::unique_ptr<InMemoryPayload>> InMemoryPayload::merge(
         auto mergedBytes = arrow::bit_util::BytesForBits(mergedRows);
         if (resizable) {
           // If source is resizable, resize and reuse source.
-          RETURN_NOT_OK(resizable->Resize(mergedBytes));
+          RETURN_NOT_OK(resizeWithPadding(*resizable, mergedBytes));
         } else {
           // Otherwise copy source.
-          ARROW_ASSIGN_OR_RAISE(resizable, arrow::AllocateResizableBuffer(mergedBytes, pool));
+          ARROW_ASSIGN_OR_RAISE(resizable, allocatePaddedBuffer(mergedBytes, pool));
           memcpy(resizable->mutable_data(), sourceBuffer->data(), sourceBufferSize);
         }
         if (!appendBuffer) {
@@ -491,10 +490,10 @@ arrow::Result<std::unique_ptr<InMemoryPayload>> InMemoryPayload::merge(
         auto resizable = std::dynamic_pointer_cast<arrow::ResizableBuffer>(sourceBuffer);
         if (resizable) {
           // If source is resizable, resize and reuse source.
-          RETURN_NOT_OK(resizable->Resize(mergedSize));
+          RETURN_NOT_OK(resizeWithPadding(*resizable, mergedSize));
         } else {
           // Otherwise copy source.
-          ARROW_ASSIGN_OR_RAISE(resizable, arrow::AllocateResizableBuffer(mergedSize, pool));
+          ARROW_ASSIGN_OR_RAISE(resizable, allocatePaddedBuffer(mergedSize, pool));
           memcpy(resizable->mutable_data(), sourceBuffer->data(), sourceBufferSize);
         }
         // Copy append.
@@ -539,7 +538,7 @@ arrow::Status InMemoryPayload::copyBuffers(arrow::MemoryPool* pool) {
       buffer = zeroLengthNullBuffer();
       continue;
     }
-    ARROW_ASSIGN_OR_RAISE(auto copy, arrow::AllocateResizableBuffer(buffer->size(), pool));
+    ARROW_ASSIGN_OR_RAISE(auto copy, allocatePaddedBuffer(buffer->size(), pool));
     memcpy(copy->mutable_data(), buffer->data(), buffer->size());
     buffer = std::move(copy);
   }

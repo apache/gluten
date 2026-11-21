@@ -56,7 +56,32 @@ const char* extractFileName(const char* file) {
 const std::unordered_set<std::string> kRegexFunctions =
     {"regexp_extract", "regexp_extract_all", "regexp_replace", "regexp_instr", "rlike", "split"};
 
-const std::unordered_set<std::string> kBlackList = {"split_part", "sequence", "approx_percentile"};
+const std::unordered_set<std::string> kBlackList = {"split_part", "approx_percentile"};
+
+// DATE and the interval types share a TypeKind with the integer types, so compare exact types.
+bool isIntegerType(const TypePtr& type) {
+  return TINYINT()->equivalent(*type) || SMALLINT()->equivalent(*type) || INTEGER()->equivalent(*type) ||
+      BIGINT()->equivalent(*type);
+}
+
+bool isNonZeroIntegerLiteral(const ::substrait::Expression& expression) {
+  if (!expression.has_literal()) {
+    return false;
+  }
+  const auto& literal = expression.literal();
+  switch (literal.literal_type_case()) {
+    case ::substrait::Expression_Literal::LiteralTypeCase::kI8:
+      return literal.i8() != 0;
+    case ::substrait::Expression_Literal::LiteralTypeCase::kI16:
+      return literal.i16() != 0;
+    case ::substrait::Expression_Literal::LiteralTypeCase::kI32:
+      return literal.i32() != 0;
+    case ::substrait::Expression_Literal::LiteralTypeCase::kI64:
+      return literal.i64() != 0;
+    default:
+      return false;
+  }
+}
 } // namespace
 
 bool SubstraitToVeloxPlanValidator::parseVeloxType(
@@ -195,6 +220,28 @@ bool SubstraitToVeloxPlanValidator::validateRegexExpr(
   return true;
 }
 
+bool SubstraitToVeloxPlanValidator::validateSequence(
+    const ::substrait::Expression::ScalarFunction& scalarFunction,
+    const std::vector<core::TypedExprPtr>& params) {
+  for (const auto& param : params) {
+    if (!isIntegerType(param->type())) {
+      LOG_VALIDATION_MSG(
+          "Function 'sequence' is not fully supported. Cause: sequence only supports tinyint, smallint, integer and "
+          "bigint arguments; date and timestamp arguments are not supported in Velox");
+      return false;
+    }
+  }
+  // Velox rejects a zero step even when start equals stop, where Spark returns [start]. Only a literal step is
+  // known to be non-zero at planning time.
+  if (params.size() == 3 && !isNonZeroIntegerLiteral(scalarFunction.arguments()[2].value())) {
+    LOG_VALIDATION_MSG(
+        "Function 'sequence' is not fully supported. Cause: sequence only supports an omitted step or a non-zero "
+        "literal step in Velox");
+    return false;
+  }
+  return true;
+}
+
 bool SubstraitToVeloxPlanValidator::validateScalarFunction(
     const ::substrait::Expression::ScalarFunction& scalarFunction,
     const RowTypePtr& inputType) {
@@ -217,6 +264,9 @@ bool SubstraitToVeloxPlanValidator::validateScalarFunction(
   }
   if (name == "extract") {
     return validateExtractExpr(params);
+  }
+  if (name == "sequence") {
+    return validateSequence(scalarFunction, params);
   }
 
   // Validate regex functions.

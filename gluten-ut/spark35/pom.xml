@@ -20,7 +20,7 @@
   <parent>
     <groupId>org.apache.gluten</groupId>
     <artifactId>gluten-ut</artifactId>
-    <version>1.8.0-SNAPSHOT</version>
+    <version>1.9.0-SNAPSHOT</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
 
@@ -111,6 +111,17 @@
   </build>
 
   <profiles>
+    <profile>
+      <id>paimon</id>
+      <dependencies>
+        <dependency>
+          <groupId>org.apache.gluten</groupId>
+          <artifactId>gluten-paimon</artifactId>
+          <version>${project.version}</version>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+    </profile>
     <profile>
       <id>backends-clickhouse</id>
       <activation>

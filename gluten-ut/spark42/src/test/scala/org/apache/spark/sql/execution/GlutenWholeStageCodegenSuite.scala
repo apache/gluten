@@ -23,14 +23,12 @@ import org.apache.spark.SparkConf
 import org.apache.spark.sql.{Dataset, GlutenSQLTestsTrait, Row, SaveMode}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{IntegerType, StringType, StructType}
+import org.apache.spark.sql.types.{DecimalType, IntegerType, StringType, StructType}
+
+import java.math.{BigDecimal => JBigDecimal}
 
 import scala.reflect.ClassTag
 
-// GLUTEN-12569 Spark 4.2 UT enablement: disabled whole suite - a test triggers a
-// StackOverflowError in Gluten ExpressionConverter.transformExpression that aborts the
-// entire group2 CI run. Disabled here so the rest of the group can run and be triaged.
-@org.scalatest.Ignore
 class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQLTestsTrait {
   import testImplicits._
 
@@ -496,7 +494,7 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
     Seq(true, false).foreach {
       codegenEnabled =>
         withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> codegenEnabled.toString) {
-          assertWholeStageCount[VeloxBroadcastNestedLoopJoinExecTransformer](
+          assertWholeStageCount[BroadcastNestedLoopJoinExecTransformer](
             df1.join(df2),
             expectedCount = 1)
           checkAnswer(
@@ -515,7 +513,7 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
               Row(3, 1),
               Row(3, 2)))
           val conditionalJoin = df1.join(df2, $"k1" + 1 =!= $"k2")
-          assertWholeStageCount[VeloxBroadcastNestedLoopJoinExecTransformer](
+          assertWholeStageCount[BroadcastNestedLoopJoinExecTransformer](
             conditionalJoin,
             expectedCount = 1)
           checkAnswer(
@@ -532,7 +530,7 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
               Row(3, 1),
               Row(3, 2)))
           val twoJoins = df1.join(df2, $"k1" < $"k2").crossJoin(df3)
-          assertWholeStageCount[VeloxBroadcastNestedLoopJoinExecTransformer](
+          assertWholeStageCount[BroadcastNestedLoopJoinExecTransformer](
             twoJoins,
             expectedCount = 1)
           checkAnswer(
@@ -560,7 +558,7 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
       codegenEnabled =>
         withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> codegenEnabled.toString) {
           val leftOuterJoin = df1.join(df2, $"k1" > $"k2", "left_outer")
-          assertWholeStageCount[VeloxBroadcastNestedLoopJoinExecTransformer](
+          assertWholeStageCount[BroadcastNestedLoopJoinExecTransformer](
             leftOuterJoin,
             expectedCount = 1)
           checkAnswer(
@@ -574,7 +572,7 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
               Row(3, 1),
               Row(3, 2)))
           val rightOuterJoin = df1.join(df2, $"k1" < $"k2", "right_outer")
-          assertWholeStageCount[VeloxBroadcastNestedLoopJoinExecTransformer](
+          assertWholeStageCount[BroadcastNestedLoopJoinExecTransformer](
             rightOuterJoin,
             expectedCount = 1)
           checkAnswer(
@@ -583,14 +581,14 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
           val twoJoins = df1
             .join(df2, $"k1" > $"k2" + 1, "right_outer")
             .join(df3, $"k1" <= $"k3", "left_outer")
-          assertWholeStageCount[VeloxBroadcastNestedLoopJoinExecTransformer](
+          assertWholeStageCount[BroadcastNestedLoopJoinExecTransformer](
             twoJoins,
             expectedCount = 1)
           checkAnswer(
             twoJoins,
             Seq(Row(2, 0, null), Row(3, 0, null), Row(3, 1, null), Row(null, 2, null)))
           val emptyBuildSide = df3.join(empty, $"k3" > $"k4", "left_outer")
-          assertWholeStageCount[VeloxBroadcastNestedLoopJoinExecTransformer](
+          assertWholeStageCount[BroadcastNestedLoopJoinExecTransformer](
             emptyBuildSide,
             expectedCount = 1)
           checkAnswer(
@@ -611,13 +609,13 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
       codegenEnabled =>
         withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> codegenEnabled.toString) {
           val semiJoin = df1.join(df2, $"k1" + 1 <= $"k2", "left_semi")
-          assertWholeStageCount[VeloxBroadcastNestedLoopJoinExecTransformer](
+          assertWholeStageCount[BroadcastNestedLoopJoinExecTransformer](
             semiJoin,
             expectedCount = 0)
           checkAnswer(semiJoin, Seq(Row(0), Row(1)))
 
           val antiJoin = df1.join(df2, $"k1" + 1 <= $"k2", "left_anti")
-          assertWholeStageCount[VeloxBroadcastNestedLoopJoinExecTransformer](
+          assertWholeStageCount[BroadcastNestedLoopJoinExecTransformer](
             antiJoin,
             expectedCount = 0)
           checkAnswer(antiJoin, Seq(Row(2), Row(3)))
@@ -625,7 +623,7 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
           val twoJoins = df1
             .join(df2, $"k1" < $"k2", "left_semi")
             .join(df3, $"k1" > $"k3", "left_anti")
-          assertWholeStageCount[VeloxBroadcastNestedLoopJoinExecTransformer](
+          assertWholeStageCount[BroadcastNestedLoopJoinExecTransformer](
             twoJoins,
             expectedCount = 0)
           checkAnswer(twoJoins, Row(0))
@@ -763,5 +761,79 @@ class GlutenWholeStageCodegenSuite extends WholeStageCodegenSuite with GlutenSQL
           checkAnswer(df, Seq(Row(0, 0), Row(1, 1), Row(2, 2)))
         }
     }
+  }
+
+  testGluten("SPARK-56431: CSE in FilterExec preserves null guards for notNull columns") {
+    val schema = new StructType()
+      .add("a", DecimalType(10, 2))
+      .add("b", DecimalType(10, 2))
+    val data = spark.sparkContext.parallelize(
+      Seq(
+        Row(null, new JBigDecimal("100.00")),
+        Row(new JBigDecimal("50.00"), new JBigDecimal("200.00")),
+        Row(new JBigDecimal("80.00"), new JBigDecimal("100.00"))))
+    withSQLConf(
+      SQLConf.SUBEXPRESSION_ELIMINATION_ENABLED.key -> "true",
+      SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "true",
+      SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false"
+    ) {
+      val filtered = spark
+        .createDataFrame(data, schema)
+        .where("a IS NOT NULL AND abs(b - a) > 0.10 AND abs(b - a) < 1000.00")
+      assertWholeStageContains[FilterExecTransformerBase](filtered)
+      checkAnswer(
+        filtered,
+        Seq(
+          Row(new JBigDecimal("50.00"), new JBigDecimal("200.00")),
+          Row(new JBigDecimal("80.00"), new JBigDecimal("100.00"))))
+    }
+  }
+
+  private def checkFilterWithAndWithoutCSE(
+      data: Seq[Row],
+      schema: StructType,
+      condition: String,
+      expected: Seq[Row]): Unit = {
+    Seq(true, false).foreach {
+      cseEnabled =>
+        withSQLConf(
+          SQLConf.SUBEXPRESSION_ELIMINATION_ENABLED.key -> cseEnabled.toString,
+          SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "true",
+          SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false"
+        ) {
+          val filtered =
+            spark.createDataFrame(spark.sparkContext.parallelize(data), schema).where(condition)
+          assertWholeStageContains[FilterExecTransformerBase](filtered)
+          checkAnswer(filtered, expected)
+        }
+    }
+  }
+
+  testGluten("SPARK-56032: FilterExec skips CSE codegen when there is no common subexpression") {
+    checkFilterWithAndWithoutCSE(
+      Seq(Row(1, 5), Row(null, 3), Row(4, null), Row(5, 6), Row(7, 8), Row(2, 3)),
+      new StructType().add("a", IntegerType).add("b", IntegerType),
+      "a IS NOT NULL AND a > 4 AND b > 4",
+      Seq(Row(5, 6), Row(7, 8))
+    )
+  }
+
+  testGluten("SPARK-56032: FilterExec skips CSE codegen when the common subexpression is cheap") {
+    checkFilterWithAndWithoutCSE(
+      Seq(Row(Row(10)), Row(Row(3)), Row(Row(200)), Row(Row(50)), Row(Row(null)), Row(null)),
+      new StructType().add("s", new StructType().add("x", IntegerType)),
+      "s.x > 5 AND s.x < 100",
+      Seq(Row(Row(10)), Row(Row(50)))
+    )
+  }
+
+  testGluten(
+    "SPARK-56032: FilterExec takes CSE codegen when the common subexpression is non-cheap") {
+    checkFilterWithAndWithoutCSE(
+      Seq(Row(1, 5), Row(60, 50), Row(10, 20), Row(0, 0), Row(null, 5)),
+      new StructType().add("a", IntegerType).add("b", IntegerType),
+      "(a + b) > 0 AND (a + b) < 100",
+      Seq(Row(1, 5), Row(10, 20))
+    )
   }
 }

@@ -33,6 +33,8 @@ import scala.collection.JavaConverters._
 
 abstract class AbstractIcebergWriteExec extends IcebergWriteExec {
 
+  override protected def supportsSortedWrite: Boolean = true
+
   private val parquetPageRowLimitSession =
     "spark.gluten.sql.columnar.backend.velox.parquet_writer_page_row_limit"
 

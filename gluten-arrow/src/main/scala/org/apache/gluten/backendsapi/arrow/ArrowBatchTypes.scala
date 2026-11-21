@@ -25,8 +25,9 @@ object ArrowBatchTypes {
   /**
    * ArrowJavaBatch stands for Gluten's Java Arrow-based columnar batch implementation.
    *
-   * ArrowJavaBatch should have [[org.apache.gluten.vectorized.ArrowWritableColumnVector]]s
-   * populated in it. ArrowJavaBatch can be offloaded to ArrowNativeBatch through API in
+   * ArrowJavaBatch should have [[org.apache.gluten.vectorized.RefCountedArrowColumnVector]]s
+   * (Spark's `ArrowColumnVector` with a reference count) populated in it. ArrowJavaBatch can be
+   * offloaded to ArrowNativeBatch through API in
    * [[org.apache.gluten.columnarbatch.ColumnarBatches]].
    *
    * ArrowJavaBatch is compatible with vanilla batch since it provides valid #get<type>(...)

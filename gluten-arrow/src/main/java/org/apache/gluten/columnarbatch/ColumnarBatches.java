@@ -22,8 +22,8 @@ import org.apache.gluten.runtime.Runtimes;
 import org.apache.gluten.utils.ArrowAbiUtil;
 import org.apache.gluten.utils.ArrowUtil;
 import org.apache.gluten.utils.InternalRowUtil;
-import org.apache.gluten.vectorized.ArrowColumnarBatch;
-import org.apache.gluten.vectorized.ArrowWritableColumnVector;
+import org.apache.gluten.vectorized.ArrowColumnVectors;
+import org.apache.gluten.vectorized.RefCountedArrowColumnVector;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.arrow.c.ArrowArray;
@@ -31,16 +31,21 @@ import org.apache.arrow.c.ArrowSchema;
 import org.apache.arrow.c.CDataDictionaryProvider;
 import org.apache.arrow.c.Data;
 import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.vector.FieldVector;
+import org.apache.arrow.vector.ValueVector;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.utils.SparkArrowUtil;
+import org.apache.spark.sql.vectorized.ArrowColumnVector;
 import org.apache.spark.sql.vectorized.ColumnVector;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 import org.apache.spark.sql.vectorized.SparkColumnarBatchUtil;
 
 import java.util.Arrays;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.NoSuchElementException;
 
 import scala.collection.JavaConverters;
@@ -78,11 +83,54 @@ public final class ColumnarBatches {
     // it's likely a heavy batch
     for (int i = 0; i < batch.numCols(); i++) {
       ColumnVector col = batch.column(i);
-      if (!(col instanceof ArrowWritableColumnVector)) {
+      if (!(col instanceof RefCountedArrowColumnVector)) {
         throw new IllegalStateException("Heavy batch should consist of arrow vectors");
       }
     }
     return BatchType.HEAVY;
+  }
+
+  /**
+   * Whether the batch consists of Spark {@link ArrowColumnVector}s that are not Gluten's
+   * reference-counted ones.
+   */
+  private static boolean isForeignArrowBatch(ColumnarBatch batch) {
+    if (batch.numCols() == 0) {
+      return false;
+    }
+    boolean allArrow = true;
+    boolean allRefCounted = true;
+    for (int i = 0; i < batch.numCols(); i++) {
+      ColumnVector col = batch.column(i);
+      allArrow &= col instanceof ArrowColumnVector;
+      allRefCounted &= col instanceof RefCountedArrowColumnVector;
+    }
+    return allArrow && !allRefCounted;
+  }
+
+  /**
+   * Moves (or copies) the Arrow vectors of `input` into a new batch owned by Gluten. A vector is
+   * copied instead of moved when moving would empty it for someone else: a Gluten {@link
+   * RefCountedArrowColumnVector} passed through by the producer may still be referenced elsewhere,
+   * and a vector used by several columns must stay readable for the other columns.
+   */
+  private static ColumnarBatch adopt(BufferAllocator allocator, ColumnarBatch input) {
+    Map<ValueVector, Integer> uses = new IdentityHashMap<>();
+    for (int i = 0; i < input.numCols(); i++) {
+      uses.merge(((ArrowColumnVector) input.column(i)).getValueVector(), 1, Integer::sum);
+    }
+    ColumnVector[] columns = new ColumnVector[input.numCols()];
+    for (int i = 0; i < input.numCols(); i++) {
+      ColumnVector column = input.column(i);
+      ValueVector vector = ((ArrowColumnVector) column).getValueVector();
+      boolean shared = column instanceof RefCountedArrowColumnVector || uses.get(vector) > 1;
+      FieldVector adopted =
+          shared
+              ? ArrowColumnVectors.copy(vector, allocator)
+              : ArrowColumnVectors.adopt(vector, allocator);
+      columns[i] = new RefCountedArrowColumnVector(adopted);
+    }
+    return new ColumnarBatch(columns, input.numRows());
   }
 
   /** Heavy batch: Data is readable from JVM and formatted as Arrow data. */
@@ -128,7 +176,7 @@ public final class ColumnarBatches {
    * and {@link PlaceholderVector}). This method will close the input column batch after offloaded.
    */
   public static ColumnarBatch ensureOffloaded(BufferAllocator allocator, ColumnarBatch batch) {
-    if (ColumnarBatches.isLightBatch(batch)) {
+    if (!isForeignArrowBatch(batch) && ColumnarBatches.isLightBatch(batch)) {
       return batch;
     }
     return offload(allocator, batch);
@@ -168,15 +216,6 @@ public final class ColumnarBatches {
     }
   }
 
-  public static ArrowColumnarBatch convertToArrowColumnarBatch(ColumnarBatch sparkColumnarBatch) {
-    int numCols = sparkColumnarBatch.numCols();
-    ArrowWritableColumnVector[] writableColumns = new ArrowWritableColumnVector[numCols];
-    for (int i = 0; i < numCols; i++) {
-      writableColumns[i] = (ArrowWritableColumnVector) sparkColumnarBatch.column(i);
-    }
-    return new ArrowColumnarBatch(writableColumns, sparkColumnarBatch.numRows());
-  }
-
   public static ColumnarBatch load(BufferAllocator allocator, ColumnarBatch input) {
     if (isZeroColumnBatch(input)) {
       return input;
@@ -209,7 +248,7 @@ public final class ColumnarBatches {
       long refCnt = getRefCntLight(input);
       for (long i = 0; i < (refCnt - 1); i++) {
         for (int j = 0; j < output.numCols(); j++) {
-          final ArrowWritableColumnVector col = (ArrowWritableColumnVector) output.column(j);
+          final RefCountedArrowColumnVector col = (RefCountedArrowColumnVector) output.column(j);
           col.retain();
         }
       }
@@ -227,6 +266,12 @@ public final class ColumnarBatches {
   }
 
   public static ColumnarBatch offload(BufferAllocator allocator, ColumnarBatch input) {
+    if (isForeignArrowBatch(input)) {
+      // A batch of Spark ArrowColumnVectors (e.g. the output of a Spark Arrow operator) is owned
+      // by its producer and only valid until the next one is requested: take ownership of its
+      // vectors in a Gluten batch and offload that one, leaving the input to its producer.
+      return offload(allocator, adopt(allocator, input));
+    }
     if (isZeroColumnBatch(input)) {
       return input;
     }
@@ -307,7 +352,7 @@ public final class ColumnarBatches {
     }
     long refCnt = -1L;
     for (int i = 0; i < input.numCols(); i++) {
-      ArrowWritableColumnVector col = ((ArrowWritableColumnVector) input.column(i));
+      RefCountedArrowColumnVector col = ((RefCountedArrowColumnVector) input.column(i));
       long colRefCnt = col.refCnt();
       if (refCnt == -1L) {
         refCnt = colRefCnt;
@@ -372,7 +417,7 @@ public final class ColumnarBatches {
         break;
       case HEAVY:
         for (int i = 0; i < b.numCols(); i++) {
-          ArrowWritableColumnVector col = ((ArrowWritableColumnVector) b.column(i));
+          RefCountedArrowColumnVector col = ((RefCountedArrowColumnVector) b.column(i));
           col.retain();
         }
         break;

@@ -340,6 +340,11 @@ class BaselineTest(unittest.TestCase):
             ):
                 source.verify()
 
+    def test_result_from_the_x86_backend_workflow_is_a_baseline(self):
+        source = Source()
+        source.run["path"] = ".github/workflows/velox_backend_x86.yml"
+        source.verify()
+
     def test_manual_main_result_can_seed_baseline_without_a_passing_comparison(self):
         source = Source()
         source.run.update(

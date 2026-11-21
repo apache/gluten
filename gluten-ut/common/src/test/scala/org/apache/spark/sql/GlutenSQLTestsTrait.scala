@@ -241,13 +241,17 @@ object GlutenQueryTestUtil extends Assertions {
     case (a: Row, b: Row) =>
       compare(a.toSeq, b.toSeq)
     // 0.0 == -0.0, turn float/double to bits before comparison, to distinguish 0.0 and -0.0.
+    // NaN can be represented with different bits (e.g. by native code), so first check for it.
     case (a: Double, b: Double) =>
-      if ((isNaNOrInf(a) || isNaNOrInf(b)) || (a == -0.0) || (b == -0.0)) {
+      if (a.isNaN && b.isNaN) {
+        true
+      } else if ((isNaNOrInf(a) || isNaNOrInf(b)) || (a == -0.0) || (b == -0.0)) {
         java.lang.Double.doubleToRawLongBits(a) == java.lang.Double.doubleToRawLongBits(b)
       } else {
         Precision.equalsWithRelativeTolerance(a, b, 0.00001d)
       }
     case (a: Float, b: Float) =>
+      a.isNaN && b.isNaN ||
       java.lang.Float.floatToRawIntBits(a) == java.lang.Float.floatToRawIntBits(b)
     case (a, b) => a == b
   }

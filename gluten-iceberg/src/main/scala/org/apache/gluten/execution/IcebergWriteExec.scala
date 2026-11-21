@@ -18,6 +18,8 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 
+import org.apache.spark.sql.catalyst.expressions.SortOrder
+
 import org.apache.iceberg.{FileFormat, PartitionField, PartitionSpec, Schema, TableProperties}
 import org.apache.iceberg.TableProperties._
 import org.apache.iceberg.avro.AvroSchemaUtil
@@ -29,6 +31,11 @@ import java.util.Locale
 import scala.collection.JavaConverters._
 
 trait IcebergWriteExec extends ColumnarV2TableWriteExec {
+
+  protected def supportsSortedWrite: Boolean = false
+
+  override lazy val requiredChildOrdering: Seq[Seq[SortOrder]] =
+    Seq(IcebergWriteUtil.getRequiredOrdering(write, query.output))
 
   protected def getFileFormat(format: FileFormat): Int = {
     format match {
@@ -130,7 +137,7 @@ trait IcebergWriteExec extends ColumnarV2TableWriteExec {
           "Not support write unsupported partition type, or is nested partition column")
       }
     }
-    if (IcebergWriteUtil.getTable(write).sortOrder().isSorted) {
+    if (!supportsSortedWrite && IcebergWriteUtil.getSortOrder(write).isSorted) {
       return ValidationResult.failed("Not support write table with sort order")
     }
     val format = IcebergWriteUtil.getFileFormat(write)

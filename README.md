@@ -84,17 +84,17 @@ They have been verified on Centos 8/9, Ubuntu 20.04/22.04.
 
 ### Build From Source
 
-For **Velox** backend, please refer to [Velox.md](./docs/get-started/Velox.md) and [build-guide.md](./docs/get-started/build-guide.md).
+For **Velox** backend, please refer to [Velox.md](./docs/backends/velox/get-started/Velox.md) and [build-guide.md](./docs/get-started/build-guide.md).
 
-For **ClickHouse** backend, please refer to [ClickHouse.md](./docs/get-started/ClickHouse.md).
+For **ClickHouse** backend, please refer to [ClickHouse.md](./docs/backends/clickhouse/get-started/ClickHouse.md).
 
 The Gluten JAR will be generated under `/PATH/TO/GLUTEN/package/target/` after the build.
 
 ### Configurations
 
-Common configurations used by Gluten are listed in [Configuration.md](./docs/Configuration.md). Velox specific configurations are listed in [velox-configuration.md](./docs/velox-configuration.md).
+Common configurations used by Gluten are listed in [Configuration.md](./docs/Configuration.md). Velox specific configurations are listed in [velox-configuration.md](./docs/backends/velox/velox-configuration.md).
 
-The Gluten Velox backend honors some Spark configurations, ignores others, and many are transparent to it. See [velox-spark-configuration.md](./docs/velox-spark-configuration.md) for details, and [velox-parquet-write-configuration.md](./docs/velox-parquet-write-configuration.md) for Parquet write configurations.
+The Gluten Velox backend honors some Spark configurations, ignores others, and many are transparent to it. See [velox-spark-configuration.md](./docs/backends/velox/velox-spark-configuration.md) for details, and [velox-parquet-write-configuration.md](./docs/backends/velox/velox-parquet-write-configuration.md) for Parquet write configurations.
 
 ## 4. Resources
 

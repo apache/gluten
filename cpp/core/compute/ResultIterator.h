@@ -59,14 +59,6 @@ class ResultIterator {
 
   Metrics* getMetrics();
 
-  void setExportNanos(int64_t exportNanos) {
-    exportNanos_ = exportNanos;
-  }
-
-  int64_t getExportNanos() const {
-    return exportNanos_;
-  }
-
   int64_t spillFixedSize(int64_t size) {
     return iter_->spillFixedSize(size);
   }
@@ -87,7 +79,6 @@ class ResultIterator {
   std::unique_ptr<ColumnarBatchIterator> iter_;
   std::shared_ptr<ColumnarBatch> next_;
   Runtime* runtime_;
-  int64_t exportNanos_;
 };
 
 } // namespace gluten

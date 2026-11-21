@@ -89,9 +89,9 @@ class BoltRuntime final : public Runtime {
       const std::unordered_map<std::string, std::string>& sparkConfs);
 #endif
 
-  Metrics* getMetrics(ColumnarBatchIterator* rawIter, int64_t exportNanos) override {
+  Metrics* getMetrics(ColumnarBatchIterator* rawIter) override {
     auto iter = static_cast<WholeStageResultIterator*>(rawIter);
-    return iter->getMetrics(exportNanos);
+    return iter->getMetrics();
   }
 
   std::unique_ptr<ColumnarBatchSerializer> createColumnarBatchSerializer(struct ArrowSchema* cSchema) override;
@@ -117,10 +117,14 @@ class BoltRuntime final : public Runtime {
       std::vector<bytedance::bolt::core::PlanNodeId>& scanIds,
       std::vector<bytedance::bolt::core::PlanNodeId>& streamIds);
 
+  using Runtime::createShuffleWriter;
+
   std::shared_ptr<ShuffleWriterBase> createShuffleWriter(
       const ShuffleWriterInfo& info,
       std::shared_ptr<RssClient> rssClient,
       std::shared_ptr<ColumnarBatch> cb);
+
+  using Runtime::createShuffleReader;
 
   std::shared_ptr<ShuffleReaderBase> createShuffleReader(
       std::shared_ptr<arrow::Schema> schema,

@@ -15,43 +15,22 @@
 
 name: Iceberg Spark UT (Gluten)
 
+# Pull requests run this from velox_backend_x86.yml, which passes the static native libraries
+# it already built for the head revision. Manual runs build them here.
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/iceberg_spark_ut.yml'
-      - '.github/workflows/iceberg_upstream_revision.yml'
-      - '.github/workflows/velox_native_build.yml'
-      - '.github/workflows/util/iceberg-upstream/**'
-      - 'backends-velox/src-iceberg*/**'
-      - 'gluten-iceberg/**'
-      - 'gluten-ut/src-iceberg-upstream/**'
-      # Shared production code and dependencies used by Iceberg on Spark 3.5.
-      - 'pom.xml'
-      - 'backends-velox/pom.xml'
-      - 'backends-velox/src/main/**'
-      - 'gluten-core/pom.xml'
-      - 'gluten-core/src/main/**'
-      - 'gluten-substrait/pom.xml'
-      - 'gluten-substrait/src/main/**'
-      - 'gluten-arrow/pom.xml'
-      - 'gluten-arrow/src/main/**'
-      - 'shims/pom.xml'
-      - 'shims/common/pom.xml'
-      - 'shims/common/src/main/**'
-      - 'shims/spark35/pom.xml'
-      - 'shims/spark35/src/main/**'
-      - 'build/mvn'
-      - 'dev/gluten-build-info.sh'
-      # Native code and the build inputs used by velox_native_build.yml.
-      - 'cpp/**'
-      - 'ep/build-velox/**'
-      - 'dev/ci-velox-buildstatic-centos-8.sh'
-      - 'dev/builddeps-veloxbe.sh'
-      - 'dev/build-helper-functions.sh'
-      - 'dev/vcpkg/**'
-      # Documentation-only changes do not affect this runtime.
-      - '!**/*.md'
-      - '!**/*.rst'
+  workflow_call:
+    inputs:
+      native_artifact:
+        type: string
+        default: ''
+      # A fork push passes the commit it squash-merged onto apache/gluten main, and
+      # that main commit. Empty: the event's commit and pull request base.
+      revision:
+        type: string
+        default: ''
+      base_revision:
+        type: string
+        default: ''
   workflow_dispatch:
 
 permissions:
@@ -73,10 +52,10 @@ env:
 
 # Five class shards avoid repeating class fixtures on multiple runners.
 # Keep the default job timeout so cold builds can finish; measure elapsed time separately.
-# Independent entry point keeps these shards outside the main backend workflow's concurrency.
+# The head revision reuses the static native build of velox_backend_x86.yml when called from it.
 jobs:
   prepare:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     outputs:
       base_sha: ${{ steps.baseline.outputs.base_sha }}
       baseline_key: ${{ steps.baseline.outputs.baseline_key }}
@@ -89,11 +68,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.revision }}
           fetch-depth: 0
       - name: Identify the merged baseline and runtimes
         id: baseline
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ inputs.base_revision || github.event.pull_request.base.sha }}
         run: |
           python3 .github/workflows/util/iceberg-upstream/baseline.py prepare \
             --revision "${BASE_SHA:-$(git rev-parse HEAD^)}" >> "$GITHUB_OUTPUT"
@@ -106,6 +86,8 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          # Baselines are saved by apache/gluten runs; a fork reads them from there.
+          ICEBERG_BASELINE_REPOSITORY: apache/gluten
           BASELINE_KEY: ${{ steps.baseline.outputs.baseline_key }}
           BASE_SHA: ${{ steps.baseline.outputs.base_sha }}
           BASE_BRANCH: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
@@ -130,10 +112,12 @@ jobs:
     needs: prepare
     uses: ./.github/workflows/iceberg_upstream_revision.yml
     with:
-      revision: ${{ github.sha }}
+      revision: ${{ inputs.revision || github.sha }}
+      harness_revision: ${{ inputs.revision }}
       label: head
       native_image: ${{ needs.prepare.outputs.native_image }}
       test_image: ${{ needs.prepare.outputs.test_image }}
+      native_artifact: ${{ inputs.native_artifact }}
 
   iceberg-base-test:
     needs: prepare
@@ -141,6 +125,7 @@ jobs:
     uses: ./.github/workflows/iceberg_upstream_revision.yml
     with:
       revision: ${{ needs.prepare.outputs.base_sha }}
+      harness_revision: ${{ inputs.revision }}
       label: base
       native_image: ${{ needs.prepare.outputs.native_image }}
       test_image: ${{ needs.prepare.outputs.test_image }}
@@ -149,10 +134,11 @@ jobs:
     name: iceberg-upstream-gate (3.5)
     needs: [prepare, iceberg-upstream-test, iceberg-base-test]
     if: always() && !cancelled()
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.revision }}
           fetch-depth: 0
       - name: Require complete test runs
         env:
@@ -181,9 +167,10 @@ jobs:
         if: always() && steps.head.outcome == 'success' && needs.iceberg-upstream-test.result == 'success'
         env:
           HEAD_KEY: ${{ needs.prepare.outputs.head_key }}
+          HEAD_SHA: ${{ inputs.revision || github.sha }}
         run: |
           python3 .github/workflows/util/iceberg-upstream/baseline.py record \
-            --directory iceberg-head --key "$HEAD_KEY" --revision "$GITHUB_SHA"
+            --directory iceberg-head --key "$HEAD_KEY" --revision "$HEAD_SHA"
       - name: Save the result for reuse after merge
         if: always() && steps.head-identity.outcome == 'success'
         uses: actions/upload-artifact@v7

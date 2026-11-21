@@ -16,6 +16,9 @@
  */
 package org.apache.spark.sql
 
+import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.sql.shims.SparkShimLoader
+
 import org.apache.spark.SparkException
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
 import org.apache.spark.sql.internal.SQLConf
@@ -156,38 +159,43 @@ class GlutenSQLQuerySuite extends SQLQuerySuite with GlutenSQLTestsTrait {
   }
 
   testGluten("SPARK-47939: Explain should work with parameterized queries") {
-    def checkQueryPlan(df: DataFrame, plan: String): Unit = assert(
+    def normalizedQueryPlans(df: DataFrame): Array[String] =
       df.collect()
         .map(_.getString(0))
         .map(_.replaceAll("#[0-9]+", "#N"))
         // Remove the backend keyword in c2r/r2c.
         .map(_.replaceAll("[A-Za-z]*ColumnarToRow", "ColumnarToRow"))
         .map(_.replaceAll("RowTo[A-Za-z]*Columnar", "RowToColumnar"))
-        === Array(plan.stripMargin)
-    )
 
-    checkQueryPlan(
-      spark.sql("explain select ?", Array(1)),
-      """== Physical Plan ==
-        |ColumnarToRow
-        |+- ^(1) ProjectExecTransformer [1 AS 1#N]
-        |   +- ^(1) InputIteratorTransformer[]
-        |      +- RowToColumnar
-        |         +- *(1) Scan OneRowRelation[]
-        |
-        |"""
-    )
-    checkQueryPlan(
-      spark.sql("explain select :first", Map("first" -> 1)),
-      """== Physical Plan ==
-        |ColumnarToRow
-        |+- ^(1) ProjectExecTransformer [1 AS 1#N]
-        |   +- ^(1) InputIteratorTransformer[]
-        |      +- RowToColumnar
-        |         +- *(1) Scan OneRowRelation[]
-        |
-        |"""
-    )
+    def checkQueryPlan(df: DataFrame, plan: String): Unit =
+      assert(normalizedQueryPlans(df) === Array(plan.stripMargin))
+
+    val oneRowSource = spark
+      .sql("select 1")
+      .queryExecution
+      .sparkPlan
+      .find(SparkShimLoader.getSparkShims.isOneRowRelationExec)
+      .getOrElse(fail("Spark plan did not contain OneRowRelationExec"))
+    val nativeOneRowSupported = !SparkShimLoader.getSparkShims.isOneRowRelationExec(
+      BackendsApiManager.getSparkPlanExecApiInstance
+        .genOneRowRelationExecTransformer(oneRowSource))
+
+    def checkOneRowQueryPlan(df: DataFrame): Unit = {
+      val plans = normalizedQueryPlans(df)
+      assert(plans.length === 1)
+      val plan = plans.head
+      assert(plan.contains("ColumnarToRow"))
+      assert(plan.contains("ProjectExecTransformer [1 AS 1#N]"))
+      val fallbackBoundaries = Seq("RowToColumnar", "Scan OneRowRelation")
+      if (nativeOneRowSupported) {
+        assert(fallbackBoundaries.forall(boundary => !plan.contains(boundary)))
+      } else {
+        assert(fallbackBoundaries.forall(plan.contains))
+      }
+    }
+
+    checkOneRowQueryPlan(spark.sql("explain select ?", Array(1)))
+    checkOneRowQueryPlan(spark.sql("explain select :first", Map("first" -> 1)))
 
     checkQueryPlan(
       spark.sql("explain explain explain select ?", Array(1)),

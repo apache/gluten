@@ -107,7 +107,6 @@ object VeloxRuleApi {
       Validators.newValidator(conf, offloads)
     val rewrites =
       Seq(
-        RewriteIn,
         RewriteMultiChildrenCount,
         RewriteJoin,
         PullOutPreProject,
@@ -128,13 +127,13 @@ object VeloxRuleApi {
     injector.injectPostTransform(_ => PushDownFilterToScan)
     injector.injectPostTransform(_ => ScanMapKeyPruning)
     injector.injectPostTransform(_ => PushDownInputFileExpression.PostOffload)
+    injector.injectPostTransform(_ => V2WritePostRule())
     injector.injectPostTransform(_ => EnsureLocalSortRequirements)
     injector.injectPostTransform(_ => EliminateLocalSort)
     injector.injectPostTransform(_ => CollapseProjectExecTransformer)
     injector.injectPostTransform(c => FlushableHashAggregateRule.apply(c.session))
     injector.injectPostTransform(_ => CollectLimitTransformerRule())
     injector.injectPostTransform(_ => CollectTailTransformerRule())
-    injector.injectPostTransform(_ => V2WritePostRule())
     injector.injectPostTransform(c => InsertTransitions.create(c.outputsColumnar, VeloxBatchType))
 
     // Gluten columnar: Fallback policies.

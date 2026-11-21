@@ -179,8 +179,8 @@ public class CelebornShuffleManager
           // for Celeborn 0.6.0
           CelebornUtils.incrementApplicationCount(lifecycleManager);
           CelebornUtils.registerCancelShuffleCallback(lifecycleManager);
-          CelebornUtils.stageRerun(
-              stageRerunEnabled, lifecycleManager, celebornConf, failedShuffleCleaner);
+          failedShuffleCleaner =
+              CelebornUtils.stageRerun(stageRerunEnabled, lifecycleManager, celebornConf);
 
           shuffleClient =
               CelebornUtils.getShuffleClient(

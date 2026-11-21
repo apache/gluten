@@ -20,9 +20,10 @@ import org.apache.gluten.config.BoltConfig
 import org.apache.gluten.execution.{FilterExecTransformer, GenerateExecTransformer, ProjectExecTransformer}
 
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Expression}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeSet, Cast, Coalesce, Expression, Literal, Size}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.SparkPlan
+import org.apache.spark.sql.types.{ArrayType, ByteType, DataType, DoubleType, FloatType, IntegerType, LongType, MapType, ShortType}
 
 case class PushdownProjectExecBeforeGeneratorRule(spark: SparkSession) extends Rule[SparkPlan] {
   override def apply(plan: SparkPlan): SparkPlan = {
@@ -33,77 +34,83 @@ case class PushdownProjectExecBeforeGeneratorRule(spark: SparkSession) extends R
       case project @ ProjectExecTransformer(
             _,
             filter @ FilterExecTransformer(_, generate: GenerateExecTransformer)) =>
-        val generateOut = generate.generatorOutput.toSet
-        val independentProject = project.projectList
-          .filter(p => p.references.toSet.intersect(generateOut).isEmpty)
-          .filterNot(isAliasOrAttribute(_))
-        if (independentProject.isEmpty) {
-          return plan
-        }
-        val independentProjectReferences = independentProject.flatMap(p => p.references).toSet
-        val newGeneratorExec = generate.copy(
-          generator = generate.generator,
-          requiredChildOutput = generate.requiredChildOutput.filterNot(
-            p => independentProjectReferences.contains(p)) ++ independentProject.map(
-            pj => pj.toAttribute),
-          outer = generate.outer,
-          generatorOutput = generate.generatorOutput,
-          child = ProjectExecTransformer(
-            independentProject ++ generate.inputSet.seq.filterNot(
-              p => independentProjectReferences.contains(p)),
-            generate.child)
-        )
-        val newFilter = filter.copy(filter.condition, newGeneratorExec)
-        val newProject =
-          ProjectExecTransformer(
-            project.projectList.map(
-              pj =>
-                if (pj.references.toSet.intersect(generateOut).isEmpty) { pj.toAttribute }
-                else { pj }),
-            newFilter)
-        val validationResult = newProject.doValidate()
-        if (validationResult.ok()) {
-          newProject
-        } else {
-          project
-        }
+        pushProject(project, generate, Some(filter))
       case project @ ProjectExecTransformer(_, generate: GenerateExecTransformer) =>
-        // reorder project and generator
-        val generateOut = generate.generatorOutput.toSet
-        val independentProject = project.projectList
-          .filter(p => p.references.toSet.intersect(generateOut).isEmpty)
-          .filterNot(isAliasOrAttribute(_))
-        if (independentProject.isEmpty) {
-          return plan
-        }
-        val independentProjectReferences = independentProject.flatMap(p => p.references).toSet
-        val newGeneratorExec = generate.copy(
-          generator = generate.generator,
-          requiredChildOutput = generate.requiredChildOutput.filterNot(
-            p => independentProjectReferences.contains(p)) ++ independentProject.map(
-            pj => pj.toAttribute),
-          outer = generate.outer,
-          generatorOutput = generate.generatorOutput,
-          child = ProjectExecTransformer(
-            independentProject ++ generate.inputSet.seq.filterNot(
-              p => independentProjectReferences.contains(p)),
-            generate.child)
-        )
-        val newProject =
-          ProjectExecTransformer(
-            project.projectList.map(
-              pj =>
-                if (pj.references.toSet.intersect(generateOut).isEmpty) { pj.toAttribute }
-                else { pj }),
-            newGeneratorExec)
-        val validationResult = newProject.doValidate()
-        if (validationResult.ok()) {
-          newProject
-        } else {
-          project
-        }
+        pushProject(project, generate, None)
     }
   }
+
+  private def pushProject(
+      project: ProjectExecTransformer,
+      generate: GenerateExecTransformer,
+      filter: Option[FilterExecTransformer]): SparkPlan = {
+    // Moving a nondeterministic expression below Generate changes its evaluation frequency.
+    if (!project.projectList.forall(_.deterministic)) {
+      return project
+    }
+    val generateOut = generate.generatorOutput.toSet
+    val independentProject = project.projectList
+      .filter(p => p.references.toSet.intersect(generateOut).isEmpty)
+      .filterNot(isAliasOrAttribute(_))
+    if (independentProject.isEmpty || !independentProject.forall(isSafeToEvaluate)) {
+      return project
+    }
+    val newProjectList = project.projectList.map(
+      pj =>
+        if (independentProject.contains(pj)) { pj.toAttribute }
+        else { pj })
+    val requiredOutput = AttributeSet(newProjectList.flatMap(_.references)) ++
+      filter.map(_.condition.references).getOrElse(AttributeSet.empty)
+    val requiredChildOutput = generate.requiredChildOutput.filter(requiredOutput.contains) ++
+      independentProject.map(_.toAttribute)
+    // Preserve shared generator/filter/pass-through bindings,
+    // without keeping unused output columns.
+    val requiredInput = generate.generator.references ++ AttributeSet(requiredChildOutput)
+    val newChild = ProjectExecTransformer(
+      independentProject ++ generate.child.output.filter(requiredInput.contains),
+      generate.child)
+    val newGenerator = generate.copy(requiredChildOutput = requiredChildOutput, child = newChild)
+    val newFilter = filter.map(f => f.copy(child = newGenerator))
+    val newProject = ProjectExecTransformer(newProjectList, newFilter.getOrElse(newGenerator))
+    if (
+      newGenerator.generator.references.subsetOf(newChild.outputSet) &&
+      newGenerator.requiredChildOutput.forall(a => newChild.outputSet.contains(a)) &&
+      newFilter.forall(f => f.condition.references.subsetOf(newGenerator.outputSet)) &&
+      newProject.output == project.output &&
+      newChild.doValidate().ok() && newGenerator.doValidate().ok() &&
+      newFilter.forall(_.doValidate().ok()) && newProject.doValidate().ok()
+    ) {
+      newProject
+    } else {
+      project
+    }
+  }
+  // Generate can produce no rows and a subsequent Filter can discard them all. Evaluating an
+  // expression earlier must not introduce errors for rows where Spark never evaluates it.
+  // Keep unknown expression trees in their original position.
+  private def isSafeToEvaluate(expression: Expression): Boolean = expression match {
+    case Alias(child, _) => isSafeToEvaluate(child)
+    case _: Attribute | _: Literal => true
+    case c: Cast => isSafeToEvaluate(c.child) && isSafeWidening(c.child.dataType, c.dataType)
+    case c: Coalesce => c.children.forall(isSafeToEvaluate)
+    case s: Size =>
+      isSafeToEvaluate(s.child) && (s.child.dataType match {
+        case _: ArrayType | _: MapType => true
+        case _ => false
+      })
+    case _ => false
+  }
+
+  private def isSafeWidening(from: DataType, to: DataType): Boolean = {
+    val integral = Seq(ByteType, ShortType, IntegerType, LongType)
+    val fromIntegral = integral.indexOf(from)
+    val toIntegral = integral.indexOf(to)
+    from == to ||
+    (fromIntegral >= 0 && toIntegral >= fromIntegral) ||
+    (fromIntegral >= 0 && (to == FloatType || to == DoubleType)) ||
+    (from == FloatType && to == DoubleType)
+  }
+
   private def isAliasOrAttribute(project: Expression): Boolean = project match {
     case Alias(child, _) => isAliasOrAttribute(child)
     case _: Attribute => true

@@ -20,23 +20,12 @@ public class Metrics implements IMetrics {
   public final String metricsJson;
   public final int numMetrics;
 
-  public SingleMetric singleMetric = new SingleMetric();
-
   public String taskStats;
 
   /** Create an instance for native metrics. */
-  public Metrics(String metricsJson, int numMetrics, long veloxToArrow, String taskStats) {
+  public Metrics(String metricsJson, int numMetrics, String taskStats) {
     this.metricsJson = metricsJson;
     this.numMetrics = numMetrics;
-    this.singleMetric.veloxToArrow = veloxToArrow;
     this.taskStats = taskStats;
-  }
-
-  public SingleMetric getSingleMetrics() {
-    return singleMetric;
-  }
-
-  public static class SingleMetric {
-    public long veloxToArrow;
   }
 }

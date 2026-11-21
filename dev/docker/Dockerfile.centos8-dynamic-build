@@ -29,7 +29,8 @@ ENV PATH=$JAVA_HOME/bin:$PATH
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 
-RUN set -ex; \
+RUN --mount=type=bind,source=dev/docker/install-ci-tools.sh,target=/tmp/install-ci-tools.sh \
+    set -ex; \
     sed -i -e "s|mirrorlist=|#mirrorlist=|g" /etc/yum.repos.d/CentOS-* || true; \
     sed -i -e "s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-* || true; \
     yum update -y && yum install -y epel-release sudo dnf && yum install -y ccache; \
@@ -64,6 +65,12 @@ RUN set -ex; \
     export VELOX_BUILD_SHARED=ON; \
     ./dev/builddeps-veloxbe.sh --run_setup_script=ON build_arrow; \
     ./build/mvn dependency:go-offline -Pbackends-velox -Piceberg -Pdelta -Pspark-3.5 -DskipTests; \
+    # Everything the CI jobs used to install at runtime, so PR jobs never reach a package
+    # mirror: JDK 17 for the Spark unit tests (every JDK variant), the TPC/Celeborn/Flink
+    # tools, and one PySpark virtualenv per version under /opt/pyspark.
+    dnf install -y java-17-openjdk-devel procps-ng which findutils gzip tzdata patchelf; \
+    dnf module -y install python39; \
+    bash /tmp/install-ci-tools.sh --pyspark-python=/usr/bin/python3.9; \
     dnf clean all; \
     rm -rf /opt/gluten; \
     rm -rf /root/.cache/ccache;

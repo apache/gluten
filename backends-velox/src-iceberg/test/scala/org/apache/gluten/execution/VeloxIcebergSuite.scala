@@ -20,6 +20,7 @@ import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.utils.VeloxFileSystemValidationJniWrapper
 
+import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.connector.catalog.{Identifier, TableCatalog}
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
@@ -29,13 +30,61 @@ import org.apache.iceberg.{FileScanTask, UpdateSchema}
 import org.apache.iceberg.expressions.Literal
 import org.apache.iceberg.hadoop.HadoopCatalog
 import org.apache.iceberg.io.{ResolvingFileIO, StorageCredential}
-import org.apache.iceberg.spark.{ScanTaskSetManager, Spark3Util, SparkCatalog, SparkReadOptions}
+import org.apache.iceberg.spark.{ScanTaskSetManager, Spark3Util, SparkCatalog, SparkTableCache}
 import org.apache.iceberg.spark.source.{GlutenIcebergSourceUtil, SparkTable}
 import org.apache.iceberg.types.{Type, Types}
 
 import scala.collection.JavaConverters._
 
 class VeloxIcebergSuite extends IcebergSuite {
+  override protected def sparkConf: SparkConf =
+    super.sparkConf.set("spark.sql.ansi.enabled", "false")
+
+  test("iceberg metadata row positions are file-relative across splits and filters") {
+    withTable("iceberg_metadata_split_tb") {
+      withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+        spark.sql("""
+                    |CREATE TABLE iceberg_metadata_split_tb (id BIGINT, data STRING)
+                    |USING iceberg
+                    |TBLPROPERTIES (
+                    |  'write.parquet.row-group-size-bytes' = '1024',
+                    |  'write.parquet.compression-codec' = 'uncompressed',
+                    |  'write.distribution-mode' = 'none',
+                    |  'read.split.target-size' = '1024',
+                    |  'read.split.open-file-cost' = '0')
+                    |""".stripMargin)
+        spark.range(0, 2000, 1, 1)
+          .selectExpr("id", "sha2(cast(id as string), 256) AS data")
+          .writeTo("iceberg_metadata_split_tb")
+          .append()
+      }
+
+      Seq(
+        "" -> (0L until 2000L),
+        "WHERE id >= 1000" -> (1000L until 2000L),
+        "WHERE _pos >= 1000 AND _pos < 1500" -> (1000L until 1500L),
+        "WHERE id % 3 = 0" -> (0L until 2000L by 3)
+      ).foreach {
+        case (filter, expectedIds) =>
+          runQueryAndCompare(
+            s"SELECT id, _file, _pos FROM iceberg_metadata_split_tb $filter") {
+            df =>
+              checkGlutenPlanCount[IcebergScanTransformer](df, 1)
+              val scans = getExecutedPlan(df).collect { case scan: IcebergScanTransformer => scan }
+              assert(scans.size == 1)
+              assert(
+                scans.head.inputRDD.partitions.length > 1,
+                "The single data file must be read using multiple splits")
+              val rows = df.collect()
+              assert(rows.map(_.getString(1)).distinct.length == 1)
+              assert(rows.map(_.getLong(0)).sorted.toSeq == expectedIds)
+              assert(rows.forall(row => !row.isNullAt(2)))
+              assert(rows.forall(row => row.getLong(0) == row.getLong(2)))
+          }
+      }
+    }
+  }
+
   private def withCredentialTable(catalogName: String)(
       f: (String, ResolvingFileIO) => Unit): Unit = {
     withTempDir {
@@ -120,15 +169,20 @@ class VeloxIcebergSuite extends IcebergSuite {
         val table = Spark3Util.loadIcebergTable(spark, tableName)
         val taskSetId = "vended-credentials"
         val taskSetManager = ScanTaskSetManager.get()
+        val tableCache = SparkTableCache.get()
         val tasks = table.newScan().planFiles()
         try {
+          // Register the table under the task set ID and load by that ID, which resolves to a
+          // staged scan on both Iceberg 1.10 (needs the "scan-task-set-id" option) and Iceberg
+          // 1.11+ (removed SparkReadOptions.SCAN_TASK_SET_ID, resolves cached tables directly).
+          tableCache.add(taskSetId, table)
           taskSetManager.stageTasks(table, taskSetId, tasks.asScala.toList.asJava)
           compareDfResultsAgainstVanillaSpark(
             () =>
               spark.read
                 .format("iceberg")
-                .option(SparkReadOptions.SCAN_TASK_SET_ID, taskSetId)
-                .load(tableName),
+                .option("scan-task-set-id", taskSetId)
+                .load(taskSetId),
             noFallBack = false,
             customCheck = df => {
               checkAnswer(df, Seq(Row(1), Row(2)))
@@ -142,6 +196,7 @@ class VeloxIcebergSuite extends IcebergSuite {
             }
           )
         } finally {
+          tableCache.remove(taskSetId)
           taskSetManager.removeTasks[FileScanTask](table, taskSetId)
           tasks.close()
         }

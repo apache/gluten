@@ -30,6 +30,15 @@ on:
       test_image:
         required: true
         type: string
+      # The commit holding the comparison harness. Empty: the event's commit.
+      harness_revision:
+        type: string
+        default: ''
+      native_artifact:
+        # Native libraries already built for this revision in the calling run. When empty,
+        # they are built here.
+        type: string
+        default: ''
 
 env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
@@ -41,6 +50,7 @@ env:
 
 jobs:
   native:
+    if: inputs.native_artifact == ''
     uses: ./.github/workflows/velox_native_build.yml
     with:
       revision: ${{ inputs.revision }}
@@ -49,7 +59,8 @@ jobs:
 
   build:
     needs: native
-    runs-on: ubuntu-22.04
+    if: ${{ !cancelled() && (needs.native.result == 'success' || needs.native.result == 'skipped') }}
+    runs-on: ubuntu-24.04
     container: ${{ inputs.test_image }}
     env:
       JAVA_HOME: /usr/lib/jvm/java-17-openjdk
@@ -61,7 +72,7 @@ jobs:
         if: inputs.label == 'base'
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.harness_revision || github.sha }}
           path: iceberg-harness
       - name: Apply the current harness to the base production revision
         if: inputs.label == 'base'
@@ -73,7 +84,7 @@ jobs:
       - name: Download native libraries
         uses: actions/download-artifact@v8
         with:
-          name: iceberg-native-${{ inputs.label }}
+          name: ${{ inputs.native_artifact || format('iceberg-native-{0}', inputs.label) }}
           path: cpp/build/releases/
       - name: Build Gluten once for all shards
         shell: bash
@@ -96,7 +107,7 @@ jobs:
     name: iceberg-upstream-test (3.5, ${{ inputs.label }}, ${{ matrix.shard }})
     needs: build
     if: always() && !cancelled() && needs.build.result == 'success'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container: ${{ inputs.test_image }}
     strategy:
       fail-fast: false
@@ -114,7 +125,7 @@ jobs:
         if: inputs.label == 'base'
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.harness_revision || github.sha }}
           path: iceberg-harness
       - name: Apply the current harness to the base production revision
         if: inputs.label == 'base'

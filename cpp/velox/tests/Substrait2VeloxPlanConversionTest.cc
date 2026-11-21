@@ -17,11 +17,18 @@
 
 #include "JsonToProtoConverter.h"
 
+#include <google/protobuf/wrappers.pb.h>
 #include <filesystem>
+#include <limits>
 #include "compute/VeloxPlanConverter.h"
+#include "operators/functions/RegistrationAllFunctions.h"
 #include "substrait/SubstraitToVeloxPlan.h"
+#include "substrait/VeloxToSubstraitType.h"
 #include "velox/common/base/tests/GTestUtils.h"
+#include "velox/dwio/common/FileSink.h"
 #include "velox/dwio/common/tests/utils/DataFiles.h"
+#include "velox/dwio/parquet/RegisterParquetReader.h"
+#include "velox/dwio/parquet/writer/Writer.h"
 #include "velox/exec/tests/utils/AssertQueryBuilder.h"
 #include "velox/exec/tests/utils/HiveConnectorTestBase.h"
 #include "velox/exec/tests/utils/TempDirectoryPath.h"
@@ -29,6 +36,10 @@
 
 #include "FilePathGenerator.h"
 #include "compute/VeloxBackend.h"
+#ifdef ENABLE_KAFKA
+#include "kafka.pb.h"
+#include "operators/reader/KafkaSplitInfo.h"
+#endif
 
 using namespace facebook::velox;
 using namespace facebook::velox::test;
@@ -39,6 +50,24 @@ namespace gluten {
 
 class Substrait2VeloxPlanConversionTest : public exec::test::HiveConnectorTestBase {
  protected:
+  void SetUp() override {
+    HiveConnectorTestBase::SetUp();
+    registerAllFunctions();
+    parquet::registerParquetReaderFactory();
+  }
+
+  void TearDown() override {
+    HiveConnectorTestBase::TearDown();
+    parquet::unregisterParquetReaderFactory();
+  }
+
+#ifdef ENABLE_KAFKA
+  std::shared_ptr<SplitInfo> parseSerializedSplitInfo(const std::string& serialized) {
+    return VeloxPlanConverter::parseSplitInfo(
+        veloxCfg_.get(), reinterpret_cast<const uint8_t*>(serialized.data()), static_cast<int32_t>(serialized.size()));
+  }
+#endif
+
   std::vector<std::shared_ptr<facebook::velox::connector::ConnectorSplit>> makeSplits(
       std::shared_ptr<const core::PlanNode> planNode) {
     const auto& splitInfos = planConverter_->splitInfos();
@@ -64,10 +93,88 @@ class Substrait2VeloxPlanConversionTest : public exec::test::HiveConnectorTestBa
       if (splitInfo->columnMappingMode.has_value()) {
         splitBuilder.columnMappingMode(*splitInfo->columnMappingMode);
       }
+      for (const auto& [name, value] : splitInfo->metadataColumns.at(i)) {
+        splitBuilder.infoColumn(name, value);
+      }
       auto split = splitBuilder.build();
+      EXPECT_EQ(split->columnMappingMode, splitInfo->columnMappingMode);
       splits.emplace_back(split);
     }
     return splits;
+  }
+
+  ::substrait::ReadRel makeRead(
+      const RowTypePtr& type,
+      const std::vector<::substrait::NamedStruct::ColumnType>& columnTypes = {}) {
+    google::protobuf::Arena arena;
+    VeloxToSubstraitTypeConvertor typeConverter;
+    ::substrait::ReadRel read;
+    read.mutable_common()->mutable_direct();
+    read.mutable_base_schema()->CopyFrom(typeConverter.toSubstraitNamedStruct(arena, type));
+    for (auto columnType : columnTypes) {
+      read.mutable_base_schema()->add_column_types(columnType);
+    }
+    return read;
+  }
+
+  ::substrait::ReadRel_LocalFiles makeParquetFiles(
+      const std::vector<std::string>& paths,
+      const RowTypePtr& tableSchema = nullptr,
+      dwio::common::ColumnMappingMode columnMappingMode = dwio::common::ColumnMappingMode::kName) {
+    ::substrait::ReadRel_LocalFiles files;
+    google::protobuf::Arena arena;
+    VeloxToSubstraitTypeConvertor typeConverter;
+    for (const auto& path : paths) {
+      auto* file = files.add_items();
+      file->set_uri_file(path);
+      // Velox's default whole-file range; the start offset defaults to zero.
+      file->set_length(std::numeric_limits<uint64_t>::max());
+      file->mutable_parquet();
+      auto* metadata = file->add_metadata_columns();
+      metadata->set_key("file_name");
+      metadata->set_value(std::filesystem::path(path).filename().string());
+      google::protobuf::StringValue mode;
+      mode.set_value(std::string(dwio::common::ColumnMappingModeName::toName(columnMappingMode)));
+      auto* mapping = file->add_other_const_metadata_columns();
+      mapping->set_key("__gluten.column_mapping_mode");
+      mapping->mutable_value()->PackFrom(mode);
+      if (tableSchema) {
+        file->mutable_schema()->CopyFrom(typeConverter.toSubstraitNamedStruct(arena, tableSchema));
+      }
+    }
+    return files;
+  }
+
+  std::shared_ptr<const core::TableScanNode> convertRead(
+      const ::substrait::ReadRel& read,
+      const ::substrait::ReadRel_LocalFiles& files,
+      const std::vector<std::string>& functions = {}) {
+    ::substrait::Plan plan;
+    plan.add_relations()->mutable_rel()->mutable_read()->CopyFrom(read);
+    for (size_t i = 0; i < functions.size(); ++i) {
+      auto* function = plan.add_extensions()->mutable_extension_function();
+      function->set_function_anchor(static_cast<uint32_t>(i));
+      function->set_name(functions[i]);
+    }
+    planConverter_ = std::make_shared<VeloxPlanConverter>(
+        pool(),
+        veloxCfg_.get(),
+        std::vector<std::shared_ptr<ResultIterator>>{},
+        VeloxConnectorIds{.hive = facebook::velox::exec::test::kHiveConnectorId});
+    auto scan = std::dynamic_pointer_cast<const core::TableScanNode>(planConverter_->toVeloxPlan(plan, {files}));
+    VELOX_CHECK_NOT_NULL(scan);
+    return scan;
+  }
+
+  void writeParquet(const std::string& name, const RowVectorPtr& rows) {
+    const auto path = tmpDir_->getPath() + name;
+    auto file = std::make_unique<LocalWriteFile>(path, false, true);
+    auto sink = std::make_unique<dwio::common::WriteFileSink>(std::move(file), path);
+    dwio::common::WriterOptions options;
+    options.memoryPool = rootPool_.get();
+    parquet::Writer writer(std::move(sink), options, asRowType(rows->type()));
+    writer.write(rows);
+    writer.close();
   }
 
   std::shared_ptr<exec::test::TempDirectoryPath> tmpDir_{exec::test::TempDirectoryPath::create()};
@@ -290,6 +397,153 @@ TEST_F(Substrait2VeloxPlanConversionTest, filterUpper) {
       planNode->toString(true, true));
 }
 
+TEST_F(Substrait2VeloxPlanConversionTest, derivedFileSchemaUsesRegularSlots) {
+  auto read = makeRead(
+      ROW({"file_name", "p", "file_name", "row_index", "keep"}, {BIGINT(), INTEGER(), VARCHAR(), BIGINT(), BOOLEAN()}),
+      {::substrait::NamedStruct::NORMAL_COL,
+       ::substrait::NamedStruct::PARTITION_COL,
+       ::substrait::NamedStruct::METADATA_COL,
+       ::substrait::NamedStruct::ROWINDEX_COL,
+       ::substrait::NamedStruct::NORMAL_COL});
+  read.mutable_filter()->mutable_selection()->mutable_direct_reference()->mutable_struct_field()->set_field(4);
+  auto scan = convertRead(read, makeParquetFiles({"/unused.parquet"}));
+  auto table = std::dynamic_pointer_cast<const HiveTableHandle>(scan->tableHandle());
+  ASSERT_NE(table, nullptr);
+  EXPECT_EQ(table->dataColumns()->toString(), "ROW<file_name:BIGINT,keep:BOOLEAN>");
+  EXPECT_EQ(scan->outputType()->size(), 5);
+  EXPECT_EQ(scan->assignments().size(), 5);
+  const std::vector<ColumnType> roles{
+      ColumnType::kRegular,
+      ColumnType::kPartitionKey,
+      ColumnType::kSynthesized,
+      ColumnType::kRowIndex,
+      ColumnType::kRegular};
+  for (int i = 0; i < roles.size(); ++i) {
+    auto column =
+        std::dynamic_pointer_cast<const HiveColumnHandle>(scan->assignments().at(scan->outputType()->nameOf(i)));
+    ASSERT_NE(column, nullptr);
+    EXPECT_EQ(column->columnType(), roles[i]);
+  }
+  EXPECT_EQ(scan->outputType()->childAt(0)->kind(), TypeKind::BIGINT);
+  EXPECT_EQ(scan->outputType()->childAt(2)->kind(), TypeKind::VARCHAR);
+  auto filter = std::dynamic_pointer_cast<const core::FieldAccessTypedExpr>(table->remainingFilter());
+  ASSERT_NE(filter, nullptr);
+  EXPECT_EQ(filter->name(), "keep");
+}
+
+TEST_F(Substrait2VeloxPlanConversionTest, emptyAndUntaggedFileSchemas) {
+  const auto type = ROW({"file_name", "row_index"}, {VARCHAR(), BIGINT()});
+  auto scan = convertRead(
+      makeRead(type, {::substrait::NamedStruct::METADATA_COL, ::substrait::NamedStruct::ROWINDEX_COL}),
+      makeParquetFiles({"/unused.parquet"}));
+  auto table = std::dynamic_pointer_cast<const HiveTableHandle>(scan->tableHandle());
+  ASSERT_NE(table, nullptr);
+  ASSERT_NE(table->dataColumns(), nullptr);
+  EXPECT_EQ(table->dataColumns()->size(), 0);
+  EXPECT_EQ(scan->outputType()->size(), 2);
+  EXPECT_EQ(scan->assignments().size(), 2);
+
+  scan = convertRead(makeRead(type), makeParquetFiles({"/unused.parquet"}));
+  table = std::dynamic_pointer_cast<const HiveTableHandle>(scan->tableHandle());
+  ASSERT_NE(table, nullptr);
+  EXPECT_TRUE(table->dataColumns()->equivalent(*type));
+}
+
+TEST_F(Substrait2VeloxPlanConversionTest, explicitFileSchemaPreservesPhysicalFields) {
+  auto read = makeRead(
+      ROW({"FILE_NAME", "P", "ROW_INDEX", "VALUE"}, {VARCHAR(), INTEGER(), BIGINT(), BIGINT()}),
+      {::substrait::NamedStruct::METADATA_COL,
+       ::substrait::NamedStruct::PARTITION_COL,
+       ::substrait::NamedStruct::ROWINDEX_COL,
+       ::substrait::NamedStruct::NORMAL_COL});
+  auto tableSchema = ROW({"FILE_NAME", "VALUE", "ROW_INDEX", "P"}, {BIGINT(), BIGINT(), VARCHAR(), INTEGER()});
+  auto scan = convertRead(read, makeParquetFiles({"/unused.parquet"}, tableSchema));
+  auto table = std::dynamic_pointer_cast<const HiveTableHandle>(scan->tableHandle());
+  ASSERT_NE(table, nullptr);
+  EXPECT_EQ(table->dataColumns()->toString(), "ROW<file_name:BIGINT,value:BIGINT,row_index:VARCHAR>");
+  EXPECT_EQ(scan->outputType()->size(), 4);
+  EXPECT_EQ(scan->outputType()->childAt(0)->kind(), TypeKind::VARCHAR);
+  EXPECT_EQ(scan->outputType()->childAt(2)->kind(), TypeKind::BIGINT);
+}
+
+TEST_F(Substrait2VeloxPlanConversionTest, parquetMetadataOnlyPreservesRows) {
+  writeParquet("/first.parquet", makeRowVector({"file_name"}, {makeFlatVector<int64_t>({10, 20})}));
+  writeParquet("/second.parquet", makeRowVector({"file_name"}, {makeFlatVector<int64_t>({30})}));
+  const auto files = makeParquetFiles({"/first.parquet", "/second.parquet"});
+  auto scan = convertRead(makeRead(ROW({"file_name"}, {VARCHAR()}), {::substrait::NamedStruct::METADATA_COL}), files);
+  EXPECT_EQ(planConverter_->splitInfos().at(scan->id())->columnMappingMode, dwio::common::ColumnMappingMode::kName);
+  auto expected = makeRowVector({makeFlatVector<std::string>({"first.parquet", "first.parquet", "second.parquet"})});
+  exec::test::AssertQueryBuilder(scan).splits(makeSplits(scan)).assertResults(expected);
+
+  // The same incompatible type is still an error when requested as physical data.
+  scan = convertRead(makeRead(ROW({"file_name"}, {VARCHAR()})), files);
+  VELOX_ASSERT_THROW(
+      exec::test::AssertQueryBuilder(scan).splits(makeSplits(scan)).assertResults(expected),
+      "Converted type BIGINT is not allowed for requested type VARCHAR");
+}
+
+TEST_F(Substrait2VeloxPlanConversionTest, parquetMetadataAndRegularFilters) {
+  auto rows =
+      makeRowVector({"file_name", "keep"}, {makeFlatVector<int64_t>({10, 20}), makeFlatVector<bool>({true, false})});
+  writeParquet("/first.parquet", rows);
+  writeParquet("/second.parquet", rows);
+  const auto files = makeParquetFiles({"/first.parquet", "/second.parquet"});
+  for (const std::string filename : {"first.parquet", "missing.parquet"}) {
+    auto read = makeRead(
+        ROW({"file_name", "keep"}, {VARCHAR(), BOOLEAN()}),
+        {::substrait::NamedStruct::METADATA_COL, ::substrait::NamedStruct::NORMAL_COL});
+    auto* conjunction = read.mutable_filter()->mutable_scalar_function();
+    conjunction->set_function_reference(1);
+    conjunction->mutable_output_type()->mutable_bool_()->set_nullability(
+        ::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+    auto* equal = conjunction->add_arguments()->mutable_value()->mutable_scalar_function();
+    equal->set_function_reference(0);
+    equal->mutable_output_type()->CopyFrom(conjunction->output_type());
+    equal->add_arguments()
+        ->mutable_value()
+        ->mutable_selection()
+        ->mutable_direct_reference()
+        ->mutable_struct_field()
+        ->set_field(0);
+    equal->add_arguments()->mutable_value()->mutable_literal()->set_string(filename);
+    conjunction->add_arguments()
+        ->mutable_value()
+        ->mutable_selection()
+        ->mutable_direct_reference()
+        ->mutable_struct_field()
+        ->set_field(1);
+    auto scan = convertRead(read, files, {"equal:opt_str_str", "and:opt_bool_bool"});
+    EXPECT_EQ(planConverter_->splitInfos().at(scan->id())->columnMappingMode, dwio::common::ColumnMappingMode::kName);
+    const int size = filename == "first.parquet" ? 1 : 0;
+    auto expected = makeRowVector({
+        makeFlatVector<std::string>(size, [&](auto /*row*/) { return filename; }),
+        makeFlatVector<bool>(size, [](auto /*row*/) { return true; }),
+    });
+    exec::test::AssertQueryBuilder(scan).splits(makeSplits(scan)).assertResults(expected);
+  }
+}
+
+TEST_F(Substrait2VeloxPlanConversionTest, parquetMetadataWithExplicitPositionalSchema) {
+  auto rows = makeRowVector(
+      {"file_name", "physical_keep"}, {makeFlatVector<int64_t>({10, 20}), makeFlatVector<bool>({true, false})});
+  writeParquet("/first.parquet", rows);
+  const auto files = makeParquetFiles(
+      {"/first.parquet"},
+      ROW({"file_name", "keep"}, {BIGINT(), BOOLEAN()}),
+      dwio::common::ColumnMappingMode::kPosition);
+  auto scan = convertRead(
+      makeRead(
+          ROW({"file_name", "keep"}, {VARCHAR(), BOOLEAN()}),
+          {::substrait::NamedStruct::METADATA_COL, ::substrait::NamedStruct::NORMAL_COL}),
+      files);
+  EXPECT_EQ(planConverter_->splitInfos().at(scan->id())->columnMappingMode, dwio::common::ColumnMappingMode::kPosition);
+  auto expected = makeRowVector({
+      makeFlatVector<std::string>({"first.parquet", "first.parquet"}),
+      makeFlatVector<bool>({true, false}),
+  });
+  exec::test::AssertQueryBuilder(scan).splits(makeSplits(scan)).assertResults(expected);
+}
+
 TEST_F(Substrait2VeloxPlanConversionTest, expandSelectionMustBeTopLevelField) {
   const auto makeExpandRel = [](bool nestedSelection) {
     ::substrait::Rel rel;
@@ -426,5 +680,139 @@ TEST_F(Substrait2VeloxPlanConversionTest, aggregateMaskMustBeTopLevelField) {
       makeConverter()->toVeloxPlan(makeAggregateRel(/*nestedMask=*/true)),
       "Aggregation Operator only supports a top-level field mask.");
 }
+
+#ifdef ENABLE_KAFKA
+TEST_F(Substrait2VeloxPlanConversionTest, serializedFileSplit) {
+  ::substrait::Plan plan;
+  auto* read = plan.add_relations()->mutable_rel()->mutable_read();
+  read->mutable_base_schema()->add_names("offset");
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
+
+  ::substrait::ReadRel_LocalFiles files;
+  auto* file = files.add_items();
+  file->set_uri_file("file:///tmp/kafka-join.parquet");
+  file->set_start(10);
+  file->set_length(20);
+  file->mutable_parquet();
+
+  auto splitInfo = parseSerializedSplitInfo(files.SerializeAsString());
+  auto node = planConverter_->toVeloxPlanWithSplitInfos(plan, {splitInfo});
+  const auto& split = planConverter_->splitInfos().at(node->id());
+  EXPECT_EQ(split, splitInfo);
+  EXPECT_EQ(split->paths, std::vector<std::string>{"file:///tmp/kafka-join.parquet"});
+  EXPECT_EQ(split->starts, std::vector<uint64_t>{10});
+  EXPECT_EQ(split->lengths, std::vector<uint64_t>{20});
+}
+
+TEST_F(Substrait2VeloxPlanConversionTest, kafkaReadValidation) {
+  ::substrait::ReadRel read;
+  read.mutable_extension_table()->mutable_detail()->PackFrom(StreamKafka{}, "");
+  read.mutable_base_schema()->add_names("offset");
+  read.mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
+  SubstraitToVeloxPlanConverter converter(
+      pool(), veloxCfg_.get(), {}, VeloxConnectorIds{.kafka = "kafka-test"}, std::nullopt, std::nullopt, true);
+  auto node = converter.toVeloxPlan(read);
+  auto scan = std::dynamic_pointer_cast<const core::TableScanNode>(node);
+  ASSERT_NE(scan, nullptr);
+  EXPECT_EQ(scan->tableHandle()->connectorId(), "kafka-test");
+  EXPECT_EQ(converter.splitInfos().at(node->id())->leafType, SplitInfo::LeafType::TABLE_SCAN);
+}
+
+TEST_F(Substrait2VeloxPlanConversionTest, mixedKafkaAndFileSplits) {
+  ::substrait::ReadRel kafkaRead;
+  kafkaRead.mutable_extension_table()->mutable_detail()->PackFrom(StreamKafka{}, "");
+  kafkaRead.mutable_base_schema()->add_names("offset");
+  kafkaRead.mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
+  auto fileRead = kafkaRead;
+  fileRead.clear_extension_table();
+
+  StreamKafka kafka;
+  kafka.mutable_topic_partition()->set_topic("test-topic");
+  kafka.mutable_topic_partition()->set_partition(2);
+  kafka.set_start_offset(5);
+  kafka.set_end_offset(9);
+  kafka.set_poll_timeout_ms(1000);
+  kafka.set_fail_on_data_loss(true);
+  (*kafka.mutable_params())["bootstrap.servers"] = "localhost:9092";
+  ::substrait::ReadRel_ExtensionTable kafkaSplit;
+  kafkaSplit.mutable_detail()->PackFrom(kafka, "");
+
+  ::substrait::ReadRel_LocalFiles files;
+  files.add_items()->set_uri_file("file:///tmp/kafka-join.parquet");
+  files.mutable_items(0)->mutable_parquet();
+
+  for (const bool kafkaFirst : {true, false}) {
+    SubstraitToVeloxPlanConverter converter(
+        pool(),
+        veloxCfg_.get(),
+        {},
+        VeloxConnectorIds{.hive = facebook::velox::exec::test::kHiveConnectorId, .kafka = "kafka-test"});
+    auto parsedKafkaSplit = parseSerializedSplitInfo(kafkaSplit.SerializeAsString());
+    auto parsedFileSplit = parseSerializedSplitInfo(files.SerializeAsString());
+    converter.setSplitInfos(
+        kafkaFirst ? std::vector<std::shared_ptr<SplitInfo>>{parsedKafkaSplit, parsedFileSplit}
+                   : std::vector<std::shared_ptr<SplitInfo>>{parsedFileSplit, parsedKafkaSplit});
+    auto first = converter.toVeloxPlan(kafkaFirst ? kafkaRead : fileRead);
+    auto second = converter.toVeloxPlan(kafkaFirst ? fileRead : kafkaRead);
+    const auto& kafkaNode = kafkaFirst ? first : second;
+    const auto& fileNode = kafkaFirst ? second : first;
+    EXPECT_EQ(converter.splitInfos().at(kafkaNode->id()), parsedKafkaSplit);
+    EXPECT_EQ(converter.splitInfos().at(fileNode->id()), parsedFileSplit);
+    auto splitInfo = std::dynamic_pointer_cast<KafkaSplitInfo>(converter.splitInfos().at(kafkaNode->id()));
+    ASSERT_NE(splitInfo, nullptr);
+    auto split = splitInfo->toConnectorSplit("kafka-test");
+    EXPECT_EQ(split->topic, "test-topic");
+    EXPECT_EQ(split->partition, 2);
+    EXPECT_EQ(split->startOffset, 5);
+    EXPECT_EQ(split->endOffset, 9);
+    EXPECT_EQ(split->pollTimeoutMs, 1000);
+    EXPECT_TRUE(split->failOnDataLoss);
+    EXPECT_EQ(split->kafkaParams.at("bootstrap.servers"), "localhost:9092");
+    EXPECT_EQ(
+        converter.splitInfos().at(fileNode->id())->paths, std::vector<std::string>{"file:///tmp/kafka-join.parquet"});
+  }
+}
+
+TEST_F(Substrait2VeloxPlanConversionTest, kafkaSplitValidation) {
+  ::substrait::ReadRel read;
+  read.mutable_extension_table()->mutable_detail()->PackFrom(StreamKafka{});
+  read.mutable_base_schema()->add_names("offset");
+  read.mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
+
+  auto fileRead = read;
+  fileRead.clear_extension_table();
+
+  const auto makeConverter = [&](std::vector<std::shared_ptr<SplitInfo>> splits) {
+    auto converter = std::make_unique<SubstraitToVeloxPlanConverter>(
+        pool(),
+        veloxCfg_.get(),
+        std::vector<std::shared_ptr<ResultIterator>>{},
+        VeloxConnectorIds{.hive = facebook::velox::exec::test::kHiveConnectorId, .kafka = "kafka-test"});
+    converter->setSplitInfos(std::move(splits));
+    return converter;
+  };
+
+  VELOX_ASSERT_THROW(makeConverter({})->toVeloxPlan(read), "Plan must have readRel and related split info.");
+  VELOX_ASSERT_THROW(parseSerializedSplitInfo(std::string(1, '\xff')), "Parse split info failed");
+
+  ::substrait::ReadRel_ExtensionTable split;
+  split.mutable_detail()->PackFrom(StreamKafka{});
+  split.mutable_detail()->set_value(std::string(1, '\xff'));
+  VELOX_ASSERT_THROW(
+      parseSerializedSplitInfo(split.SerializeAsString()),
+      "Kafka split info must contain a gluten.StreamKafka payload");
+
+  ::substrait::ReadRel_LocalFiles files;
+  files.add_items()->set_uri_file("file:///tmp/kafka-join.parquet");
+  files.mutable_items(0)->mutable_parquet();
+  VELOX_ASSERT_THROW(
+      makeConverter({parseSerializedSplitInfo(files.SerializeAsString())})->toVeloxPlan(read),
+      "Kafka read requires Kafka split info");
+  split.mutable_detail()->PackFrom(StreamKafka{});
+  VELOX_ASSERT_THROW(
+      makeConverter({parseSerializedSplitInfo(split.SerializeAsString())})->toVeloxPlan(fileRead),
+      "File read requires local file split info");
+}
+#endif
 
 } // namespace gluten

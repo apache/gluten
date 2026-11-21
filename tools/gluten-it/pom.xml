@@ -20,7 +20,7 @@
 
   <groupId>org.apache.gluten</groupId>
   <artifactId>gluten-it</artifactId>
-  <version>1.8.0-SNAPSHOT</version>
+  <version>1.9.0-SNAPSHOT</version>
   <packaging>pom</packaging>
   <modules>
     <module>3rd</module>
@@ -40,7 +40,7 @@
     <delta.version>3.3.2</delta.version>
     <celeborn.version>0.6.3</celeborn.version>
     <uniffle.version>0.10.0</uniffle.version>
-    <gluten.version>1.8.0-SNAPSHOT</gluten.version>
+    <gluten.version>1.9.0-SNAPSHOT</gluten.version>
     <tpch.version>1.1</tpch.version>
     <tpcds.version>1.4</tpcds.version>
 
@@ -160,6 +160,35 @@
       </dependency>
     </dependencies>
   </dependencyManagement>
+
+  <!--
+    Keep these plugin repositories in sync with the root pom.xml.
+    Use Google Cloud Storage mirror for faster Maven Central downloads.
+  -->
+  <pluginRepositories>
+    <pluginRepository>
+      <releases>
+        <enabled>true</enabled>
+      </releases>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+      <id>gcs-maven-central-mirror</id>
+      <name>GCS Maven Central mirror</name>
+      <url>https://maven-central.storage-download.googleapis.com/maven2/</url>
+    </pluginRepository>
+    <pluginRepository>
+      <releases>
+        <enabled>true</enabled>
+      </releases>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+      <id>central</id>
+      <name>Maven Plugin Repository</name>
+      <url>https://repo.maven.apache.org/maven2</url>
+    </pluginRepository>
+  </pluginRepositories>
 
   <build>
     <plugins>
@@ -313,8 +342,8 @@
         <spark.version>4.0.2</spark.version>
         <scala.version>2.13.17</scala.version>
         <scala.binary.version>2.13</scala.binary.version>
-        <delta.package.name>delta-spark</delta.package.name>
-        <delta.version>4.0.1</delta.version>
+        <delta.package.name>delta-spark_4.0</delta.package.name>
+        <delta.version>4.4.1</delta.version>
       </properties>
     </profile>
     <profile>
@@ -324,7 +353,7 @@
         <scala.version>2.13.17</scala.version>
         <scala.binary.version>2.13</scala.binary.version>
         <delta.package.name>delta-spark_4.1</delta.package.name>
-        <delta.version>4.1.0</delta.version>
+        <delta.version>4.4.1</delta.version>
       </properties>
     </profile>
     <profile>
@@ -333,10 +362,8 @@
         <spark.version>4.2.0</spark.version>
         <scala.version>2.13.18</scala.version>
         <scala.binary.version>2.13</scala.binary.version>
-        <!-- No Delta build for Spark 4.2 yet; placeholder inherited from spark-4.1.
-             The delta profile is opt-in and is not enabled on the Spark 4.2 lane. -->
-        <delta.package.name>delta-spark_4.1</delta.package.name>
-        <delta.version>4.1.0</delta.version>
+        <delta.package.name>delta-spark_4.2</delta.package.name>
+        <delta.version>4.4.1</delta.version>
       </properties>
     </profile>
     <profile>

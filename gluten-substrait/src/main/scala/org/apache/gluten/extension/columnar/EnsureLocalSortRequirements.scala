@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.extension.columnar
 
-import org.apache.gluten.execution.GlutenPlan
+import org.apache.gluten.execution.{ColumnarV2TableWriteExec, GlutenPlan}
 import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
 
 import org.apache.spark.sql.catalyst.expressions.SortOrder
@@ -74,6 +74,8 @@ object EnsureLocalSortRequirements extends Rule[SparkPlan] {
       case (_, child: GlutenPlan) if child.supportsColumnar =>
         transform.apply(newChild)
       case (parent: GlutenPlan, _) if parent.supportsColumnar =>
+        transform.apply(newChild)
+      case (_: ColumnarV2TableWriteExec, _) =>
         transform.apply(newChild)
       case _ =>
         newChild

@@ -33,6 +33,7 @@ import org.apache.spark.sql.catalyst.expressions.{Attribute, GenericInternalRow}
 import org.apache.spark.sql.connector.write.WriterCommitMessage
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.BinaryType
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.Utils
 
@@ -107,10 +108,14 @@ class VeloxColumnarWriteFilesRDD(
       var numBytes = 0L
       val objectMapper = new ObjectMapper()
       objectMapper.registerModule(DefaultScalaModule)
+      // Velox returns the fragments as VARBINARY.
+      val fragmentsColumn = loadedCb.column(1)
       for (i <- 0 until loadedCb.numRows() - 1) {
-        val fragments = loadedCb.column(1).getUTF8String(i + 1)
-        val metrics = objectMapper
-          .readValue(fragments.toString.getBytes("UTF-8"), classOf[VeloxWriteFilesMetrics])
+        val fragments = fragmentsColumn.dataType() match {
+          case BinaryType => fragmentsColumn.getBinary(i + 1)
+          case _ => fragmentsColumn.getUTF8String(i + 1).getBytes
+        }
+        val metrics = objectMapper.readValue(fragments, classOf[VeloxWriteFilesMetrics])
         logDebug(s"Velox write files metrics: $metrics")
 
         val fileWriteInfos = metrics.fileWriteInfos

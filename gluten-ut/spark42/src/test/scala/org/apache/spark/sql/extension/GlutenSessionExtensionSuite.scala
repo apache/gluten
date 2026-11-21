@@ -21,6 +21,7 @@ import org.apache.gluten.utils.BackendTestUtils
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql._
+import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
 import org.apache.spark.sql.internal.StaticSQLConf.SPARK_SESSION_EXTENSIONS
 
 class GlutenSessionExtensionSuite extends GlutenSQLTestsTrait {
@@ -45,9 +46,11 @@ class GlutenSessionExtensionSuite extends GlutenSQLTestsTrait {
     } else {
       assert(spark.sessionState.sqlParser.isInstanceOf[MyParser])
     }
+    // Spark 4.2 registers extension functions as builtins under a fully qualified identifier.
     assert(
       spark.sessionState.functionRegistry
-        .lookupFunction(MyExtensions.myFunction._1)
+        .lookupFunction(
+          FunctionRegistry.builtinFunctionIdentifier(MyExtensions.myFunction._1.funcName))
         .isDefined)
     assert(
       spark.sessionState.columnarRules.contains(

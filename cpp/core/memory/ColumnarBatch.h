@@ -47,8 +47,6 @@ class ColumnarBatch {
 
   virtual std::shared_ptr<ArrowSchema> exportArrowSchema() = 0;
 
-  virtual int64_t getExportNanos() const;
-
   // Serializes one single row to byte array that can be accessed as Spark-compatible unsafe row.
   virtual std::vector<char> toUnsafeRow(int32_t rowId) const;
 
@@ -59,7 +57,6 @@ class ColumnarBatch {
   int32_t numRows_;
 
  protected:
-  int64_t exportNanos_;
   // If the batch is immutable batch, the numBytes_ should be a fixed value, lazy set it.
   std::optional<int64_t> numBytes_;
 };

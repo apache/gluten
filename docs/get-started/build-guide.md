@@ -15,7 +15,6 @@ Please set them via `--`, e.g. `--build_type=Release`.
 | build_examples         | Build udf example.                                                                            | OFF     |
 | build_benchmarks       | Build gluten cpp benchmarks.                                                                  | OFF     |
 | enable_jemalloc_stats  | Print jemalloc stats for debugging.                                                           | OFF     |
-| enable_qat             | Enable QAT for shuffle data de/compression.                                                   | OFF     |
 | enable_s3              | Build with S3 support.                                                                        | OFF     |
 | enable_gcs             | Build with GCS support.                                                                       | OFF     |
 | enable_hdfs            | Build with HDFS support.                                                                      | OFF     |
@@ -36,7 +35,7 @@ These environment variables can be set before running build scripts to control b
 
 | Variable               | Description                                                                                   | Default |
 |------------------------|-----------------------------------------------------------------------------------------------|---------|
-| VCPKG_DYNAMIC_OPENSSL  | Enable dynamic OpenSSL linking with FIPS support (requires `enable_vcpkg=ON`). See [Dynamic OpenSSL](VeloxDynamicOpenSSL.md) for details. | OFF     |
+| VCPKG_DYNAMIC_OPENSSL  | Enable dynamic OpenSSL linking with FIPS support (requires `enable_vcpkg=ON`). See [Dynamic OpenSSL](../backends/velox/get-started/VeloxDynamicOpenSSL.md) for details. | OFF     |
 
 
 ### Velox build parameters for build-velox.sh

@@ -30,6 +30,7 @@ body:
       options:
         - VL (Velox)
         - CH (ClickHouse)
+        - BOLT (Bolt)
     validations:
       required: true
 

@@ -24,6 +24,9 @@
 #include <Common/GlutenStringUtils.h>
 #include <Common/logger_useful.h>
 
+#if GLUTEN_ENABLE_NATIVE_PAIMON
+#include <Storages/SubstraitSource/Paimon/PaimonFormatFile.h>
+#endif
 
 #if USE_PARQUET
 #include <Storages/SubstraitSource/ParquetFormatFile.h>
@@ -143,6 +146,16 @@ FormatFile::FormatFile(DB::ContextPtr context_, const SubstraitInputFile & file_
 FormatFilePtr FormatFileUtil::createFile(
     DB::ContextPtr context, ReadBufferBuilderPtr read_buffer_builder, const substrait::ReadRel::LocalFiles::FileOrFiles & file)
 {
+    if (file.has_paimon())
+    {
+#if GLUTEN_ENABLE_NATIVE_PAIMON
+        return std::make_shared<PaimonFormatFile>(context, file, read_buffer_builder);
+#else
+        throw DB::Exception(
+            DB::ErrorCodes::NOT_IMPLEMENTED,
+            "Paimon native read is disabled in this libch build (GLUTEN_ENABLE_NATIVE_PAIMON=OFF)");
+#endif
+    }
 #if USE_PARQUET
     if (file.has_parquet() || (file.has_iceberg() && file.iceberg().has_parquet()))
     {

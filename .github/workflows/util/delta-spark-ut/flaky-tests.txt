@@ -20,3 +20,10 @@
 # whack-a-mole), quarantine it by ERROR SIGNATURE in flaky-error-patterns.txt
 # instead.
 
+# Timing-sensitive: the test gives an AvailableNow-triggered CDC stream 10s to
+# terminate (query.awaitTermination(10000L)). With 4 forked JVMs near the runner's
+# memory limit, the batch can still be in Gluten's Parquet metadata validation
+# (ParquetMetadataUtils listing files via RawLocalFileSystem, which forks `ls` per
+# file for permissions), so it times out. Failed once in 25 runs, on the
+# Velox-bump PR #13418 (run 39902045267), which changed no Java code.
+org.apache.spark.sql.delta.DeltaCDCStream*Suite#maxFilesPerTrigger with Trigger.AvailableNow respects read limits

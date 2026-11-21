@@ -177,6 +177,7 @@ set(VELOX_SRCS
     operators/functions/delta/DeltaBitmapAggregator.cc
     operators/functions/overlay/GetMapValue.cc
     operators/functions/overlay/RegisterFunctionOverlay.cc
+    operators/functions/IncrementMetricFunction.cc
     operators/functions/RowConstructorWithNull.cc
     operators/functions/SparkExprToSubfieldFilterParser.cc
     operators/plannodes/RowVectorStream.cc
@@ -219,11 +220,17 @@ if(ENABLE_S3)
   find_package(ZLIB)
 endif()
 
+if(ENABLE_KAFKA)
+  list(APPEND VELOX_SRCS operators/reader/KafkaDataSource.cc
+       operators/reader/KafkaConnector.cc)
+endif()
+
 if(ENABLE_GPU)
   list(
     APPEND
     VELOX_SRCS
     cudf/CudfPlanValidator.cc
+    cudf/CudfFunctions.cc
     cudf/GpuLock.cc
     operators/plannodes/CudfVectorStream.cc
     shuffle/VeloxGpuAsyncShuffleReader.cc
@@ -371,11 +378,16 @@ if(BUILD_TESTS)
     INTERFACE facebook::velox::vector_fuzzer_util
               facebook::velox::constrained_vector_generator)
   import_library(
+    facebook::velox::local_exchange_source
+    ${VELOX_BUILD_PATH}/velox/exec/tests/utils/libvelox_local_exchange_source.a)
+  import_library(
     facebook::velox::exec_test_lib
     ${VELOX_BUILD_PATH}/velox/exec/tests/utils/libvelox_exec_test_lib.a)
   target_link_libraries(
     facebook::velox::exec_test_lib
-    INTERFACE facebook::velox::vector_test_lib facebook::velox::vector_fuzzer
+    INTERFACE facebook::velox::local_exchange_source
+              facebook::velox::vector_test_lib
+              facebook::velox::vector_fuzzer
               facebook::velox::dwio_common_test
               facebook::velox::file_test_utils)
   set(GLUTEN_VELOX_TEST_LIBRARIES facebook::velox::exec_test_lib)
@@ -508,11 +520,16 @@ set(CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES_BCK})
 
 # Find and link librdkafka for Kafka streaming support
 if(ENABLE_KAFKA)
-  target_compile_definitions(velox PUBLIC ENABLE_KAFKA)
+  target_compile_definitions(gluten_velox_impl PUBLIC ENABLE_KAFKA)
+  # Native tests link the implementation target directly and use both Kafka
+  # APIs.
   find_package(RdKafka CONFIG QUIET)
-  if(RdKafka_FOUND AND TARGET RdKafka::rdkafka++)
+  if(RdKafka_FOUND
+     AND TARGET RdKafka::rdkafka++
+     AND TARGET RdKafka::rdkafka)
     message(STATUS "Found RdKafka: ${RdKafka_DIR}")
-    target_link_libraries(velox PUBLIC RdKafka::rdkafka++)
+    target_link_libraries(gluten_velox_impl PUBLIC RdKafka::rdkafka++
+                                                   RdKafka::rdkafka)
   else()
     # Link the C++ client and C mock API.
     find_package(PkgConfig QUIET)
@@ -520,7 +537,7 @@ if(ENABLE_KAFKA)
       pkg_check_modules(RDKAFKA QUIET IMPORTED_TARGET rdkafka++ rdkafka)
       if(RDKAFKA_FOUND)
         message(STATUS "Found librdkafka via pkg-config: ${RDKAFKA_LIBRARIES}")
-        target_link_libraries(velox PUBLIC PkgConfig::RDKAFKA)
+        target_link_libraries(gluten_velox_impl PUBLIC PkgConfig::RDKAFKA)
       else()
         message(
           FATAL_ERROR

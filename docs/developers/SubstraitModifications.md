@@ -33,6 +33,11 @@ changed `Unbounded` in `WindowFunction` into `Unbounded_Preceding` and `Unbounde
 * Added `output_schema` in RelRoot([#1901](https://github.com/apache/gluten/pull/1901)).
 * Added `ExpandRel`([#1361](https://github.com/apache/gluten/pull/1361)).
 * Added `GenerateRel`([#574](https://github.com/apache/gluten/pull/574)).
+* Rebased the `Rel` oneof onto upstream `v0.98.0`: every upstream relation now sits at its upstream number
+(`exchange` 15, `expand` 16, `window` 17, `ddl` 20, `reference` 21, `update` 22, `lateral_join` 24), with
+`LateralJoinRel`, `UpdateRel`, the top-level `NamedTable` and `DdlRel.common`/`advanced_extension` vendored
+verbatim, and `ReferenceRel` moved out of `AggregateFunction` to the top level. Gluten's `GenerateRel` and
+`WindowGroupLimitRel` moved to 1000 and 1001.
 * Added `PartitionColumn` in `LocalFiles`([#2405](https://github.com/apache/gluten/pull/2405)).
 * Added `WriteRel` ([#3690](https://github.com/apache/gluten/pull/3690)).
 * Added `TopNRel` ([#5409](https://github.com/apache/gluten/pull/5409)).
