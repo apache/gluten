@@ -26,6 +26,8 @@ import org.apache.spark.sql.catalyst.plans.logical.LocalRelation
 import org.apache.spark.sql.classic.ClassicDataset
 import org.apache.spark.sql.execution.LocalTableScanExec
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
+import org.apache.spark.sql.execution.exchange.ShuffleExchangeLike
+import org.apache.spark.sql.functions.{count, sum}
 import org.apache.spark.sql.types._
 
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream, ObjectInputStream, ObjectOutputStream}
@@ -42,6 +44,8 @@ class VeloxLocalTableScanSuite
     super.sparkConf
       .set("spark.sql.ansi.enabled", "false")
       .set("spark.gluten.sql.columnar.localTableScan", "true")
+      // Parallelize multi-row local relations into several slices.
+      .set("spark.default.parallelism", "2")
   }
 
   private def assertHasVeloxLocalTableScan(df: DataFrame): Unit = {
@@ -126,6 +130,25 @@ class VeloxLocalTableScanSuite
     val result = df.groupBy("key").sum("value")
     checkAnswer(result, Seq(Row("a", 40), Row("b", 20)))
     assertHasVeloxLocalTableScan(result)
+  }
+
+  // Spark 4.3 (SPARK-57851) lets a single-task LocalTableScan report SinglePartition and elides the
+  // shuffle before a global aggregation, so the scan must produce exactly one partition.
+  testWithMinSparkVersion("LocalTableScan marked for single-task execution", "4.3") {
+    withSQLConf(
+      "spark.sql.optimizer.singleTaskExecution.enabled" -> "true",
+      "spark.sql.optimizer.singleTaskExecution.localTableScan.minRows" -> "0") {
+      val schema = StructType(Seq(StructField("x", IntegerType)))
+      Seq((1 to 10).map(Row(_)) -> Row(10L, 55L), Seq.empty[Row] -> Row(0L, null)).foreach {
+        case (rows, expected) =>
+          val df = createDF(rows, schema).agg(count("x"), sum("x"))
+          checkAnswer(df, expected)
+          assertHasVeloxLocalTableScan(df)
+          assert(collect(df.queryExecution.executedPlan) {
+            case s: ShuffleExchangeLike => s
+          }.isEmpty)
+      }
+    }
   }
 
   test("LocalTableScan with filter downstream") {
