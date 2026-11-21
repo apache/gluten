@@ -491,6 +491,9 @@ class Spark40Shims extends SparkShims {
   override def isBinaryCollationString(dt: StringType): Boolean =
     dt.collationId == CollationFactory.UTF8_BINARY_COLLATION_ID
 
+  override def legacyCodingErrorActionDefault: Boolean =
+    SQLConf.LEGACY_CODING_ERROR_ACTION.defaultValue.get
+
   override def getShuffleBlockFetcherIterator(params: ShuffleBlockFetcherIteratorParams)
       : GlutenShuffleBlockFetcherIteratorBase = {
     new GlutenShuffleBlockFetcherIterator(

@@ -16,11 +16,51 @@
  */
 package org.apache.gluten.config
 
+import org.apache.spark.sql.catalyst.expressions.{Encode, Expression, Literal, RuntimeReplaceable}
 import org.apache.spark.sql.internal.SQLConf
 
 import org.scalatest.funsuite.AnyFunSuite
 
 class VeloxConfigSuite extends AnyFunSuite {
+
+  test("native encode configuration preserves the Spark version's default error action") {
+    val conf = new SQLConf
+    SQLConf.withExistingConf(conf) {
+      val expr: Expression = Encode(Literal("\u00e9"), Literal("US-ASCII"))
+      val replacement = expr match {
+        case r: RuntimeReplaceable => r.replacement
+        case _ => expr
+      }
+      val result = scala.util.Try(replacement.eval())
+      result match {
+        case scala.util.Success(bytes: Array[Byte]) =>
+          assert(bytes.toSeq == Seq(63.toByte))
+        case scala.util.Failure(error) =>
+          assert(
+            Iterator
+              .iterate[Throwable](error)(_.getCause)
+              .takeWhile(_ != null)
+              .exists(e => Option(e.getMessage).exists(_.contains("MALFORMED_CHARACTER_CODING"))))
+        case _ => fail("Unexpected Spark encode result")
+      }
+      val replacesUnmappable = result.isSuccess
+      val nativeConf = GlutenConfig.getNativeSessionConf("velox", conf.getAllConfs)
+      assert(
+        nativeConf(GlutenConfig.SPARK_LEGACY_CODING_ERROR_ACTION).toBoolean == replacesUnmappable)
+      assert(new GlutenConfig(conf).legacyCodingErrorAction == replacesUnmappable)
+    }
+  }
+
+  test("native encode configuration serializes explicit and mixed-case coding-error settings") {
+    for (setting <- Seq("true", "false", "TRUE", "FALSE")) {
+      val conf = new SQLConf
+      conf.setConfString(GlutenConfig.SPARK_LEGACY_CODING_ERROR_ACTION, setting)
+      SQLConf.withExistingConf(conf) {
+        val nativeConf = GlutenConfig.getNativeSessionConf("velox", conf.getAllConfs)
+        assert(nativeConf(GlutenConfig.SPARK_LEGACY_CODING_ERROR_ACTION) == setting.toLowerCase)
+      }
+    }
+  }
 
   private def veloxConfig(entries: (String, String)*): VeloxConfig = {
     val conf = new SQLConf

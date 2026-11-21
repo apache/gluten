@@ -698,6 +698,9 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
     configs[SparkQueryConfig::qualify(SparkQueryConfig::kLegacyStatisticalAggregate)] =
         std::to_string(veloxCfg_->get<bool>(kSparkLegacyStatisticalAggregate, false));
 
+    configs[SparkQueryConfig::qualify(SparkQueryConfig::kLegacyCodingErrorAction)] =
+        std::to_string(veloxCfg_->get<bool>(kSparkLegacyCodingErrorAction, false));
+
     configs[SparkQueryConfig::qualify(SparkQueryConfig::kJsonIgnoreNullFields)] =
         std::to_string(veloxCfg_->get<bool>(kSparkJsonIgnoreNullFields, true));
 
