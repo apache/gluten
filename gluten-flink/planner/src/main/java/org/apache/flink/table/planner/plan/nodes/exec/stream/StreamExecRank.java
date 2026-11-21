@@ -16,22 +16,28 @@
  */
 package org.apache.flink.table.planner.plan.nodes.exec.stream;
 
-import org.apache.gluten.rexnode.Utils;
 import org.apache.gluten.table.runtime.operators.GlutenOneInputOperator;
 import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.util.PlanNodeIdGenerator;
 
-import io.github.zhztheplayer.velox4j.expression.FieldAccessTypedExpr;
-import io.github.zhztheplayer.velox4j.plan.EmptyNode;
-import io.github.zhztheplayer.velox4j.plan.HashPartitionFunctionSpec;
-import io.github.zhztheplayer.velox4j.plan.PartitionFunctionSpec;
 import io.github.zhztheplayer.velox4j.plan.PlanNode;
+import io.github.zhztheplayer.velox4j.plan.RankNode;
 import io.github.zhztheplayer.velox4j.plan.StatefulPlanNode;
-import io.github.zhztheplayer.velox4j.plan.StreamRankNode;
-import io.github.zhztheplayer.velox4j.plan.StreamTopNNode;
-import io.github.zhztheplayer.velox4j.plan.TopNNode;
-import io.github.zhztheplayer.velox4j.plan.TopNRowNumberNode;
-import io.github.zhztheplayer.velox4j.sort.SortOrder;
+import io.github.zhztheplayer.velox4j.stateful.KeyedStateSpec;
+import io.github.zhztheplayer.velox4j.type.BigIntType;
+import io.github.zhztheplayer.velox4j.type.BooleanType;
+import io.github.zhztheplayer.velox4j.type.DateType;
+import io.github.zhztheplayer.velox4j.type.DecimalType;
+import io.github.zhztheplayer.velox4j.type.DoubleType;
+import io.github.zhztheplayer.velox4j.type.HugeIntType;
+import io.github.zhztheplayer.velox4j.type.IntegerType;
+import io.github.zhztheplayer.velox4j.type.RealType;
+import io.github.zhztheplayer.velox4j.type.SmallIntType;
+import io.github.zhztheplayer.velox4j.type.TimestampType;
+import io.github.zhztheplayer.velox4j.type.TinyIntType;
+import io.github.zhztheplayer.velox4j.type.Type;
+import io.github.zhztheplayer.velox4j.type.VarCharType;
+import io.github.zhztheplayer.velox4j.type.VarbinaryType;
 
 import org.apache.flink.FlinkVersion;
 import org.apache.flink.api.dag.Transformation;
@@ -53,12 +59,13 @@ import org.apache.flink.table.planner.plan.nodes.exec.StateMetadata;
 import org.apache.flink.table.planner.plan.nodes.exec.spec.PartitionSpec;
 import org.apache.flink.table.planner.plan.nodes.exec.spec.SortSpec;
 import org.apache.flink.table.planner.plan.nodes.exec.utils.ExecNodeUtil;
-import org.apache.flink.table.planner.plan.utils.KeySelectorUtil;
 import org.apache.flink.table.planner.plan.utils.RankProcessStrategy;
-import org.apache.flink.table.runtime.keyselector.RowDataKeySelector;
+import org.apache.flink.table.runtime.operators.rank.ConstantRankRange;
 import org.apache.flink.table.runtime.operators.rank.RankRange;
 import org.apache.flink.table.runtime.operators.rank.RankType;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
+import org.apache.flink.table.runtime.typeutils.TypeCheckUtils;
+import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.RowType;
 
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonCreator;
@@ -66,7 +73,6 @@ import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonInc
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonProperty;
 
 import javax.annotation.Nullable;
-import javax.swing.*;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -202,77 +208,114 @@ public class StreamExecRank extends ExecNodeBase<RowData>
     }
 
     ExecEdge inputEdge = getInputEdges().get(0);
+    RowType inputRowType = (RowType) inputEdge.getOutputType();
+
+    // --- Begin Gluten-specific code changes ---
+    // Fail loud guards, checked before any translation (design limits
+    // L3/L4): only insert-only input (AppendFast) reaches the native
+    // operator and the rank range must be constant.
+    if (!(rankStrategy instanceof RankProcessStrategy.AppendFastStrategy)) {
+      throw new TableException(
+          String.format(
+              "Gluten rank only supports the AppendFast (insert-only) strategy, got %s",
+              rankStrategy));
+    }
+    if (!(rankRange instanceof ConstantRankRange)) {
+      throw new TableException(
+          String.format("Gluten rank only supports a constant rank range, got %s", rankRange));
+    }
+    final ConstantRankRange constantRange = (ConstantRankRange) rankRange;
+    // Offset rank ranges (rankStart > 1) pass through with their true
+    // values: the native operator gates every rank-bearing emission through
+    // isInRankRange and forces the with-row-number algorithm (hasOffset).
+    // The FirstN fast path detection mirrors the native routing
+    // (StreamExecRank.java in flink-table-planner): a single proctime
+    // ascending sort key routes to the per-key counter branch; every other
+    // shape falls to the generic TopN/Top1 branches. The (1,1) window
+    // overlapping this shape still takes FirstN - the native dispatch
+    // order checks firstN before isTop1.
+    final int[] sortFields = sortSpec.getFieldIndices();
+    final boolean firstN =
+        sortFields.length == 1
+            && TypeCheckUtils.isProcTime(sortSpec.getFieldTypes(inputRowType)[0])
+            && sortSpec.getFieldSpec(0).getIsAscendingOrder();
+    // Top1 (ConstantRankRange(1,1)) is derived inside the native operator from
+    // the range (FastTop1Function vs AppendOnlyTopNFunction semantics).
+
     Transformation<RowData> inputTransform =
         (Transformation<RowData>) inputEdge.translateToPlan(planner);
 
-    RowType inputRowType = (RowType) inputEdge.getOutputType();
-    InternalTypeInfo<RowData> inputRowTypeInfo = InternalTypeInfo.of(inputRowType);
-    int[] sortFields = sortSpec.getFieldIndices();
-    long cacheSize = config.get(TABLE_EXEC_RANK_TOPN_CACHE_SIZE);
-
-    // --- Begin Gluten-specific code changes ---
     io.github.zhztheplayer.velox4j.type.RowType inputType =
         (io.github.zhztheplayer.velox4j.type.RowType) LogicalTypeConverter.toVLType(inputRowType);
-
-    int[] partitionFields = partitionSpec.getFieldIndices();
-    List<FieldAccessTypedExpr> sortKeys = Utils.generateFieldAccesses(inputType, sortFields);
-    List<FieldAccessTypedExpr> partitionKeys =
-        Utils.generateFieldAccesses(inputType, partitionFields);
-    List<SortOrder> sortOrders = generateSortOrders(sortSpec);
     io.github.zhztheplayer.velox4j.type.RowType outputType =
         (io.github.zhztheplayer.velox4j.type.RowType)
             LogicalTypeConverter.toVLType(getOutputType());
-    // TODO: velox RowNumber may not equal to flink
-    int limit = 1;
-    final PlanNode topNNode;
-    if (outputRankNumber) {
-      topNNode =
-          new TopNRowNumberNode(
-              PlanNodeIdGenerator.newId(),
-              partitionKeys,
-              sortKeys,
-              sortOrders,
-              null,
-              limit,
-              List.of(new EmptyNode(inputType)));
-    } else {
-      topNNode =
-          new TopNNode(
-              PlanNodeIdGenerator.newId(),
-              sortKeys,
-              sortOrders,
-              limit,
-              false,
-              List.of(new EmptyNode(inputType)));
+
+    // The native sort-key comparator (RankOperator.cpp compareScalarValues)
+    // covers these velox type kinds (design limit L11). DECIMAL arrives as
+    // velox4j DecimalType and compares through its BIGINT/HUGEINT kind
+    // (p<=18 short, p<=38 long); DATE arrives as DateType and compares
+    // through the INTEGER kind; TIMESTAMP_LTZ is normalized to TIMESTAMP by
+    // the converter. TIME still fails loud: the converter has no TimeType
+    // entry (L14) and rejects the column earlier - the guard below keeps
+    // the check explicit for any type that slips past the converter.
+    for (int i = 0; i < sortFields.length; i++) {
+      checkSortKeyTypeSupported(inputType.getChildren().get(sortFields[i]), sortFields[i]);
     }
-    List<Integer> keyIndexes = Arrays.stream(partitionFields).boxed().collect(Collectors.toList());
-    PartitionFunctionSpec keySelectorSpec = new HashPartitionFunctionSpec(inputType, keyIndexes);
-    List<Integer> sortKeyIndexes = Arrays.stream(sortFields).boxed().collect(Collectors.toList());
-    PartitionFunctionSpec sortKeySelectorSpec =
-        new HashPartitionFunctionSpec(inputType, sortKeyIndexes);
-    final PlanNode streamTopNNode =
-        new StreamTopNNode(
+
+    // The keyed-state spec of the plan (pure plan data): the partition key
+    // channels, or - for the global shape without a PARTITION BY - the
+    // sentinel channel one past the input schema, whose BIGINT constant
+    // column the native operator injects before the probe (design D3).
+    final List<Integer> keyChannels = new ArrayList<>();
+    final List<Type> keyTypes = new ArrayList<>();
+    if (partitionSpec.getFieldIndices().length > 0) {
+      for (int field : partitionSpec.getFieldIndices()) {
+        checkPartitionKeyTypeSupported(inputRowType.getTypeAt(field), field);
+        keyChannels.add(field);
+        keyTypes.add(LogicalTypeConverter.toVLType(inputRowType.getTypeAt(field)));
+      }
+    } else {
+      keyChannels.add(inputType.size());
+      keyTypes.add(new BigIntType());
+    }
+    final KeyedStateSpec keyedStateSpec = new KeyedStateSpec(keyChannels, keyTypes);
+
+    final List<Integer> sortKeyChannels =
+        Arrays.stream(sortFields).boxed().collect(Collectors.toList());
+    final List<Boolean> sortAscending = new ArrayList<>();
+    final List<Boolean> sortNullsFirst = new ArrayList<>();
+    for (int i = 0; i < sortFields.length; i++) {
+      sortAscending.add(sortSpec.getFieldSpec(i).getIsAscendingOrder());
+      sortNullsFirst.add(!sortSpec.getFieldSpec(i).getNullIsLast());
+    }
+    // The TopN cache bound of the native StreamExecRank translation
+    // (StreamExecRank.java:231 there): consumed from the same
+    // table.exec.rank.topn-cache-size option the annotation already
+    // declares (design alignment #67).
+    final long cacheSize = config.get(TABLE_EXEC_RANK_TOPN_CACHE_SIZE);
+
+    final PlanNode rankNode =
+        new RankNode(
             PlanNodeIdGenerator.newId(),
-            List.of(new EmptyNode(inputType)), // sources
-            topNNode,
-            sortKeySelectorSpec,
-            outputType,
-            generateUpdateBefore,
+            constantRange.getRankStart(),
+            constantRange.getRankEnd(),
+            sortKeyChannels,
+            sortAscending,
+            sortNullsFirst,
+            keyedStateSpec,
             outputRankNumber,
-            cacheSize);
-    final PlanNode streamRankNode =
-        new StreamRankNode(
-            PlanNodeIdGenerator.newId(),
-            List.of(new EmptyNode(inputType)), // sources
-            keySelectorSpec,
-            streamTopNNode,
+            generateUpdateBefore,
+            firstN,
+            cacheSize,
+            inputType,
             outputType);
     final OneInputStreamOperator operator =
         new GlutenOneInputOperator(
-            new StatefulPlanNode(streamRankNode.getId(), streamRankNode),
+            new StatefulPlanNode(rankNode.getId(), rankNode),
             PlanNodeIdGenerator.newId(),
             inputType,
-            Map.of(streamRankNode.getId(), outputType),
+            Map.of(rankNode.getId(), outputType),
             RowData.class,
             RowData.class,
             "StreamExecRank");
@@ -287,25 +330,56 @@ public class StreamExecRank extends ExecNodeBase<RowData>
             inputTransform.getParallelism(),
             false);
 
-    // set KeyType and Selector for state
-    RowDataKeySelector selector =
-        KeySelectorUtil.getRowDataSelector(
-            planner.getFlinkContext().getClassLoader(),
-            partitionSpec.getFieldIndices(),
-            inputRowTypeInfo);
-    transform.setStateKeySelector(selector);
-    transform.setStateKeyType(selector.getProducedType());
+    // The transformation stays NON-keyed (implementation contract): the key
+    // belongs to the velox keyed state backend via the plan's
+    // KeyedStateSpec, and declaring a Flink key selector would conflict
+    // with the native key-group routing at parallelism > 1.
     return transform;
   }
 
-  private List<SortOrder> generateSortOrders(SortSpec sortSpec) {
-    final List<SortOrder> sortOrders = new ArrayList<>();
-    boolean[] ascendingOrders = sortSpec.getAscendingOrders();
-    boolean[] nullLasts = sortSpec.getNullsIsLast();
-    checkArgument(ascendingOrders.length == nullLasts.length);
-    for (int i = 0; i < ascendingOrders.length; i++) {
-      sortOrders.add(new SortOrder(ascendingOrders[i], !nullLasts[i]));
+  // The native keyed state backend supports fixed-width scalar and
+  // varchar/varbinary key columns only (KeyTable::checkStateKeyTypes);
+  // unsupported partition key types fail loud at translation time instead
+  // of dying inside the first probe.
+  private static void checkPartitionKeyTypeSupported(LogicalType type, int fieldIndex) {
+    final boolean supported =
+        (TypeCheckUtils.isNumeric(type) && !TypeCheckUtils.isDecimal(type))
+            || TypeCheckUtils.isTimestamp(type)
+            || TypeCheckUtils.isTimestampWithLocalZone(type)
+            || TypeCheckUtils.isBoolean(type)
+            || TypeCheckUtils.isCharacterString(type)
+            || TypeCheckUtils.isBinaryString(type);
+    if (!supported) {
+      throw new TableException(
+          String.format(
+              "Gluten rank does not support partition key type %s at field %d", type, fieldIndex));
     }
-    return sortOrders;
+  }
+
+  // The native sort-key comparator (RankOperator.cpp compareScalarValues)
+  // covers exactly these velox type kinds (design limit L11): the 11 base
+  // kinds plus DECIMAL (BIGINT/HUGEINT kind by precision) and DATE (INTEGER
+  // kind); a sort key outside the set fails loud at translation time
+  // instead of on the first row comparison.
+  private static void checkSortKeyTypeSupported(Type type, int fieldIndex) {
+    final boolean supported =
+        type instanceof BooleanType
+            || type instanceof TinyIntType
+            || type instanceof SmallIntType
+            || type instanceof IntegerType
+            || type instanceof BigIntType
+            || type instanceof HugeIntType
+            || type instanceof RealType
+            || type instanceof DoubleType
+            || type instanceof VarCharType
+            || type instanceof VarbinaryType
+            || type instanceof TimestampType
+            || type instanceof DecimalType
+            || type instanceof DateType;
+    if (!supported) {
+      throw new TableException(
+          String.format(
+              "Gluten rank does not support sort key type %s at field %d", type, fieldIndex));
+    }
   }
 }

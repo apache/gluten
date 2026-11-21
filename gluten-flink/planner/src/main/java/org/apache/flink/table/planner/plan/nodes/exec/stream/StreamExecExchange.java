@@ -16,7 +16,6 @@
  */
 package org.apache.flink.table.planner.plan.nodes.exec.stream;
 
-import org.apache.gluten.streaming.api.operators.GlutenOperator;
 import org.apache.gluten.streaming.runtime.partitioner.GlutenKeyGroupStreamPartitioner;
 import org.apache.gluten.table.runtime.keyselector.GlutenKeySelector;
 import org.apache.gluten.table.runtime.operators.GlutenOneInputOperator;
@@ -32,16 +31,13 @@ import io.github.zhztheplayer.velox4j.plan.StatefulPlanNode;
 import io.github.zhztheplayer.velox4j.plan.StreamPartitionNode;
 
 import org.apache.flink.FlinkVersion;
-import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.runtime.state.KeyGroupRangeAssignment;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
-import org.apache.flink.streaming.api.transformations.OneInputTransformation;
 import org.apache.flink.streaming.api.transformations.PartitionTransformation;
 import org.apache.flink.streaming.runtime.partitioner.GlobalPartitioner;
-import org.apache.flink.streaming.runtime.partitioner.KeyGroupStreamPartitioner;
 import org.apache.flink.streaming.runtime.partitioner.StreamPartitioner;
 import org.apache.flink.table.api.TableException;
 import org.apache.flink.table.data.RowData;
@@ -69,7 +65,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import static org.apache.flink.runtime.state.KeyGroupRangeAssignment.DEFAULT_LOWER_BOUND_MAX_PARALLELISM;
 import static org.apache.flink.util.Preconditions.checkArgument;
 
 /**
@@ -139,13 +134,19 @@ public class StreamExecExchange extends CommonExecExchange implements StreamExec
             KeySelectorUtil.getRowDataSelector(
                 planner.getFlinkContext().getClassLoader(), keys, inputType);
         // --- Begin Gluten-specific code changes ---
-        // The gluten exchange optimization below only applies when the input is
-        // already a gluten operator wrapped in a OneInputTransformation; other
-        // shapes (e.g. a SourceTransformation feeding the hash exchange in a
-        // plain GROUP BY) must take the vanilla Flink fallback instead of
-        // failing with a ClassCastException.
-        if (inputTransform instanceof OneInputTransformation
-            && ((OneInputTransformation) inputTransform).getOperator() instanceof GlutenOperator) {
+        // Key-group routing is always native: the native keyed state backend
+        // derives key groups through the velox hash chain, so the edge
+        // partitioner must forward the native partition index - Flink's own
+        // key-group partitioner hashes the keys a second time with a
+        // different chain and routes records away from their state owner at
+        // any parallelism above 1. There is no vanilla fallback either: a
+        // source-direct edge (e.g. a plain GROUP BY over a source) is
+        // offloaded with the source emitting StatefulRecord records, which
+        // Flink's KeyGroupStreamPartitioner cannot key - the exchange
+        // operator below consumes whatever the upstream emits (RowData
+        // records convert through the input bridge; gluten operators hand
+        // over StatefulRecord) and emits the natively partitioned records.
+        {
           // TODO: velox's parallelism need to be set here, as some nodes need it.
           // should set it when operator init.
           parallelism = inputTransform.getParallelism();
@@ -154,7 +155,8 @@ public class StreamExecExchange extends CommonExecExchange implements StreamExec
           // operator later: the job-wide value from the ExecutionConfig if set,
           // else the scheduler default derived from the parallelism. Resolve
           // the same value so records are routed to the subtask that owns
-          // their key groups.
+          // their key groups; the native state backend derives the identical
+          // value at runtime (GlutenOneInputOperator).
           int maxParallelism = planner.getExecEnv().getConfig().getMaxParallelism();
           if (maxParallelism <= 0) {
             maxParallelism = KeyGroupRangeAssignment.computeDefaultMaxParallelism(parallelism);
@@ -169,9 +171,8 @@ public class StreamExecExchange extends CommonExecExchange implements StreamExec
                   LogicalTypeConverter.toVLType(getOutputType());
           String id = PlanNodeIdGenerator.newId();
           List<Integer> keyIndexes = Arrays.stream(keys).boxed().collect(Collectors.toList());
-          // Keyed shuffle routes by key group (the same value the state
-          // backend derives key groups with), so each subtask receives
-          // exactly the key groups its state owns.
+          // maxParallelism resolves job-configured or scheduler-default (see
+          // above) and matches the native state backend's key-group space.
           PartitionFunctionSpec partitionFunctionSpec =
               new KeyGroupPartitionFunctionSpec(glutenInputType, keyIndexes, maxParallelism);
           PlanNode localPartition =
@@ -199,11 +200,11 @@ public class StreamExecExchange extends CommonExecExchange implements StreamExec
                   inputTransform.getOutputType(),
                   parallelism,
                   false);
+          // The edge records are StatefulRecord objects carrying the native
+          // partition index; the pass-through partitioner forwards them
+          // unchanged (the offload machinery serializes them with the native
+          // record serializer).
           partitioner = new GlutenKeyGroupStreamPartitioner(keySelector, maxParallelism);
-        } else {
-          parallelism = ExecutionConfig.PARALLELISM_DEFAULT;
-          partitioner =
-              new KeyGroupStreamPartitioner<>(keySelector, DEFAULT_LOWER_BOUND_MAX_PARALLELISM);
         }
         // --- End Gluten-specific code changes ---
         break;

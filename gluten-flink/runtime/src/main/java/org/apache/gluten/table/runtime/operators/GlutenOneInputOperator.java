@@ -31,13 +31,18 @@ import io.github.zhztheplayer.velox4j.plan.TableScanNode;
 import io.github.zhztheplayer.velox4j.query.Query;
 import io.github.zhztheplayer.velox4j.query.SerialTask;
 import io.github.zhztheplayer.velox4j.serde.Serde;
+import io.github.zhztheplayer.velox4j.stateful.KeyedStateBackendParameters;
 import io.github.zhztheplayer.velox4j.stateful.NativeCallbackTarget;
 import io.github.zhztheplayer.velox4j.stateful.StatefulElement;
 import io.github.zhztheplayer.velox4j.stateful.StatefulRecord;
 import io.github.zhztheplayer.velox4j.stateful.StatefulWatermark;
 import io.github.zhztheplayer.velox4j.type.RowType;
 
+import org.apache.flink.api.common.state.ListState;
+import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.contrib.streaming.state.RocksDBKeyedStateBackend;
+import org.apache.flink.runtime.state.KeyGroupRange;
+import org.apache.flink.runtime.state.KeyGroupRangeAssignment;
 import org.apache.flink.runtime.state.StateInitializationContext;
 import org.apache.flink.runtime.state.StateSnapshotContext;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
@@ -46,6 +51,7 @@ import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.streaming.runtime.watermarkstatus.WatermarkStatus;
 import org.apache.flink.table.runtime.operators.TableStreamOperator;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -64,6 +70,16 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
   private transient Query query;
   private transient ExternalStreams.BlockingQueue inputQueue;
   protected transient SerialTask task;
+  // Native checkpoint records handed back by the last native snapshot; the
+  // store of the restore path (design D4 of the rank task). The records are
+  // raw checkpoint bytes, not text: a String channel would corrupt them
+  // (JNI strings are modified UTF-8), so the store holds byte arrays.
+  private transient ListState<byte[]> checkpointState;
+  // Native checkpoint records of the last restore, handed to the native
+  // state initialization (rank task design D4). Protected so subclasses
+  // that own their native records (GlutenStreamingFileWriterOperator)
+  // keep full control of their own restore path.
+  protected transient byte[][] restoredNativeCheckpointRecords = new byte[0][];
   private transient volatile boolean closing;
   private final Class<IN> inClass;
   private final Class<OUT> outClass;
@@ -336,11 +352,37 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
   }
 
   protected void snapshotNativeState(StateSnapshotContext context) throws Exception {
-    task.snapshotState(context.getCheckpointId());
+    // The native snapshot returns the checkpoint records of the stateful
+    // operators (typed keyed backends); persist them in the operator state
+    // so a restore can feed them back (design D4 of the rank task). Empty
+    // for operators without native state, so the path is transparent to
+    // every other user of this class.
+    byte[][] checkpointRecords = task.snapshotState(context.getCheckpointId());
+    checkpointState.clear();
+    for (byte[] checkpointRecord : checkpointRecords) {
+      checkpointState.add(checkpointRecord);
+    }
   }
 
   @Override
   public void initializeState(StateInitializationContext context) throws Exception {
+    // Declare the checkpoint-record store and collect the restored records
+    // before the native state initialization consumes them (the
+    // GlutenSourceFunction pattern).
+    checkpointState =
+        context
+            .getOperatorStateStore()
+            .getListState(
+                new ListStateDescriptor<>("gluten-native-operator-checkpoint", byte[].class));
+    if (context.isRestored()) {
+      List<byte[]> records = new ArrayList<>();
+      for (byte[] checkpointRecord : checkpointState.get()) {
+        records.add(checkpointRecord);
+      }
+      restoredNativeCheckpointRecords = records.toArray(new byte[0][]);
+    } else {
+      restoredNativeCheckpointRecords = new byte[0][];
+    }
     initializeNativeState(context);
     super.initializeState(context);
   }
@@ -350,8 +392,42 @@ public class GlutenOneInputOperator<IN, OUT> extends TableStreamOperator<OUT>
       initSession();
     }
     if (!(getKeyedStateBackend() instanceof RocksDBKeyedStateBackend)) {
-      task.initializeState(0, null);
+      task.initializeState(0, nativeKeyedStateBackendParameters(), restoredNativeCheckpointRecords);
     }
+  }
+
+  /** StateBackendType::HEAP of the native StatefulTask (StateBackend.h). */
+  private static final int NATIVE_STATE_BACKEND_TYPE_HEAP = 0;
+
+  /**
+   * The key-group parameters of the native keyed state backend (rank2 J3): the backend owns exactly
+   * the key groups this subtask holds under the native key-group assignment, so a restore shards
+   * correctly at any parallelism.
+   *
+   * <p>The GFV transformation stays non-keyed on the Flink side (implementation contract), so Flink
+   * tracks no key-group space for it - {@code getMaxNumberOfParallelSubtasks()} reports the
+   * parallelism, not a key-group size. The native key-group space resolves the same way the
+   * plan-side partition spec does (StreamExecExchange): the job-wide value from the ExecutionConfig
+   * if set, else the scheduler default derived from the parallelism - so routing and state
+   * ownership always agree (completes the rank2 L13 TODO).
+   */
+  private KeyedStateBackendParameters nativeKeyedStateBackendParameters() {
+    final int parallelism = getRuntimeContext().getNumberOfParallelSubtasks();
+    int maxParallelism = getRuntimeContext().getExecutionConfig().getMaxParallelism();
+    if (maxParallelism <= 0) {
+      maxParallelism = KeyGroupRangeAssignment.computeDefaultMaxParallelism(parallelism);
+    }
+    final int subtaskIndex = getRuntimeContext().getIndexOfThisSubtask();
+    final KeyGroupRange keyGroupRange =
+        KeyGroupRangeAssignment.computeKeyGroupRangeForOperatorIndex(
+            maxParallelism, parallelism, subtaskIndex);
+    return new KeyedStateBackendParameters(
+        getRuntimeContext().getTaskInfo().getTaskNameWithSubtasks(),
+        id,
+        NATIVE_STATE_BACKEND_TYPE_HEAP,
+        maxParallelism,
+        keyGroupRange.getStartKeyGroup(),
+        keyGroupRange.getNumberOfKeyGroups());
   }
 
   @Override
