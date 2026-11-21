@@ -43,6 +43,7 @@
 #include "substrait/SubstraitToVeloxPlanValidator.h"
 #include "utils/ObjectStore.h"
 #include "utils/VeloxBatchResizer.h"
+#include "utils/VeloxWriterUtils.h"
 #include "velox/common/base/BloomFilter.h"
 #include "velox/common/file/FileSystems.h"
 #include "velox/exec/HashTable.h"
@@ -615,9 +616,10 @@ Java_org_apache_gluten_datasource_VeloxDataSourceJniWrapper_splitBlockByPartitio
   const auto inputRowVector = veloxBatch->getRowVector();
   const auto numRows = inputRowVector->size();
 
-  auto idGen = makePartitionIdGenerator(asRowType(inputRowVector->type()), partitionColIndicesVec, 65536, pool.get());
+  const auto partitionInput = makePartitionIdInput(inputRowVector, partitionColIndicesVec);
+  auto idGen = makePartitionIdGenerator(asRowType(partitionInput->type()), partitionColIndicesVec, 65536, pool.get());
   raw_vector<uint64_t> partitionIds{};
-  idGen.run(inputRowVector, partitionIds);
+  idGen.run(partitionInput, partitionIds);
   GLUTEN_CHECK(partitionIds.size() == numRows, "Mismatched number of partition ids");
   const auto numPartitions = static_cast<int32_t>(idGen.numPartitions());
 

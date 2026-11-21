@@ -26,19 +26,22 @@ import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
 import org.apache.gluten.runtime.Runtimes
 import org.apache.gluten.utils.ArrowAbiUtil
 
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.SPARK_VERSION_SHORT
+import org.apache.spark.sql.{SPARK_VERSION_METADATA_KEY, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{DateType, StructType, TimestampType}
 import org.apache.spark.sql.utils.SparkArrowUtil
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 import org.apache.arrow.c.ArrowSchema
+import org.apache.arrow.vector.types.pojo.Schema
 import org.apache.hadoop.fs.{FileStatus, Path}
 import org.apache.hadoop.mapreduce.TaskAttemptContext
 
 import java.io.IOException
+import java.util.Collections
 
 trait VeloxFormatWriterInjects extends GlutenFormatWriterInjectsBase {
   def createOutputWriter(
@@ -56,15 +59,28 @@ trait VeloxFormatWriterInjects extends GlutenFormatWriterInjectsBase {
       }
     }
 
+    // Field names on disk must match the Delta log even when expression resolution ignores case.
     val arrowSchema =
-      SparkArrowUtil.toArrowSchema(dataSchema, SQLConf.get.sessionLocalTimeZone)
+      SparkArrowUtil.toArrowSchema(
+        dataSchema,
+        SQLConf.get.sessionLocalTimeZone,
+        preserveCase = true)
+    val fileSchema = if (dataSchema.existsRecursively(t => t == DateType || t == TimestampType)) {
+      // These native files use the corrected calendar. Give Spark readers the same signal as
+      // ParquetWriteSupport so their rebase setting for files of unknown origin is not applied.
+      new Schema(
+        arrowSchema.getFields,
+        Collections.singletonMap(SPARK_VERSION_METADATA_KEY, SPARK_VERSION_SHORT))
+    } else {
+      arrowSchema
+    }
     val cSchema = ArrowSchema.allocateNew(ArrowBufferAllocators.contextInstance())
     var dsHandle = -1L
     val runtime = Runtimes.contextInstance(BackendsApiManager.getBackendName, "VeloxWriter")
     val datasourceJniWrapper = VeloxDataSourceJniWrapper.create(runtime)
     val allocator = ArrowBufferAllocators.contextInstance()
     try {
-      ArrowAbiUtil.exportSchema(allocator, arrowSchema, cSchema)
+      ArrowAbiUtil.exportSchema(allocator, fileSchema, cSchema)
       dsHandle = datasourceJniWrapper.init(filePath, cSchema.memoryAddress(), nativeConf)
     } catch {
       case e: IOException =>

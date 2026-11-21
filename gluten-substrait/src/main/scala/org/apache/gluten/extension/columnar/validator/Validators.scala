@@ -26,7 +26,7 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.analysis.PartitionSpec
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Cast, ConvertTimezone, Expression, GetStructField, Hour, IsNotNull, IsNull, MakeTimestamp, Minute, Second, TimestampAdd, WindowFrame, WindowSpecDefinition}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Cast, ConvertTimezone, Expression, GetStructField, Hour, IsNotNull, IsNull, Literal, MakeTimestamp, Minute, Second, TimestampAdd, WindowFrame, WindowSpecDefinition}
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
 import org.apache.spark.sql.execution.datasources.WriteFilesExec
@@ -263,22 +263,34 @@ object Validators {
         case _ => false
       }
       def isNTZ(dataType: DataType): Boolean = dataType == TimestampNTZType
-      def isDirectNtzProjection(expression: Expression): Boolean = expression match {
-        case alias: Alias => isDirectNtzProjection(alias.child)
-        case attribute: Attribute => containsNTZ(attribute.dataType)
-        case field: GetStructField => containsNTZ(field.dataType)
-        case _ => false
+      def producesNtz(expr: Expression): Boolean = expr match {
+        // These metadata nodes have no dataType. Check their children instead.
+        case _: WindowSpecDefinition | _: WindowFrame | _: PartitionSpec => false
+        case _ => containsNTZ(expr.dataType)
+      }
+      def supportedProjection(expr: Expression): Boolean = {
+        // Check each operation that consumes or produces NTZ. A supported null-count predicate
+        // in one branch of an IF must not authorize an unrelated NTZ operation in another.
+        val supported = expr match {
+          case _: Alias | _: Attribute | _: Literal | _: GetStructField | _: IsNull |
+              _: IsNotNull => true
+          case Hour(child, _) if isNTZ(child.dataType) => true
+          case Minute(child, _) if isNTZ(child.dataType) => true
+          case Second(child, _) if isNTZ(child.dataType) => true
+          case TimestampAdd(_, _, child, _) if isNTZ(child.dataType) => true
+          case ConvertTimezone(_, _, child) if isNTZ(child.dataType) => true
+          case m: MakeTimestamp if isNTZ(m.dataType) => true
+          case c: Cast if isNTZ(c.dataType) || isNTZ(c.child.dataType) => true
+          case _ => !producesNtz(expr) && !expr.children.exists(producesNtz)
+        }
+        supported && expr.children.forall(supportedProjection)
       }
       val hasNTZ = plan.output.exists(a => containsNTZ(a.dataType)) ||
         plan.children.exists(_.output.exists(a => containsNTZ(a.dataType)))
       if (!hasNTZ) {
         if (
           !backendSupportsTimestampNtz &&
-          plan.expressions.exists(_.exists {
-            // These metadata nodes have no dataType; exists still visits their children.
-            case _: WindowSpecDefinition | _: WindowFrame | _: PartitionSpec => false
-            case expr => containsNTZ(expr.dataType)
-          })
+          plan.expressions.exists(_.exists(producesNtz))
         ) {
           return fail(s"${plan.nodeName} has TimestampNTZType in expressions")
         }
@@ -301,19 +313,7 @@ object Validators {
               expr =>
                 (!containsNTZ(expr.dataType) &&
                   !expr.references.exists(a => containsNTZ(a.dataType))) ||
-                isDirectNtzProjection(expr) ||
-                expr.exists {
-                  case Hour(child, _) => containsNTZ(child.dataType)
-                  case Minute(child, _) => containsNTZ(child.dataType)
-                  case Second(child, _) => containsNTZ(child.dataType)
-                  case TimestampAdd(_, _, child, _) => containsNTZ(child.dataType)
-                  case ConvertTimezone(_, _, child) => containsNTZ(child.dataType)
-                  case m: MakeTimestamp if isNTZ(m.dataType) => true
-                  case c: Cast if isNTZ(c.dataType) || isNTZ(c.child.dataType) => true
-                  case IsNull(child) => containsNTZ(child.dataType)
-                  case IsNotNull(child) => containsNTZ(child.dataType)
-                  case _ => false
-                }
+                supportedProjection(expr)
             }
           case _ => false
         }
