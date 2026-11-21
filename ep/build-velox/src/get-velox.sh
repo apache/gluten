@@ -25,7 +25,7 @@ RUN_SETUP_SCRIPT=ON
 ENABLE_ENHANCED_FEATURES=OFF
 
 # Developer use only for testing Velox PR.
-UPSTREAM_VELOX_PR_ID=""
+UPSTREAM_VELOX_PR_ID="19522"
 
 OS=`uname -s`
 
@@ -148,7 +148,9 @@ function apply_provided_velox_patch {
        echo "Failed to download the Velox patch from GitHub"
        exit 1
      }
-     (git apply --check $patch_name && git apply $patch_name) || {
+     # IBM Velox can change the outer context of an upstream patch (for example, the
+     # blank line after the isnan registrations). Still require two matching context lines.
+     (git apply -C2 --check $patch_name && git apply -C2 $patch_name) || {
        echo "Failed to apply the provided Velox patch"
        exit 1
      }
