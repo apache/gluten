@@ -173,6 +173,7 @@ class ArrowEvalPythonExecSuite extends WholeStageTransformerSuite {
           (0 until 100).map(i => (i.toLong, s"v$i")).toDF("id", "s").coalesce(1).write.parquet(
             f.getCanonicalPath)
           val base = spark.read.parquet(f.getCanonicalPath)
+          assert(base.rdd.getNumPartitions == 1)
           val df = base.withColumn("p_s", pyarrowTestUDFString(base("s")))
           checkAnswer(df, (0 until 100).map(i => Row(i.toLong, s"v$i", s"v$i")))
           val udfs = getExecutedPlan(df).collect { case p: ColumnarArrowEvalPythonExec => p }
