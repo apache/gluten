@@ -16,6 +16,7 @@
  */
 package org.apache.spark.sql.delta
 
+import org.apache.gluten.columnarbatch.ColumnarBatches
 import org.apache.gluten.config.{GlutenConfig, VeloxDeltaConfig}
 import org.apache.gluten.execution.{HashAggregateExecTransformer, TerminalRow}
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
@@ -293,6 +294,114 @@ class GlutenDeltaStatsLifecycleSuite extends GlutenQueryTest with SharedSparkSes
       completionChecks.asScala.foreach(_())
       assert(statisticsThreads.diff(before).isEmpty, "Statistics workers survived task completion")
     }
+  }
+
+  test("newRow propagates a statistics worker failure while consuming input") {
+    val before = statisticsThreads
+    val completed = new CountDownLatch(1)
+    val failures = new ConcurrentLinkedQueue[Throwable]()
+    val completionChecks = new ConcurrentLinkedQueue[() => Unit]()
+    val aggregate = spark.range(1).selectExpr(
+      "to_json(named_struct('numRecords', count(*))) AS stats")
+      .queryExecution.analyzed.collectFirst { case a: Aggregate => a }.get
+    val tracker = GlutenDeltaJobStatsTracker(new DeltaJobStatisticsTracker(
+      spark.sessionState.newHadoopConf(),
+      new Path("file:/tmp/gluten-stats-midstream-failure"),
+      aggregate.child.output,
+      aggregate.aggregateExpressions.head))
+    val conf = spark.sessionState.conf.clone()
+    conf.setConfString(GlutenConfig.BENCHMARK_TASK_STAGEID.key, "0")
+    val thread = new Thread(
+      () => {
+        SparkSession.clearActiveSession()
+        try {
+          SQLConf.withExistingConf(conf) {
+            TaskResources.runUnsafe {
+              val context = TaskContext.get()
+              val usage = TaskResources.getSharedUsage()
+              completionChecks.add(
+                () => {
+                  assert(context.isCompleted())
+                  assert(usage.current() == 0)
+                })
+              def newBatch(value: Long): (ColumnarBatch, RefCountedArrowColumnVector) = {
+                val vector = new BigIntVector("id", ArrowBufferAllocators.contextInstance())
+                val column = new RefCountedArrowColumnVector(vector)
+                vector.allocateNew(1)
+                vector.set(0, value)
+                vector.setValueCount(1)
+                (new ColumnarBatch(Array(column), 1), column)
+              }
+              def terminalRow(inputBatch: ColumnarBatch): TerminalRow = new TerminalRow {
+                override def batch(): ColumnarBatch = inputBatch
+                override def withNewBatch(batch: ColumnarBatch): TerminalRow =
+                  throw new UnsupportedOperationException()
+              }
+              val taskTracker = tracker.newTaskInstance()
+              val file = "file:/tmp/gluten-stats-midstream-failure/part.parquet"
+              taskTracker.newFile(file)
+              val (firstBatch, _) = newBatch(1L)
+              try {
+                ColumnarBatches.ensureOffloaded(ArrowBufferAllocators.contextInstance(), firstBatch)
+                taskTracker.newRow(file, terminalRow(firstBatch))
+              } finally {
+                firstBatch.close()
+              }
+              val (invalidBatch, invalidColumn) = newBatch(2L)
+              val (rejectedBatch, rejectedColumn) = newBatch(3L)
+              completionChecks.add(
+                () => {
+                  assert(invalidColumn.refCnt() == 0, "The worker's input batch leaked")
+                  assert(rejectedColumn.refCnt() == 0, "The rejected batch leaked")
+                })
+              try {
+                // A non-offloaded batch fails in the worker's input iterator after the first
+                // native batch was consumed. Never call closeFile or send end-of-stream.
+                taskTracker.newRow(file, terminalRow(invalidBatch))
+                val failure = intercept[ExecutionException] {
+                  taskTracker.newRow(file, terminalRow(rejectedBatch))
+                }
+                assert(
+                  Iterator.iterate[Throwable](failure)(_.getCause).takeWhile(_ != null)
+                    .exists(
+                      e => Option(e.getMessage).exists(_.contains("Input batch is not offloaded"))),
+                  failure.toString
+                )
+                assert(
+                  rejectedColumn.refCnt() == 1,
+                  "The rejected batch's retained reference leaked")
+                assert(
+                  rejectedColumn.getLong(0) == 3L,
+                  "The producer's batch was released prematurely")
+              } finally {
+                invalidBatch.close()
+                rejectedBatch.close()
+              }
+            }
+          }
+        } catch {
+          case e: InterruptedException => failures.add(e)
+          case NonFatal(e) => failures.add(e)
+        } finally {
+          completed.countDown()
+        }
+      },
+      "delta statistics midstream failure task"
+    )
+    thread.setDaemon(true)
+    thread.start()
+    try {
+      assert(
+        completed.await(30, TimeUnit.SECONDS),
+        "newRow blocked after the statistics worker failed mid-stream")
+    } finally {
+      thread.interrupt()
+      thread.join(30000)
+    }
+    assert(!thread.isAlive, "Statistics cleanup did not terminate")
+    failures.asScala.foreach(e => throw e)
+    completionChecks.asScala.foreach(_())
+    assert(statisticsThreads.diff(before).isEmpty, "Statistics workers survived task completion")
   }
 
   test("canceled statistics workers can access task resources before cleanup") {
