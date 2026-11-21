@@ -33,19 +33,17 @@ class SerializedBroadcastHashTable(
     var numRows: Long,
     var ignoreNullKeys: Boolean,
     var joinHasNullKeys: Boolean,
-    var droppedDuplicates: Boolean,
     var bloomFilterBlocksByteSize: Long,
     var hashProbeDynamicFiltersProduced: Long,
     var buildSideRelation: BuildSideRelation)
   extends Externalizable {
 
-  def this() = this(null, 0, false, false, false, 0, 0, null) // Required for Externalizable
+  def this() = this(null, 0, false, false, 0, 0, null) // Required for Externalizable
 
   override def writeExternal(out: ObjectOutput): Unit = {
     out.writeLong(numRows)
     out.writeBoolean(ignoreNullKeys)
     out.writeBoolean(joinHasNullKeys)
-    out.writeBoolean(droppedDuplicates)
     out.writeLong(bloomFilterBlocksByteSize)
     out.writeLong(hashProbeDynamicFiltersProduced)
     serializedData.writeExternal(out)
@@ -56,7 +54,6 @@ class SerializedBroadcastHashTable(
     numRows = in.readLong()
     ignoreNullKeys = in.readBoolean()
     joinHasNullKeys = in.readBoolean()
-    droppedDuplicates = in.readBoolean()
     bloomFilterBlocksByteSize = in.readLong()
     hashProbeDynamicFiltersProduced = in.readLong()
     val data = new UnsafeByteArray()
@@ -92,7 +89,6 @@ object SerializedBroadcastHashTable {
       numRows: Long,
       ignoreNullKeys: Boolean,
       joinHasNullKeys: Boolean,
-      droppedDuplicates: Boolean,
       bloomFilterBlocksByteSize: Long,
       hashProbeDynamicFiltersProduced: Long,
       buildSideRelation: BuildSideRelation): SerializedBroadcastHashTable =
@@ -101,7 +97,6 @@ object SerializedBroadcastHashTable {
       numRows,
       ignoreNullKeys,
       joinHasNullKeys,
-      droppedDuplicates,
       bloomFilterBlocksByteSize,
       hashProbeDynamicFiltersProduced,
       buildSideRelation)
@@ -120,7 +115,6 @@ object SerializedBroadcastHashTable {
       hashTableHandle: Long,
       cacheKey: String,
       buildSideRelation: BuildSideRelation,
-      droppedDuplicates: Boolean,
       numRows: Long): SerializedBroadcastHashTable = {
     try {
       val serializedSize = HashJoinBuilder.serializedHashTableSizeDirect(hashTableHandle)
@@ -144,7 +138,6 @@ object SerializedBroadcastHashTable {
         numRows,
         ignoreNullKeys,
         joinHasNullKeys,
-        droppedDuplicates,
         bloomFilterBlocksByteSize,
         hashProbeDynamicFiltersProduced,
         buildSideRelation)

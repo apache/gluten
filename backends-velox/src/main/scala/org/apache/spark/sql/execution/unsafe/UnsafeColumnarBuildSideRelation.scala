@@ -19,7 +19,7 @@ package org.apache.spark.sql.execution.unsafe
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.columnarbatch.ColumnarBatches
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.execution.BroadcastHashJoinContext
+import org.apache.gluten.execution.{BroadcastHashJoinContext, HashTableBuildKey}
 import org.apache.gluten.expression.ConverterUtils
 import org.apache.gluten.expression.ExpressionUtils
 import org.apache.gluten.iterator.Iterators
@@ -127,14 +127,14 @@ class UnsafeColumnarBuildSideRelation(
     batches
   }
 
-  // The relation can be reused as different hash tables by whether dropping duplicates or not.
-  private val hashTableData = Map.empty[Boolean, Long]
+  // Joins that reuse this relation can need different hash tables, one per build key.
+  private val hashTableData = Map.empty[HashTableBuildKey, Long]
 
   def buildHashTable(broadcastContext: BroadcastHashJoinContext)
-      : (Long, BuildSideRelation, Boolean) =
+      : (Long, BuildSideRelation, HashTableBuildKey) =
     synchronized {
-      val droppedDuplicates = broadcastContext.droppedDuplicates
-      if (!hashTableData.contains(droppedDuplicates)) {
+      val buildKey = broadcastContext.hashTableBuildKey
+      if (!hashTableData.contains(buildKey)) {
         val startTime = System.nanoTime()
         val runtime = Runtimes.contextInstance(
           BackendsApiManager.getBackendName,
@@ -190,7 +190,7 @@ class UnsafeColumnarBuildSideRelation(
 
         try {
           // Build the hash table
-          hashTableData(droppedDuplicates) = hashJoinBuilder
+          hashTableData(buildKey) = hashJoinBuilder
             .nativeBuild(
               broadcastContext.buildHashTableId,
               batchArray.toArray,
@@ -213,14 +213,14 @@ class UnsafeColumnarBuildSideRelation(
         val elapsedTime = System.nanoTime() - startTime
         broadcastContext.buildHashTableTimeMetric.foreach(_ += elapsedTime / 1000000)
 
-        (hashTableData(droppedDuplicates), this, droppedDuplicates)
+        (hashTableData(buildKey), this, buildKey)
       } else {
         (
           HashJoinBuilder.cloneHashTable(
             broadcastContext.buildHashTableId,
-            hashTableData(droppedDuplicates)),
+            hashTableData(buildKey)),
           null,
-          droppedDuplicates)
+          buildKey)
       }
     }
 
@@ -230,10 +230,10 @@ class UnsafeColumnarBuildSideRelation(
    */
   def buildHashTableWithRuntime(
       broadcastContext: BroadcastHashJoinContext,
-      runtime: org.apache.gluten.runtime.Runtime): (Long, BuildSideRelation, Boolean) =
+      runtime: org.apache.gluten.runtime.Runtime): (Long, BuildSideRelation, HashTableBuildKey) =
     synchronized {
-      val droppedDuplicates = broadcastContext.droppedDuplicates
-      if (!hashTableData.contains(droppedDuplicates)) {
+      val buildKey = broadcastContext.hashTableBuildKey
+      if (!hashTableData.contains(buildKey)) {
         val startTime = System.nanoTime()
         val jniWrapper = ColumnarBatchSerializerJniWrapper.create(runtime)
         val serializeHandle: Long = {
@@ -286,7 +286,7 @@ class UnsafeColumnarBuildSideRelation(
 
         try {
           // Build the hash table
-          hashTableData(droppedDuplicates) = hashJoinBuilder
+          hashTableData(buildKey) = hashJoinBuilder
             .nativeBuild(
               broadcastContext.buildHashTableId,
               batchArray.toArray,
@@ -309,19 +309,19 @@ class UnsafeColumnarBuildSideRelation(
         val elapsedTime = System.nanoTime() - startTime
         broadcastContext.buildHashTableTimeMetric.foreach(_ += elapsedTime / 1000000)
 
-        (hashTableData(droppedDuplicates), this, droppedDuplicates)
+        (hashTableData(buildKey), this, buildKey)
       } else {
         (
           HashJoinBuilder.cloneHashTable(
             broadcastContext.buildHashTableId,
-            hashTableData(droppedDuplicates)),
+            hashTableData(buildKey)),
           null,
-          droppedDuplicates)
+          buildKey)
       }
     }
 
-  def reset(droppedDuplicates: Boolean): Unit = synchronized {
-    hashTableData.remove(droppedDuplicates)
+  def reset(buildKey: HashTableBuildKey): Unit = synchronized {
+    hashTableData.remove(buildKey)
   }
 
   override def writeExternal(out: ObjectOutput): Unit = Utils.tryOrIOException {
