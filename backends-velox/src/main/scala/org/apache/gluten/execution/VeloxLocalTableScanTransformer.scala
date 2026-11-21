@@ -24,7 +24,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, SortOrder, UnsafeProjection}
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
-import org.apache.spark.sql.execution.{LocalTableScanTransformer, SparkPlan}
+import org.apache.spark.sql.execution.{LocalTableScanExec, LocalTableScanTransformer, SparkPlan}
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
@@ -42,7 +42,8 @@ case class VeloxLocalTableScanTransformer(
     // Row-to-columnar conversion preserves data distribution, so we carry through
     // the original partitioning, consistent with RowToVeloxColumnarExec's behavior.
     override val outputPartitioning: Partitioning,
-    override val outputOrdering: Seq[SortOrder]
+    override val outputOrdering: Seq[SortOrder],
+    originalPlan: LocalTableScanExec
 ) extends LocalTableScanTransformer(outputAttributes, outputPartitioning, outputOrdering)
   with Logging {
 
@@ -51,6 +52,13 @@ case class VeloxLocalTableScanTransformer(
     "numOutputBatches" -> SQLMetrics.createMetric(sparkContext, "number of output batches"),
     "convertTime" -> SQLMetrics.createTimingMetric(sparkContext, "time to convert")
   )
+
+  override protected def doCanonicalize(): SparkPlan = {
+    val canonicalized = super.doCanonicalize().asInstanceOf[VeloxLocalTableScanTransformer]
+    // The fallback leaf is not a child, so Spark does not canonicalize it for us.
+    canonicalized.copy(
+      originalPlan = originalPlan.canonicalized.asInstanceOf[LocalTableScanExec])
+  }
 
   override protected def doValidateInternal(): ValidationResult = {
     for (field <- schema.fields) {
@@ -139,16 +147,17 @@ case class VeloxLocalTableScanTransformer(
 
   override protected def withNewChildrenInternal(newChildren: IndexedSeq[SparkPlan]): SparkPlan = {
     assert(newChildren.isEmpty, "VeloxLocalTableScanTransformer is a leaf node")
-    copy(outputAttributes, rows, outputPartitioning, outputOrdering)
+    copy(outputAttributes, rows, outputPartitioning, outputOrdering, originalPlan)
   }
 }
 
 object VeloxLocalTableScanTransformer {
 
-  def replace(plan: org.apache.spark.sql.execution.LocalTableScanExec): LocalTableScanTransformer =
+  def replace(plan: LocalTableScanExec): LocalTableScanTransformer =
     VeloxLocalTableScanTransformer(
       plan.output,
       plan.rows,
       plan.outputPartitioning,
-      plan.outputOrdering)
+      plan.outputOrdering,
+      plan)
 }

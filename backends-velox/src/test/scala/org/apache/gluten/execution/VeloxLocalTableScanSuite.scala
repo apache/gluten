@@ -17,14 +17,16 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.extension.RemoveRedundantLocalTableScan
 import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.AttributeReference
 import org.apache.spark.sql.catalyst.plans.logical.LocalRelation
 import org.apache.spark.sql.classic.ClassicDataset
-import org.apache.spark.sql.execution.LocalTableScanExec
+import org.apache.spark.sql.execution.{LocalTableScanExec, ProjectExec}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.types._
 
@@ -41,7 +43,6 @@ class VeloxLocalTableScanSuite
   override protected def sparkConf: SparkConf = {
     super.sparkConf
       .set("spark.sql.ansi.enabled", "false")
-      .set("spark.gluten.sql.columnar.localTableScan", "true")
   }
 
   private def assertHasVeloxLocalTableScan(df: DataFrame): Unit = {
@@ -55,6 +56,13 @@ class VeloxLocalTableScanSuite
     spark.createDataFrame(JArrays.asList(rows: _*), schema)
   }
 
+  private def assertLocalScanValidationFails(df: DataFrame): Unit = {
+    val scan = df.queryExecution.sparkPlan
+      .collectFirst { case scan: LocalTableScanExec => scan }
+      .getOrElse(fail("Expected a LocalTableScanExec in the spark plan"))
+    assert(!VeloxLocalTableScanTransformer.replace(scan).doValidate().ok())
+  }
+
   // Builds a genuine batch [[LocalTableScanExec]] via the physical planner. This avoids calling the
   // constructor directly, whose arity differs across Spark versions (Spark 4.0+ adds a required
   // `stream` parameter), keeping this suite compilable on every supported Spark version.
@@ -66,12 +74,56 @@ class VeloxLocalTableScanSuite
       .getOrElse(fail("Expected a LocalTableScanExec in the spark plan"))
   }
 
-  test("basic LocalTableScanExec with int and string columns") {
+  test("LocalTableScan offloads by default with a columnar consumer") {
     val schema = StructType(Seq(StructField("id", IntegerType), StructField("name", StringType)))
     val rows = Seq(Row(1, "a"), Row(2, "b"), Row(3, "c"))
-    val df = createDF(rows, schema)
+    // Keep a columnar consumer so the scan is not immediately converted back to rows.
+    val df = createDF(rows, schema).coalesce(1)
     checkAnswer(df, rows)
     assertHasVeloxLocalTableScan(df)
+  }
+
+  test("redundant local scan conversion restores the original Spark leaf") {
+    val scan = newBatchLocalTableScan()
+    val native = VeloxLocalTableScanTransformer.replace(scan)
+    val transition = VeloxColumnarToRowExec(native)
+    assert(RemoveRedundantLocalTableScan(transition) eq scan)
+
+    val project = ProjectExec(scan.output, transition)
+    val reverted = RemoveRedundantLocalTableScan(project)
+    assert(reverted == ProjectExec(scan.output, scan))
+    assert(RemoveRedundantLocalTableScan(reverted) == reverted)
+  }
+
+  test("local scan canonicalization ignores output IDs but preserves row values") {
+    val scan = newBatchLocalTableScan()
+    val native = VeloxLocalTableScanTransformer.replace(scan)
+    val freshOutput = scan.copy(output = scan.output.map(_.newInstance()))
+    assert(native.sameResult(VeloxLocalTableScanTransformer.replace(freshOutput)))
+
+    val differentRows = scan.copy(rows = Seq(InternalRow(2)))
+    assert(!native.sameResult(VeloxLocalTableScanTransformer.replace(differentRows)))
+    assert(RemoveRedundantLocalTableScan(VeloxColumnarToRowExec(native)) eq scan)
+  }
+
+  test("local scan conversion is retained for columnar consumers and columnar output") {
+    val native = VeloxLocalTableScanTransformer.replace(newBatchLocalTableScan())
+    val plan = VeloxColumnarToRowExec(ColumnarCoalesceExec(1, native))
+    assert(RemoveRedundantLocalTableScan(plan) == plan)
+    assert(RemoveRedundantLocalTableScan(native) == native)
+  }
+
+  test("row-only local scan avoids a columnar round trip by default") {
+    val df = spark.sql("SELECT * FROM VALUES (1), (2) AS t(id)")
+    checkAnswer(df, Seq(Row(1), Row(2)))
+    val scans = collect(df.queryExecution.executedPlan) {
+      case scan: LocalTableScanExec => scan
+    }
+    assert(scans.nonEmpty)
+    assert(
+      collect(df.queryExecution.executedPlan) {
+        case _: VeloxLocalTableScanTransformer => true
+      }.isEmpty)
   }
 
   // Before Spark 4.2 (SPARK-57725), Spark itself fails to resolve a plan with a null-named
@@ -99,7 +151,7 @@ class VeloxLocalTableScanSuite
         StructField("shrt", ShortType),
         StructField("byt", ByteType)))
     val rows = Seq(Row(1L, 1.5, 2.5f, 100.toShort, 42.toByte))
-    val df = createDF(rows, schema)
+    val df = createDF(rows, schema).coalesce(1)
     checkAnswer(df, rows)
     assertHasVeloxLocalTableScan(df)
   }
@@ -108,7 +160,7 @@ class VeloxLocalTableScanSuite
     val schema = StructType(
       Seq(StructField("flag", BooleanType), StructField("value", IntegerType, nullable = true)))
     val rows = Seq(Row(true, 1), Row(false, null))
-    val df = createDF(rows, schema)
+    val df = createDF(rows, schema).coalesce(1)
     checkAnswer(df, rows)
     assertHasVeloxLocalTableScan(df)
   }
@@ -131,7 +183,7 @@ class VeloxLocalTableScanSuite
   test("LocalTableScan with filter downstream") {
     val schema = StructType(Seq(StructField("x", IntegerType)))
     val rows = Seq(Row(1), Row(2), Row(3), Row(4), Row(5))
-    val df = createDF(rows, schema).filter("x > 3")
+    val df = createDF(rows, schema).filter("x > 3").coalesce(1)
     checkAnswer(df, Seq(Row(4), Row(5)))
     assertHasVeloxLocalTableScan(df)
   }
@@ -194,7 +246,7 @@ class VeloxLocalTableScanSuite
         new java.math.BigDecimal("-123.45")
       )
     )
-    val df = createDF(rows, schema)
+    val df = createDF(rows, schema).coalesce(1)
     checkAnswer(df, rows)
     assertHasVeloxLocalTableScan(df)
   }
@@ -206,7 +258,7 @@ class VeloxLocalTableScanSuite
         StructField("arr", ArrayType(IntegerType, containsNull = true), nullable = true)))
     val rows =
       Seq(Row(1, Seq(10, 20, 30)), Row(2, Seq.empty[Int]), Row(3, null), Row(4, Seq(-1, 0, 1)))
-    val df = createDF(rows, schema)
+    val df = createDF(rows, schema).coalesce(1)
     checkAnswer(df, rows)
     assertHasVeloxLocalTableScan(df)
   }
@@ -221,6 +273,7 @@ class VeloxLocalTableScanSuite
           nullable = true)))
     val rows = Seq(Row(1, Map("a" -> 1, "b" -> 2)), Row(2, Map.empty[String, Int]), Row(3, null))
     val df = createDF(rows, schema)
+    assertLocalScanValidationFails(df)
     checkAnswer(df, rows)
     // MapType is not supported in Arrow export path - should fall back
     val cnt = collect(df.queryExecution.executedPlan) {
@@ -237,7 +290,7 @@ class VeloxLocalTableScanSuite
     val schema = StructType(
       Seq(StructField("id", IntegerType), StructField("person", innerSchema, nullable = true)))
     val rows = Seq(Row(1, Row("alice", 30)), Row(2, Row("bob", null)), Row(3, null))
-    val df = createDF(rows, schema)
+    val df = createDF(rows, schema).coalesce(1)
     checkAnswer(df, rows)
     assertHasVeloxLocalTableScan(df)
   }
@@ -247,6 +300,7 @@ class VeloxLocalTableScanSuite
       Seq(StructField("id", IntegerType), StructField("duration", DayTimeIntervalType())))
     val rows = Seq(Row(1, java.time.Duration.ofHours(3)), Row(2, java.time.Duration.ofDays(1)))
     val df = createDF(rows, schema)
+    assertLocalScanValidationFails(df)
     // Should still produce correct results via fallback to vanilla Spark
     checkAnswer(df, rows)
     val cnt = collect(df.queryExecution.executedPlan) {
@@ -258,7 +312,7 @@ class VeloxLocalTableScanSuite
   test("LocalTableScan idempotent re-reads") {
     val schema = StructType(Seq(StructField("id", IntegerType), StructField("name", StringType)))
     val rows = Seq(Row(1, "a"), Row(2, "b"), Row(3, "c"), Row(4, "d"), Row(5, "e"))
-    val df = createDF(rows, schema)
+    val df = createDF(rows, schema).coalesce(1)
     // Read twice to verify idempotency
     checkAnswer(df, rows)
     checkAnswer(df, rows)
@@ -270,7 +324,7 @@ class VeloxLocalTableScanSuite
       val schema =
         StructType(Seq(StructField("id", IntegerType), StructField("name", StringType)))
       val rows = Seq(Row(1, "a"), Row(2, "b"))
-      val df = createDF(rows, schema)
+      val df = createDF(rows, schema).coalesce(1)
       checkAnswer(df, rows)
       val cnt = collect(df.queryExecution.executedPlan) {
         case _: VeloxLocalTableScanTransformer => true
