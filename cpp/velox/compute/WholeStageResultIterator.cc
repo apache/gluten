@@ -29,6 +29,7 @@
 #include "config/VeloxConfig.h"
 #include "operators/functions/IncrementMetricFunction.h"
 #include "utils/ConfigExtractor.h"
+#include "utils/DynamicFilterUtils.h"
 #include "velox/connectors/hive/HiveConfig.h"
 #include "velox/connectors/hive/HiveConnectorSplit.h"
 #ifdef ENABLE_KAFKA
@@ -108,6 +109,7 @@ WholeStageResultIterator::WholeStageResultIterator(
       executor_(executor),
       veloxPlan_(planNode),
       usesIncrementMetricFunctions_(usesIncrementMetricFunctions(*planNode)),
+      nonDeterministicBelowHashProbe_(hasNonDeterministicExprBelowHashProbe(*planNode)),
       spillExecutor_(spillExecutor),
       connectorIds_(std::move(connectorIds)),
       scanNodeIds_(scanNodeIds),
@@ -731,6 +733,11 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
     // modified rows and could suppress valid change-data-feed rows.
     if (usesIncrementMetricFunctions_) {
       setIncrementMetricQueryConfigs(configs);
+    }
+    // A dynamic filter pushed below a non-deterministic expression changes its results, which
+    // Spark never does. Set after the user overrides, since this is about correctness.
+    if (nonDeterministicBelowHashProbe_) {
+      configs[velox::core::QueryConfig::kHashProbeDynamicFilterPushdownEnabled] = "false";
     }
   } catch (const std::invalid_argument& err) {
     std::string errDetails = err.what();

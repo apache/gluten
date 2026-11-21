@@ -756,6 +756,36 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
         })
   }
 
+  test("broadcast join keeps its filter above non-deterministic expressions") {
+    // A filter on the join keys pushed into the scan would run rand() and
+    // monotonically_increasing_id() on fewer rows than Spark does, changing their values, and
+    // `rand(42) < 0.5` would keep different rows.
+    withTempPath {
+      dir =>
+        val big = new java.io.File(dir, "big").getCanonicalPath
+        val small = new java.io.File(dir, "small").getCanonicalPath
+        // One file, so both engines number its rows in the same partition.
+        spark.range(0, 100000, 1, 1).write.parquet(big)
+        spark.range(0, 10, 1, 1).selectExpr("id * 9973 + 17 AS id").write.parquet(small)
+        withTempView("big", "small") {
+          spark.read.parquet(big).createOrReplaceTempView("big")
+          spark.read.parquet(small).createOrReplaceTempView("small")
+          withSQLConf("spark.sql.autoBroadcastJoinThreshold" -> "10MB") {
+            Seq(
+              "SELECT id, monotonically_increasing_id() AS m FROM big",
+              "SELECT id, rand(42) AS r FROM big",
+              "SELECT id FROM big WHERE rand(42) < 0.5"
+            ).foreach {
+              subquery =>
+                runQueryAndCompare(s"SELECT b.* FROM ($subquery) b JOIN small s ON b.id = s.id") {
+                  df => checkGlutenPlan[BroadcastHashJoinExecTransformer](df)
+                }
+            }
+          }
+        }
+    }
+  }
+
   test("Broadcast over maxBroadcastTableSize fails with Spark's error condition") {
     withSQLConf("spark.sql.maxBroadcastTableSize" -> "100") {
       val df = spark.range(1000).toDF()

@@ -1288,6 +1288,51 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
   }
 
   testWithMinSparkVersion(
+    "delta: merge counts every source row when the target is broadcast",
+    "3.5") {
+    // With a broadcast target, the join could push a filter on the target keys into the source
+    // scan, below the projection that counts numSourceRows. Unmatched source rows were then never
+    // counted: 10 instead of 10000 here. The pushdown stops at the counter because it is a
+    // non-deterministic native function, so the test needs native counting.
+    assume(BackendsApiManager.getSettings.supportNativeIncrementMetric())
+    withSQLConf("spark.sql.autoBroadcastJoinThreshold" -> "10MB") {
+      withTable("broadcast_merge_target", "broadcast_merge_source") {
+        spark.sql("create table broadcast_merge_target (id bigint, name string) using delta")
+        spark.sql(
+          "insert into broadcast_merge_target select id, concat('t', id) from range(0, 10, 1, 1)")
+        spark.sql("create table broadcast_merge_source (id bigint, name string) using delta")
+        spark.sql(
+          "insert into broadcast_merge_source " +
+            "select id, concat('s', id) from range(0, 10000, 1, 1)")
+        val plans = collectExecutedPlanInfos {
+          spark.sql("""
+                      |merge into broadcast_merge_target t
+                      |using broadcast_merge_source s
+                      |on t.id = s.id
+                      |when matched then update set name = s.name
+                      |""".stripMargin)
+        }
+        checkAnswer(
+          spark.sql("select * from broadcast_merge_target"),
+          (0 until 10).map(i => Row(i.toLong, s"s$i")))
+        val metrics = lastOperationMetrics("broadcast_merge_target", "MERGE")
+        assert(metrics("numSourceRows") === "10000", metrics)
+        assert(metrics("numTargetRowsUpdated") === "10", metrics)
+
+        // Only a native join that broadcasts the target can filter the source scan.
+        val nodes = plans.flatMap(flattenPlanInfo)
+        assert(
+          nodes.exists(
+            n =>
+              n.nodeName == "BroadcastHashJoinExecTransformer" &&
+                n.simpleString.contains("Inner") && n.simpleString.contains("BuildRight")),
+          nodes.filter(_.nodeName.contains("Join")).map(_.simpleString)
+        )
+      }
+    }
+  }
+
+  testWithMinSparkVersion(
     "delta: operators above a merge write projection that stays on Spark stay on Spark",
     "3.5") {
     // Blacklisting the native counter keeps every projection carrying IncrementMetric on Spark, the

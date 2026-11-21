@@ -153,8 +153,9 @@ add_velox_test(
   VeloxSubstraitRoundTripTest.cc
   VeloxSubstraitSignatureTest.cc
   VeloxToSubstraitTypeTest.cc)
-add_velox_test(spark_functions_test SOURCES SparkFunctionTest.cc
-               FunctionTest.cc IncrementMetricFunctionTest.cc)
+add_velox_test(
+  spark_functions_test SOURCES SparkFunctionTest.cc FunctionTest.cc
+  IncrementMetricFunctionTest.cc DynamicFilterUtilsTest.cc)
 add_velox_test(runtime_test SOURCES RuntimeTest.cc)
 add_velox_test(velox_backend_test SOURCES VeloxBackendTest.cc)
 add_velox_test(velox_memory_test SOURCES MemoryManagerTest.cc)
