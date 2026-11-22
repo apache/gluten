@@ -18,6 +18,7 @@ package org.apache.spark.sql.delta
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.config.VeloxDeltaConfig
+import org.apache.gluten.execution.SortExecTransformer
 
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.catalyst.TableIdentifier
@@ -371,6 +372,8 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
               val input = if (presorted) df.sortWithinPartitions(partitionColumn) else df
               input.write.format("delta").partitionBy(partitionColumn).save(path)
               assert(!writerPlan.treeString.contains("ColumnarToRow"), writerPlan)
+              // The writer sorts unsorted input; presorted input keeps the user's sort only.
+              assert(writerPlan.collect { case s: SortExecTransformer => s }.size == 1, writerPlan)
             }
             assert(
               spark.read.format("delta").load(path).select("id", "s", "p").orderBy("id")
