@@ -44,6 +44,7 @@ import org.apache.spark.sql.execution.aggregate.SortAggregateExec
 import org.apache.spark.sql.execution.datasources.{BasicWriteJobStatsTracker, WriteJobStatsTracker, WriteTaskStats, WriteTaskStatsTracker}
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.vectorized.ColumnarBatch
+import org.apache.spark.task.TaskResources
 import org.apache.spark.util.{SerializableConfiguration, SparkDirectoryUtil, Utils}
 
 import com.google.common.collect.Lists
@@ -51,7 +52,7 @@ import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 
 import java.util.UUID
-import java.util.concurrent.{Callable, Executors, Future, SynchronousQueue}
+import java.util.concurrent.{Callable, Executors, Future, SynchronousQueue, TimeUnit}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
@@ -227,6 +228,33 @@ object GlutenDeltaJobStatsTracker extends Logging {
     private var currentPath: String = _
     private var currentJsonFuture: Future[String] = _
 
+    // Registered after TaskResources, so Spark's reverse listener order stops the worker first.
+    // A recycler holds the registry lock, which the worker may need to wrap its output batch.
+    taskContext.addTaskCompletionListener[Unit] {
+      _ =>
+        Option(currentJsonFuture).foreach(_.cancel(true))
+        resultThreadRunner.shutdownNow()
+        var interrupted = false
+        try {
+          while (!resultThreadRunner.isTerminated) {
+            try {
+              resultThreadRunner.awaitTermination(Long.MaxValue, TimeUnit.NANOSECONDS)
+            } catch {
+              case _: InterruptedException => interrupted = true
+            }
+          }
+          try {
+            veloxAggTask.close()
+          } finally {
+            c2r.close()
+          }
+        } finally {
+          if (interrupted) {
+            Thread.currentThread().interrupt()
+          }
+        }
+    }
+
     override def newPartition(partitionValues: InternalRow): Unit = {}
 
     override def newFile(filePath: String): Unit = {
@@ -239,22 +267,28 @@ object GlutenDeltaJobStatsTracker extends Logging {
         override def call(): String = {
           Thread.currentThread().setName(resultThreadName)
           TaskContext.setTaskContext(taskContext)
-          val outBatches = veloxAggTask.asScala.toSeq
-          val row: InternalRow = if (outBatches.isEmpty) {
-            // No input was received. Returns the default aggregation values.
-            emptyRow
-          } else {
-            assert(outBatches.size == 1)
-            val batch = outBatches.head
-            val rows = c2r.toRowIterator(batch).toSeq
-            assert(
-              rows.size == 1,
-              "Only one single output row is expected from the global aggregation.")
-            batch.close()
-            rows.head
+          try {
+            val batch = if (veloxAggTask.hasNext) Some(veloxAggTask.next()) else None
+            try {
+              val row: InternalRow = batch match {
+                case None =>
+                  // No input was received. Returns the default aggregation values.
+                  emptyRow
+                case Some(output) =>
+                  assert(!veloxAggTask.hasNext)
+                  val rows = c2r.toRowIterator(output).toSeq
+                  assert(
+                    rows.size == 1,
+                    "Only one single output row is expected from the global aggregation.")
+                  rows.head
+              }
+              Option(getStatsExpr.eval(row)).map(_.toString).orNull
+            } finally {
+              batch.foreach(_.close())
+            }
+          } finally {
+            TaskContext.unset()
           }
-          val jsonStats = Option(getStatsExpr.eval(row)).map(_.toString).orNull
-          jsonStats
         }
         currentPath = filePath
       })
@@ -292,7 +326,15 @@ object GlutenDeltaJobStatsTracker extends Logging {
           // Counts up the reference count for the batch since it
           // will be consumed by Velox aggregation task asynchronously.
           ColumnarBatches.retain(batch)
-          inputBatchQueue.put(Some(batch))
+          var transferred = false
+          try {
+            inputBatchQueue.put(Some(batch))
+            transferred = true
+          } finally {
+            if (!transferred) {
+              batch.close()
+            }
+          }
       }
     }
 
@@ -303,12 +345,17 @@ object GlutenDeltaJobStatsTracker extends Logging {
     }
 
     private def newIteratorFromInputQueue(): ColumnarBatchInIterator = {
+      var batch: ColumnarBatch = null
+      TaskResources.addRecycler("GlutenDeltaStatsBufferedInput", 100) {
+        if (batch != null) {
+          batch.close()
+          batch = null
+        }
+      }
       val itr = new ColumnarBatchInIterator(
         BackendsApiManager.getBackendName,
         Iterators
           .wrap(new Iterator[ColumnarBatch] {
-            private var batch: ColumnarBatch = _
-
             override def hasNext: Boolean = {
               assert(batch == null)
               while (!Thread.currentThread().isInterrupted) {

@@ -26,6 +26,12 @@
       "repository": "https://github.com/Microsoft/vcpkg",
       "baseline": "a7b6122f6b6504d16d96117336a0562693579933",
       "packages": [ "upb"]
+    },
+    {
+      "kind": "git",
+      "repository": "https://github.com/Microsoft/vcpkg",
+      "baseline": "9066d66ef17d2d9f9164342620682485af8d130b",
+      "packages": [ "libunwind"]
     }
 
   ]
