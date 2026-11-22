@@ -28,13 +28,14 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.FunctionIdentifier
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
-import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Cast, Expression, ExpressionInfo, Unevaluable}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Cast, Expression, ExpressionInfo, Unevaluable}
 import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateFunction
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.types.DataTypeUtils
 import org.apache.spark.sql.errors.QueryExecutionErrors
+import org.apache.spark.sql.execution.aggregate.TypedAggregateExpression
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DataType, StructField, StructType}
+import org.apache.spark.sql.types.{BooleanType, ByteType, DataType, DoubleType, FloatType, IntegerType, LongType, ShortType, StructField, StructType}
 import org.apache.spark.util.Utils
 
 import java.io.File
@@ -44,6 +45,7 @@ import java.util.Locale
 
 import scala.collection.JavaConverters.asScalaIteratorConverter
 import scala.collection.mutable
+import scala.util.Try
 
 case class UserDefinedAggregateFunction(
     name: String,
@@ -92,7 +94,8 @@ case class UDAFSignature(
     children: Seq[DataType],
     variableArity: Boolean,
     allowTypeConversion: Boolean,
-    intermediateAttrs: Seq[AttributeReference])
+    intermediateAttrs: Seq[AttributeReference],
+    intermediateType: DataType)
   extends UDFSignatureBase
 
 case class UDFExpression(
@@ -211,7 +214,9 @@ object UDFResolver extends Logging {
       argTypes.dataType.asInstanceOf[StructType].fields.map(_.dataType),
       variableArity,
       allowTypeConversion,
-      aggBufferAttributes)
+      aggBufferAttributes,
+      intermediateTypes.dataType
+    )
     UDAFNames += name
     logInfo(s"Registered UDAF: $name($argTypes) -> $returnType")
   }
@@ -408,7 +413,12 @@ object UDFResolver extends Logging {
     }
   }
 
-  def getUdafExpression(name: String)(children: Seq[Expression]): UserDefinedAggregateFunction = {
+  def getUdafExpression(name: String)(children: Seq[Expression]): UserDefinedAggregateFunction =
+    bindUdaf(name, children)._1
+
+  private def bindUdaf(
+      name: String,
+      children: Seq[Expression]): (UserDefinedAggregateFunction, UDAFSignature) = {
     def errorMessage: String =
       s"UDAF $name -> ${children.map(_.dataType.simpleString).mkString(", ")} is not registered."
 
@@ -418,7 +428,7 @@ object UDFResolver extends Logging {
 
     tryBind(signatures, children.map(_.dataType), allowTypeConversion) match {
       case Some((sig, withTypeConversion)) =>
-        UserDefinedAggregateFunction(
+        val udaf = UserDefinedAggregateFunction(
           name,
           sig.expressionType.dataType,
           sig.expressionType.nullable,
@@ -426,8 +436,39 @@ object UDFResolver extends Logging {
           else applyCast(children, sig),
           sig.intermediateAttrs
         )
+        (udaf, sig)
       case None =>
         throw new GlutenNotSupportException(errorMessage)
+    }
+  }
+
+  /**
+   * Matches a typed Dataset Aggregator registered as a UDAF under its class name, whose input is a
+   * single non-null primitive column. Returns the UDAF bound to that column and its registered
+   * intermediate type.
+   */
+  object TypedAggregatorUdaf {
+    def unapply(aggregateFunc: AggregateFunction)
+        : Option[(UserDefinedAggregateFunction, DataType)] =
+      aggregateFunc match {
+        case t: TypedAggregateExpression if UDAFNames.contains(t.aggregator.getClass.getName) =>
+          t.inputDeserializer match {
+            case Some(input: Attribute)
+                if !input.nullable && isPrimitive(input.dataType) && isPrimitive(t.dataType) =>
+              Try(bindUdaf(t.aggregator.getClass.getName, Seq(input))).toOption
+                .collect {
+                  case (udaf, sig) if udaf.children == Seq(input) && udaf.dataType == t.dataType =>
+                    (udaf, sig.intermediateType)
+                }
+            case _ => None
+          }
+        case _ => None
+      }
+
+    private def isPrimitive(dataType: DataType): Boolean = dataType match {
+      case BooleanType | ByteType | ShortType | IntegerType | LongType | FloatType | DoubleType =>
+        true
+      case _ => false
     }
   }
 

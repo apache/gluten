@@ -206,6 +206,24 @@ spark-sql (default)> select my_udf(col1) from tbl;
 
 **There is no fallback with this method.** A name registered this way has no Java implementation behind it, so a query that Gluten cannot offload fails instead of falling back to the JVM. Use the registration described above whenever the fallback path is required.
 
+## Typed Dataset Aggregators
+
+A typed Dataset `Aggregator` used through `toColumn` runs in Velox when a UDAF library registers a native aggregate under the Aggregator's JVM class name, exactly as `getClass.getName` returns it (a Scala `object` keeps its trailing `$`).
+
+The registration applies to every eligible use of that exact runtime class. Only the input column reaches Velox: constructor arguments and any state the Aggregator instance holds are not passed on, so the native aggregate must compute the same result for every instance of the class.
+
+The native aggregate must also match the Aggregator for a group with no input, where Spark returns `finish(zero)` rather than null. The example `MyDoubleAvgAggregator` in [MyUDAF.cc](../../../../cpp/velox/udf/examples/MyUDAF.cc) does this with `default_null_behavior_ = false`.
+
+The Aggregator runs in Velox only when all of the following hold. Otherwise it runs in Spark as before.
+
+- Adaptive query execution is not applied to the query (`spark.sql.adaptive.enabled=false`). Under AQE the partial and final aggregations are planned in separate stages, after Gluten would have to commit to the native function, so the Aggregator runs in Spark.
+- The aggregation is global, with no grouping keys, in a batch query. The physical plan is a final `ObjectHashAggregate` reading a single-partition shuffle of a partial `ObjectHashAggregate`, with no other operator between them, and each of the two operators contains exactly one aggregate expression, the Aggregator. Grouped aggregations, windows, several aggregates in one operator and an aggregate shared by several branches of the plan run in Spark.
+- The input type is a primitive (`Boolean`, `Byte`, `Short`, `Int`, `Long`, `Float` or `Double`) read directly from one non-null column, and a registered signature takes that type without conversion. Case-class and other object inputs run in Spark.
+- The output type is a primitive equal to the native aggregate's return type.
+- Both the partial and the final aggregation can run in Velox, connected by their shuffle. Spark's buffer is a serialized object while Velox exchanges the native intermediate result, so the two always run in the same engine.
+
+The native intermediate result crosses the shuffle as one column of the registered intermediate type, such as `double` or `struct<a:double,b:bigint>`, so an intermediate with null fields stays distinct from a null intermediate.
+
 ## Configurations
 
 | Parameters                                                     | Description                                                                                                 |

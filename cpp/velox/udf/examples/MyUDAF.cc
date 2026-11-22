@@ -174,6 +174,211 @@ class MyAvgRegisterer final : public gluten::UdafRegisterer {
   const char* myAvgIntermediateType_ = "struct<a:double,b:bigint>";
 };
 
+// Returns finish(zero) for a group with no input, as a typed Dataset Aggregator does.
+class TypedAggregatorAverageAggregate {
+ public:
+  using InputType = Row<double>;
+
+  using IntermediateType =
+      Row</*sum*/ double,
+          /*count*/ int64_t>;
+
+  using OutputType = double;
+
+  static constexpr bool default_null_behavior_ = false;
+
+  struct AccumulatorType {
+    double sum_{0};
+    int64_t count_{0};
+
+    AccumulatorType() = delete;
+
+    explicit AccumulatorType(HashStringAllocator* /*allocator*/, TypedAggregatorAverageAggregate* /*fn*/) {}
+
+    bool addInput(HashStringAllocator* /*allocator*/, exec::optional_arg_type<double> data) {
+      if (!data.has_value()) {
+        return false;
+      }
+      sum_ += data.value();
+      count_ = checkedPlus<int64_t>(count_, 1);
+      return true;
+    }
+
+    bool combine(HashStringAllocator* /*allocator*/, exec::optional_arg_type<Row<double, int64_t>> other) {
+      if (!other.has_value()) {
+        return false;
+      }
+      sum_ += other.value().at<0>().value();
+      count_ = checkedPlus<int64_t>(count_, other.value().at<1>().value());
+      return true;
+    }
+
+    bool writeFinalResult(bool /*nonNullGroup*/, exec::out_type<OutputType>& out) {
+      out = sum_ / count_ + 100.0;
+      return true;
+    }
+
+    bool writeIntermediateResult(bool /*nonNullGroup*/, exec::out_type<IntermediateType>& out) {
+      out = std::make_tuple(sum_, count_);
+      return true;
+    }
+  };
+};
+
+// Counts all rows if any input is positive. Its intermediate is a valid row whose first field is
+// null until a positive input is seen.
+class CountIfAnyPositiveAggregate {
+ public:
+  using InputType = Row<double>;
+
+  using IntermediateType =
+      Row</*positive*/ double,
+          /*count*/ int64_t>;
+
+  using OutputType = double;
+
+  static constexpr bool default_null_behavior_ = false;
+
+  struct AccumulatorType {
+    bool positive_{false};
+    int64_t count_{0};
+
+    AccumulatorType() = delete;
+
+    explicit AccumulatorType(HashStringAllocator* /*allocator*/, CountIfAnyPositiveAggregate* /*fn*/) {}
+
+    bool addInput(HashStringAllocator* /*allocator*/, exec::optional_arg_type<double> data) {
+      if (!data.has_value()) {
+        return false;
+      }
+      positive_ = positive_ || data.value() > 0;
+      count_ = checkedPlus<int64_t>(count_, 1);
+      return true;
+    }
+
+    bool combine(HashStringAllocator* /*allocator*/, exec::optional_arg_type<Row<double, int64_t>> other) {
+      if (!other.has_value()) {
+        return false;
+      }
+      positive_ = positive_ || other.value().at<0>().has_value();
+      count_ = checkedPlus<int64_t>(count_, other.value().at<1>().value());
+      return true;
+    }
+
+    bool writeFinalResult(bool /*nonNullGroup*/, exec::out_type<OutputType>& out) {
+      out = positive_ ? static_cast<double>(count_) : 0.0;
+      return true;
+    }
+
+    bool writeIntermediateResult(bool /*nonNullGroup*/, exec::out_type<IntermediateType>& out) {
+      if (positive_) {
+        out.get_writer_at<0>() = 1.0;
+      } else {
+        out.set_null_at<0>();
+      }
+      out.get_writer_at<1>() = count_;
+      return true;
+    }
+  };
+};
+
+// Sums the input, with a scalar double or a one-field row intermediate.
+template <typename Intermediate>
+class SumAggregate {
+ public:
+  using InputType = Row<double>;
+
+  using IntermediateType = Intermediate;
+
+  using OutputType = double;
+
+  static constexpr bool default_null_behavior_ = false;
+
+  static constexpr bool kScalarIntermediate = std::is_same_v<Intermediate, double>;
+
+  struct AccumulatorType {
+    double sum_{0};
+
+    AccumulatorType() = delete;
+
+    explicit AccumulatorType(HashStringAllocator* /*allocator*/, SumAggregate* /*fn*/) {}
+
+    bool addInput(HashStringAllocator* /*allocator*/, exec::optional_arg_type<double> data) {
+      if (!data.has_value()) {
+        return false;
+      }
+      sum_ += data.value();
+      return true;
+    }
+
+    bool combine(HashStringAllocator* /*allocator*/, exec::optional_arg_type<Intermediate> other) {
+      if (!other.has_value()) {
+        return false;
+      }
+      if constexpr (kScalarIntermediate) {
+        sum_ += other.value();
+      } else {
+        sum_ += other.value().template at<0>().value();
+      }
+      return true;
+    }
+
+    bool writeFinalResult(bool /*nonNullGroup*/, exec::out_type<OutputType>& out) {
+      out = sum_;
+      return true;
+    }
+
+    bool writeIntermediateResult(bool /*nonNullGroup*/, exec::out_type<IntermediateType>& out) {
+      if constexpr (kScalarIntermediate) {
+        out = sum_;
+      } else {
+        out.template get_writer_at<0>() = sum_;
+      }
+      return true;
+    }
+  };
+};
+
+template <typename Aggregate>
+class TypedAggregatorRegisterer final : public gluten::UdafRegisterer {
+ public:
+  TypedAggregatorRegisterer(std::string name, std::string intermediateType, std::string veloxIntermediateType)
+      : name_(std::move(name)),
+        intermediateType_(std::move(intermediateType)),
+        veloxIntermediateType_(std::move(veloxIntermediateType)) {}
+
+  int getNumUdaf() override {
+    return 1;
+  }
+
+  void populateUdafEntries(int& index, gluten::UdafEntry* udafEntries) override {
+    udafEntries[index++] = {name_.c_str(), kDouble, 1, argTypes_, intermediateType_.c_str(), false, false};
+  }
+
+  void registerSignatures() override {
+    exec::registerAggregateFunction(
+        name_,
+        {exec::AggregateFunctionSignatureBuilder()
+             .returnType("double")
+             .intermediateType(veloxIntermediateType_)
+             .argumentType("double")
+             .build()},
+        [](core::AggregationNode::Step step,
+           const std::vector<TypePtr>& argTypes,
+           const TypePtr& resultType,
+           const core::QueryConfig& /*config*/) -> std::unique_ptr<exec::Aggregate> {
+          return std::make_unique<SimpleAggregateAdapter<Aggregate>>(step, argTypes, resultType);
+        },
+        true /*registerCompanionFunctions*/,
+        true /*overwrite*/);
+  }
+
+  const std::string name_;
+  const std::string intermediateType_;
+  const std::string veloxIntermediateType_;
+  const char* argTypes_[1] = {kDouble};
+};
+
 } // namespace myavg
 
 std::vector<std::shared_ptr<gluten::UdafRegisterer>>& globalRegisters() {
@@ -188,6 +393,14 @@ void setupRegisterers() {
   }
   auto& registerers = globalRegisters();
   registerers.push_back(std::make_shared<myavg::MyAvgRegisterer>());
+  registerers.push_back(std::make_shared<myavg::TypedAggregatorRegisterer<myavg::TypedAggregatorAverageAggregate>>(
+      "org.apache.gluten.expression.MyDoubleAvgAggregator", "struct<a:double,b:bigint>", "row(double,bigint)"));
+  registerers.push_back(std::make_shared<myavg::TypedAggregatorRegisterer<myavg::CountIfAnyPositiveAggregate>>(
+      "org.apache.gluten.expression.CountIfAnyPositiveAggregator", "struct<a:double,b:bigint>", "row(double,bigint)"));
+  registerers.push_back(std::make_shared<myavg::TypedAggregatorRegisterer<myavg::SumAggregate<double>>>(
+      "org.apache.gluten.expression.ScalarIntermediateSumAggregator", "double", "double"));
+  registerers.push_back(std::make_shared<myavg::TypedAggregatorRegisterer<myavg::SumAggregate<Row<double>>>>(
+      "org.apache.gluten.expression.OneFieldIntermediateSumAggregator", "struct<a:double>", "row(double)"));
   inited = true;
 }
 } // namespace
