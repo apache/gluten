@@ -20,6 +20,7 @@ import org.apache.gluten.config.GlutenIcebergConfig
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.catalyst.expressions.DynamicPruningExpression
 import org.apache.spark.sql.execution.QueryExecution
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.util.QueryExecutionListener
@@ -319,7 +320,13 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
             "select p.price from spj_items i, spj_purchases p " +
               "where i.id = p.item_id and i.price > 50.0")
           assert(df.collect().isEmpty)
-          assert(getExecutedPlan(df).exists(_.isInstanceOf[IcebergScanTransformer]))
+          // The purchases scan is offloaded, key grouped and dynamically filtered.
+          assert(getExecutedPlan(df).exists {
+            case s: IcebergScanTransformer =>
+              s.getKeyGroupPartitioning.isDefined &&
+              s.runtimeFilters.exists(_.isInstanceOf[DynamicPruningExpression])
+            case _ => false
+          })
         }
       }
     }
