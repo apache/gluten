@@ -42,10 +42,13 @@ public final class MemoryTargets {
    * reservations that are not owned by any Spark task (Arrow's global allocator, the Velox global
    * memory listener, ...). Those reservations are backed by real native memory, so with dynamic
    * off-heap sizing on they must be booked in the same shared ledger as the task-level targets,
-   * which is what the wrapper below does.
+   * which is what the global wrapper does. It checks the flag at borrow time and creates the
+   * dynamic-sizing delegate lazily because SparkContexts can change within the lifetime of this
+   * target. Global reservations must still be repaid before their originating SparkContext stops or
+   * its memory mode changes; the wrapper tracks ledger bookings, not Spark pool ownership.
    */
   public static MemoryTarget global() {
-    return dynamicOffHeapSizingIfEnabled(new GlobalOffHeapMemoryTarget());
+    return new WrappedGlobalOffHeapMemoryTarget(new GlobalOffHeapMemoryTarget());
   }
 
   public static MemoryTarget throwOnOom(MemoryTarget target) {

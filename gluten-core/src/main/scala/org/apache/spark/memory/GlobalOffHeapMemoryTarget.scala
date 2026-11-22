@@ -92,6 +92,10 @@ class GlobalOffHeapMemoryTarget private[memory]
   }
 
   override def repay(size: Long): Long = {
+    // TODO: Retain the originating MemoryManager and MemoryMode for outstanding reservations.
+    // Both are resolved at release time, so reservations must be repaid before the originating
+    // SparkContext stops or its memory mode changes. The global wrapper's ledger tracking does
+    // not preserve Spark pool ownership.
     memoryManagerOption()
       .map {
         mm =>

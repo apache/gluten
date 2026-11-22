@@ -157,6 +157,11 @@ object SparkMemoryUtil {
       override def visit(globalOffHeapMemoryTarget: GlobalOffHeapMemoryTarget): String = {
         prettyPrintStats("Global off-heap target stats: ", globalOffHeapMemoryTarget)
       }
+
+      override def visit(
+          wrappedGlobalOffHeapMemoryTarget: WrappedGlobalOffHeapMemoryTarget): String = {
+        prettyPrintStats("Global off-heap target stats: ", wrappedGlobalOffHeapMemoryTarget)
+      }
     })
   }
 

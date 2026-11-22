@@ -70,16 +70,10 @@ object GlutenCoreConfig extends ConfigRegistry {
   /**
    * Resolves [[DYNAMIC_OFFHEAP_SIZING_ENABLED]] for the memory accounting layer.
    *
-   * The memory targets are built and used from threads that have no active Spark session, e.g.
-   * executor plugin initialization (which instantiates GlobalOffHeapMemory) or the Arrow allocator
-   * listener. On such threads [[get]] falls back to `SQLConf.get`, which only knows the stock
-   * defaults, so the flag would read `false` even in an application that runs with dynamic off-heap
-   * sizing on. That would silently split the decision: the memory target would be created without
-   * the dynamic-sizing wrapper while code reached later from task threads would believe the feature
-   * is on.
-   *
-   * The option is a static (cluster-wide) conf, so the SparkConf carried by SparkEnv is its
-   * authoritative copy on both driver and executors, and is readable from any thread.
+   * Global memory operations may run without an active SQL session, e.g. in Arrow or native
+   * callbacks. Read this static option from the current SparkEnv so global reservations, task
+   * consumers and pool selection use the same application's configuration across threads and
+   * SparkContext restarts. Fall back to SQLConf only when SparkEnv is unavailable.
    */
   def isDynamicOffHeapSizingEnabled: Boolean = {
     val env = SparkEnv.get
