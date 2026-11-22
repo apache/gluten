@@ -27,6 +27,8 @@ import org.apache.spark.sql.execution.joins.{BroadcastHashJoinExec, BroadcastNes
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.utils.GlutenSuiteUtils
 
+import java.util.Locale
+
 class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPlanHelper {
   protected val rootPath: String = getClass.getResource("/").getPath
   override protected val resourcePath: String = "/tpch-data-parquet"
@@ -658,7 +660,9 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
 
   test("input_file_name() next to an expression that stays on Spark") {
     withUserDefinedFunction("upper_on_spark" -> true) {
-      spark.udf.register("upper_on_spark", (s: String) => if (s == null) null else s.toUpperCase)
+      spark.udf.register(
+        "upper_on_spark",
+        (s: String) => if (s == null) null else s.toUpperCase(Locale.ROOT))
       withTempPath {
         dir =>
           import testImplicits._
