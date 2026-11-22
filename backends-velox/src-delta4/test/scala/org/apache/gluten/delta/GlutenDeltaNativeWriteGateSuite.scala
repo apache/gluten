@@ -94,6 +94,30 @@ class GlutenDeltaNativeWriteGateSuite extends SharedSparkSession {
     }
   }
 
+  test("FLOAT and DOUBLE partition columns fall back, data columns of those types do not") {
+    val notInFiles = deltaOptions(writePartitionColumns = false)
+    for (dataType <- Seq(FloatType, DoubleType)) {
+      val column = AttributeReference("part", dataType)()
+      assert(
+        unsupported(notInFiles, partitioned = true, partitionColumns = Seq(column))
+          .exists(_.contains("partition column part")),
+        dataType)
+      assert(unsupported(schema = plainSchema.add("d", dataType)).isEmpty, dataType)
+    }
+  }
+
+  test("nested field names with upper-case letters fall back unless analysis is case sensitive") {
+    val nested = plainSchema.add("st", new StructType().add("Value", IntegerType))
+    assert(unsupported(schema = nested).exists(_.contains("lower-cased")))
+    val inArray = plainSchema.add("a", ArrayType(new StructType().add("Value", IntegerType)))
+    assert(unsupported(schema = inArray).isDefined)
+    // Top-level names keep their case in native files.
+    assert(unsupported(schema = new StructType().add("Id", LongType)).isEmpty)
+    withSQLConf(SQLConf.CASE_SENSITIVE.key -> "true") {
+      assert(unsupported(schema = nested).isEmpty)
+    }
+  }
+
   test("timestamps fall back unless both the session and the option ask for microseconds") {
     val withTimestamp = plainSchema.add("ts", TimestampType)
     // Spark's default is INT96.

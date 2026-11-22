@@ -20,14 +20,25 @@ import org.apache.gluten.config.VeloxDeltaConfig
 import org.apache.gluten.extension.columnar.offload.OffloadSingleNode
 
 import org.apache.spark.sql.delta.catalog.DeltaCatalog
-import org.apache.spark.sql.delta.commands.{DeleteCommand, DeltaCommand, OptimizeTableCommand, UpdateCommand}
+import org.apache.spark.sql.delta.commands.{DeleteCommand, DeltaCommand, MergeIntoCommand, OptimizeTableCommand, UpdateCommand}
 import org.apache.spark.sql.delta.skipping.clustering.ClusteredTableUtils
 import org.apache.spark.sql.delta.sources.DeltaDataSource
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.command.ExecutedCommandExec
 import org.apache.spark.sql.execution.datasources.SaveIntoDataSourceCommand
 
-case class OffloadDeltaCommand() extends OffloadSingleNode with DeltaCommand {
+/**
+ * Runs the Delta write commands that Gluten supports in a Gluten transaction, which writes their
+ * data files natively.
+ *
+ * @param offloadMerge
+ *   whether MERGE is offloaded too. Only the Spark 4.x component sets it: there every native write
+ *   passes GlutenDeltaNativeWriteGate, which keeps Delta's writer for files the Velox writer does
+ *   not reproduce. Spark 3.5 has no such gate yet, so MERGE keeps Delta's writer there.
+ */
+case class OffloadDeltaCommand(offloadMerge: Boolean = false)
+  extends OffloadSingleNode
+  with DeltaCommand {
   override def offload(plan: SparkPlan): SparkPlan = {
     if (!VeloxDeltaConfig.get.enableNativeWrite) {
       return plan
@@ -37,6 +48,9 @@ case class OffloadDeltaCommand() extends OffloadSingleNode with DeltaCommand {
         ExecutedCommandExec(GlutenDeltaLeafRunnableCommand(uc))
       case ExecutedCommandExec(dc: DeleteCommand) =>
         ExecutedCommandExec(GlutenDeltaLeafRunnableCommand(dc))
+      case ExecutedCommandExec(merge: MergeIntoCommand)
+          if offloadMerge && VeloxDeltaConfig.get.enableNativeMergeWrite =>
+        ExecutedCommandExec(GlutenDeltaLeafRunnableCommand(merge))
       case ExecutedCommandExec(optimize: OptimizeTableCommand) if shouldOffloadOptimize(optimize) =>
         ExecutedCommandExec(GlutenDeltaRunnableCommand(optimize))
       case ExecutedCommandExec(s @ SaveIntoDataSourceCommand(_, _: DeltaDataSource, _, _)) =>
