@@ -18,6 +18,7 @@
 #pragma once
 
 #include <jni.h>
+#include <functional>
 #include <optional>
 #include "memory/ColumnarBatch.h"
 #include "memory/VeloxMemoryManager.h"
@@ -91,7 +92,7 @@ std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
     uint32_t joinBuildVectorHasherMaxNumDistinct,
     uint32_t abandonHashBuildDedupMinRows,
     uint32_t abandonHashBuildDedupMinPct,
-    std::vector<std::shared_ptr<ColumnarBatch>>& batches,
+    const std::function<std::shared_ptr<ColumnarBatch>()>& nextBatch,
     std::shared_ptr<facebook::velox::memory::MemoryPool> memoryPool);
 
 // Returns the handle of the pre-built hash table registered for the given id, or 0 if there is
