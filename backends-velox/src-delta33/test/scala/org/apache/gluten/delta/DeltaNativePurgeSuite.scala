@@ -81,6 +81,22 @@ class DeltaNativePurgeSuite extends DeltaSQLCommandTest {
   private def rows(path: String): Set[Row] =
     spark.read.format("delta").load(path).collect().toSet
 
+  private def rowIds(path: String): Set[Row] = spark.read
+    .format("delta")
+    .load(path)
+    .select("id", "_metadata.row_id", "_metadata.row_commit_version")
+    .collect()
+    .toSet
+
+  /** The statistics of every file, without its path. */
+  private def fileStats(path: String): Set[Row] = DeltaLog
+    .forTable(spark, path)
+    .update()
+    .withStats
+    .select("stats.numRecords", "stats.minValues", "stats.maxValues", "stats.nullCount")
+    .collect()
+    .toSet
+
   // Vanilla Delta writes with parquet-mr; the Velox writer does not.
   private def writtenByVelox(path: String, file: AddFile): Boolean = {
     val hadoopConf = DeltaLog.forTable(spark, path).newDeltaHadoopConf()
@@ -148,6 +164,31 @@ class DeltaNativePurgeSuite extends DeltaSQLCommandTest {
             assertPurged(vanillaPath, vanillaBefore, velox = false)
 
             assert(rows(path) == rows(vanillaPath))
+            assert(rows(path) == expectedRows)
+        }
+    }
+  }
+
+  test("REORG PURGE keeps the row IDs and writes the file stats that Delta writes") {
+    withTempDir {
+      nativeDir =>
+        withTempDir {
+          vanillaDir =>
+            val path = nativeDir.getCanonicalPath
+            val vanillaPath = vanillaDir.getCanonicalPath
+            Seq(path, vanillaPath).foreach(
+              createTableWithDVs(_, partitioned = false, "delta.enableRowTracking" -> "true"))
+            val before = allFiles(path)
+            val rowIdsBefore = rowIds(path)
+
+            sql(s"REORG TABLE delta.`$path` APPLY (PURGE)")
+            assertPurged(path, before, velox = true)
+            withSQLConf(VeloxDeltaConfig.ENABLE_NATIVE_WRITE.key -> "false") {
+              sql(s"REORG TABLE delta.`$vanillaPath` APPLY (PURGE)")
+            }
+
+            assert(rowIds(path) == rowIdsBefore)
+            assert(fileStats(path) == fileStats(vanillaPath))
             assert(rows(path) == expectedRows)
         }
     }

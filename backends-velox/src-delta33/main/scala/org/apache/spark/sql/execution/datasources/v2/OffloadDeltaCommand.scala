@@ -79,13 +79,15 @@ case class OffloadDeltaCommand() extends OffloadSingleNode with DeltaCommand {
   }
 
   // ALTER TABLE ... DROP FEATURE deletionVectors purges the deletion vectors with REORG PURGE,
-  // which Delta runs inside the ALTER TABLE command. Delta 3.3 cannot drop the feature.
+  // which Delta runs inside the ALTER TABLE command. Delta 3.3 cannot drop the feature, so this
+  // skips loading the table there.
   private def shouldOffloadDropDeletionVectors(alter: AlterTableExec): Boolean = {
-    val dropsDeletionVectors = alter.changes.nonEmpty && alter.changes.forall {
-      case drop: DropFeature =>
-        drop.featureName.equalsIgnoreCase(DeletionVectorsTableFeature.name)
-      case _ => false
-    }
+    val dropsDeletionVectors = DeletionVectorsTableFeature.isRemovable &&
+      alter.changes.nonEmpty && alter.changes.forall {
+        case drop: DropFeature =>
+          drop.featureName.equalsIgnoreCase(DeletionVectorsTableFeature.name)
+        case _ => false
+      }
     dropsDeletionVectors && alter.catalog.isInstanceOf[DeltaCatalog] && {
       alter.catalog.loadTable(alter.ident) match {
         case table: DeltaTableV2 => canPurgeNatively(table.update())
@@ -95,7 +97,8 @@ case class OffloadDeltaCommand() extends OffloadSingleNode with DeltaCommand {
   }
 
   // Clustered tables recluster the rewritten files. Column-mapped tables need Parquet field IDs,
-  // which the Velox writer does not write.
+  // which the Velox writer does not write. The Gluten transaction would also send their writes to
+  // Delta's writer; checking here keeps Delta's command unchanged.
   private def canPurgeNatively(snapshot: Snapshot): Boolean = {
     !ClusteredTableUtils.isSupported(snapshot.protocol) &&
     snapshot.metadata.columnMappingMode == NoMapping
