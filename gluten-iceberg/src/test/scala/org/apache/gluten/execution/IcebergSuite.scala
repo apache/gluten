@@ -20,7 +20,7 @@ import org.apache.gluten.config.GlutenIcebergConfig
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
-import org.apache.spark.sql.catalyst.expressions.DynamicPruningExpression
+import org.apache.spark.sql.catalyst.expressions.{DynamicPruningExpression, Literal}
 import org.apache.spark.sql.execution.QueryExecution
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.util.QueryExecutionListener
@@ -324,7 +324,10 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
           assert(getExecutedPlan(df).exists {
             case s: IcebergScanTransformer =>
               s.getKeyGroupPartitioning.isDefined &&
-              s.runtimeFilters.exists(_.isInstanceOf[DynamicPruningExpression])
+              s.runtimeFilters.exists {
+                case DynamicPruningExpression(e) => e != Literal.TrueLiteral
+                case _ => false
+              }
             case _ => false
           })
         }
