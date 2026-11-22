@@ -23,7 +23,8 @@
 #include <cstring>
 #include <limits>
 #include <optional>
-#include <sstream>
+#include <ostream>
+#include <streambuf>
 
 #include "memory/ArrowMemory.h"
 #include "memory/VeloxColumnarBatch.h"
@@ -785,6 +786,32 @@ std::vector<uint8_t> VeloxColumnarBatchSerializer::framedSerializeWithStatsV3(
   return framedSerializeV3Impl(batch, true);
 }
 
+namespace {
+// A streambuf that appends what is written to it to a byte vector. It can't seek;
+// serializeSingleColumn only appends.
+class AppendToVectorBuf : public std::streambuf {
+ public:
+  explicit AppendToVectorBuf(std::vector<uint8_t>& out) : out_(out) {}
+
+ protected:
+  std::streamsize xsputn(const char* s, std::streamsize n) override {
+    const auto* begin = reinterpret_cast<const uint8_t*>(s);
+    out_.insert(out_.end(), begin, begin + n);
+    return n;
+  }
+
+  int_type overflow(int_type ch) override {
+    if (!traits_type::eq_int_type(ch, traits_type::eof())) {
+      out_.push_back(static_cast<uint8_t>(ch));
+    }
+    return traits_type::not_eof(ch);
+  }
+
+ private:
+  std::vector<uint8_t>& out_;
+};
+} // namespace
+
 std::vector<uint8_t> VeloxColumnarBatchSerializer::framedSerializeV3Impl(
     const std::shared_ptr<ColumnarBatch>& batch,
     bool includeStats) {
@@ -824,20 +851,6 @@ std::vector<uint8_t> VeloxColumnarBatchSerializer::framedSerializeV3Impl(
     buf.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
   };
 
-  std::vector<std::vector<uint8_t>> colBytesList(numCols);
-  for (uint32_t col = 0; col < numCols; ++col) {
-    std::ostringstream colStream;
-    localSerde.serializeSingleColumn(rowVector->childAt(col), &options_, veloxPool_.get(), &colStream);
-    const std::string colStr = colStream.str();
-    GLUTEN_CHECK(
-        colStr.size() <= static_cast<size_t>(std::numeric_limits<uint32_t>::max()),
-        "V3 column " + std::to_string(col) + " size exceeds u32 limit");
-    GLUTEN_CHECK(
-        colStr.size() <= static_cast<size_t>(std::numeric_limits<int32_t>::max()),
-        "V3 column " + std::to_string(col) + " size exceeds int32 ByteRange limit");
-    colBytesList[col] = std::vector<uint8_t>(colStr.begin(), colStr.end());
-  }
-
   // 3. Assemble V3 framed format.
   // [magic=0x03(4B)][statsLen(4B)][statsBlob][numRows(4B)][numCols(4B)][per-col: colLen+colBytes]
   std::vector<uint8_t> framed;
@@ -854,10 +867,21 @@ std::vector<uint8_t> VeloxColumnarBatchSerializer::framedSerializeV3Impl(
   framed.insert(framed.end(), statsBlob.begin(), statsBlob.end());
   pushU32LE(framed, numRows);
   pushU32LE(framed, numCols);
+  // Serialize each column straight into the frame, then fill in its length prefix.
+  AppendToVectorBuf frameBuf(framed);
+  std::ostream frameStream(&frameBuf);
   for (uint32_t col = 0; col < numCols; ++col) {
-    const auto& cb = colBytesList[col];
-    pushU32LE(framed, static_cast<uint32_t>(cb.size()));
-    framed.insert(framed.end(), cb.begin(), cb.end());
+    const size_t lenPos = framed.size();
+    pushU32LE(framed, 0);
+    localSerde.serializeSingleColumn(rowVector->childAt(col), &options_, veloxPool_.get(), &frameStream);
+    GLUTEN_CHECK(frameStream.good(), "V3 column " + std::to_string(col) + " failed to serialize");
+    const size_t colSize = framed.size() - lenPos - 4;
+    GLUTEN_CHECK(
+        colSize <= static_cast<size_t>(std::numeric_limits<int32_t>::max()),
+        "V3 column " + std::to_string(col) + " size exceeds int32 ByteRange limit");
+    for (int i = 0; i < 4; ++i) {
+      framed[lenPos + i] = static_cast<uint8_t>((colSize >> (8 * i)) & 0xFF);
+    }
   }
   GLUTEN_CHECK(
       framed.size() <= static_cast<size_t>(std::numeric_limits<int32_t>::max()),
