@@ -18,6 +18,7 @@ package org.apache.spark.sql.delta
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.config.VeloxDeltaConfig
+import org.apache.gluten.execution.SortExecTransformer
 
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.catalyst.TableIdentifier
@@ -350,6 +351,28 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
           assert(
             writerPlan.find(_.isInstanceOf[GlutenDeltaInvariantCheckerExec]).isEmpty,
             writerPlan)
+      }
+    }
+  }
+
+  test("native partitioned delta write with concurrent output writers enabled") {
+    withNativeWriteOffloadConf {
+      withTempDir {
+        dir =>
+          val path = dir.getCanonicalPath
+          withSQLConf(SQLConf.MAX_CONCURRENT_OUTPUT_FILE_WRITERS.key -> "2") {
+            GlutenDeltaFileFormatWriter.clearExecutedPlanForTesting()
+            Seq((1L, "a"), (2L, "b"), (3L, "a"), (4L, "c"))
+              .toDF("id", "s")
+              .write
+              .format("delta")
+              .partitionBy("s")
+              .save(path)
+            assert(writerPlan.find(_.isInstanceOf[SortExecTransformer]).isDefined, writerPlan)
+          }
+          assert(
+            spark.read.format("delta").load(path).orderBy("id").collect().toSeq ==
+              Seq(Row(1L, "a"), Row(2L, "b"), Row(3L, "a"), Row(4L, "c")))
       }
     }
   }

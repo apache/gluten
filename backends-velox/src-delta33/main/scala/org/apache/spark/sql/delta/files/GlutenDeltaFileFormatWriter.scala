@@ -256,37 +256,32 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
       if (projectList.nonEmpty) ProjectExecTransformer(projectList, plan) else plan
 
     writeAndCommit(job, description, committer) {
-      val (planToExecute, concurrentOutputWriterSpec) = if (orderingMatched) {
-        (empty2NullPlan, None)
+      // The native writer can't run Spark's concurrent output writers, which take rows, so the
+      // input is always sorted by partition, as when spark.sql.maxConcurrentOutputFileWriters is 0.
+      val planToExecute = if (orderingMatched) {
+        empty2NullPlan
       } else {
         val sortPlan = createSortPlan(empty2NullPlan, requiredOrdering, outputSpec)
-        val concurrentOutputWriterSpec =
-          createConcurrentOutputWriterSpec(sparkSession, sortPlan, sortColumns)
-        if (concurrentOutputWriterSpec.isDefined) {
-          (empty2NullPlan, concurrentOutputWriterSpec)
-        } else {
-          def addNativeSort(input: SparkPlan): SparkPlan = {
-            val nativeSortPlan =
-              SortExecTransformer(sortPlan.sortOrder, sortPlan.global, child = input)
-            val validationResult = nativeSortPlan.doValidate()
-            assert(
-              validationResult.ok(),
-              s"Sort operation for Delta write is not offload-able: ${validationResult.reason()}")
-            nativeSortPlan
-          }
-          val newPlan = sortPlan.child match {
-            case wst @ WholeStageTransformer(wholeStageChild, _) =>
-              wst.withNewChildren(Seq(addNativeSort(wholeStageChild)))
-            case other if Convention.get(other).batchType == VeloxBatchType =>
-              val nativeSortPlan = addNativeSort(other)
-              val nativeSortPlanWithWst =
-                GenerateTransformStageId()(ColumnarCollapseTransformStages(
-                  new GlutenConfig(sparkSession.sessionState.conf))(nativeSortPlan))
-              nativeSortPlanWithWst
-            case other =>
-              Transitions.toBatchPlan(sortPlan, VeloxBatchType)
-          }
-          (newPlan, None)
+        def addNativeSort(input: SparkPlan): SparkPlan = {
+          val nativeSortPlan =
+            SortExecTransformer(sortPlan.sortOrder, sortPlan.global, child = input)
+          val validationResult = nativeSortPlan.doValidate()
+          assert(
+            validationResult.ok(),
+            s"Sort operation for Delta write is not offload-able: ${validationResult.reason()}")
+          nativeSortPlan
+        }
+        sortPlan.child match {
+          case wst @ WholeStageTransformer(wholeStageChild, _) =>
+            wst.withNewChildren(Seq(addNativeSort(wholeStageChild)))
+          case other if Convention.get(other).batchType == VeloxBatchType =>
+            val nativeSortPlan = addNativeSort(other)
+            val nativeSortPlanWithWst =
+              GenerateTransformStageId()(ColumnarCollapseTransformStages(
+                new GlutenConfig(sparkSession.sessionState.conf))(nativeSortPlan))
+            nativeSortPlanWithWst
+          case other =>
+            Transitions.toBatchPlan(sortPlan, VeloxBatchType)
         }
       }
 
@@ -325,7 +320,6 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
             sparkAttemptNumber = taskContext.taskAttemptId().toInt & Integer.MAX_VALUE,
             committer,
             iterator = iter,
-            concurrentOutputWriterSpec = concurrentOutputWriterSpec,
             partitionColumnToDataType
           )
         },
@@ -440,7 +434,6 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
       sparkAttemptNumber: Int,
       committer: FileCommitProtocol,
       iterator: Iterator[InternalRow],
-      concurrentOutputWriterSpec: Option[ConcurrentOutputWriterSpec],
       partitionColumnToDataType: Map[String, DataType]): WriteTaskResult = {
 
     val jobId = SparkHadoopWriterUtils.createJobID(jobTrackerID, sparkStageId)
@@ -476,20 +469,9 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
       } else if (description.partitionColumns.isEmpty && description.bucketSpec.isEmpty) {
         new SingleDirectoryDataWriter(description, taskAttemptContext, committer)
       } else {
-        concurrentOutputWriterSpec match {
-          case Some(spec) =>
-            // TODO: Concurrent writer is not yet supported.
-            new DynamicPartitionDataConcurrentWriter(
-              description,
-              taskAttemptContext,
-              committer,
-              spec
-            )
-          case _ =>
-            // Columnar-based partition writer to divide the input batch by partition values
-            // and bucket IDs in advance.
-            new GlutenDynamicPartitionDataSingleWriter(description, taskAttemptContext, committer)
-        }
+        // Columnar-based partition writer to divide the input batch by partition values
+        // and bucket IDs in advance.
+        new GlutenDynamicPartitionDataSingleWriter(description, taskAttemptContext, committer)
       }
 
     try {
