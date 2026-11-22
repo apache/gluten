@@ -18,7 +18,6 @@ package org.apache.spark.sql.delta
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.config.VeloxDeltaConfig
-import org.apache.gluten.execution.SortExecTransformer
 
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.catalyst.TableIdentifier
@@ -355,24 +354,28 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
     }
   }
 
-  test("native partitioned delta write with concurrent output writers enabled") {
-    withNativeWriteOffloadConf {
-      withTempDir {
-        dir =>
-          val path = dir.getCanonicalPath
-          withSQLConf(SQLConf.MAX_CONCURRENT_OUTPUT_FILE_WRITERS.key -> "2") {
-            GlutenDeltaFileFormatWriter.clearExecutedPlanForTesting()
-            Seq((1L, "a"), (2L, "b"), (3L, "a"), (4L, "c"))
-              .toDF("id", "s")
-              .write
-              .format("delta")
-              .partitionBy("s")
-              .save(path)
-            assert(writerPlan.find(_.isInstanceOf[SortExecTransformer]).isDefined, writerPlan)
-          }
-          assert(
-            spark.read.format("delta").load(path).orderBy("id").collect().toSeq ==
-              Seq(Row(1L, "a"), Row(2L, "b"), Row(3L, "a"), Row(4L, "c")))
+  test("native partitioned delta write with concurrent writers or presorted input") {
+    val rows = Seq((1L, "a", 1), (2L, "b", 2), (3L, "a", 1), (4L, "c", 3))
+    for {
+      maxWriters <- Seq("0", "2")
+      partitionColumn <- Seq("s", "p")
+      presorted <- Seq(false, true)
+    } {
+      withNativeWriteOffloadConf {
+        withTempDir {
+          dir =>
+            val path = dir.getCanonicalPath
+            withSQLConf(SQLConf.MAX_CONCURRENT_OUTPUT_FILE_WRITERS.key -> maxWriters) {
+              GlutenDeltaFileFormatWriter.clearExecutedPlanForTesting()
+              val df = rows.toDF("id", "s", "p")
+              val input = if (presorted) df.sortWithinPartitions(partitionColumn) else df
+              input.write.format("delta").partitionBy(partitionColumn).save(path)
+              assert(!writerPlan.treeString.contains("ColumnarToRow"), writerPlan)
+            }
+            assert(
+              spark.read.format("delta").load(path).select("id", "s", "p").orderBy("id")
+                .collect().toSeq == rows.map(Row.fromTuple))
+        }
       }
     }
   }

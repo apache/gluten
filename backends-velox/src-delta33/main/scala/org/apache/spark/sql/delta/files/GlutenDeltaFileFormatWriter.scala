@@ -256,10 +256,15 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
       if (projectList.nonEmpty) ProjectExecTransformer(projectList, plan) else plan
 
     writeAndCommit(job, description, committer) {
-      // The native writer can't run Spark's concurrent output writers, which take rows, so the
-      // input is always sorted by partition, as when spark.sql.maxConcurrentOutputFileWriters is 0.
+      def collapseStages(input: SparkPlan): SparkPlan =
+        GenerateTransformStageId()(
+          ColumnarCollapseTransformStages(new GlutenConfig(sparkSession.sessionState.conf))(input))
+      // Spark's concurrent output writers read the partition values of every row, which a
+      // BatchCarrierRow doesn't expose, so always sort by partition, as when
+      // spark.sql.maxConcurrentOutputFileWriters is 0.
       val planToExecute = if (orderingMatched) {
-        empty2NullPlan
+        // The empty-to-null project is a bare transformer, which can't run outside a stage.
+        if (projectList.nonEmpty) collapseStages(empty2NullPlan) else empty2NullPlan
       } else {
         val sortPlan = createSortPlan(empty2NullPlan, requiredOrdering, outputSpec)
         def addNativeSort(input: SparkPlan): SparkPlan = {
@@ -275,11 +280,7 @@ object GlutenDeltaFileFormatWriter extends LoggingShims {
           case wst @ WholeStageTransformer(wholeStageChild, _) =>
             wst.withNewChildren(Seq(addNativeSort(wholeStageChild)))
           case other if Convention.get(other).batchType == VeloxBatchType =>
-            val nativeSortPlan = addNativeSort(other)
-            val nativeSortPlanWithWst =
-              GenerateTransformStageId()(ColumnarCollapseTransformStages(
-                new GlutenConfig(sparkSession.sessionState.conf))(nativeSortPlan))
-            nativeSortPlanWithWst
+            collapseStages(addNativeSort(other))
           case other =>
             Transitions.toBatchPlan(sortPlan, VeloxBatchType)
         }
