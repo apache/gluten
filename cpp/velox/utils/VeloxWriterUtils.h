@@ -25,12 +25,25 @@ namespace gluten {
 
 class GlutenParquetWriterFactory : public facebook::velox::parquet::ParquetWriterFactory {
  public:
+  /// Applies the Spark write configs carried in the serde parameters of a write planned by Gluten (see
+  /// makeParquetWriteSerdeParameters) before creating the writer. Format options from the session and connector
+  /// configs take precedence over the Spark write configs.
+  std::unique_ptr<facebook::velox::dwio::common::Writer> createWriter(
+      std::unique_ptr<facebook::velox::dwio::common::FileSink> sink,
+      const std::shared_ptr<facebook::velox::dwio::common::WriterOptions>& options) override;
+
   std::shared_ptr<facebook::velox::dwio::common::FormatSpecificOptions> createFormatOptions(
       const facebook::velox::config::ConfigBase& connectorConfig,
       const facebook::velox::config::ConfigBase& session) const override;
 };
 
 std::shared_ptr<facebook::velox::dwio::common::WriterOptions> makeParquetWriteOption(
+    const std::unordered_map<std::string, std::string>& sparkConfs);
+
+/// Returns the serde parameters of a Hive insert table handle that carry 'sparkConfs' to
+/// GlutenParquetWriterFactory. Velox's insert table handle has no writer options: they would not survive
+/// serialization of the plan.
+std::unordered_map<std::string, std::string> makeParquetWriteSerdeParameters(
     const std::unordered_map<std::string, std::string>& sparkConfs);
 
 } // namespace gluten
