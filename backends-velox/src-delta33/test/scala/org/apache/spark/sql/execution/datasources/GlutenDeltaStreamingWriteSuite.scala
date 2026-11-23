@@ -20,7 +20,10 @@ import org.apache.gluten.config.{GlutenConfig, VeloxDeltaConfig}
 
 import org.apache.spark.{SparkConf, SparkFunSuite}
 import org.apache.spark.sql.DataFrame
-import org.apache.spark.sql.catalyst.plans.logical.LocalRelation
+import org.apache.spark.sql.catalyst.QueryPlanningTracker
+import org.apache.spark.sql.catalyst.analysis.Analyzer
+import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan}
+import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.streaming.WriteToStream
 import org.apache.spark.sql.delta.{DeltaLog, GlutenOptimisticTransaction, OptimisticTransaction, TransactionExecutionObserver}
 import org.apache.spark.sql.delta.sources.{DeltaSink, GlutenDeltaSink, OffloadDeltaStreamingWrite}
@@ -72,6 +75,20 @@ class GlutenDeltaStreamingWriteSuite extends SparkFunSuite with SharedSparkSessi
     }
     val other = writePlan(mock(classOf[Sink]))
     assert(rule(other) eq other)
+  }
+
+  test("streaming writes are wrapped during post-hoc analysis") {
+    val analyzer = new Analyzer(spark.sessionState.catalog) {
+      override val postHocResolutionRules: Seq[Rule[LogicalPlan]] =
+        Seq(OffloadDeltaStreamingWrite())
+    }
+    val sink = mock(classOf[DeltaSink])
+    val plan = writePlan(sink)
+    val rewritten = analyzer.executeAndCheck(plan, new QueryPlanningTracker)
+      .asInstanceOf[WriteToStream]
+    assert(rewritten.sink.isInstanceOf[GlutenDeltaSink])
+    assert(rewritten.copy(sink = sink) == plan)
+    assert(analyzer.executeAndCheck(rewritten, new QueryPlanningTracker) eq rewritten)
   }
 
   test("streaming gates apply to analysis and each batch without leaking the transaction observer") {

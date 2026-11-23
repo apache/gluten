@@ -33,7 +33,7 @@ case class OffloadDeltaStreamingWrite() extends Rule[LogicalPlan] {
     if (!OffloadDeltaStreamingWrite.enabled(SQLConf.get)) {
       return plan
     }
-    plan.transformDown {
+    plan.resolveOperatorsDown {
       case write: WriteToStream if write.outputMode == OutputMode.Append() =>
         write.sink match {
           case sink: DeltaSink => write.copy(sink = new GlutenDeltaSink(sink))

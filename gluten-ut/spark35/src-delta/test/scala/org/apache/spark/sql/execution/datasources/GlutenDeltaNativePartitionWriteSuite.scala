@@ -29,6 +29,7 @@ import org.apache.spark.sql.execution.streaming.MemoryStream
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types.{IntegerType, LongType, StructType}
 import org.apache.spark.sql.util.QueryExecutionListener
+import org.apache.spark.util.SparkVersionUtil
 
 import org.apache.parquet.hadoop.ParquetFileReader
 import org.apache.parquet.hadoop.util.HadoopInputFile
@@ -62,6 +63,11 @@ class GlutenDeltaNativePartitionWriteSuite extends GlutenQueryTest with SharedSp
       // Delta 4.4+ writes partition columns into the data files by default, which makes the write
       // fall back to vanilla Delta. Older Delta ignores this unknown table property default.
       .set("spark.databricks.delta.properties.defaults.writePartitionColumnsToParquet", "false")
+  }
+
+  test("native Delta write preserves analysis of non-streaming queries") {
+    assume(BackendTestUtils.isVeloxBackendLoaded())
+    checkAnswer(spark.sql("SELECT 1 AS id"), Seq(Row(1)))
   }
 
   // Small batches cross partition boundaries; a large batch requires splitting a single stripe.
@@ -164,6 +170,8 @@ class GlutenDeltaNativePartitionWriteSuite extends GlutenQueryTest with SharedSp
     test(s"Delta streaming appends: partitioned=$partitioned, nativeWrite=$nativeWrite") {
       assume(BackendTestUtils.isVeloxBackendLoaded())
       import testImplicits._
+      // Spark 4.x also compiles this suite, but native streaming writes only support Spark 3.5.
+      val expectNativeWrite = nativeWrite && SparkVersionUtil.compareMajorMinorVersion((3, 5)) == 0
       withSQLConf(
         "spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite" -> nativeWrite.toString,
         "spark.databricks.delta.stats.collect" -> "false") {
@@ -204,7 +212,7 @@ class GlutenDeltaNativePartitionWriteSuite extends GlutenQueryTest with SharedSp
                     val createdBy = reader.getFooter.getFileMetaData.getCreatedBy
                     assert(createdBy != null, s"Missing writer metadata for ${file.path}")
                     assert(
-                      createdBy.startsWith("parquet-mr") == !nativeWrite,
+                      createdBy.startsWith("parquet-mr") == !expectNativeWrite,
                       s"Unexpected writer for ${file.path}: $createdBy")
                   } finally {
                     reader.close()
