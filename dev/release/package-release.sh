@@ -56,7 +56,7 @@ fi
 
 pushd $GLUTEN_HOME/release/
 
-SPARK_VERSIONS="3.4 3.5 4.0 4.1"
+SPARK_VERSIONS="3.4 3.5 4.0 4.1 4.2"
 
 for v in $SPARK_VERSIONS; do
   # Spark 4.x requires Scala 2.13; the spark-4.x Maven profiles enforce it.
@@ -87,12 +87,12 @@ for v in $SPARK_VERSIONS; do
   rm -rf "${BIN_DIR}"
 done
 
-SRC_ZIP="${TAG}.zip"
+SRC_ZIP="${TAG}.tar.gz"
 SRC_DIR="gluten-${RELEASE_VERSION}"
 
 echo "Packaging source code..."
 wget https://github.com/apache/gluten/archive/refs/tags/${SRC_ZIP}
-unzip -q ${SRC_ZIP}
+tar -xzf ${SRC_ZIP}
 
 # Rename folder to remove "rc*" for formal release.
 mv gluten-${TAG_VERSION} ${SRC_DIR}
