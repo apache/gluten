@@ -135,8 +135,9 @@ The Velox JNI input iterator uses `wrapJavaException` for both initial inputs
 and inputs added later through `addIteratorSplits`. This preserves the throwable
 before the driver, whose generic native-exception handler keeps only the message.
 When `nativeHasNext` or `nativeNext` encounters a failure, including during
-lazy-vector loading, the JNI boundary recovers the carrier through Velox and
-standard nested exception wrappers. Native callers see the original native
+lazy-vector loading, the shared JNI handler asks the Velox runtime to find the
+carrier through Velox and standard nested wrappers. The handler restores it
+without replacing a newer pending exception. Native callers see the original native
 exception. The runtime/system wrapper prevents TRY expressions from suppressing
 failed Java callbacks. Other native errors keep their existing handling; this
 mechanism does not classify or translate native cast failures.

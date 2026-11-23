@@ -451,6 +451,7 @@ JNIEXPORT jboolean JNICALL Java_org_apache_gluten_vectorized_ColumnarBatchOutIte
     JNIEnv* env,
     jobject wrapper,
     jlong iterHandle) {
+  const Runtime* outputRuntime = nullptr;
   JNI_METHOD_START
   auto iter = ObjectStore::retrieve<ResultIterator>(iterHandle);
   if (iter == nullptr) {
@@ -458,24 +459,28 @@ JNIEXPORT jboolean JNICALL Java_org_apache_gluten_vectorized_ColumnarBatchOutIte
         "When hasNext() is called on a closed iterator, an exception is thrown. To prevent this, consider using the protectInvocationFlow() method when creating the iterator in scala side. This will allow the hasNext() method to be called multiple times without issue.";
     throw GlutenException(errorMessage);
   }
-  return readJniOutputIterator(*iter, &ResultIterator::hasNext);
-  JNI_METHOD_END(false)
+  outputRuntime = iter->runtime();
+  return iter->hasNext();
+  JNI_METHOD_END_WITH_RUNTIME(false, outputRuntime)
 }
 
 JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_ColumnarBatchOutIterator_nativeNext( // NOLINT
     JNIEnv* env,
     jobject wrapper,
     jlong iterHandle) {
+  const Runtime* outputRuntime = nullptr;
   JNI_METHOD_START
   auto ctx = getRuntime(env, wrapper);
 
   auto iter = ObjectStore::retrieve<ResultIterator>(iterHandle);
-  auto batch = readJniOutputIterator(*iter, &ResultIterator::next);
+  outputRuntime = iter->runtime();
+  auto batch = iter->next();
+  outputRuntime = nullptr;
   if (batch == nullptr) {
     return kInvalidObjectHandle;
   }
   return ctx->saveObject(batch);
-  JNI_METHOD_END(kInvalidObjectHandle)
+  JNI_METHOD_END_WITH_RUNTIME(kInvalidObjectHandle, outputRuntime)
 }
 
 JNIEXPORT jobject JNICALL Java_org_apache_gluten_metrics_IteratorMetricsJniWrapper_nativeFetchMetrics( // NOLINT

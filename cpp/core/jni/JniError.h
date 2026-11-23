@@ -29,33 +29,20 @@
 // macro ended
 #endif
 
-#ifndef JNI_METHOD_END
-#define JNI_METHOD_END(fallback_expr)                                                            \
-  }                                                                                              \
-  catch (const gluten::JavaException& e) {                                                       \
-    if (!env->ExceptionCheck()) {                                                                \
-      e.throwToJava(env);                                                                        \
-    }                                                                                            \
-    if (!env->ExceptionCheck() &&                                                                \
-        env->ThrowNew(gluten::getJniErrorState()->glutenExceptionClass(), e.what()) != JNI_OK) { \
-      LOG(ERROR) << "Unable to throw GlutenException at JNI boundary";                           \
-    }                                                                                            \
-    return fallback_expr;                                                                        \
-  }                                                                                              \
-  catch (const std::exception& e) {                                                              \
-    if (!env->ExceptionCheck()) {                                                                \
-      gluten::JavaException::throwNestedToJava(env, e);                                          \
-    }                                                                                            \
-    if (!env->ExceptionCheck() &&                                                                \
-        env->ThrowNew(gluten::getJniErrorState()->glutenExceptionClass(), e.what()) != JNI_OK) { \
-      LOG(ERROR) << "Unable to throw GlutenException at JNI boundary";                           \
-    }                                                                                            \
-    return fallback_expr;                                                                        \
+#define JNI_METHOD_END_WITH_RUNTIME(fallback_expr, runtime) \
+  }                                                         \
+  catch (const std::exception& e) {                         \
+    gluten::handleJniException(env, e, runtime);            \
+    return fallback_expr;                                   \
   }
-// macro ended
+
+#ifndef JNI_METHOD_END
+#define JNI_METHOD_END(fallback_expr) JNI_METHOD_END_WITH_RUNTIME(fallback_expr, nullptr)
 #endif
 
 namespace gluten {
+
+void handleJniException(JNIEnv* env, const std::exception& error, const Runtime* runtime);
 
 class JniErrorState {
  public:

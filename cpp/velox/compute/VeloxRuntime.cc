@@ -511,8 +511,8 @@ std::shared_ptr<ResultIterator> VeloxRuntime::createResultIterator(
   return std::make_shared<ResultIterator>(std::move(wholeStageIter), this);
 }
 
-void VeloxRuntime::rethrowJniOutputException(std::exception_ptr error) const {
-  rethrowJavaException(std::move(error));
+std::optional<JavaException> VeloxRuntime::findJniOutputException(std::exception_ptr error) const noexcept {
+  return findJavaException(std::move(error));
 }
 
 void VeloxRuntime::noMoreSplits(ResultIterator* iter) {

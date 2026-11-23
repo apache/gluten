@@ -16,6 +16,7 @@
  */
 
 #include "Runtime.h"
+#include "jni/JavaException.h"
 #include "utils/Registry.h"
 
 namespace gluten {
@@ -50,6 +51,10 @@ void Runtime::release(Runtime* runtime) {
   const std::string kind = runtime->kind();
   auto& releaser = runtimeReleasers().get(kind);
   releaser(runtime);
+}
+
+std::optional<JavaException> Runtime::findJniOutputException(std::exception_ptr) const noexcept {
+  return std::nullopt;
 }
 
 std::optional<std::string>* Runtime::localWriteFilesTempPath() {

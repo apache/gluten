@@ -16,6 +16,22 @@
  */
 #include "JniError.h"
 
+void gluten::handleJniException(JNIEnv* env, const std::exception& error, const Runtime* runtime) {
+  if (env->ExceptionCheck()) {
+    return;
+  }
+  const auto recovered = runtime ? runtime->findJniOutputException(std::current_exception()) : std::nullopt;
+  const std::exception& cause = recovered ? *recovered : error;
+  if (const auto* java = dynamic_cast<const JavaException*>(&cause)) {
+    java->throwToJava(env);
+  } else {
+    JavaException::throwNestedToJava(env, cause);
+  }
+  if (!env->ExceptionCheck() && env->ThrowNew(getJniErrorState()->glutenExceptionClass(), cause.what()) != JNI_OK) {
+    LOG(ERROR) << "Unable to throw GlutenException at JNI boundary";
+  }
+}
+
 void gluten::JniErrorState::ensureInitialized(JNIEnv* env) {
   std::lock_guard<std::mutex> lockGuard(mtx_);
   if (initialized_) {

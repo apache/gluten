@@ -19,6 +19,7 @@
 
 #include <jni.h>
 
+#include <string>
 #include <thread>
 #include <unordered_map>
 
@@ -64,23 +65,37 @@ class TestJniEnvironment {
         self.pending = &self.secondary;
         return nullptr;
       }
+      ++self.createdGlobalRefs;
+      if (object == &self.describer_) {
+        return object;
+      }
       auto ref = new _jthrowable();
       self.globalRefs.emplace(ref, static_cast<jthrowable>(object));
-      ++self.createdGlobalRefs;
       return ref;
     };
     functions_.DeleteGlobalRef = [](JNIEnv* env, jobject object) {
       auto& self = from(env);
-      self.globalRefs.erase(object);
-      delete static_cast<jthrowable>(object);
+      if (object != &self.describer_) {
+        self.globalRefs.erase(object);
+        delete static_cast<jthrowable>(object);
+      }
       ++self.deletedGlobalRefs;
       self.deletingEnv = env;
     };
     functions_.DeleteLocalRef = [](JNIEnv* env, jobject) { ++from(env).deletedLocalRefs; };
     functions_.Throw = [](JNIEnv* env, jthrowable throwable) {
       auto& self = from(env);
+      if (self.failThrow) {
+        return JNI_ERR;
+      }
       auto global = self.globalRefs.find(throwable);
       self.pending = global == self.globalRefs.end() ? throwable : global->second;
+      return JNI_OK;
+    };
+    functions_.ThrowNew = [](JNIEnv* env, jclass, const char* message) {
+      auto& self = from(env);
+      self.fallbackMessage = message;
+      self.pending = &self.fallback;
       return JNI_OK;
     };
     functions_.PushLocalFrame = [](JNIEnv* env, jint) {
@@ -149,6 +164,8 @@ class TestJniEnvironment {
 
   _jthrowable original;
   _jthrowable secondary;
+  _jthrowable fallback;
+  std::string fallbackMessage;
   jthrowable pending{nullptr};
   std::unordered_map<jobject, jthrowable> globalRefs;
   int createdGlobalRefs{0};
@@ -161,6 +178,7 @@ class TestJniEnvironment {
   int detaches{0};
   bool workerAttached{false};
   bool failGlobalRef{false};
+  bool failThrow{false};
   bool failDescription{false};
   bool failLocalFrame{false};
   JNIEnv* deletingEnv{nullptr};

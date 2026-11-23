@@ -35,11 +35,16 @@ using namespace facebook::velox;
 
 class VeloxJavaExceptionTest : public ::testing::Test {
  protected:
+  static inline TestJniEnvironment boundaryJni;
+
   static void SetUpTestSuite() {
     VeloxBackend::create(AllocationListener::noop(), {{kSessionTimezone, "UTC"}});
+    getJniErrorState()->ensureInitialized(boundaryJni.env());
   }
 
   static void TearDownTestSuite() {
+    getJniErrorState()->close();
+    EXPECT_EQ(boundaryJni.createdGlobalRefs, boundaryJni.deletedGlobalRefs);
     VeloxBackend::get()->tearDown();
   }
 };
@@ -52,12 +57,9 @@ TEST_F(VeloxJavaExceptionTest, callbackIsWrappedBeforeReachingDriver) {
   } catch (const VeloxException& error) {
     EXPECT_EQ(error.exceptionType(), VeloxException::Type::kSystem);
     ASSERT_NE(error.wrappedException(), nullptr);
-    try {
-      rethrowJavaException(std::current_exception());
-      FAIL() << "Expected JavaException";
-    } catch (const JavaException& original) {
-      original.throwToJava(jni.env());
-    }
+    auto original = findJavaException(std::current_exception());
+    ASSERT_TRUE(original.has_value());
+    original->throwToJava(jni.env());
   }
   EXPECT_EQ(jni.pending, &jni.original);
   EXPECT_EQ(jni.deletedGlobalRefs, 1);
@@ -78,12 +80,10 @@ TEST_F(VeloxJavaExceptionTest, nestedNativeWrappersRetainOriginal) {
       }
     }
     error = std::make_exception_ptr(VeloxRuntimeError(error, "outer Velox wrapper", false));
-    try {
-      rethrowJavaException(error);
-      FAIL() << "Expected JavaException";
-    } catch (const JavaException& original) {
-      original.throwToJava(jni.env());
-    }
+    auto original = findJavaException(error);
+    ASSERT_TRUE(original.has_value());
+    error = nullptr;
+    original->throwToJava(jni.env());
     EXPECT_EQ(jni.deletedGlobalRefs, 0);
   }
   EXPECT_EQ(jni.pending, &jni.original);
@@ -97,12 +97,12 @@ TEST_F(VeloxJavaExceptionTest, nativeExceptionsAreNotChanged) {
     FAIL() << "Expected native exception";
   } catch (const std::runtime_error&) {
     EXPECT_EQ(std::current_exception(), original);
-    EXPECT_NO_THROW(rethrowJavaException(std::current_exception()));
+    EXPECT_FALSE(findJavaException(std::current_exception()).has_value());
   }
   const auto wrapped = std::make_exception_ptr(VeloxUserError(original, "native wrapper", false));
-  EXPECT_NO_THROW(rethrowJavaException(wrapped));
-  EXPECT_NO_THROW(rethrowJavaException(std::make_exception_ptr(42)));
-  EXPECT_NO_THROW(rethrowJavaException(nullptr));
+  EXPECT_FALSE(findJavaException(wrapped).has_value());
+  EXPECT_FALSE(findJavaException(std::make_exception_ptr(42)).has_value());
+  EXPECT_FALSE(findJavaException(nullptr).has_value());
 }
 
 TEST_F(VeloxJavaExceptionTest, javaCauseInStandardNestedVeloxException) {
@@ -114,16 +114,45 @@ TEST_F(VeloxJavaExceptionTest, javaCauseInStandardNestedVeloxException) {
       const auto native = std::make_exception_ptr(std::runtime_error("unrelated native cause"));
       std::throw_with_nested(VeloxUserError(native, "two native wrapper mechanisms", false));
     } catch (...) {
-      try {
-        rethrowJavaException(std::current_exception());
-        FAIL() << "Expected JavaException";
-      } catch (const JavaException& original) {
-        original.throwToJava(jni.env());
-      }
+      auto original = findJavaException(std::current_exception());
+      ASSERT_TRUE(original.has_value());
+      original->throwToJava(jni.env());
     }
   }
   EXPECT_EQ(jni.pending, &jni.original);
   EXPECT_EQ(jni.deletedGlobalRefs, 1);
+}
+
+TEST_F(VeloxJavaExceptionTest, sharedHandlerPreservesPendingAndFallsBackOnFailedRestore) {
+  struct CountingRuntime : Runtime {
+    CountingRuntime() : Runtime("test", nullptr, nullptr, {}) {}
+    std::optional<JavaException> findJniOutputException(std::exception_ptr error) const noexcept override {
+      ++lookups;
+      return findJavaException(std::move(error));
+    }
+    mutable int lookups{0};
+  } runtime;
+  auto& jni = boundaryJni;
+  const JavaException original(jni.env(), &jni.original);
+  auto invoke = [&](JNIEnv* env) {
+    JNI_METHOD_START
+    throw VeloxRuntimeError(std::make_exception_ptr(original), "outer wrapper", false);
+    JNI_METHOD_END_WITH_RUNTIME(false, &runtime)
+  };
+
+  jni.pending = &jni.secondary;
+  EXPECT_FALSE(invoke(jni.env()));
+  EXPECT_EQ(jni.pending, &jni.secondary);
+  EXPECT_EQ(runtime.lookups, 0);
+
+  jni.pending = nullptr;
+  jni.failThrow = true;
+  EXPECT_FALSE(invoke(jni.env()));
+  EXPECT_EQ(runtime.lookups, 1);
+  EXPECT_EQ(jni.pending, &jni.fallback);
+  EXPECT_EQ(jni.fallbackMessage, original.what());
+  jni.failThrow = false;
+  jni.pending = nullptr;
 }
 
 TEST_F(VeloxJavaExceptionTest, lazyOutputRestoresOriginalOnlyAtJniBoundary) {
@@ -138,9 +167,11 @@ TEST_F(VeloxJavaExceptionTest, lazyOutputRestoresOriginalOnlyAtJniBoundary) {
   enum class Read { kNative, kJniHasNext, kJniNext, kJniNativeError };
   for (const auto read : {Read::kNative, Read::kJniHasNext, Read::kJniNext, Read::kJniNativeError}) {
     SCOPED_TRACE(static_cast<int>(read));
-    TestJniEnvironment jni;
-    const auto nativeError = std::make_exception_ptr(
-        VeloxRuntimeError(std::make_exception_ptr(std::runtime_error("native cause")), "native lazy load", false));
+    auto& jni = boundaryJni;
+    jni.pending = nullptr;
+    const auto refsBefore = jni.createdGlobalRefs - jni.deletedGlobalRefs;
+    const VeloxRuntimeError nativeError(
+        std::make_exception_ptr(std::runtime_error("native cause")), "native lazy load", false);
     bool loaded = false;
     bool loadedInDriver = false;
     auto lazy = std::make_shared<LazyVector>(
@@ -148,7 +179,7 @@ TEST_F(VeloxJavaExceptionTest, lazyOutputRestoresOriginalOnlyAtJniBoundary) {
           loaded = true;
           loadedInDriver = exec::driverThreadContext() != nullptr;
           if (read == Read::kJniNativeError) {
-            std::rethrow_exception(nativeError);
+            throw nativeError;
           }
           // This wrapper has no std::nested_exception link; only the Velox cause points to Java.
           throw VeloxRuntimeError(
@@ -175,29 +206,25 @@ TEST_F(VeloxJavaExceptionTest, lazyOutputRestoresOriginalOnlyAtJniBoundary) {
       if (read == Read::kNative) {
         EXPECT_THROW(iterator.next(), VeloxException);
         EXPECT_EQ(jni.pending, nullptr);
-      } else if (read == Read::kJniNativeError) {
-        try {
-          readJniOutputIterator(iterator, &ResultIterator::next);
-          FAIL() << "Expected native lazy-load error";
-        } catch (const VeloxException&) {
-          // JNI_METHOD_END must receive the untouched native wrapper for its normal fallback.
-          EXPECT_EQ(std::current_exception(), nativeError);
-        }
-        EXPECT_EQ(jni.pending, nullptr);
       } else {
         auto readAtBoundary = [&](JNIEnv* env) {
           JNI_METHOD_START
-          return read == Read::kJniHasNext ? readJniOutputIterator(iterator, &ResultIterator::hasNext)
-                                           : readJniOutputIterator(iterator, &ResultIterator::next) != nullptr;
-          JNI_METHOD_END(false)
+          return read == Read::kJniHasNext ? iterator.hasNext() : iterator.next() != nullptr;
+          JNI_METHOD_END_WITH_RUNTIME(false, iterator.runtime())
         };
         EXPECT_FALSE(readAtBoundary(jni.env()));
-        EXPECT_EQ(jni.pending, &jni.original);
+        if (read == Read::kJniNativeError) {
+          EXPECT_EQ(jni.pending, &jni.fallback);
+          EXPECT_EQ(jni.fallbackMessage, nativeError.what());
+        } else {
+          EXPECT_EQ(jni.pending, &jni.original);
+        }
       }
     }
     EXPECT_TRUE(loaded);
     EXPECT_FALSE(loadedInDriver);
-    EXPECT_EQ(jni.createdGlobalRefs, jni.deletedGlobalRefs);
+    EXPECT_EQ(jni.createdGlobalRefs - jni.deletedGlobalRefs, refsBefore);
+    jni.pending = nullptr;
   }
 }
 

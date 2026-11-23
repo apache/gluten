@@ -63,7 +63,7 @@ class VeloxRuntime final : public Runtime {
 
   void requestBarrier(ResultIterator* iter) override;
 
-  void rethrowJniOutputException(std::exception_ptr error) const override;
+  std::optional<JavaException> findJniOutputException(std::exception_ptr error) const noexcept override;
 
   std::shared_ptr<ColumnarToRowConverter> createColumnar2RowConverter(int64_t column2RowMemThreshold) override;
 

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <optional>
 #include <utility>
 
 #include "jni/JavaException.h"
@@ -42,25 +43,28 @@ decltype(auto) wrapJavaException(F&& callback) {
   }
 }
 
-// Rethrow only a transported Java throwable. The caller must rethrow the original error otherwise.
-inline void rethrowJavaException(std::exception_ptr error) {
+inline std::optional<JavaException> findJavaException(std::exception_ptr error) noexcept {
   if (error == nullptr) {
-    return;
+    return std::nullopt;
   }
   try {
     std::rethrow_exception(error);
-  } catch (const JavaException&) {
-    throw;
+  } catch (const JavaException& original) {
+    return original;
   } catch (const facebook::velox::VeloxException& e) {
-    rethrowJavaException(e.wrappedException());
-    if (const auto* nested = dynamic_cast<const std::nested_exception*>(&e)) {
-      rethrowJavaException(nested->nested_ptr());
+    if (auto original = findJavaException(e.wrappedException())) {
+      return original;
+    }
+    if (const auto* nested = dynamic_cast<const std::nested_exception*>(&e);
+        nested && nested->nested_ptr() != e.wrappedException()) {
+      return findJavaException(nested->nested_ptr());
     }
   } catch (const std::nested_exception& e) {
-    rethrowJavaException(e.nested_ptr());
+    return findJavaException(e.nested_ptr());
   } catch (...) {
-    // No transported Java throwable. The enclosing JNI boundary retains its native-error handling.
+    // Non-standard native causes cannot carry a JavaException.
   }
+  return std::nullopt;
 }
 
 } // namespace gluten

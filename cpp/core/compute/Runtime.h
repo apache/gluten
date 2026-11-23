@@ -20,6 +20,7 @@
 #include <glog/logging.h>
 
 #include <exception>
+#include <optional>
 
 #include "compute/ProtobufUtils.h"
 #include "compute/ResultIterator.h"
@@ -38,6 +39,7 @@
 
 namespace gluten {
 
+class JavaException;
 class ResultIterator;
 
 struct SparkTaskInfo {
@@ -192,8 +194,8 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
     return dumper_.get();
   }
 
-  // Called only when an output read fails at the JNI boundary. Return to keep the original error.
-  virtual void rethrowJniOutputException(std::exception_ptr) const {}
+  // Only backends with their own exception wrappers need to supply a captured Java cause.
+  virtual std::optional<JavaException> findJniOutputException(std::exception_ptr error) const noexcept;
 
   ObjectHandle saveObject(std::shared_ptr<void> obj) {
     return objStore_->save(obj);
