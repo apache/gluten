@@ -29,7 +29,6 @@ import io.github.zhztheplayer.velox4j.plan.StatefulPlanNode;
 import io.github.zhztheplayer.velox4j.plan.StreamRankNode;
 
 import org.apache.flink.FlinkVersion;
-import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
@@ -46,8 +45,6 @@ import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
 import org.apache.flink.table.planner.plan.nodes.exec.SingleTransformationTranslator;
 import org.apache.flink.table.planner.plan.nodes.exec.StateMetadata;
 import org.apache.flink.table.planner.plan.nodes.exec.utils.ExecNodeUtil;
-import org.apache.flink.table.planner.plan.utils.KeySelectorUtil;
-import org.apache.flink.table.runtime.keyselector.RowDataKeySelector;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.runtime.typeutils.TypeCheckUtils;
 import org.apache.flink.table.types.logical.RowType;
@@ -65,6 +62,8 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import static org.apache.flink.table.api.config.ExecutionConfigOptions.TABLE_EXEC_DEDUPLICATE_INSERT_UPDATE_AFTER_SENSITIVE_ENABLED;
+import static org.apache.flink.table.api.config.ExecutionConfigOptions.TABLE_EXEC_DEDUPLICATE_MINIBATCH_COMPACT_CHANGES_ENABLED;
+import static org.apache.flink.table.api.config.ExecutionConfigOptions.TABLE_EXEC_MINIBATCH_ENABLED;
 import static org.apache.flink.util.Preconditions.checkArgument;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
@@ -169,60 +168,67 @@ public class StreamExecDeduplicate extends ExecNodeBase<RowData>
     final RowType inputRowType = (RowType) inputEdge.getOutputType();
     final InternalTypeInfo<RowData> rowTypeInfo =
         (InternalTypeInfo<RowData>) inputTransform.getOutputType();
-    final TypeSerializer<RowData> rowSerializer =
-        rowTypeInfo.createSerializer(planner.getExecEnv().getConfig().getSerializerConfig());
     final OneInputStreamOperator operator;
 
     long stateRetentionTime =
         StateMetadata.getStateTtlForOneInputOperator(config, stateMetadataList);
 
     // --- Begin Gluten-specific code changes ---
+    // Gluten executes deduplicate per record and does not implement mini-batch
+    // compaction. Mini-batch without compaction keeps the same downstream changes as the
+    // non-batched path, so it is accepted. The combination with compact-changes changes
+    // the changelog (only the latest change per key per batch is emitted), which we do not
+    // implement, so reject it instead of silently producing a different changelog.
+    checkArgument(
+        !(config.get(TABLE_EXEC_MINIBATCH_ENABLED)
+            && config.get(TABLE_EXEC_DEDUPLICATE_MINIBATCH_COMPACT_CHANGES_ENABLED)),
+        "Gluten deduplicate does not support mini-batch with compact-changes enabled. "
+            + "Disable table.exec.deduplicate.mini-batch.compact-changes-enabled.");
     io.github.zhztheplayer.velox4j.type.RowType inputType =
         (io.github.zhztheplayer.velox4j.type.RowType) LogicalTypeConverter.toVLType(inputRowType);
     io.github.zhztheplayer.velox4j.type.RowType outputType =
         (io.github.zhztheplayer.velox4j.type.RowType)
             LogicalTypeConverter.toVLType(getOutputType());
+    boolean generateInsert =
+        config.get(TABLE_EXEC_DEDUPLICATE_INSERT_UPDATE_AFTER_SENSITIVE_ENABLED);
+    int rowtimeIndex = -1;
     if (isRowtime) {
-      int rowtimeIndex = -1;
       for (int i = 0; i < inputRowType.getFieldCount(); ++i) {
         if (TypeCheckUtils.isRowTime(inputRowType.getTypeAt(i))) {
           rowtimeIndex = i;
           break;
         }
       }
-      boolean generateInsert =
-          config.get(TABLE_EXEC_DEDUPLICATE_INSERT_UPDATE_AFTER_SENSITIVE_ENABLED);
-      PlanNode deduplicateNode =
-          new DeduplicateNode(
-              PlanNodeIdGenerator.newId(),
-              List.of(new EmptyNode(inputType)), // sources
-              outputType,
-              stateRetentionTime,
-              rowtimeIndex,
-              generateUpdateBefore,
-              generateInsert,
-              keepLastRow);
-      List<Integer> keyIndexes = Arrays.stream(uniqueKeys).boxed().collect(Collectors.toList());
-      PartitionFunctionSpec keySelectorSpec = new HashPartitionFunctionSpec(inputType, keyIndexes);
-      final PlanNode streamRankNode =
-          new StreamRankNode(
-              PlanNodeIdGenerator.newId(),
-              List.of(new EmptyNode(inputType)), // sources
-              keySelectorSpec,
-              deduplicateNode,
-              outputType);
-      operator =
-          new GlutenOneInputOperator(
-              new StatefulPlanNode(streamRankNode.getId(), streamRankNode),
-              PlanNodeIdGenerator.newId(),
-              inputType,
-              Map.of(streamRankNode.getId(), outputType),
-              RowData.class,
-              RowData.class,
-              "StreamExecDeduplicate");
-    } else {
-      throw new RuntimeException("ProcTime in deduplicate is not supported.");
+      checkArgument(rowtimeIndex >= 0, "Rowtime column is not found for deduplicate");
     }
+    List<Integer> keyIndexes = Arrays.stream(uniqueKeys).boxed().collect(Collectors.toList());
+    PartitionFunctionSpec keySelectorSpec = new HashPartitionFunctionSpec(inputType, keyIndexes);
+    PlanNode deduplicateNode =
+        new DeduplicateNode(
+            PlanNodeIdGenerator.newId(),
+            List.of(new EmptyNode(inputType)), // sources
+            outputType,
+            stateRetentionTime,
+            rowtimeIndex,
+            generateUpdateBefore,
+            generateInsert,
+            keepLastRow);
+    final PlanNode streamRankNode =
+        new StreamRankNode(
+            PlanNodeIdGenerator.newId(),
+            List.of(new EmptyNode(inputType)), // sources
+            keySelectorSpec,
+            deduplicateNode,
+            outputType);
+    operator =
+        new GlutenOneInputOperator(
+            new StatefulPlanNode(streamRankNode.getId(), streamRankNode),
+            PlanNodeIdGenerator.newId(),
+            inputType,
+            Map.of(streamRankNode.getId(), outputType),
+            RowData.class,
+            RowData.class,
+            "StreamExecDeduplicate");
     // --- End Gluten-specific code changes ---
 
     final OneInputTransformation<RowData, RowData> transform =
@@ -233,12 +239,6 @@ public class StreamExecDeduplicate extends ExecNodeBase<RowData>
             rowTypeInfo,
             inputTransform.getParallelism(),
             false);
-
-    final RowDataKeySelector selector =
-        KeySelectorUtil.getRowDataSelector(
-            planner.getFlinkContext().getClassLoader(), uniqueKeys, rowTypeInfo);
-    transform.setStateKeySelector(selector);
-    transform.setStateKeyType(selector.getProducedType());
 
     return transform;
   }

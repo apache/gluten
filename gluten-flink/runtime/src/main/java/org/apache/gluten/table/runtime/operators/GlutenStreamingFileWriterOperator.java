@@ -34,7 +34,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -44,8 +43,8 @@ public class GlutenStreamingFileWriterOperator<IN>
   private static final Logger LOG =
       LoggerFactory.getLogger(GlutenStreamingFileWriterOperator.class);
 
-  private transient ListState<String> checkpointState;
-  private transient String[] restoredCheckpointRecords = new String[0];
+  private transient ListState<byte[]> checkpointState;
+  private transient byte[][] restoredCheckpointRecords = new byte[0][];
 
   public GlutenStreamingFileWriterOperator(
       StatefulPlanNode plan,
@@ -75,8 +74,8 @@ public class GlutenStreamingFileWriterOperator<IN>
   @Override
   protected void snapshotNativeState(StateSnapshotContext context) throws Exception {
     checkpointState.clear();
-    String[] checkpointRecords = task.snapshotState(context.getCheckpointId());
-    for (String checkpointRecord : checkpointRecords) {
+    byte[][] checkpointRecords = task.snapshotState(context.getCheckpointId());
+    for (byte[] checkpointRecord : checkpointRecords) {
       checkpointState.add(checkpointRecord);
     }
   }
@@ -87,23 +86,21 @@ public class GlutenStreamingFileWriterOperator<IN>
         context
             .getOperatorStateStore()
             .getListState(
-                new ListStateDescriptor<>("gluten-native-file-writer-checkpoint", String.class));
+                new ListStateDescriptor<>("gluten-native-file-writer-checkpoint", byte[].class));
     if (context.isRestored()) {
-      List<String> records = new ArrayList<>();
-      for (String checkpointRecord : checkpointState.get()) {
+      List<byte[]> records = new ArrayList<>();
+      for (byte[] checkpointRecord : checkpointState.get()) {
         records.add(checkpointRecord);
       }
-      restoredCheckpointRecords = records.toArray(new String[0]);
+      restoredCheckpointRecords = records.toArray(new byte[0][]);
+    } else {
+      restoredCheckpointRecords = new byte[0][];
     }
-    if (restoredCheckpointRecords != null) {
-      LOG.info(
-          "Restore native file writer state for operator {}, restored {}, records {}, contents {}",
-          getDescription(),
-          context.isRestored(),
-          restoredCheckpointRecords.length,
-          Arrays.toString(
-              restoredCheckpointRecords != null ? restoredCheckpointRecords : new String[0]));
-    }
+    LOG.info(
+        "Restore native file writer state for operator {}, restored {}, records {}",
+        getDescription(),
+        context.isRestored(),
+        restoredCheckpointRecords.length);
     if (task == null) {
       initSession();
     }
