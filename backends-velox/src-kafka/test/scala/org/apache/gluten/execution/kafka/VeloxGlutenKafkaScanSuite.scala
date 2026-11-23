@@ -17,10 +17,10 @@
 package org.apache.gluten.execution.kafka
 
 import org.apache.gluten.execution.{MicroBatchScanExecTransformer, VeloxWholeStageTransformerSuite}
+import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
-import org.apache.spark.sql.execution.streaming.StreamingQueryWrapper
 import org.apache.spark.sql.streaming.Trigger
 
 import org.apache.kafka.clients.admin.{AdminClient, AdminClientConfig, NewTopic}
@@ -102,11 +102,7 @@ class VeloxGlutenKafkaScanSuite extends VeloxWholeStageTransformerSuite {
 
             try {
               assert(streamQuery.awaitTermination(60000), "Kafka micro-batch did not finish")
-              val scans = streamQuery
-                .asInstanceOf[StreamingQueryWrapper]
-                .streamingQuery
-                .lastExecution
-                .executedPlan
+              val scans = SparkShimLoader.getSparkShims.getStreamingQueryExecutedPlan(streamQuery)
                 .collect { case p: MicroBatchScanExecTransformer => p }
               assert(scans.size == (if (includeHeaders) 0 else 1))
               checkAnswer(

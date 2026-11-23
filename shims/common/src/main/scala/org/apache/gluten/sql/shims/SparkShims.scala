@@ -178,6 +178,9 @@ trait SparkShims {
   /** Shim method for usages from GlutenExplainUtils.scala. */
   def unsetOperatorId(plan: QueryPlan[_]): Unit
 
+  def getStreamingQueryExecutedPlan(
+      query: org.apache.spark.sql.streaming.StreamingQuery): SparkPlan
+
   /**
    * Returns the streaming source associated with a [[LocalTableScanExec]], if any. The `stream`
    * field only exists on Spark 4.0+ (where `LocalTableScanExec` mixes in
