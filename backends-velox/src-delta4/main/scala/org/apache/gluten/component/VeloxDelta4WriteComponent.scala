@@ -33,7 +33,7 @@ class VeloxDelta4WriteComponent extends Component {
     legacy.injectTransform {
       c =>
         val offload = Seq(
-          OffloadDeltaCommand()
+          OffloadDeltaCommand(offloadMerge = true)
         ).map(_.toStrcitRule())
         HeuristicTransform.Simple(
           Validators.newValidator(new GlutenConfig(c.sqlConf), offload),

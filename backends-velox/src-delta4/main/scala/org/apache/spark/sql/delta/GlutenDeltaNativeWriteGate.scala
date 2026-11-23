@@ -98,6 +98,14 @@ object GlutenDeltaNativeWriteGate {
       .orElse(Option.when(partitionColumns.nonEmpty && isTrue(options, writePartitionColumns)) {
         "Partition columns in data files are not written by the Velox writer"
       })
+      .orElse(partitionColumns.find(c => c.dataType == FloatType || c.dataType == DoubleType).map {
+        // Velox's partition ID generator does not support these types (#13138).
+        column => s"${column.dataType.sql} partition column ${column.name} is not supported"
+      })
+      .orElse(Option.when(!sqlConf.caseSensitiveAnalysis && hasUpperCaseNestedField(fileSchema)) {
+        // The Velox writer lower-cases nested field names unless analysis is case sensitive.
+        "Nested field names with upper-case letters are lower-cased by the Velox writer"
+      })
       .orElse(Option.when(partitionColumns.nonEmpty && sqlConf.maxConcurrentOutputFileWriters > 0) {
         "Concurrent output file writers are not supported by the native Delta writer"
       })
@@ -223,6 +231,17 @@ object GlutenDeltaNativeWriteGate {
   private def isNested(dataType: DataType): Boolean = dataType match {
     case _: ArrayType | _: MapType => true
     case _ => false
+  }
+
+  /** Whether a struct nested in one of the columns has a field name with upper-case letters. */
+  private def hasUpperCaseNestedField(schema: StructType): Boolean = schema.fields.exists {
+    column =>
+      exists(
+        column.dataType,
+        {
+          case struct: StructType => struct.fields.exists(f => f.name != lower(f.name))
+          case _ => false
+        })
   }
 
   /** Whether `p` holds for the type or any type nested in it. */
