@@ -1137,8 +1137,12 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
     futures.push_back(std::move(future));
   }
 
-  // Wait for all tasks to complete
-  folly::collectAll(futures).wait();
+  // Wait for all tasks to complete, then surface the first failure so that a failed task does not leave a null table
+  // or builder behind. All tasks have finished at this point, so none of them uses the captured locals anymore.
+  auto results = folly::collectAll(futures).get();
+  for (auto& result : results) {
+    result.throwUnlessValue();
+  }
 
   auto mainTable = std::move(otherTables[0]);
   std::vector<std::unique_ptr<facebook::velox::exec::BaseHashTable>> tables;
