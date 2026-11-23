@@ -59,6 +59,7 @@ class VeloxTestSettings extends BackendTestSettings {
   // @DoNotDiscover keeps the longer stress run separate; CI selects it explicitly.
   enableSuite("org.apache.spark.sql.kafka010.GlutenKafkaSourceStressSuite")
   enableSuite[GlutenStringFunctionsSuite]
+  enableSuite[GlutenDecimalRoundSuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuiteCGOff]
   enableSuite[GlutenDataSourceV2DataFrameSessionCatalogSuite]
