@@ -294,17 +294,9 @@ case class BroadcastHashJoinContext(
       } else {
         Nil
       }
-    HashTableBuildKey(
-      droppedDuplicates,
-      isNullAwareAntiJoin,
-      nullFilteredColumns,
-      bloomFilterPushdownSize)
+    HashTableBuildKey(droppedDuplicates, nullFilteredColumns)
   }
 }
 
 /** See [[BroadcastHashJoinContext.hashTableBuildKey]]. */
-case class HashTableBuildKey(
-    droppedDuplicates: Boolean,
-    isNullAwareAntiJoin: Boolean,
-    nullFilteredColumns: List[Int],
-    bloomFilterPushdownSize: Long)
+case class HashTableBuildKey(droppedDuplicates: Boolean, nullFilteredColumns: List[Int])
