@@ -32,6 +32,9 @@ namespace {
 constexpr uintptr_t kArmed = 1;
 constexpr uintptr_t kDeferred = 2;
 
+// The VM to detach from. The destructor only receives the TSD value (kArmed or kDeferred), so it reads
+// the VM from here. Every registration stores the same pointer, since a process has one JVM; the
+// atomic only avoids a data race between registering threads and exiting threads.
 std::atomic<JavaVM*> exitDetachVm{nullptr};
 pthread_key_t exitDetachKey;
 
@@ -48,6 +51,10 @@ pthread_key_t exitDetachKey;
 //
 // Detaching from a TSD destructor is supported by HotSpot: its own TSD destructor restores the
 // current-thread pointer so that later destructors can still call DetachCurrentThread.
+//
+// A C++ thread_local destructor cannot replace this key: glibc runs all thread_local destructors
+// before any pthread TSD destructor, so the detach would always precede libhdfs's destructor and
+// bring back the GLUTEN-11895 crash for threads that libhdfs uses.
 void detachOnThreadExit(void* value) {
   if (reinterpret_cast<uintptr_t>(value) == kArmed) {
     pthread_setspecific(exitDetachKey, reinterpret_cast<void*>(kDeferred));
@@ -55,6 +62,9 @@ void detachOnThreadExit(void* value) {
   }
   JavaVM* vm = exitDetachVm.load(std::memory_order_acquire);
   JNIEnv* env = nullptr;
+  // JNI_VERSION_1_8 is the JNI interface version requested from GetEnv, the same one Gluten uses
+  // everywhere; every JDK from 8 on supports it, so this check applies to all JDKs. It only asks
+  // whether the thread is still attached: JNI_EDETACHED means libhdfs already detached it.
   if (vm != nullptr && vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_8) == JNI_OK) {
     vm->DetachCurrentThread();
   }

@@ -116,6 +116,9 @@ static inline void attachCurrentThreadAsDaemonOrThrow(JavaVM* vm, JNIEnv** out) 
       throw gluten::GlutenException("Failed to reattach current thread to JVM.");
     }
     // Detach when this native thread exits, so the JVM is not left with a JavaThread for a dead pthread.
+    // Only threads attached here are registered: Java-created threads, and native threads that Java
+    // or libhdfs attached first, never return JNI_EDETACHED above, so the JVM and libhdfs keep
+    // managing their detach.
     gluten::detachCurrentThreadOnExit(vm);
     DLOG(INFO) << "Succeeded attaching current thread.";
     return;
