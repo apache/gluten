@@ -28,7 +28,7 @@ import org.apache.spark.sql.catalyst.expressions.{Expression, NamedExpression}
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.connector.read.Scan
 import org.apache.spark.sql.execution.datasources.FileFormat
-import org.apache.spark.sql.types.{StructField, StructType}
+import org.apache.spark.sql.types.{DataType, StructField, StructType}
 
 import org.apache.hadoop.conf.Configuration
 
@@ -151,6 +151,13 @@ trait BackendSettingsApi {
   def needPreComputeRangeFrameBoundary(): Boolean = false
 
   def supportIcebergEqualityDeleteRead(): Boolean = true
+
+  def supportIcebergEqualityDeleteRead(dataType: DataType, nested: Boolean): Boolean =
+    supportIcebergEqualityDeleteRead()
+
+  // Keep the legacy validation policy for existing backends. Backends with limited
+  // equality-delete support must opt in even when they can read some equality deletes.
+  def requiresIcebergScanValidation(): Boolean = !supportIcebergEqualityDeleteRead()
 
   def supportIcebergInitialDefaultRead(): Boolean = false
 

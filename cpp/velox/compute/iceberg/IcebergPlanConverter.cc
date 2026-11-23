@@ -25,6 +25,15 @@ namespace {
 
 using SubstraitDeleteBoundsMap = ::substrait::ReadRel_LocalFiles_FileOrFiles::IcebergReadOptions::DeleteFile::Map;
 
+dwio::common::ParquetFieldId parseFieldId(
+    const ::substrait::ReadRel_LocalFiles_FileOrFiles::IcebergReadOptions::FieldId& field) {
+  dwio::common::ParquetFieldId result{field.id(), {}};
+  for (const auto& child : field.children()) {
+    result.children.push_back(parseFieldId(child));
+  }
+  return result;
+}
+
 std::unordered_map<int32_t, std::string> parseBounds(const SubstraitDeleteBoundsMap& bounds) {
   std::unordered_map<int32_t, std::string> parsed;
   parsed.reserve(bounds.key_values_size());
@@ -50,6 +59,16 @@ std::shared_ptr<IcebergSplitInfo> IcebergPlanConverter::parseIcebergSplitInfo(
       ? std::dynamic_pointer_cast<IcebergSplitInfo>(splitInfo)
       : std::make_shared<IcebergSplitInfo>(*splitInfo);
   auto icebergReadOption = file.iceberg();
+  if (icebergSplitInfo->fieldIds.empty()) {
+    for (const auto& field : icebergReadOption.schema_field_ids()) {
+      icebergSplitInfo->fieldIds.push_back(parseFieldId(field));
+    }
+  }
+  icebergSplitInfo->dataSequenceNumbers.push_back(icebergReadOption.data_sequence_number());
+  auto& identityKeys = icebergSplitInfo->identityPartitionKeys.emplace_back();
+  for (const auto& key : icebergReadOption.identity_partition_keys()) {
+    identityKeys.emplace(key.source_id(), key.is_null() ? std::nullopt : std::make_optional(key.value()));
+  }
   switch (icebergReadOption.file_format_case()) {
     case SubstraitFileFormatCase::kParquet:
       icebergSplitInfo->format = dwio::common::FileFormat::PARQUET;
@@ -113,15 +132,23 @@ std::shared_ptr<IcebergSplitInfo> IcebergPlanConverter::parseIcebergSplitInfo(
           fileContent = FileContent::kData;
           break;
       }
+
+      std::vector<int32_t> equalityFieldIds;
+      equalityFieldIds.reserve(deleteFile.equalityfieldids_size());
+      for (int fieldIdx = 0; fieldIdx < deleteFile.equalityfieldids_size(); ++fieldIdx) {
+        equalityFieldIds.emplace_back(deleteFile.equalityfieldids(fieldIdx));
+      }
+
       deletes.emplace_back(IcebergDeleteFile(
           fileContent,
           deleteFile.filepath(),
           format,
           deleteFile.recordcount(),
           deleteFile.filesize(),
-          {},
+          std::move(equalityFieldIds),
           parseBounds(deleteFile.lowerbounds()),
-          parseBounds(deleteFile.upperbounds())));
+          parseBounds(deleteFile.upperbounds()),
+          deleteFile.data_sequence_number()));
     }
     icebergSplitInfo->deleteFilesVec.emplace_back(deletes);
   } else {

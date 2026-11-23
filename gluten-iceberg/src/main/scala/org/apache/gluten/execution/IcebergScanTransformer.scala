@@ -38,8 +38,9 @@ import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.execution.metric.SQLMetrics
 import org.apache.spark.sql.types.{ArrayType, DataType, IntegerType, LongType, StringType, StructType}
 
-import org.apache.iceberg.{BaseTable, MetadataColumns, SnapshotSummary, TableProperties}
+import org.apache.iceberg.{BaseTable, FileFormat, MetadataColumns, TableProperties}
 import org.apache.iceberg.avro.AvroSchemaUtil
+import org.apache.iceberg.spark.SparkSchemaUtil
 import org.apache.iceberg.spark.source.GlutenIcebergSourceUtil
 import org.apache.iceberg.spark.source.metrics.NumSplits
 import org.apache.iceberg.types.{Type, Types, TypeUtil}
@@ -74,6 +75,17 @@ case class IcebergScanTransformer(
 
   private lazy val icebergInitialDefaults =
     GlutenIcebergSourceUtil.getInitialDefaults(scan)
+
+  private lazy val equalityDeleteFiles = GlutenIcebergSourceUtil.equalityDeleteFiles(scan)
+
+  private lazy val equalityDeleteSchema =
+    if (
+      !BackendsApiManager.getSettings.requiresIcebergScanValidation() || equalityDeleteFiles.isEmpty
+    ) {
+      null
+    } else {
+      GlutenIcebergSourceUtil.tableSchema(scan)
+    }
 
   private lazy val icebergFieldIds =
     if (icebergInitialDefaults.isEmpty) {
@@ -119,7 +131,7 @@ case class IcebergScanTransformer(
       return validationResult
     }
 
-    if (!BackendsApiManager.getSettings.supportIcebergEqualityDeleteRead()) {
+    if (BackendsApiManager.getSettings.requiresIcebergScanValidation()) {
       val notSupport = GlutenIcebergSourceUtil.getTable(scan) match {
         case t: BaseTable =>
           t.operations()
@@ -133,24 +145,51 @@ case class IcebergScanTransformer(
       if (notSupport) {
         return ValidationResult.failed("Contains not supported data type or metadata column")
       }
+
+      // Allow input_file_name() and related metadata functions.
+      val allowedMetadataColumns =
+        IcebergScanTransformer.NativeSupportedMetadataColumnNames
+
       val hasUnsupportedMetadata = scan.readSchema().fieldNames.exists {
         f =>
           MetadataColumns.isMetadataColumn(f) &&
-          !IcebergScanTransformer.NativeSupportedMetadataColumnNames
-            .contains(ConverterUtils.normalizeColName(f))
+          !allowedMetadataColumns.contains(ConverterUtils.normalizeColName(f))
       }
+
       if (hasUnsupportedMetadata) {
         return ValidationResult.failed("Read unsupported metadata column")
       }
-      val containsEqualityDelete = GlutenIcebergSourceUtil.getTable(scan) match {
-        case t: BaseTable =>
-          val snapshot = t.operations().current().currentSnapshot()
-          snapshot != null &&
-          snapshot.summary().getOrDefault(SnapshotSummary.TOTAL_EQ_DELETES_PROP, "0").toInt > 0
-        case _ => false
-      }
-      if (containsEqualityDelete) {
-        return ValidationResult.failed("Contains equality delete files")
+
+      if (equalityDeleteFiles.nonEmpty) {
+        // Native field-ID readers cannot apply Iceberg's name mapping to files imported
+        // without field IDs. Spark must handle these scans to avoid silently reading NULLs.
+        if (
+          GlutenIcebergSourceUtil.getTable(scan).properties()
+            .containsKey(TableProperties.DEFAULT_NAME_MAPPING)
+        ) {
+          return ValidationResult.failed(
+            "Iceberg equality deletes with name mapping are not supported")
+        }
+        val fields = equalityDeleteSchema.columns().asScala.map(f => f.fieldId() -> f).toMap
+        for (delete <- equalityDeleteFiles) {
+          if (delete.format() != FileFormat.PARQUET && delete.format() != FileFormat.ORC) {
+            return ValidationResult.failed("Unsupported equality delete file format")
+          }
+          if (delete.equalityFieldIds() == null || delete.equalityFieldIds().isEmpty) {
+            return ValidationResult.failed("Equality delete file has no equality fields")
+          }
+          for (id <- delete.equalityFieldIds().asScala) {
+            val field = equalityDeleteSchema.findField(id)
+            if (
+              field == null || AvroSchemaUtil.makeCompatibleName(field.name()) != field.name() ||
+              !BackendsApiManager.getSettings.supportIcebergEqualityDeleteRead(
+                SparkSchemaUtil.convert(field.`type`()),
+                !fields.contains(id))
+            ) {
+              return ValidationResult.failed(s"Unsupported Iceberg equality field ID: $id")
+            }
+          }
+        }
       }
 
       if (hasRenamedColumn) {
@@ -290,7 +329,8 @@ case class IcebergScanTransformer(
           getPartitionSchema,
           metadataColumnNames,
           icebergFieldIds,
-          icebergInitialDefaults)
+          icebergInitialDefaults,
+          equalityDeleteSchema)
       case _ => throw new GlutenNotSupportException()
     }
     val localFiles = splitInfo.asInstanceOf[LocalFilesNode]
@@ -342,10 +382,25 @@ case class IcebergScanTransformer(
     val dataReadSchema = StructType(
       scan.readSchema().fields.filterNot(f => MetadataColumns.isMetadataColumn(f.name)))
     val oldSchemas = icebergTable.operations().current().schemas()
-    oldSchemas
-      .stream()
-      .filter(s => s.schemaId() != ops.currentSchemaId())
-      .anyMatch(s => !typesMatch(s.asStruct(), currentSchema.asStruct(), dataReadSchema))
+    val equalityFields = equalityDeleteFiles.flatMap(_.equalityFieldIds().asScala)
+      .map(id => currentSchema.findColumnName(id)).distinct
+    val validationSchema = StructType(
+      dataReadSchema.fields ++ SparkSchemaUtil.convert(
+        currentSchema.select(equalityFields.asJava))
+        .fields.filterNot(f => dataReadSchema.fieldNames.contains(f.name)))
+    oldSchemas.asScala.filter(_.schemaId() != ops.currentSchemaId()).exists {
+      oldSchema =>
+        val evolvedOrcStruct = equalityDeleteFiles.nonEmpty &&
+          fileFormat == ReadFileFormat.OrcReadFormat && currentSchema.columns().asScala.exists {
+            field =>
+              val oldField = oldSchema.findField(field.fieldId())
+              field.`type`().isNestedType && oldField != null && oldField.`type`() != field.`type`()
+          }
+        evolvedOrcStruct || !typesMatch(
+          oldSchema.asStruct(),
+          currentSchema.asStruct(),
+          validationSchema)
+    }
   }
 
   private def typesMatch(icebergType: Type, currentType: Type, sparkType: DataType): Boolean = {
