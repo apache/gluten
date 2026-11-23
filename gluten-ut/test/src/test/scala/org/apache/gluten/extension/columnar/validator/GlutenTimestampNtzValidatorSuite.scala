@@ -185,6 +185,8 @@ class GlutenTimestampNtzValidatorSuite extends SparkFunSuite {
     val plans = Seq[SparkPlan](
       SortExec(Seq(SortOrder(ts, Descending)), global = true, left),
       FilterExec(And(IsNotNull(ts), GreaterThan(ts, ntzLiteral)), left),
+      FilterExec(In(ts, Seq(ntzLiteral, Literal(null, TimestampNTZType))), left),
+      FilterExec(InSet(ts, Set(1704067200000000L, 1704153600000000L)), left),
       SortMergeJoinExec(Seq(ts), Seq(ts2), Inner, None, left, right),
       UnionExec(Seq(left, InputPlan(Seq(id, ts2)))),
       WindowExec(
