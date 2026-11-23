@@ -109,9 +109,18 @@ class GlobalOffHeapMemoryTarget private[memory]
   private[memory] def memoryManagerOption(): Option[MemoryManager] = {
     val env = SparkEnv.get
     if (env != null) {
+      val mm = env.memoryManager
+      if (mm == null) {
+        // Spark 4.0+ publishes SparkEnv before it initializes the memory manager, and
+        // BlockManager#memoryManager is a lazy val, so forcing the memory store now would cache
+        // a null memory manager and fail the SparkContext in BlockManager#initialize.
+        logWarning(
+          "SparkEnv memory manager is not initialized yet, skipping global off-heap accounting")
+        return None
+      }
       // SPARK-46947: https://github.com/apache/spark/pull/45052.
       ensureMemoryStoreInitialized(env)
-      return Some(env.memoryManager)
+      return Some(mm)
     }
     val tc = TaskContext.get()
     if (tc != null) {
