@@ -69,6 +69,7 @@ import io.substrait.proto.JoinRel
 import org.apache.commons.lang3.ClassUtils
 
 import java.net.URI
+import java.nio.charset.{Charset, IllegalCharsetNameException, UnsupportedCharsetException}
 import java.util.{ArrayList => JArrayList, List => JList}
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
@@ -1352,6 +1353,85 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
       child,
       expr
     )
+  }
+
+  override def genEncodeTransformer(
+      substraitExprName: String,
+      childTransformers: Seq[ExpressionTransformer],
+      expr: Expression): ExpressionTransformer = {
+    if (!GlutenConfig.get.enableNativeEncode) {
+      throw new GlutenNotSupportException("Native encode is disabled")
+    }
+
+    val arguments = expr match {
+      case i: StaticInvoke if i.arguments.length == 4 => i.arguments
+      case r: RuntimeReplaceable =>
+        r.replacement match {
+          case i: StaticInvoke if i.arguments.length == 4 => i.arguments
+          case _ => throw new GlutenNotSupportException("Unsupported encode replacement")
+        }
+      case _: Encode => expr.children
+      case _ => throw new GlutenNotSupportException("Unsupported encode expression")
+    }
+    val (legacyCharsets, legacyErrorAction) = arguments match {
+      case Seq(_, _) => (true, true)
+      case Seq(
+            _,
+            _,
+            Literal(charsets: Boolean, BooleanType),
+            Literal(errorAction: Boolean, BooleanType)) =>
+        (charsets, errorAction)
+      case _ => throw new GlutenNotSupportException("Unsupported encode policy arguments")
+    }
+    // Velox's strict errors do not yet have Spark's character-coding exception identity.
+    // Also reject policies captured before the session's native error action changed.
+    if (!legacyErrorAction || !GlutenConfig.get.legacyCodingErrorAction) {
+      throw new GlutenNotSupportException(
+        "Native encode requires replacement coding-error mode matching the expression")
+    }
+
+    val charset = arguments(1)
+    if (!charset.foldable || !charset.dataType.isInstanceOf[StringType]) {
+      throw new GlutenNotSupportException("Native encode requires a constant string charset")
+    }
+    val charsetName = charset.eval() match {
+      case value: org.apache.spark.unsafe.types.UTF8String
+          if value.numBytes() <= 64 =>
+        value.toString
+      case _ => throw new GlutenNotSupportException("Unsupported native encode charset")
+    }
+    val canonical =
+      try {
+        Charset.forName(charsetName).name()
+      } catch {
+        case _: IllegalCharsetNameException | _: UnsupportedCharsetException =>
+          throw new GlutenNotSupportException("Unsupported native encode charset")
+      }
+    val supportedCharsets =
+      Set("US-ASCII", "ISO-8859-1", "UTF-8", "UTF-16", "UTF-16BE", "UTF-16LE", "UTF-32")
+    if (
+      !supportedCharsets.contains(canonical) ||
+      (!legacyCharsets && !charsetName.equalsIgnoreCase(canonical))
+    ) {
+      throw new GlutenNotSupportException("Charset is outside native encode's supported subset")
+    }
+
+    new ExpressionTransformer {
+      override val substraitExprName: String = ExpressionNames.ENCODE
+      override val original: Expression = expr
+      override val children: Seq[ExpressionTransformer] =
+        Seq(childTransformers.head, LiteralTransformer(Literal(canonical)))
+
+      override def doTransform(context: SubstraitContext): ExpressionNode = {
+        // Spark 4.x carries two policy booleans; the native signature has only two strings.
+        val functionId = context.registerFunction(
+          ConverterUtils.makeFuncName(substraitExprName, children.map(_.dataType)))
+        ExpressionBuilder.makeScalarFunction(
+          functionId,
+          children.map(_.doTransform(context)).asJava,
+          ConverterUtils.getTypeNode(dataType, nullable))
+      }
+    }
   }
 
   /** Generate an expression transformer to transform NamedStruct to Substrait. */

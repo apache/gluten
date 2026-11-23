@@ -16,9 +16,14 @@
  */
 package org.apache.spark.sql
 
+import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.execution.ProjectExecTransformer
 import org.apache.gluten.test.FallbackUtil
+import org.apache.gluten.utils.BackendTestUtils
 
-import org.apache.spark.sql.catalyst.expressions.ExpressionEvalHelper
+import org.apache.spark.sql.catalyst.expressions.{Encode, Expression, ExpressionEvalHelper}
+import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke
+import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.functions._
 
 import org.junit.Assert
@@ -29,6 +34,36 @@ class GlutenStringFunctionsSuite
   with ExpressionEvalHelper {
 
   import testImplicits._
+
+  testGluten("encode offloads replacement mode and falls back when disabled") {
+    assume(BackendTestUtils.isVeloxBackendLoaded())
+    def containsEncode(expr: Expression): Boolean = expr.exists {
+      case _: Encode => true
+      case i: StaticInvoke =>
+        i.functionName == "encode" &&
+        i.objectName.stripSuffix("$") == "org.apache.spark.sql.catalyst.expressions.Encode"
+      case _ => false
+    }
+    withSQLConf(
+      GlutenConfig.SPARK_LEGACY_CODING_ERROR_ACTION -> "true",
+      "spark.sql.adaptive.enabled" -> "false") {
+      val query = "SELECT encode(concat('\u00e9', CAST(id AS STRING)), 'US-ASCII') FROM range(1)"
+      val native = spark.sql(query)
+      checkAnswer(native, Row(Array[Byte](63, 48)))
+      assert(getExecutedPlan(native).exists {
+        case p: ProjectExecTransformer => p.projectList.exists(containsEncode)
+        case _ => false
+      })
+      withSQLConf(GlutenConfig.NATIVE_ENCODE_ENABLED.key -> "false") {
+        val fallback = spark.sql(query)
+        checkAnswer(fallback, Row(Array[Byte](63, 48)))
+        assert(getExecutedPlan(fallback).exists {
+          case p: ProjectExec => p.projectList.exists(containsEncode)
+          case _ => false
+        })
+      }
+    }
+  }
 
   testGluten("string split function with no limit and regex pattern") {
     val df1 = Seq(("aaAbbAcc4")).toDF("a").select(split($"a", "A"))

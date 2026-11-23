@@ -291,6 +291,13 @@ object ExpressionConverter extends SQLConfHelper with Logging with PredicateHelp
             i
           )
 
+        case "encode"
+            if objName.stripSuffix("$") == "org.apache.spark.sql.catalyst.expressions.Encode" =>
+          BackendsApiManager.getSparkPlanExecApiInstance.genEncodeTransformer(
+            ExpressionNames.ENCODE,
+            i.arguments.take(2).map(doTransform),
+            i)
+
         case fn if staticInvokeMap.contains(fn) =>
           validateAndTransform(staticInvokeMap(fn), i.arguments.map(doTransform))
 
@@ -986,6 +993,11 @@ object ExpressionConverter extends SQLConfHelper with Logging with PredicateHelp
           replaceWithExpressionTransformer0(s.child, attributeSeq, expressionsMap),
           s
         )
+      case e: Encode =>
+        BackendsApiManager.getSparkPlanExecApiInstance.genEncodeTransformer(
+          substraitExprName,
+          e.children.map(replaceWithExpressionTransformer0(_, attributeSeq, expressionsMap)),
+          e)
       case u: UnBase64 =>
         BackendsApiManager.getSparkPlanExecApiInstance.genUnbase64Transformer(
           substraitExprName,

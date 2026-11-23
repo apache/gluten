@@ -258,6 +258,15 @@ trait SparkPlanExecApi {
     GenericExpressionTransformer(substraitExprName, child, expr)
   }
 
+  def genEncodeTransformer(
+      substraitExprName: String,
+      children: Seq[ExpressionTransformer],
+      expr: Expression): ExpressionTransformer = expr match {
+    case _: StaticInvoke =>
+      throw new GlutenNotSupportException("Encode StaticInvoke is not supported by this backend")
+    case _ => GenericExpressionTransformer(substraitExprName, children, expr)
+  }
+
   /** Transform GetArrayItem to Substrait. */
   def genGetArrayItemTransformer(
       substraitExprName: String,
