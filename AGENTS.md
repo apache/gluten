@@ -147,8 +147,20 @@ test, under `cpp/<component>/tests/` (for example `cpp/core/tests/` or
 - **New Gluten tests that are not specific to a backend** go under
   `gluten-ut/test/`.
 - **New tests that are specific to a backend** (for example, assertions on native
-  plans or fallback) go in that backend's module, such as
-  `backends-velox/src/test/` or `backends-clickhouse/src/test/`.
+  plans or fallback) go in that backend's module, in the existing test
+  directory for the area: `src/test/` in general, or a table-format directory
+  such as `src-delta/test/` or `src-iceberg/test/`. For example,
+  `backends-velox/src/test/` or `backends-velox/src-iceberg/test/`.
+- **Exception: tests that need `gluten-ut`'s Spark-version-specific test
+  fixtures** (for example `GlutenSQLTestsBaseTrait`) go under `gluten-ut/test/`
+  even when they target one backend, because backend modules do not depend on
+  `gluten-ut`.
+- **Add Gluten Iceberg tests only for behavior that upstream Iceberg tests do
+  not cover, directly or indirectly.** CI already runs Iceberg's own Spark
+  tests with Gluten (the `Iceberg Spark UT (Gluten)` workflow,
+  `.github/workflows/iceberg_spark_ut.yml`). Check those first, and put new
+  Iceberg tests in the backend's `src-iceberg/test/`, or in
+  `gluten-iceberg/src/test/` when they are not specific to a backend.
 
 ## PR Title Convention
 
