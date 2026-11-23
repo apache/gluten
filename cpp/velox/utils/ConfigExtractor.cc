@@ -97,7 +97,8 @@ void getS3HiveConfig(
         continue;
       }
       const auto dotPos = bucketAndSuffix.size() - suffix.size() - 1;
-      if (bucketAndSuffix[dotPos] == '.' && bucketAndSuffix.substr(dotPos + 1) == suffix) {
+      // Explicitly bound the suffix view for GCC 11's stringop-overread analysis.
+      if (bucketAndSuffix[dotPos] == '.' && bucketAndSuffix.substr(dotPos + 1, suffix.size()) == suffix) {
         result = std::make_pair(key, bucketAndSuffix.substr(0, dotPos));
         matchedSuffixSize = suffix.size();
       }

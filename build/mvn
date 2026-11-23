@@ -15,7 +15,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# This script downloads and installs Apache Maven if it's not already installed
+# Use the Maven version pinned in pom.xml, reusing a matching system installation
+# or the one under build/.mvn. Otherwise fetch from the Apache CDN with curl or
+# wget, falling back to the Apache archive if the tarball or checksum is unavailable.
+# Cached tarballs need only a fresh checksum. Verify SHA-512 with sha512sum or
+# shasum before extraction; a mismatch is an error, not a reason to try another source.
 # Usage: build/mvn <maven-args>
 #
 
@@ -26,6 +30,72 @@ MVN_DOWNLOAD_DIR="${DOWNLOAD_DIR}/.mvn"
 
 # Global variable for Maven binary path
 MVN_BIN=""
+
+download_mvn() {
+    local URL="$1"
+    local DESTINATION="$2"
+    local PARTIAL="${DESTINATION}.part"
+    local -a DOWNLOAD_CMD
+    if command -v curl > /dev/null 2>&1; then
+        DOWNLOAD_CMD=(curl -f -L --retry 3 --retry-delay 3
+            --connect-timeout 30 --max-time 600 -o "$PARTIAL")
+    elif command -v wget > /dev/null 2>&1; then
+        DOWNLOAD_CMD=(wget --tries=3 --waitretry=3
+            --connect-timeout=30 --read-timeout=600 -O "$PARTIAL")
+    else
+        echo "ERROR: Neither curl nor wget found. Please install one of them or install Maven manually." >&2
+        return 1
+    fi
+
+    local ATTEMPT STATUS
+    rm -f "$PARTIAL" || return 1
+    for ATTEMPT in 1 2 3; do
+        if "${DOWNLOAD_CMD[@]}" "$URL"; then
+            if mv -f "$PARTIAL" "$DESTINATION"; then
+                return 0
+            fi
+            echo "ERROR: Failed to save Maven download to ${DESTINATION}" >&2
+            rm -f "$PARTIAL"
+            return 1
+        else
+            STATUS=$?
+        fi
+        rm -f "$PARTIAL" || return 1
+        if [ "$ATTEMPT" -lt 3 ]; then
+            echo "Maven download attempt ${ATTEMPT}/3 failed (${DOWNLOAD_CMD[0]} exit ${STATUS}); retrying in $((ATTEMPT * 60))s..." >&2
+            sleep "$((ATTEMPT * 60))" || return 1
+        fi
+    done
+
+    echo "ERROR: Failed to download Maven from ${URL} after 3 attempts (${DOWNLOAD_CMD[0]} exit ${STATUS})" >&2
+    return 1
+}
+
+verify_mvn() {
+    local ARCHIVE="$1" CHECKSUM_FILE="$2" CHECKSUM
+    local SHA512
+    if command -v sha512sum > /dev/null 2>&1; then
+        SHA512=(sha512sum)
+    elif command -v shasum > /dev/null 2>&1; then
+        SHA512=(shasum -a 512)
+    else
+        echo "ERROR: Neither sha512sum nor shasum found. Install one to verify the Maven distribution." >&2
+        return 1
+    fi
+
+    # Apache publishes a bare SHA-512 digest, not a checksum-tool manifest.
+    if ! CHECKSUM=$(tr -d '[:space:]' < "$CHECKSUM_FILE") ||
+            ! [[ "$CHECKSUM" =~ ^[0-9a-fA-F]{128}$ ]]; then
+        echo "ERROR: Invalid SHA-512 checksum in ${CHECKSUM_FILE}" >&2
+        return 1
+    fi
+    # Keep checkout paths out of the line-based checksum manifest.
+    if ! printf '%s  %s\n' "$CHECKSUM" "${ARCHIVE##*/}" |
+            (cd "${ARCHIVE%/*}" && "${SHA512[@]}" -c -) >&2; then
+        echo "ERROR: SHA-512 checksum verification failed for ${ARCHIVE}" >&2
+        return 1
+    fi
+}
 
 # Read Maven version from pom.xml if not set
 install_mvn() {
@@ -60,51 +130,56 @@ install_mvn() {
         echo "Maven ${VERSION} not found locally. Downloading..." >&2
 
         # Create download directory
-        mkdir -p "${MVN_DOWNLOAD_DIR}"
+        mkdir -p "${MVN_DOWNLOAD_DIR}" || exit 1
 
         local MVN_TAR="${MVN_DOWNLOAD_DIR}/apache-maven-${VERSION}-bin.tar.gz"
-
-        if [ ! -f "${MVN_TAR}" ]; then
-            # Use Maven Central repository for download
-            local DOWNLOAD_URL="https://repo1.maven.org/maven2/org/apache/maven/apache-maven/${VERSION}/apache-maven-${VERSION}-bin.tar.gz"
-
-            echo "Downloading Maven ${VERSION} from Maven Central..." >&2
-            echo "URL: ${DOWNLOAD_URL}" >&2
-
-            if command -v curl > /dev/null 2>&1; then
-                curl -f -L --retry 3 --retry-delay 3 \
-                     --connect-timeout 30 --max-time 600 \
-                     -o "${MVN_TAR}" "${DOWNLOAD_URL}" || {
-                    echo "ERROR: Failed to download Maven from ${DOWNLOAD_URL}" >&2
-                    rm -f "${MVN_TAR}"
-                    exit 1
-                }
-            elif command -v wget > /dev/null 2>&1; then
-                wget --tries=3 --waitretry=3 \
-                     --connect-timeout=30 --read-timeout=600 \
-                     -O "${MVN_TAR}" "${DOWNLOAD_URL}" || {
-                    echo "ERROR: Failed to download Maven from ${DOWNLOAD_URL}" >&2
-                    rm -f "${MVN_TAR}"
-                    exit 1
-                }
-            else
-                echo "ERROR: Neither curl nor wget found. Please install one of them or install Maven manually." >&2
-                exit 1
-            fi
-
-            echo "Download completed successfully" >&2
+        local MVN_SHA512="${MVN_TAR}.sha512"
+        local DISTRIBUTION_PATH="maven/maven-${VERSION%%.*}/${VERSION}/binaries/apache-maven-${VERSION}-bin.tar.gz"
+        local SOURCE DOWNLOAD_URL CHECKSUM_URL VERIFIED=false
+        # A missing checksum is not a reason to discard a pre-existing archive.
+        local DOWNLOAD_FILES=("$MVN_SHA512")
+        if [ ! -f "$MVN_TAR" ]; then
+            DOWNLOAD_FILES+=("$MVN_TAR")
         fi
 
-        # Extract Maven
-        echo "Extracting Maven to ${MVN_DOWNLOAD_DIR}..." >&2
-        if ! tar -xzf "${MVN_TAR}" -C "${MVN_DOWNLOAD_DIR}"; then
-            echo "ERROR: Failed to extract Maven" >&2
-            rm -f "${MVN_TAR}"
+        for SOURCE in https://dlcdn.apache.org https://archive.apache.org/dist; do
+            DOWNLOAD_URL="${SOURCE}/${DISTRIBUTION_PATH}"
+            CHECKSUM_URL="${DOWNLOAD_URL}.sha512"
+            if [ "$SOURCE" = https://dlcdn.apache.org ]; then
+                CHECKSUM_URL="https://downloads.apache.org/${DISTRIBUTION_PATH}.sha512"
+            fi
+
+            echo "URL: ${DOWNLOAD_URL}" >&2
+            if { [ -f "$MVN_TAR" ] || download_mvn "$DOWNLOAD_URL" "$MVN_TAR"; } &&
+                    download_mvn "$CHECKSUM_URL" "$MVN_SHA512"; then
+                if ! verify_mvn "$MVN_TAR" "$MVN_SHA512"; then
+                    rm -f "$MVN_TAR" "$MVN_SHA512"
+                    exit 1
+                fi
+                VERIFIED=true
+                break
+            fi
+
+            rm -f "${DOWNLOAD_FILES[@]}"
+            if [ "$SOURCE" = https://dlcdn.apache.org ]; then
+                echo "WARNING: Maven distribution or checksum unavailable; trying the Apache archive..." >&2
+            fi
+        done
+
+        if [ "$VERIFIED" != true ]; then
+            echo "ERROR: Failed to download Maven ${VERSION} and its SHA-512 checksum from Apache." >&2
             exit 1
         fi
 
-        # Clean up tar file
-        rm -f "${MVN_TAR}"
+        # GNU tar interprets backslash escapes in -C paths.
+        echo "Extracting Maven to ${MVN_DOWNLOAD_DIR}..." >&2
+        if ! (cd "${MVN_DOWNLOAD_DIR}" && tar -xzf "${MVN_TAR##*/}"); then
+            echo "ERROR: Failed to extract Maven" >&2
+            rm -f "$MVN_TAR" "$MVN_SHA512"
+            exit 1
+        fi
+
+        rm -f "$MVN_TAR" "$MVN_SHA512"
 
         echo "Maven ${VERSION} installed successfully to ${MVN_DOWNLOAD_DIR}/apache-maven-${VERSION}" >&2
     else
