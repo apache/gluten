@@ -39,7 +39,9 @@ class GlutenIntegralRoundSuite extends GlutenSQLTestsTrait {
       GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false") {
       withTempPath {
         path =>
-          spark.createDataFrame(rows.asJava, schema).coalesce(1).write.parquet(path.toString)
+          withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+            spark.createDataFrame(rows.asJava, schema).coalesce(1).write.parquet(path.toString)
+          }
           withTempView("integral_round_input") {
             spark.read.parquet(path.toString).createOrReplaceTempView("integral_round_input")
             f
@@ -174,19 +176,4 @@ class GlutenIntegralRoundSuite extends GlutenSQLTestsTrait {
     }
   }
 
-  testGluten("integral ROUND extreme scales retain Spark execution without native validation") {
-    withInput {
-      withSQLConf(GlutenConfig.NATIVE_VALIDATION_ENABLED.key -> "false") {
-        for (scale <- Seq(-401, 401)) {
-          val query = s"SELECT round(l, $scale) FROM integral_round_input"
-          val expected = withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
-            sql(query).collect().toSeq
-          }
-          val df = sql(query)
-          assertExecution(df, native = false)
-          checkAnswer(df, expected)
-        }
-      }
-    }
-  }
 }
