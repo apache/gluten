@@ -113,8 +113,8 @@ login instructions in [New CI System](docs/backends/clickhouse/get-started/Click
 and retry the request before reporting that access is unavailable. Do not copy
 credentials into logs, replies, or other instructions.
 
-Add at least one unit test (under `gluten-ut/`) for any fix or feature not
-covered by existing Spark UTs.
+Add at least one unit test for any fix or feature not covered by existing
+UTs.
 
 ```bash
 # gluten-ut — must select backend, Spark and Scala profiles
@@ -126,6 +126,29 @@ covered by existing Spark UTs.
 # ClickHouse backend CI — re-trigger by posting on the PR page:
 # Run Gluten Clickhouse CI
 ```
+
+### Where to put Scala and Java tests
+
+This section covers JVM tests only. C++ tests stay with the native code they
+test, under `cpp/<component>/tests/` (for example `cpp/core/tests/` or
+`cpp/velox/tests/`).
+
+- **`gluten-ut/spark<version>/` is only for Spark tests and Spark test
+  variants.** A `Gluten<Name>Suite` there extends Spark's `<Name>Suite` so
+  Spark's tests run with Gluten. Besides those, it may only hold Spark test
+  variants: copies of Spark tests with small changes to fit Gluten, usually
+  written with `testGluten` to replace an excluded Spark test. Do not add new
+  Gluten tests to these suites or to traits mixed into them.
+- **Prefer re-enabling Spark tests over keeping Spark test variants.** When a
+  fix makes an excluded Spark test pass, remove its `.exclude(...)` entry from
+  the backend test settings (for example `VeloxTestSettings` and
+  `ClickHouseTestSettings`) for each Spark version, and delete its Spark test
+  variant if one exists.
+- **New Gluten tests that are not specific to a backend** go under
+  `gluten-ut/test/`.
+- **New tests that are specific to a backend** (for example, assertions on native
+  plans or fallback) go in that backend's module, such as
+  `backends-velox/src/test/` or `backends-clickhouse/src/test/`.
 
 ## PR Title Convention
 
