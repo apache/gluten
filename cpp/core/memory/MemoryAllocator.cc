@@ -166,8 +166,20 @@ bool StdMemoryAllocator::reallocate(void* p, int64_t size, int64_t newSize, void
 
 bool StdMemoryAllocator::reallocateAligned(void* p, uint64_t alignment, int64_t size, int64_t newSize, void** out) {
   GLUTEN_CHECK(p != nullptr, "reallocate with nullptr");
-  if (newSize <= 0) {
+  if (newSize < 0) {
     return false;
+  }
+  if (newSize == 0) {
+    // Keep a freeable, aligned pointer without relying on realloc(p, 0) or aligned_alloc(alignment, 0).
+    // The allocation has zero logical size, so only the old size is removed from accounting.
+    void* empty = std::aligned_alloc(alignment, alignment);
+    if (empty == nullptr) {
+      return false;
+    }
+    std::free(p);
+    *out = empty;
+    bytes_ -= size;
+    return true;
   }
   if (newSize <= size) {
     auto aligned = ROUND_TO_LINE(static_cast<uint64_t>(newSize), alignment);
