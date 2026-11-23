@@ -216,7 +216,7 @@ Gluten's CI checks that a partitioned `save(path)` on 3.5 to 4.1 and OPTIMIZE on
 | `INSERT INTO ... SELECT`, `INSERT OVERWRITE`, `INSERT INTO ... REPLACE WHERE` | | PartialOffload | From code. To append natively, use `save(path)` in append mode. |
 | | `insertInto(t)`, `saveAsTable(t)` in append mode on an existing table, `writeTo(t).append()`, `overwrite(condition)`, `overwritePartitions()` | PartialOffload | From code. |
 | `MERGE INTO` | | PartialOffload | Scans, the DML target scan and joins can run in Velox. On Spark 3.5 and 4.0, Gluten's tests check that a deletion-vector MERGE runs a scan of the target table in Velox. The other cases are from code. Native MERGE write is in progress in [#13324](https://github.com/apache/gluten/pull/13324). |
-| | `writeStream.format("delta")` | Offload on Spark 3.5 in append mode; otherwise PartialOffload | Requires native write on. Inside `foreachBatch`, batch writes follow the rows above. From code. |
+| | `writeStream.format("delta")` | Experimental Offload on Spark 3.5 in append mode; otherwise PartialOffload | Requires both native write and native streaming write on. Do not use with column mapping: native files lack Parquet field IDs. Row tracking is unvalidated and retains native scan limitations. Inside `foreachBatch`, batch writes follow the rows above. From code. |
 
 With native write on, `DESCRIBE HISTORY` operation metrics of `save(path)`, UPDATE, DELETE and `CREATE TABLE ... AS SELECT` match Delta Lake in `DescribeDeltaHistorySuite`. Seen on 4.1. Three unpartitioned tests in `DeleteMetricsSuite` and `UpdateMetricsSuite` expect two added files and get one. The job sets `spark.default.parallelism=1`, which plans the five small input files as one scan partition (from code).
 
@@ -455,7 +455,7 @@ These need native write on, unless a row says otherwise. On Spark 4.x, many of t
 | The `compression` option set to brotli or lzo fails the write. So does `spark.sql.parquet.compression.codec` when the option is unset. The write fails even with the Hadoop codec class on the classpath. Without that class, Delta's writer fails too, and Spark does not ship it. | Exception | 3.5, from code. Spark 4.x falls back | |
 | The `compression` option or `spark.sql.parquet.compression.codec` set to lz4_raw writes Snappy data into a `.lz4raw.parquet` file. | ResultMismatch | 3.5, from code. Spark 4.x falls back | |
 | `maxRecordsPerFile` on an unpartitioned write counts rows but writes whole batches. When the limit is smaller than a batch, the whole batch goes into one file. The other files opened for that batch are 0-byte files that are not valid Parquet. | ResultMismatch | 3.5, from code. Spark 4.x falls back | |
-| An unpartitioned native write whose first task gets no rows, for example a write of an empty DataFrame, leaves a 0-byte file that is not valid Parquet. Reading the table directory as plain Parquet can then fail with `is not a Parquet file (length is too low: 0)`. With statistics on, the file stays on disk until `VACUUM`. With `spark.databricks.delta.stats.collect=false`, Delta commits it. The last two sentences are from code. | ResultMismatch | 3.5 and 4.x, seen on 4.1 | |
+| An unpartitioned native write whose first task gets no rows, for example a write of an empty DataFrame, leaves a 0-byte file that is not valid Parquet. Reading the table directory as plain Parquet can then fail with `is not a Parquet file (length is too low: 0)`. With statistics on, the file stays on disk until `VACUUM`. With `spark.databricks.delta.stats.collect=false`, Delta commits it. The last two sentences are from code. Spark 3.5 uses Spark's writer for valid schema-only files. | ResultMismatch | 4.x, seen on 4.1; fixed on 3.5 | |
 | A statistics aggregation that Velox cannot offload fails the write with `ClassCastException`. With the default `spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation=false`, the TIMESTAMP_NTZ case from the issue no longer fails on main. Tested on Spark 3.5, seen on 4.1, from code on 4.0. On Spark 3.5 with that option set to true, the TIMESTAMP_NTZ case still fails (from code). | Exception | 3.5 and 4.x, from code | [#12538](https://github.com/apache/gluten/issues/12538) |
 
 ### MERGE, UPDATE and DELETE problems
@@ -488,7 +488,8 @@ For errors raised on the JVM, the message of the exception raised in the task st
 
 | Gluten option | Default | Description |
 | --- | --- | --- |
-| spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite | false | Experimental. Velox writes the data files of the commands marked Offload in [Write commands](#write-commands). Spark 3.5 and 4.x. Also enables Spark 3.5 streaming appends. No effect on Spark 3.4. |
+| spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite | false | Experimental. Velox writes the data files of the commands marked Offload in [Write commands](#write-commands). Spark 3.5 and 4.x. Streaming appends also require `enableNativeStreamingWrite=true`. No effect on Spark 3.4. |
+| spark.gluten.sql.columnar.backend.velox.delta.enableNativeStreamingWrite | false | Experimental. Enables native streaming appends on Spark 3.5. Requires `enableNativeWrite=true`. |
 | spark.gluten.sql.columnar.backend.velox.delta.enableNativeDmlRowIndexScan | true | Experimental. When false, the DML target scan that reads row indexes for deletion vectors stays on Spark. Other scans still offload. Tested with DELETE on Spark 3.5 and 4.0. UPDATE, MERGE and Spark 4.1 are from code. Tested on Spark 3.5 and 4.0, from code on 4.1. On Spark 3.4, that scan falls back either way (from code). |
 | spark.gluten.sql.columnar.backend.velox.delta.enableChangeDataFeedScan | true | Experimental. When false, batch change data feed reads use Delta Lake's change data feed scan. |
 | spark.gluten.sql.columnar.filescan | true | When false, every V1 file source scan (`FileSourceScanExec`) falls back, Delta scans included. No Gluten option turns off Delta scans alone. From code. |
@@ -502,7 +503,7 @@ For errors raised on the JVM, the message of the exception raised in the task st
 | spark.gluten.sql.fallbackUnexpectedMetadataParquet | false | When true, Delta scans fall back if a sampled file is encrypted, carries legacy datetime rebase metadata, uses LZO or BROTLI, or has variant annotations. LZ4_RAW also counts on Spark 4.0 and 4.1. The variant check runs on Spark 4.1 only. The sample is the first `spark.gluten.sql.fallbackUnexpectedMetadataParquet.limit` files (default 10) under the table root. `_delta_log` files count. HDFS and S3 list files in name order, and `_delta_log` sorts before `part-` files and lowercase partition directories. On those stores, a table laid out that way gets no data file in the sample once `_delta_log` holds as many files as the limit. The check is skipped when `spark.gluten.sql.scan.fileSchemeValidation.enabled=false`. From code. |
 | spark.gluten.sql.scan.fileSchemeValidation.enabled | true | Scans on a file scheme Velox cannot read fall back. From code. |
 
-The three `spark.gluten.sql.columnar.backend.velox.delta.*` options are read per query, so `SET` changes them for the session.
+The `spark.gluten.sql.columnar.backend.velox.delta.*` options are read per query, so `SET` changes them for the session. Streaming queries capture their configuration at startup; restart the query to change its write flags.
 
 ### Catalogs
 

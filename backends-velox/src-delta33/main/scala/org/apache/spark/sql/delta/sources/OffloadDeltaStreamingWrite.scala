@@ -46,23 +46,20 @@ case class OffloadDeltaStreamingWrite() extends Rule[LogicalPlan] {
 object OffloadDeltaStreamingWrite {
   private[sources] def enabled(sqlConf: SQLConf): Boolean = {
     val conf = new GlutenConfig(sqlConf)
+    val deltaConf = new VeloxDeltaConfig(sqlConf)
     // This sink bypasses physical write command validation, so retain its session level gates
-    conf.enableGluten && new VeloxDeltaConfig(sqlConf).enableNativeWrite &&
+    // Keep these checks in sync with Validators and FallbackOnANSIMode.
+    conf.enableGluten && deltaConf.enableNativeWrite && deltaConf.enableNativeStreamingWrite &&
     !conf.enableScanOnly && !(conf.enableAnsiMode && conf.enableAnsiFallback)
   }
 }
 
 // Keep Delta's schema checks, epoch deduplication and commit protocol in the original sink
-class GlutenDeltaSink(delegate: DeltaSink) extends Sink {
-  override def addBatch(batchId: Long, data: DataFrame): Unit = {
-    if (OffloadDeltaStreamingWrite.enabled(data.sparkSession.sessionState.conf)) {
-      DeltaV2WriteOperators.withColumnarTransaction {
-        delegate.addBatch(batchId, data)
-      }
-    } else {
+class GlutenDeltaSink(private[delta] val delegate: DeltaSink) extends Sink {
+  override def addBatch(batchId: Long, data: DataFrame): Unit =
+    DeltaV2WriteOperators.withColumnarTransaction {
       delegate.addBatch(batchId, data)
     }
-  }
 
-  override def toString: String = s"Gluten$delegate"
+  override def toString: String = delegate.toString
 }

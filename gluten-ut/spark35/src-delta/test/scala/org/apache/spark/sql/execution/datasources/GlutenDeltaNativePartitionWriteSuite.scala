@@ -31,6 +31,7 @@ import org.apache.spark.sql.types.{IntegerType, LongType, StructType}
 import org.apache.spark.sql.util.QueryExecutionListener
 import org.apache.spark.util.SparkVersionUtil
 
+import org.apache.hadoop.fs.Path
 import org.apache.parquet.hadoop.ParquetFileReader
 import org.apache.parquet.hadoop.util.HadoopInputFile
 import org.json4s.{JInt, JNothing}
@@ -166,15 +167,26 @@ class GlutenDeltaNativePartitionWriteSuite extends GlutenQueryTest with SharedSp
     }
   }
 
-  for (partitioned <- Seq(false, true); nativeWrite <- Seq(false, true)) {
-    test(s"Delta streaming appends: partitioned=$partitioned, nativeWrite=$nativeWrite") {
+  for (
+    partitioned <- Seq(false, true);
+    collectStats <- Seq(false, true);
+    nativeWrite <- Seq(false, true);
+    nativeStreamingWrite <- Seq(false, true)
+  ) {
+    test(s"Delta streaming appends: partitioned=$partitioned, stats=$collectStats, " +
+      s"nativeWrite=$nativeWrite, nativeStreamingWrite=$nativeStreamingWrite") {
       assume(BackendTestUtils.isVeloxBackendLoaded())
       import testImplicits._
       // Spark 4.x also compiles this suite, but native streaming writes only support Spark 3.5.
-      val expectNativeWrite = nativeWrite && SparkVersionUtil.compareMajorMinorVersion((3, 5)) == 0
+      val expectNativeWrite = nativeWrite && nativeStreamingWrite &&
+        SparkVersionUtil.compareMajorMinorVersion((3, 5)) == 0
       withSQLConf(
         "spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite" -> nativeWrite.toString,
-        "spark.databricks.delta.stats.collect" -> "false") {
+        "spark.gluten.sql.columnar.backend.velox.delta.enableNativeStreamingWrite" ->
+          nativeStreamingWrite.toString,
+        "spark.databricks.delta.stats.collect" -> collectStats.toString,
+        "spark.sql.jsonGenerator.ignoreNullFields" -> "true"
+      ) {
         withTempDir {
           dir =>
             val path = dir.getCanonicalPath + "/data"
@@ -189,35 +201,80 @@ class GlutenDeltaNativePartitionWriteSuite extends GlutenQueryTest with SharedSp
               query.processAllAvailable()
               input.addData((Some(2L), None), (Some(3L), Some("b")))
               query.processAllAvailable()
+              val deltaLog = DeltaLog.forTable(spark, path)
+              val versionBeforeEmptyBatch = deltaLog.update().version
               // Advance the source offset with an empty output batch.
               input.addData((Some(-1L), Some("discarded")))
               query.processAllAvailable()
+              assert(deltaLog.update().version > versionBeforeEmptyBatch)
+              assert(query.recentProgress.nonEmpty)
+              assert(query.recentProgress.forall(_.sink.description == s"DeltaSink[$path]"))
             } finally {
               query.stop()
             }
             // Read with Spark so native reader behavior cannot hide a write error.
             withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
-              checkAnswer(
-                spark.read.format("delta").load(path).select("id", "part"),
-                Seq(Row(1L, "a"), Row(null, "a"), Row(2L, null), Row(3L, "b")))
+              val hadoopConf = spark.sessionState.newHadoopConf()
+              val dataPath = new Path(path)
+              val fileSystem = dataPath.getFileSystem(hadoopConf)
+              val physicalFiles = fileSystem.listFiles(dataPath, true)
+              var emptyFiles = 0
+              // Statistics can exclude empty files from the log, so inspect physical files too.
+              while (physicalFiles.hasNext) {
+                val file = physicalFiles.next()
+                if (
+                  file.getPath.getName.endsWith(".parquet") &&
+                  !file.getPath.toString.contains("/_delta_log/")
+                ) {
+                  assert(file.getLen > 0, s"Zero-byte Parquet file: ${file.getPath}")
+                  val reader = ParquetFileReader.open(
+                    HadoopInputFile.fromPath(file.getPath, hadoopConf))
+                  try {
+                    // Check the physical writer, not only a plan wrapper that could fall back.
+                    val createdBy = reader.getFooter.getFileMetaData.getCreatedBy
+                    val numRows = reader.getFooter.getBlocks.asScala.map(_.getRowCount).sum
+                    assert(createdBy != null, s"Missing writer metadata for ${file.getPath}")
+                    // Empty tasks use Spark's writer to produce a valid schema-only Parquet file.
+                    assert(
+                      createdBy.startsWith("parquet-mr") == (!expectNativeWrite || numRows == 0),
+                      s"Unexpected writer for ${file.getPath}: $createdBy")
+                    if (numRows == 0) emptyFiles += 1
+                  } finally {
+                    reader.close()
+                  }
+                }
+              }
+              if (!partitioned) assert(emptyFiles > 0, "Missing schema-only empty-batch file")
               val files = DeltaLog.forTable(spark, path).update().allFiles.collect()
               assert(files.nonEmpty)
               files.foreach {
                 file =>
-                  val reader = ParquetFileReader.open(HadoopInputFile.fromPath(
-                    DeltaFileOperations.absolutePath(path, file.path),
-                    spark.sessionState.newHadoopConf()))
-                  try {
-                    // Check the physical writer, not only a plan wrapper that could fall back.
-                    val createdBy = reader.getFooter.getFileMetaData.getCreatedBy
-                    assert(createdBy != null, s"Missing writer metadata for ${file.path}")
+                  val filePath = DeltaFileOperations.absolutePath(path, file.path)
+                  assert(file.size > 0, s"Committed zero-byte file: ${file.path}")
+                  assert(fileSystem.getFileStatus(filePath).getLen == file.size, file.path)
+                  if (collectStats) {
+                    val rows = spark.read.parquet(filePath.toString).select("id").collect().toSeq
+                    val values = rows.filterNot(_.isNullAt(0)).map(_.getLong(0))
+                    val stats = parse(file.stats)
+                    assert((stats \ "numRecords") == JInt(rows.size), file.stats)
                     assert(
-                      createdBy.startsWith("parquet-mr") == !expectNativeWrite,
-                      s"Unexpected writer for ${file.path}: $createdBy")
-                  } finally {
-                    reader.close()
+                      (stats \ "nullCount" \ "id") == JInt(rows.size - values.size),
+                      file.stats)
+                    assert(
+                      (stats \ "minValues" \ "id") ==
+                        (if (values.isEmpty) JNothing else JInt(values.min)),
+                      file.stats)
+                    assert(
+                      (stats \ "maxValues" \ "id") ==
+                        (if (values.isEmpty) JNothing else JInt(values.max)),
+                      file.stats)
+                  } else {
+                    assert(file.stats == null || file.stats.isEmpty)
                   }
               }
+              checkAnswer(
+                spark.read.format("delta").load(path).select("id", "part"),
+                Seq(Row(1L, "a"), Row(null, "a"), Row(2L, null), Row(3L, "b")))
             }
         }
       }

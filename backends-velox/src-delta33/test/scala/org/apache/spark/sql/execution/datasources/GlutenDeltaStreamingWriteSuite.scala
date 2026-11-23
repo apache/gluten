@@ -33,7 +33,7 @@ import org.apache.spark.sql.streaming.OutputMode
 import org.apache.spark.sql.test.SharedSparkSession
 
 import org.mockito.ArgumentMatchers.{any, anyLong}
-import org.mockito.Mockito.{doAnswer, mock}
+import org.mockito.Mockito.{doAnswer, mock, when}
 import org.mockito.invocation.InvocationOnMock
 import org.mockito.stubbing.Answer
 
@@ -44,6 +44,7 @@ class GlutenDeltaStreamingWriteSuite extends SparkFunSuite with SharedSparkSessi
     .set("spark.ui.enabled", "false")
     .set(GlutenConfig.GLUTEN_ENABLED.key, "true")
     .set(VeloxDeltaConfig.ENABLE_NATIVE_WRITE.key, "true")
+    .set(VeloxDeltaConfig.ENABLE_NATIVE_STREAMING_WRITE.key, "true")
     .set(SQLConf.ANSI_ENABLED.key, "false")
     .set(GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key, "true")
     .set(GlutenConfig.COLUMNAR_SCAN_ONLY_ENABLED.key, "false")
@@ -91,7 +92,42 @@ class GlutenDeltaStreamingWriteSuite extends SparkFunSuite with SharedSparkSessi
     assert(analyzer.executeAndCheck(rewritten, new QueryPlanningTracker) eq rewritten)
   }
 
-  test("streaming gates apply to analysis and each batch without leaking the transaction observer") {
+  test("native batch writes do not opt streams into native writes by default") {
+    val conf = new SQLConf
+    conf.setConfString(GlutenConfig.GLUTEN_ENABLED.key, "true")
+    conf.setConfString(VeloxDeltaConfig.ENABLE_NATIVE_WRITE.key, "true")
+    assert(!new VeloxDeltaConfig(conf).enableNativeStreamingWrite)
+    SQLConf.withExistingConf(conf) {
+      val plan = writePlan(mock(classOf[DeltaSink]))
+      assert(OffloadDeltaStreamingWrite()(plan) eq plan)
+    }
+  }
+
+  test("streaming gates apply during analysis") {
+    val sink = mock(classOf[DeltaSink])
+    val cases = Seq(
+      Seq.empty[(String, String)] -> true,
+      Seq(GlutenConfig.GLUTEN_ENABLED.key -> "false") -> false,
+      Seq(VeloxDeltaConfig.ENABLE_NATIVE_WRITE.key -> "false") -> false,
+      Seq(VeloxDeltaConfig.ENABLE_NATIVE_STREAMING_WRITE.key -> "false") -> false,
+      Seq(GlutenConfig.COLUMNAR_SCAN_ONLY_ENABLED.key -> "true") -> false,
+      Seq(SQLConf.ANSI_ENABLED.key -> "true") -> false,
+      Seq(
+        SQLConf.ANSI_ENABLED.key -> "true",
+        GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false") -> true
+    )
+    cases.foreach {
+      case (settings, expectedNative) =>
+        withSQLConf(settings: _*) {
+          val plan = writePlan(sink)
+          val rewritten = OffloadDeltaStreamingWrite()(plan).asInstanceOf[WriteToStream]
+          assert(rewritten.sink.isInstanceOf[GlutenDeltaSink] == expectedNative)
+          if (!expectedNative) assert(rewritten eq plan)
+        }
+    }
+  }
+
+  test("wrapped batches restore the transaction observer after success and failure") {
     withTempDir {
       dir =>
         val deltaLog = DeltaLog.forTable(spark, dir.getCanonicalPath)
@@ -111,32 +147,23 @@ class GlutenDeltaStreamingWriteSuite extends SparkFunSuite with SharedSparkSessi
         }).when(sink).addBatch(anyLong(), any(classOf[DataFrame]))
         val wrapped = new GlutenDeltaSink(sink)
         val original = TransactionExecutionObserver.getObserver
-        val cases = Seq(
-          Seq.empty[(String, String)] -> true,
-          Seq(GlutenConfig.GLUTEN_ENABLED.key -> "false") -> false,
-          Seq(VeloxDeltaConfig.ENABLE_NATIVE_WRITE.key -> "false") -> false,
-          Seq(GlutenConfig.COLUMNAR_SCAN_ONLY_ENABLED.key -> "true") -> false,
-          Seq(SQLConf.ANSI_ENABLED.key -> "true") -> false,
-          Seq(
-            SQLConf.ANSI_ENABLED.key -> "true",
-            GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false") -> true
-        )
-        cases.foreach {
-          case (settings, expectedNative) =>
-            withSQLConf(settings: _*) {
-              val plan = writePlan(sink)
-              val rewritten = OffloadDeltaStreamingWrite()(plan).asInstanceOf[WriteToStream]
-              assert(rewritten.sink.isInstanceOf[GlutenDeltaSink] == expectedNative)
-              if (!expectedNative) assert(rewritten eq plan)
-              wrapped.addBatch(42L, data)
-              assert(transaction.isInstanceOf[GlutenOptimisticTransaction] == expectedNative)
-              assert(TransactionExecutionObserver.getObserver eq original)
-            }
+        withSQLConf(
+          VeloxDeltaConfig.ENABLE_NATIVE_WRITE.key -> "false",
+          VeloxDeltaConfig.ENABLE_NATIVE_STREAMING_WRITE.key -> "false") {
+          wrapped.addBatch(42L, data)
+          assert(transaction.isInstanceOf[GlutenOptimisticTransaction])
+          assert(TransactionExecutionObserver.getObserver eq original)
         }
         failBatch = true
         assert(intercept[IllegalStateException](wrapped.addBatch(42L, data)) eq failure)
         assert(transaction.isInstanceOf[GlutenOptimisticTransaction])
         assert(TransactionExecutionObserver.getObserver eq original)
     }
+  }
+
+  test("wrapped sink preserves Delta's progress description") {
+    val sink = mock(classOf[DeltaSink])
+    when(sink.toString).thenReturn("DeltaSink[/tmp/delta-stream]")
+    assert(new GlutenDeltaSink(sink).toString == sink.toString)
   }
 }
