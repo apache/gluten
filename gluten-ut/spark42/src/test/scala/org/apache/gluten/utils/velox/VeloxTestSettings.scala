@@ -882,14 +882,6 @@ class VeloxTestSettings extends BackendTestSettings {
     // The case expects a SparkException; Gluten surfaces the raw
     // FileAlreadyExistsException instead.
     .exclude("Stop task set if FileAlreadyExistsException was thrown")
-    // Rewrite: Additional support for file scan with default values has been added in Spark-3.4.
-    // It appends the default value in record if it is not present while scanning.
-    // Velox supports default values for new records but it does not backfill the
-    // existing records and provides null for the existing ones.
-    .exclude("INSERT rows, ALTER TABLE ADD COLUMNS with DEFAULTs, then SELECT them")
-    .exclude("SPARK-39557 INSERT INTO statements with tables with array defaults")
-    .exclude("SPARK-39557 INSERT INTO statements with tables with struct defaults")
-    .exclude("SPARK-39557 INSERT INTO statements with tables with map defaults")
     // Velox assert_not_null throws VeloxUserError instead of SparkRuntimeException.
     // Rewritten in GlutenInsertSuite.
     .exclude("SPARK-55716: V1 INSERT rejects null into NOT NULL column for file sources")

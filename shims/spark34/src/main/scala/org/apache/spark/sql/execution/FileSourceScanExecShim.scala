@@ -75,8 +75,6 @@ abstract class FileSourceScanExecShim(
 
   def hasFieldIds: Boolean = ParquetUtils.hasFieldIds(requiredSchema)
 
-  protected def hasNonNullExistenceDefaults: Boolean = requiredSchema.hasExistenceDefaultValues
-
   protected def isDynamicPruningFilter(e: Expression): Boolean =
     e.find(_.isInstanceOf[PlanExpression[_]]).isDefined
 

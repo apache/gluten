@@ -19,12 +19,14 @@ package org.apache.gluten.execution
 import org.apache.gluten.backendsapi.velox.VeloxBackendSettings
 import org.apache.gluten.benchmarks.RandomParquetDataGenerator
 import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
+import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.utils.VeloxFileSystemValidationJniWrapper
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.catalyst.expressions.GreaterThan
-import org.apache.spark.sql.execution.ScalarSubquery
+import org.apache.spark.sql.execution.{FileSourceScanExec, ScalarSubquery}
+import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 import org.apache.spark.util.SparkVersionUtil
@@ -53,6 +55,64 @@ class VeloxScanSuite extends VeloxWholeStageTransformerSuite {
     val df = sql(query)
     checkAnswer(df, expectedResults)
     checkGlutenPlan[T](df)
+  }
+
+  Seq(true, false).foreach {
+    useV1 =>
+      test(s"existence-default scan fallback and native controls (useV1=$useV1)") {
+        withSQLConf(
+          SQLConf.USE_V1_SOURCE_LIST.key -> (if (useV1) "parquet" else ""),
+          GlutenConfig.NATIVE_WRITER_ENABLED.key -> "false") {
+          withTempPath {
+            dir =>
+              spark.range(1).write.parquet(dir.getCanonicalPath)
+              val readSchema = StructType(Seq(
+                StructField("id", LongType),
+                StructField("value", IntegerType).withExistenceDefaultValue("7"),
+                StructField("s", StringType).withExistenceDefaultValue("'abc'"),
+                StructField("null_default", IntegerType)
+                  .withExistenceDefaultValue("CAST(NULL AS INT)")
+              ))
+              def read: DataFrame = spark.read.schema(readSchema).parquet(dir.getCanonicalPath)
+
+              def checkScan(df: DataFrame, defaultColumns: Seq[String]): Unit = {
+                val plan = getExecutedPlan(df)
+                val nativeScans = plan.filter {
+                  case _: FileSourceScanExecTransformer if useV1 => true
+                  case _: BatchScanExecTransformer if !useV1 => true
+                  case _ => false
+                }
+                val sparkScans = plan.filter {
+                  case _: FileSourceScanExec if useV1 => true
+                  case _: BatchScanExec if !useV1 => true
+                  case _ => false
+                }
+                if (defaultColumns.isEmpty) {
+                  assert(nativeScans.size == 1, df.queryExecution.executedPlan)
+                  assert(sparkScans.isEmpty, df.queryExecution.executedPlan)
+                } else {
+                  assert(nativeScans.isEmpty, df.queryExecution.executedPlan)
+                  assert(sparkScans.size == 1, df.queryExecution.executedPlan)
+                  val scan = sparkScans.head
+                  val reason = FallbackTags.getOption(scan)
+                    .orElse(scan.logicalLink.flatMap(FallbackTags.getOption))
+                  assert(
+                    reason.exists(_.reason().contains(
+                      "Native file scans do not support non-null existence defaults " +
+                        s"(EXISTS_DEFAULT) on columns: ${defaultColumns.mkString(", ")}.")),
+                    reason.toString
+                  )
+                }
+              }
+
+              checkScan(read.select("value", "s", "null_default"), Seq("value", "s"))
+              checkScan(read.filter("value = 7").select("id"), Seq("value"))
+              checkScan(read.select("id"), Nil)
+              checkScan(read.selectExpr("count(*)"), Nil)
+              checkScan(read.select("id", "null_default"), Nil)
+          }
+        }
+      }
   }
 
   test("tpch q22 subquery filter pushdown - v1") {
