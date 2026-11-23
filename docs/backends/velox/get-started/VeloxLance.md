@@ -33,13 +33,13 @@ Enable the `lance` profile alongside the Velox backend:
 mvn clean package -Pbackends-velox -Pspark-3.5 -Plance -DskipTests
 ```
 
-As for Iceberg, the code is split in two. The `gluten-lance` module holds the parts that do not
-depend on Velox, such as the scan and its offload rule. `backends-velox/src-lance` registers them
+The code is split in two. The `gluten-lance` module holds the parts that do not depend on
+Velox, such as the scan and its offload rule. `backends-velox/src-lance` registers them
 with the Velox backend and holds the tests that run them on Velox. Add `-Plance-test` to also
 compile and run the Lance tests:
 
 ```
-mvn test -pl gluten-lance,backends-velox -am -Pbackends-velox -Pspark-3.5 -Plance -Plance-test \
+./build/mvn test -pl gluten-lance,backends-velox -am -Pbackends-velox -Pspark-3.5 -Plance -Plance-test \
   -Dtest=none -DwildcardSuites=org.apache.gluten.execution.VeloxLanceSuite
 ```
 
