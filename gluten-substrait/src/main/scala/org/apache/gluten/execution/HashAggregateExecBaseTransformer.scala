@@ -41,7 +41,8 @@ abstract class HashAggregateExecBaseTransformer(
     resultExpressions: Seq[NamedExpression],
     child: SparkPlan)
   extends BaseAggregateExec
-  with UnaryTransformSupport {
+  with UnaryTransformSupport
+  with OrderPreservingUnaryExecNode {
 
   override lazy val allAttributes: AttributeSeq =
     child.output ++ aggregateBufferAttributes ++ aggregateAttributes ++
@@ -51,7 +52,10 @@ abstract class HashAggregateExecBaseTransformer(
   @transient override lazy val metrics =
     BackendsApiManager.getMetricsApiInstance.genHashAggregateTransformerMetrics(sparkContext)
 
-  protected def isCapableForStreamingAggregation: Boolean = {
+  // Decided once per node, so the reported output ordering and the native plan agree.
+  protected lazy val isCapableForStreamingAggregation: Boolean = checkStreamingAggregation
+
+  private def checkStreamingAggregation: Boolean = {
     if (!glutenConf.getConf(GlutenConfig.COLUMNAR_PREFER_STREAMING_AGGREGATE)) {
       return false
     }
@@ -72,6 +76,19 @@ abstract class HashAggregateExecBaseTransformer(
     SortOrder.orderingSatisfies(childOrdering, requiredOrdering)
   }
 
+  /** Whether the backend runs a streaming aggregate as an operator that keeps the input order. */
+  protected def canReportOrdering: Boolean = false
+
+  private lazy val reportsOrdering: Boolean = {
+    glutenConf.getConf(GlutenConfig.COLUMNAR_STREAMING_AGGREGATE_REPORT_ORDERING) &&
+    canReportOrdering &&
+    isCapableForStreamingAggregation
+  }
+
+  // A streaming aggregate emits groups in input order, like SortAggregateExec.
+  override protected def orderingExpressions: Seq[SortOrder] =
+    if (reportsOrdering) groupingExpressions.map(SortOrder(_, Ascending)) else Nil
+
   override def metricsUpdater(): MetricsUpdater =
     BackendsApiManager.getMetricsApiInstance.genHashAggregateTransformerMetricsUpdater(metrics)
 
@@ -86,11 +103,13 @@ abstract class HashAggregateExecBaseTransformer(
       s"HashAggregateTransformer(keys=$keyString, " +
         s"functions=$functionString, " +
         s"isStreamingAgg=$isCapableForStreamingAggregation, " +
+        s"reportsOrdering=$reportsOrdering, " +
         s"output=$outputString)"
     } else {
       s"HashAggregateTransformer(keys=$keyString, " +
         s"functions=$functionString, " +
-        s"isStreamingAgg=$isCapableForStreamingAggregation)"
+        s"isStreamingAgg=$isCapableForStreamingAggregation, " +
+        s"reportsOrdering=$reportsOrdering)"
     }
   }
 
