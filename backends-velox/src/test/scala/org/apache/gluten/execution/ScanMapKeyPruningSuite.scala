@@ -20,6 +20,7 @@ import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.catalyst.CatalystTypeConverters
 import org.apache.spark.sql.execution.{BaseScriptTransformationExec, SparkPlan}
 import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
 import org.apache.spark.sql.functions.{col, lit, map, struct, sum}
@@ -43,38 +44,52 @@ class ScanMapKeyPruningSuite extends VeloxWholeStageTransformerSuite {
   private val noBroadcast = "spark.sql.autoBroadcastJoinThreshold" -> "-1"
 
   // ---------------------------------------------------------------------------------------------
-  // Fixtures: each writes a parquet table and hands its path to the body.
+  // Fixtures: each writes a parquet table, or an ORC table where the name says so, and hands its
+  // path to the body.
   // ---------------------------------------------------------------------------------------------
 
   private type Fixture = (String => Unit) => Unit
 
-  private def table(rows: Long, columns: String*): Fixture = f =>
+  private def table(rows: Long, columns: String*): Fixture = tableOfFormat("parquet", rows, columns)
+
+  private def orcTable(rows: Long, columns: String*): Fixture = tableOfFormat("orc", rows, columns)
+
+  private def tableOfFormat(format: String, rows: Long, columns: Seq[String]): Fixture = f =>
     withTempPath {
       path =>
-        spark.range(0, rows).selectExpr(("id" +: columns): _*).write.parquet(path.getCanonicalPath)
+        spark
+          .range(0, rows)
+          .selectExpr(("id" +: columns): _*)
+          .write
+          .format(format)
+          .save(path.getCanonicalPath)
         f(path.getCanonicalPath)
     }
 
   /** m: MAP<STRING, STRUCT<s STRING, t BIGINT>> with keys a, b, c. */
-  private val mapTable = table(
-    10000,
+  private val mapColumn =
     "map('a', named_struct('s', concat('v', cast(id % 7 as string)), 't', id), " +
       "'b', named_struct('s', 'x', 't', id * 2), " +
       "'c', named_struct('s', 'y', 't', id + 1)) as m"
-  )
+  private val mapTable = table(10000, mapColumn)
+  private val orcMapTable = orcTable(10000, mapColumn)
 
   /** m: MAP<STRING, BIGINT>, a map whose values are plain numbers. */
-  private val scalarMapTable = table(1000, "map('a', id, 'b', id * 2, 'c', id + 1) as m")
+  private val scalarMapColumn = "map('a', id, 'b', id * 2, 'c', id + 1) as m"
+  private val scalarMapTable = table(1000, scalarMapColumn)
+  private val orcScalarMapTable = orcTable(1000, scalarMapColumn)
 
   /** m: MAP<BIGINT, STRUCT<s, t>>. */
-  private val longKeyTable = table(
-    10000,
+  private val longKeyColumn =
     "map(1L, named_struct('s', concat('v', cast(id % 7 as string)), 't', id), " +
-      "2L, named_struct('s', 'x', 't', id * 2)) as m")
+      "2L, named_struct('s', 'x', 't', id * 2)) as m"
+  private val longKeyTable = table(10000, longKeyColumn)
+  private val orcLongKeyTable = orcTable(10000, longKeyColumn)
 
   /** c: STRUCT<m: MAP<STRING, BIGINT>, v: BIGINT>. */
-  private val nestedMapTable =
-    table(1000, "named_struct('m', map('a', id, 'b', id * 2), 'v', id) as c")
+  private val nestedMapColumn = "named_struct('m', map('a', id, 'b', id * 2), 'v', id) as c"
+  private val nestedMapTable = table(1000, nestedMapColumn)
+  private val orcNestedMapTable = orcTable(1000, nestedMapColumn)
 
   /** c: STRUCT<m: MAP<STRING, BIGINT>, s: STRUCT<n: MAP<STRING, BIGINT>, v: BIGINT>>. */
   private val siblingMapTable = table(
@@ -483,7 +498,48 @@ class ScanMapKeyPruningSuite extends VeloxWholeStageTransformerSuite {
         Seq(whole, whole),
         conf = Seq(GlutenConfig.NATIVE_UNION_ENABLED.key -> nativeUnion)
       )
-  }
+  } ++ Seq(
+    // ----- ORC scans -----
+    Case(
+      "ORC: keyed filter with aggregates over keyed values",
+      orcMapTable,
+      p => s"SELECT count(*), sum(m['a'].t), max(m['a'].s) FROM orc.`$p` WHERE m['a'].s = 'v3'",
+      Seq(m("m[\"a\"].s", "m[\"a\"].t"))
+    ),
+    Case(
+      "ORC: projected keyed values without aggregation",
+      orcMapTable,
+      p => s"SELECT id, m['a'].t, element_at(m, 'c').s FROM orc.`$p` WHERE m['b'].s = 'x'",
+      Seq(m("m[\"a\"].t", "m[\"b\"].s", "m[\"c\"].s"))
+    ),
+    Case(
+      "ORC: string keys of a scalar-valued map",
+      orcScalarMapTable,
+      p => s"SELECT id, m['a'], m['z'] FROM orc.`$p` WHERE m['b'] > 10",
+      Seq(m("m[\"a\"]", "m[\"b\"]", "m[\"z\"]"))
+    ),
+    Case(
+      "ORC: long keys",
+      orcLongKeyTable,
+      p => s"SELECT count(*), sum(m[1].t), sum(m[3].t) FROM orc.`$p` WHERE m[1].s = 'v3'",
+      Seq(m("m[1].s", "m[1].t", "m[3].t"))
+    ),
+    Case(
+      "ORC: map nested in a struct",
+      orcNestedMapTable,
+      p => s"SELECT sum(c.m['a']), sum(c.m['b']) FROM orc.`$p`",
+      Seq(c("c.m[\"a\"]", "c.m[\"b\"]"))),
+    Case(
+      "ORC: whole-map use",
+      orcMapTable,
+      p => s"SELECT sum(size(m)) FROM orc.`$p` WHERE m['a'].s = 'v3'",
+      Seq(whole)),
+    Case(
+      "ORC: map in the output",
+      orcScalarMapTable,
+      p => s"SELECT m FROM orc.`$p` WHERE m['a'] > 10",
+      Seq(whole))
+  )
 
   /** The set of map keys per row of a plan whose single output column is a string-keyed map. */
   private def keysPerRow(plan: SparkPlan): Set[Set[String]] =
@@ -538,6 +594,56 @@ class ScanMapKeyPruningSuite extends VeloxWholeStageTransformerSuite {
                 keysPerRow(pruned) == Set(Set("a")),
                 s"$predicate read undeclared keys:\n$pruned")
           }
+        }
+    }
+  }
+
+  test("an ORC scan with a declaration returns exactly the declared entries") {
+    // Attaches a declaration to the scan directly, bypassing the rule, and reads the maps whole.
+    // Vanilla Spark filters the same maps to the declared keys; the two must agree row for row,
+    // over string and integer keys, null and empty maps, and maps holding none of the keys.
+    withTempPath {
+      dir =>
+        val path = dir.getCanonicalPath
+        spark
+          .sql(
+            "SELECT * FROM VALUES " +
+              "(0, map('a', 1L, 'b', 2L, 'c', 3L), map(1, 1.5D, 2, 2.5D, 3, 3.5D)), " +
+              "(1, CAST(NULL AS MAP<STRING, BIGINT>), CAST(map() AS MAP<INT, DOUBLE>)), " +
+              "(2, CAST(map() AS MAP<STRING, BIGINT>), CAST(NULL AS MAP<INT, DOUBLE>)), " +
+              "(3, map('b', 20L, 'd', 40L), map(3, 30.5D, 4, 40.5D)), " +
+              "(4, map('c', 30L), map(-4, -4.5D, 7, 7.5D)) " +
+              "AS t(id, m, n)")
+          .repartition(1)
+          .write
+          .orc(path)
+        withSQLConf("spark.sql.adaptive.enabled" -> "false") {
+          val df = spark.read.orc(path).select("id", "m", "n")
+          val plan = df.queryExecution.executedPlan
+          assert(planHas(df, classOf[BasicScanExecTransformer]), s"expected a native scan:\n$plan")
+          val pruned = plan.transform {
+            case scan: BasicScanExecTransformer =>
+              scan.withRequiredMapSubfields(
+                Map(
+                  "m" -> Seq("a", "b", "x").map(
+                    k => SubfieldPath("m", Seq(SubfieldElement.StringKey(k)))),
+                  "n" -> Seq(3L, -4L).map(k => SubfieldPath("n", Seq(SubfieldElement.LongKey(k))))
+                ))
+          }
+          val toRow = CatalystTypeConverters.createToScalaConverter(pruned.schema)
+          val actual = pruned.executeCollect().map(toRow(_).asInstanceOf[Row]).toSet
+          var expected: Set[Row] = null
+          withSQLConf(vanillaSparkConfs(): _*) {
+            expected = spark.read
+              .orc(path)
+              .selectExpr(
+                "id",
+                "map_filter(m, (k, v) -> k IN ('a', 'b', 'x')) AS m",
+                "map_filter(n, (k, v) -> k IN (3, -4)) AS n")
+              .collect()
+              .toSet
+          }
+          assert(actual == expected, s"declaration not applied:\n$pruned")
         }
     }
   }
