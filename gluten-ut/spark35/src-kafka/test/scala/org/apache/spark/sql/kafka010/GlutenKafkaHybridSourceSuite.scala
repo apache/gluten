@@ -33,12 +33,15 @@ class GlutenKafkaHybridSourceSuite extends KafkaSourceTest with GlutenSQLTestsTr
     testUtils.sendMessages(topic, values.map(_.toString).toArray)
     var expectedProjects: Option[Seq[Seq[String]]] = None
 
-    def checkScan(nativeScan: Boolean): Unit = {
+    def checkScan(
+        nativeScan: Boolean,
+        extraOptions: Map[String, String] = Map.empty): Unit = {
       val input = spark.readStream
         .format("kafka")
         .option("kafka.bootstrap.servers", testUtils.brokerAddress)
         .option("subscribe", topic)
         .option("startingOffsets", "earliest")
+        .options(extraOptions)
         .load()
         .selectExpr("CAST(CAST(value AS STRING) AS BIGINT) + 1 AS value")
 
@@ -81,6 +84,17 @@ class GlutenKafkaHybridSourceSuite extends KafkaSourceTest with GlutenSQLTestsTr
         checkScan(nativeScan = false)
       }
       assert(spark.conf.get(scanEnabled) == "true")
+      // Java's plaintext client ignores JAAS. Native validation must reject the unsupported
+      // option before offloading while preserving the Spark result and native projection.
+      checkScan(
+        nativeScan = false,
+        extraOptions = Map(
+          "kafka.security.protocol" -> "PLAINTEXT",
+          "kafka.sasl.jaas.config" ->
+            ("org.apache.kafka.common.security.plain.PlainLoginModule required " +
+              "username=\"ignored\" password=\"kafka-fallback-test-secret\";")
+        )
+      )
       checkScan(nativeScan = true)
     }
   }

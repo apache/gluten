@@ -20,9 +20,26 @@ import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.substrait.rel.{SplitInfo, StreamKafkaSourceBuilder}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
+import org.apache.spark.kafka010.KafkaConfigUpdater
 import org.apache.spark.sql.connector.read.{InputPartition, Scan}
 
+import scala.collection.JavaConverters._
+
 object GlutenStreamKafkaSourceUtil {
+  def getKafkaParams(inputPartition: InputPartition): Map[String, String] = inputPartition match {
+    case batch: KafkaBatchInputPartition =>
+      // Validate the effective settings Spark would use, including delegation-token
+      // authentication. This copies the parameters; split serialization below stays unchanged.
+      KafkaConfigUpdater("executor", batch.executorKafkaParams.asScala.toMap)
+        .setAuthenticationConfigIfNeeded()
+        .build()
+        .asScala
+        .map { case (key, value) => key -> value.toString }
+        .toMap
+    case _ =>
+      throw new UnsupportedOperationException("Only support kafka KafkaBatchInputPartition.")
+  }
+
   def genSplitInfo(inputPartition: InputPartition): SplitInfo = inputPartition match {
     case batch: KafkaBatchInputPartition =>
       StreamKafkaSourceBuilder.makeStreamKafkaBatch(

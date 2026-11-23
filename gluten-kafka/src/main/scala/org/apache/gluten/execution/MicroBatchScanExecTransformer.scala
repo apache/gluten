@@ -89,6 +89,13 @@ case class MicroBatchScanExecTransformer(
 
   override lazy val fileFormat: ReadFileFormat = GlutenStreamKafkaSourceUtil.getFileFormat(scan)
 
+  override def getProperties: Map[String, String] = {
+    // Spark uses the same executor consumer settings for every partition of this stream.
+    inputPartitionsShim.headOption
+      .map(GlutenStreamKafkaSourceUtil.getKafkaParams)
+      .getOrElse(Map.empty)
+  }
+
   protected[this] def supportsBatchScan(scan: Scan): Boolean = {
     MicroBatchScanExecTransformer.supportsBatchScan(scan)
   }
