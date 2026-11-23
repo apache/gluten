@@ -16,8 +16,11 @@
  */
 package org.apache.spark.sql.delta
 
+import org.apache.gluten.columnarbatch.ColumnarBatches
 import org.apache.gluten.config.{GlutenConfig, VeloxDeltaConfig}
-import org.apache.gluten.execution.HashAggregateExecTransformer
+import org.apache.gluten.execution.{HashAggregateExecTransformer, TerminalRow}
+import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
+import org.apache.gluten.vectorized.RefCountedArrowColumnVector
 
 import org.apache.spark.{SparkConf, TaskContext}
 import org.apache.spark.sql.{GlutenQueryTest, Row, SparkSession}
@@ -30,12 +33,14 @@ import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types.{LongType, StringType, StructType}
+import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.task.{TaskResourceRegistry, TaskResources}
 
+import org.apache.arrow.vector.BigIntVector
 import org.apache.hadoop.fs.Path
 
 import java.lang.management.ManagementFactory
-import java.util.concurrent.{ConcurrentLinkedQueue, CountDownLatch, TimeUnit}
+import java.util.concurrent.{ConcurrentLinkedQueue, CountDownLatch, ExecutionException, TimeUnit}
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 
 import scala.collection.JavaConverters._
@@ -144,6 +149,259 @@ class GlutenDeltaStatsLifecycleSuite extends GlutenQueryTest with SharedSparkSes
           .select("numRecords").as[Long].collect()
         assert(records.length == 4 && records.forall(_ == 1))
     }
+  }
+
+  for (failBeforeSubmission <- Seq(true, false)) {
+    val timing = if (failBeforeSubmission) "before" else "during"
+    test(s"newRow releases the batch when statistics fail $timing submission") {
+      val before = statisticsThreads
+      val workerReady = new CountDownLatch(1)
+      val failWorker = new CountDownLatch(1)
+      val submitting = new CountDownLatch(1)
+      val closeCompleted = new CountDownLatch(1)
+      val completed = new CountDownLatch(1)
+      val closingThread = new AtomicReference[Thread]()
+      val failures = new ConcurrentLinkedQueue[Throwable]()
+      val completionChecks = new ConcurrentLinkedQueue[() => Unit]()
+      val workerFailure = new IllegalStateException("injected statistics worker failure")
+      val aggregate = spark.range(1).selectExpr(
+        "to_json(named_struct('numRecords', count(*))) AS stats")
+        .queryExecution.analyzed.collectFirst { case a: Aggregate => a }.get
+      val failStatistics: String => String = _ => {
+        assert(Thread.currentThread().getName.startsWith("Gluten Delta Statistics Writer - "))
+        workerReady.countDown()
+        assert(failWorker.await(30, TimeUnit.SECONDS), "Statistics worker was not released")
+        throw workerFailure
+      }
+      val statsExpr = ScalaUDF(
+        failStatistics,
+        StringType,
+        Seq(aggregate.aggregateExpressions.head))
+      val tracker = GlutenDeltaJobStatsTracker(new DeltaJobStatisticsTracker(
+        spark.sessionState.newHadoopConf(),
+        new Path("file:/tmp/gluten-stats-worker-failure"),
+        aggregate.child.output,
+        statsExpr))
+      val conf = spark.sessionState.conf.clone()
+      conf.setConfString(GlutenConfig.BENCHMARK_TASK_STAGEID.key, "0")
+      val thread = new Thread(
+        () => {
+          SparkSession.clearActiveSession()
+          try {
+            SQLConf.withExistingConf(conf) {
+              TaskResources.runUnsafe {
+                val context = TaskContext.get()
+                val usage = TaskResources.getSharedUsage()
+                completionChecks.add(
+                  () => {
+                    assert(context.isCompleted())
+                    assert(usage.current() == 0)
+                  })
+                val taskTracker = tracker.newTaskInstance()
+                val file = "file:/tmp/gluten-stats-worker-failure/part.parquet"
+                taskTracker.newFile(file)
+                // End the empty input to reach a controlled failure in the actual worker.
+                val closer = new Thread(
+                  () => {
+                    try {
+                      intercept[ExecutionException] {
+                        taskTracker.closeFile(file)
+                      }
+                    } catch {
+                      case NonFatal(e) => failures.add(e)
+                    } finally {
+                      closeCompleted.countDown()
+                    }
+                  },
+                  "delta statistics failing file close"
+                )
+                closingThread.set(closer)
+                closer.setDaemon(true)
+                closer.start()
+                assert(workerReady.await(30, TimeUnit.SECONDS), "Statistics worker did not start")
+                if (failBeforeSubmission) {
+                  failWorker.countDown()
+                  assert(
+                    closeCompleted.await(30, TimeUnit.SECONDS),
+                    "Statistics worker did not fail")
+                }
+                val vector = new BigIntVector("id", ArrowBufferAllocators.contextInstance())
+                val column = new RefCountedArrowColumnVector(vector)
+                val inputBatch = new ColumnarBatch(Array(column), 1)
+                try {
+                  vector.allocateNew(1)
+                  vector.set(0, 7L)
+                  vector.setValueCount(1)
+                  val row = new TerminalRow {
+                    override def batch(): ColumnarBatch = inputBatch
+                    override def withNewBatch(batch: ColumnarBatch): TerminalRow =
+                      throw new UnsupportedOperationException()
+                  }
+                  submitting.countDown()
+                  val rowFailure = intercept[ExecutionException] {
+                    taskTracker.newRow(file, row)
+                  }
+                  assert(
+                    Iterator.iterate[Throwable](rowFailure)(_.getCause).takeWhile(_ != null)
+                      .exists(_ eq workerFailure))
+                  assert(column.refCnt() == 1, "The rejected batch's retained reference leaked")
+                  assert(column.getLong(0) == 7L, "The producer's batch was released prematurely")
+                } finally {
+                  inputBatch.close()
+                }
+                assert(column.refCnt() == 0)
+              }
+            }
+          } catch {
+            case e: InterruptedException => failures.add(e)
+            case NonFatal(e) => failures.add(e)
+          } finally {
+            completed.countDown()
+          }
+        },
+        "delta statistics failed worker task"
+      )
+      thread.setDaemon(true)
+      thread.start()
+      try {
+        assert(submitting.await(30, TimeUnit.SECONDS), "The task did not reach newRow")
+        if (!failBeforeSubmission) {
+          eventually(timeout(10.seconds), interval(10.millis)) {
+            assert(
+              thread.getState == Thread.State.WAITING ||
+                thread.getState == Thread.State.TIMED_WAITING,
+              "newRow did not wait for the statistics worker")
+          }
+          failWorker.countDown()
+        }
+        assert(
+          completed.await(30, TimeUnit.SECONDS),
+          "newRow blocked after the statistics worker failed")
+      } finally {
+        // Interrupt the old blocking put as well, so the regression cannot hang the test JVM.
+        failWorker.countDown()
+        thread.interrupt()
+        thread.join(30000)
+        Option(closingThread.get()).foreach {
+          closer =>
+            closer.interrupt()
+            closer.join(30000)
+            assert(!closer.isAlive, "File close did not terminate")
+        }
+      }
+      assert(!thread.isAlive, "Statistics cleanup did not terminate")
+      failures.asScala.foreach(e => throw e)
+      completionChecks.asScala.foreach(_())
+      assert(statisticsThreads.diff(before).isEmpty, "Statistics workers survived task completion")
+    }
+  }
+
+  test("newRow propagates a statistics worker failure while consuming input") {
+    val before = statisticsThreads
+    val completed = new CountDownLatch(1)
+    val failures = new ConcurrentLinkedQueue[Throwable]()
+    val completionChecks = new ConcurrentLinkedQueue[() => Unit]()
+    val aggregate = spark.range(1).selectExpr(
+      "to_json(named_struct('numRecords', count(*))) AS stats")
+      .queryExecution.analyzed.collectFirst { case a: Aggregate => a }.get
+    val tracker = GlutenDeltaJobStatsTracker(new DeltaJobStatisticsTracker(
+      spark.sessionState.newHadoopConf(),
+      new Path("file:/tmp/gluten-stats-midstream-failure"),
+      aggregate.child.output,
+      aggregate.aggregateExpressions.head))
+    val conf = spark.sessionState.conf.clone()
+    conf.setConfString(GlutenConfig.BENCHMARK_TASK_STAGEID.key, "0")
+    val thread = new Thread(
+      () => {
+        SparkSession.clearActiveSession()
+        try {
+          SQLConf.withExistingConf(conf) {
+            TaskResources.runUnsafe {
+              val context = TaskContext.get()
+              val usage = TaskResources.getSharedUsage()
+              completionChecks.add(
+                () => {
+                  assert(context.isCompleted())
+                  assert(usage.current() == 0)
+                })
+              def newBatch(value: Long): (ColumnarBatch, RefCountedArrowColumnVector) = {
+                val vector = new BigIntVector("id", ArrowBufferAllocators.contextInstance())
+                val column = new RefCountedArrowColumnVector(vector)
+                vector.allocateNew(1)
+                vector.set(0, value)
+                vector.setValueCount(1)
+                (new ColumnarBatch(Array(column), 1), column)
+              }
+              def terminalRow(inputBatch: ColumnarBatch): TerminalRow = new TerminalRow {
+                override def batch(): ColumnarBatch = inputBatch
+                override def withNewBatch(batch: ColumnarBatch): TerminalRow =
+                  throw new UnsupportedOperationException()
+              }
+              val taskTracker = tracker.newTaskInstance()
+              val file = "file:/tmp/gluten-stats-midstream-failure/part.parquet"
+              taskTracker.newFile(file)
+              val (firstBatch, _) = newBatch(1L)
+              try {
+                ColumnarBatches.ensureOffloaded(ArrowBufferAllocators.contextInstance(), firstBatch)
+                taskTracker.newRow(file, terminalRow(firstBatch))
+              } finally {
+                firstBatch.close()
+              }
+              val (invalidBatch, invalidColumn) = newBatch(2L)
+              val (rejectedBatch, rejectedColumn) = newBatch(3L)
+              completionChecks.add(
+                () => {
+                  assert(invalidColumn.refCnt() == 0, "The worker's input batch leaked")
+                  assert(rejectedColumn.refCnt() == 0, "The rejected batch leaked")
+                })
+              try {
+                // A non-offloaded batch fails in the worker's input iterator after the first
+                // native batch was consumed. Never call closeFile or send end-of-stream.
+                taskTracker.newRow(file, terminalRow(invalidBatch))
+                val failure = intercept[ExecutionException] {
+                  taskTracker.newRow(file, terminalRow(rejectedBatch))
+                }
+                assert(
+                  Iterator.iterate[Throwable](failure)(_.getCause).takeWhile(_ != null)
+                    .exists(
+                      e => Option(e.getMessage).exists(_.contains("Input batch is not offloaded"))),
+                  failure.toString
+                )
+                assert(
+                  rejectedColumn.refCnt() == 1,
+                  "The rejected batch's retained reference leaked")
+                assert(
+                  rejectedColumn.getLong(0) == 3L,
+                  "The producer's batch was released prematurely")
+              } finally {
+                invalidBatch.close()
+                rejectedBatch.close()
+              }
+            }
+          }
+        } catch {
+          case e: InterruptedException => failures.add(e)
+          case NonFatal(e) => failures.add(e)
+        } finally {
+          completed.countDown()
+        }
+      },
+      "delta statistics midstream failure task"
+    )
+    thread.setDaemon(true)
+    thread.start()
+    try {
+      assert(
+        completed.await(30, TimeUnit.SECONDS),
+        "newRow blocked after the statistics worker failed mid-stream")
+    } finally {
+      thread.interrupt()
+      thread.join(30000)
+    }
+    assert(!thread.isAlive, "Statistics cleanup did not terminate")
+    failures.asScala.foreach(e => throw e)
+    completionChecks.asScala.foreach(_())
+    assert(statisticsThreads.diff(before).isEmpty, "Statistics workers survived task completion")
   }
 
   test("canceled statistics workers can access task resources before cleanup") {

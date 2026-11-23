@@ -27,6 +27,7 @@ import org.apache.spark.sql.catalyst.expressions.GreaterThan
 import org.apache.spark.sql.execution.ScalarSubquery
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
+import org.apache.spark.util.SparkVersionUtil
 
 import org.apache.hadoop.fs.{FileSystem, Path}
 
@@ -380,6 +381,28 @@ class VeloxScanSuite extends VeloxWholeStageTransformerSuite {
                 }
             }
         }
+    }
+  }
+
+  test("struct with all requested fields missing follows Spark's default nullness") {
+    // Since Spark 4.1 (SPARK-53535), such a struct is null only where the struct in the file is
+    // null. Before, it was always null. The conf is left unset to check the default.
+    withTempPath {
+      dir =>
+        val path = dir.getCanonicalPath
+        spark
+          .range(3)
+          .selectExpr("if(id = 1, null, named_struct('a', id, 'b', id)) as s")
+          .write
+          .parquet(path)
+        val df = spark.read.schema("s struct<x: int>").parquet(path)
+        val expected = if (SparkVersionUtil.gteSpark41) {
+          Seq(Row(Row(null)), Row(null), Row(Row(null)))
+        } else {
+          Seq(Row(null), Row(null), Row(null))
+        }
+        checkAnswer(df, expected)
+        checkGlutenPlan[FileSourceScanExecTransformer](df)
     }
   }
 }
