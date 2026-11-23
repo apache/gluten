@@ -538,3 +538,4 @@ The status applies to `spark.sql.ansi.enabled=false`. When ANSI mode is enabled,
 | xpath_number      | XPathDouble         |          |                |
 | xpath_short       | XPathShort          |          |                |
 | xpath_string      | XPathString         |          |                |
+
