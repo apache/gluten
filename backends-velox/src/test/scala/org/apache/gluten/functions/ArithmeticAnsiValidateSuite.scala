@@ -27,6 +27,8 @@ class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
 
   disableFallbackCheck
 
+  import testImplicits._
+
   override protected def sparkConf: SparkConf = {
     super.sparkConf
       .set(GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key, "false")
@@ -203,6 +205,88 @@ class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
               checkGlutenPlan[ProjectExecTransformer](df)
               val e = intercept[SparkException](df.collect())
               assert(e.getMessage.contains("division by zero"), e.getMessage)
+          }
+        }
+    }
+  }
+
+  // failOnError=false must still return NULL, not throw, when the session is ANSI.
+  testWithMinSparkVersion("try_make_timestamp_ltz", "4.0") {
+    withTempPath {
+      path =>
+        Seq(
+          (2024, 1, 15, 6, 30, Some(BigDecimal("45.678")), "America/Los_Angeles"),
+          (2024, 13, 1, 0, 0, Some(BigDecimal("0")), "America/Los_Angeles"), // Invalid month.
+          (2024, 1, 15, 6, 30, None, "America/Los_Angeles") // NULL argument.
+        ).toDF("year", "month", "day", "hour", "min", "sec", "tz")
+          // Forces scale 6; the BigDecimal encoder defaults to decimal(38,18).
+          .selectExpr(
+            "year",
+            "month",
+            "day",
+            "hour",
+            "min",
+            "CAST(sec AS DECIMAL(18,6)) AS sec",
+            "tz")
+          .write
+          .parquet(path.getCanonicalPath)
+        withTempView("try_make_timestamp_ltz_tab") {
+          spark.read
+            .parquet(path.getCanonicalPath)
+            .createOrReplaceTempView("try_make_timestamp_ltz_tab")
+
+          // Avoids a false pass from one overload running in Spark under a native project.
+          withSQLConf(GlutenConfig.ENABLE_COLUMNAR_PARTIAL_PROJECT.key -> "false") {
+            // Explicit tz argument; session tz pinned to UTC for a deterministic result.
+            for (ansiEnabled <- Seq("true", "false")) {
+              withSQLConf(
+                SQLConf.ANSI_ENABLED.key -> ansiEnabled,
+                SQLConf.SESSION_LOCAL_TIMEZONE.key -> "UTC") {
+                runQueryAndCompare(
+                  "SELECT try_make_timestamp_ltz(year, month, day, hour, min, sec, tz)," +
+                    " try_make_timestamp_ltz(year, month, day, hour, min, sec)" +
+                    " FROM try_make_timestamp_ltz_tab") {
+                  checkGlutenPlan[ProjectExecTransformer]
+                }
+              }
+            }
+
+            // No explicit timezone: the result follows the session timezone.
+            for (sessionTz <- Seq("UTC", "America/Los_Angeles")) {
+              withSQLConf(SQLConf.SESSION_LOCAL_TIMEZONE.key -> sessionTz) {
+                runQueryAndCompare(
+                  "SELECT try_make_timestamp_ltz(year, month, day, hour, min, sec)" +
+                    " FROM try_make_timestamp_ltz_tab") {
+                  checkGlutenPlan[ProjectExecTransformer]
+                }
+              }
+            }
+          }
+        }
+    }
+  }
+
+  // make_timestamp_ltz routes by failOnError, not by builder name, so ANSI on throws here too.
+  test("make_timestamp_ltz follows failOnError, not the builder name") {
+    withTempPath {
+      path =>
+        sql(
+          "SELECT 2024 AS year, 13 AS month, 1 AS day, 0 AS hour, 0 AS min," +
+            " CAST(0 AS DECIMAL(18,6)) AS sec").write.parquet(path.getCanonicalPath)
+        withTempView("invalid_month_tab") {
+          spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("invalid_month_tab")
+          val query =
+            "SELECT make_timestamp_ltz(year, month, day, hour, min, sec) FROM invalid_month_tab"
+          // ANSI on (the suite default): throws Velox's own invalid-date error.
+          val df = sql(query)
+          checkGlutenPlan[ProjectExecTransformer](df)
+          val e = intercept[SparkException](df.collect())
+          assert(e.getMessage.contains("Date out of range"), e.getMessage)
+          // ANSI off: returns NULL, matching vanilla Spark, and still runs natively.
+          withSQLConf(SQLConf.ANSI_ENABLED.key -> "false") {
+            runQueryAndCompare(query) {
+              checkGlutenPlan[ProjectExecTransformer]
+            }
           }
         }
     }
