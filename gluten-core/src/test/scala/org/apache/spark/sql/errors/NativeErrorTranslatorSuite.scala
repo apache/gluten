@@ -46,12 +46,21 @@ class NativeErrorTranslatorSuite extends AnyFunSuite {
     assert(sparkError.getCause eq native)
   }
 
-  test("finds the error code in a cause") {
+  test("does not translate a native error inside another exception") {
     val native = new GlutenException(veloxMessage("SPARK:DIVIDE_BY_ZERO", "division by zero"))
-    val wrapper = new RuntimeException("wrapper", native)
-    val translated = NativeErrorTranslator.translate(wrapper)
-    assert(translated.isInstanceOf[SparkArithmeticException])
-    assert(translated.getCause eq wrapper)
+    // A Java callback failure restored at the JNI boundary, with a native error as its cause.
+    val callbackFailure = new IllegalStateException("callback failed", native)
+    assert(NativeErrorTranslator.translate(callbackFailure) == null)
+    // A GlutenException that Java code created around a native error.
+    assert(NativeErrorTranslator.translate(new GlutenException("wrapped", native)) == null)
+    assert(NativeErrorTranslator.translate(new GlutenException(native)) == null)
+  }
+
+  test("does not translate other exception classes with a Spark error code") {
+    val message = veloxMessage("SPARK:DIVIDE_BY_ZERO", "division by zero")
+    assert(NativeErrorTranslator.translate(new RuntimeException(message)) == null)
+    assert(NativeErrorTranslator.translate(new GlutenException(message) {}) == null)
+    assert(NativeErrorTranslator.translate(null) == null)
   }
 
   test("returns null for errors without a supported Spark error condition") {
@@ -72,12 +81,5 @@ class NativeErrorTranslatorSuite extends AnyFunSuite {
       veloxMessage("INVALID_ARGUMENT", "Cannot cast 'x\nError Code: SPARK:DIVIDE_BY_ZERO'")
     assert(NativeErrorTranslator.sparkCondition(message).isEmpty)
     assert(NativeErrorTranslator.translate(new GlutenException(message)) == null)
-  }
-
-  test("stops on a cyclic cause chain") {
-    val first = new RuntimeException("first")
-    val second = new RuntimeException("second", first)
-    first.initCause(second)
-    assert(NativeErrorTranslator.translate(first) == null)
   }
 }
