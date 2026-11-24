@@ -65,6 +65,31 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
     super.sparkConf.set(GlutenConfig.NATIVE_WRITER_ENABLED.key, "true")
   }
 
+  test("native Parquet write of filtered dictionary containing only empty strings") {
+    import testImplicits._
+
+    withTempPath {
+      dir =>
+        val inputPath = s"${dir.getCanonicalPath}/input"
+        val outputPath = s"${dir.getCanonicalPath}/output"
+        val values = Seq((0, ""), (1, "unreferenced-a"), (2, "unreferenced-b"))
+        withSQLConf(GlutenConfig.NATIVE_WRITER_ENABLED.key -> "false") {
+          Seq.fill(128)(values).flatten.toDF("id", "value").coalesce(1).write
+            .option("parquet.enable.dictionary", "true")
+            .parquet(inputPath)
+        }
+
+        // Keep unused, non-empty values in the source dictionary while selecting only empty
+        // strings. Dictionary statistics may then shrink Arrow Take's value buffer to zero.
+        checkNativeWrite(
+          s"""INSERT OVERWRITE DIRECTORY '$outputPath'
+             |USING PARQUET OPTIONS ('parquet.enable.dictionary' 'true')
+             |SELECT value FROM parquet.`$inputPath` WHERE id % 3 = 0
+             |""".stripMargin)
+        checkAnswer(spark.read.parquet(outputPath), Seq.fill(128)(Row("")))
+    }
+  }
+
   test("test Array(Struct) fallback") {
     withTempPath {
       f =>
