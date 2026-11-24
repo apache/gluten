@@ -270,7 +270,8 @@ object VeloxBackendSettings extends BackendSettingsApi {
     val validationChecks = Seq(
       validateScheme(),
       validateFormats(),
-      validateMetadata(),
+      // Skip the storage I/O of the root-path pre-check when the validation is off.
+      if (GlutenConfig.get.parquetMetadataValidationEnabled) validateMetadata() else None,
       validateDataSchema()
     )
 

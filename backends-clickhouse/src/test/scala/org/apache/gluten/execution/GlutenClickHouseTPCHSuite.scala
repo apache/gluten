@@ -369,17 +369,18 @@ class GlutenClickHouseTPCHSuite extends MergeTreeSuite {
   }
 
   test("test 'sum/count/max/min from empty table'") {
-    spark.sql(
-      """
-        | create table test_tbl(id bigint, name string) using parquet;
-        |""".stripMargin
-    )
-    val sql1 = "select count(1), sum(id), max(id), min(id), 'abc' as x from test_tbl"
-    val sql2 =
-      "select count(1) as cnt, sum(id) as sum, max(id) as max, min(id) as min from test_tbl"
-    compareResultsAgainstVanillaSpark(sql1, true, { _ => })
-    compareResultsAgainstVanillaSpark(sql2, true, { _ => })
-    spark.sql("drop table test_tbl")
+    withTable("test_tbl") {
+      spark.sql(
+        """
+          | create table test_tbl(id bigint, name string) using parquet;
+          |""".stripMargin
+      )
+      val sql1 = "select count(1), sum(id), max(id), min(id), 'abc' as x from test_tbl"
+      val sql2 =
+        "select count(1) as cnt, sum(id) as sum, max(id) as max, min(id) as min from test_tbl"
+      compareResultsAgainstVanillaSpark(sql1, true, { _ => })
+      compareResultsAgainstVanillaSpark(sql2, true, { _ => })
+    }
   }
 
   test("test 'function json_tuple'") {
@@ -397,22 +398,22 @@ class GlutenClickHouseTPCHSuite extends MergeTreeSuite {
   }
 
   test("GLUTEN-3271: Bug fix arrayElement from split") {
-    val table_create_sql =
-      """
-        | create table test_tbl_3271(id bigint, data string) using parquet;
-        |""".stripMargin
-    val table_drop_sql = "drop table test_tbl_3271"
-    val data_insert_sql = "insert into test_tbl_3271 values(1, 'ab')"
-    val select_sql_1 = "select id, split(data, ',')[1] from test_tbl_3271 where id = 1"
-    val select_sql_2 = "select id, element_at(split(data, ','), 2) from test_tbl_3271 where id = 1"
-    val select_sql_3 = "select id, element_at(map(id, data), 1) from test_tbl_3271 where id = 1"
-    spark.sql(table_create_sql)
-    spark.sql(data_insert_sql)
-    compareResultsAgainstVanillaSpark(select_sql_1, true, { _ => })
-    compareResultsAgainstVanillaSpark(select_sql_2, true, { _ => })
-    compareResultsAgainstVanillaSpark(select_sql_3, true, { _ => })
-
-    spark.sql(table_drop_sql)
+    withTable("test_tbl_3271") {
+      val table_create_sql =
+        """
+          | create table test_tbl_3271(id bigint, data string) using parquet;
+          |""".stripMargin
+      val data_insert_sql = "insert into test_tbl_3271 values(1, 'ab')"
+      val select_sql_1 = "select id, split(data, ',')[1] from test_tbl_3271 where id = 1"
+      val select_sql_2 =
+        "select id, element_at(split(data, ','), 2) from test_tbl_3271 where id = 1"
+      val select_sql_3 = "select id, element_at(map(id, data), 1) from test_tbl_3271 where id = 1"
+      spark.sql(table_create_sql)
+      spark.sql(data_insert_sql)
+      compareResultsAgainstVanillaSpark(select_sql_1, true, { _ => })
+      compareResultsAgainstVanillaSpark(select_sql_2, true, { _ => })
+      compareResultsAgainstVanillaSpark(select_sql_3, true, { _ => })
+    }
   }
 
   test("GLUTEN-5904 NaN values from stddev") {
@@ -439,79 +440,80 @@ class GlutenClickHouseTPCHSuite extends MergeTreeSuite {
   }
 
   test("existence join") {
-    spark.sql("create table t1(a int, b int) using parquet")
-    spark.sql("create table t2(a int, b int) using parquet")
-    spark.sql("insert into t1 values(0, 0), (1, 2), (2, 3), (3, 4), (null, 5), (6, null)")
-    spark.sql("insert into t2 values(0, 0), (1, 2), (2, 3), (2,4), (null, 5), (6, null)")
+    withTable("t1", "t2") {
+      spark.sql("create table t1(a int, b int) using parquet")
+      spark.sql("create table t2(a int, b int) using parquet")
+      spark.sql("insert into t1 values(0, 0), (1, 2), (2, 3), (3, 4), (null, 5), (6, null)")
+      spark.sql("insert into t2 values(0, 0), (1, 2), (2, 3), (2,4), (null, 5), (6, null)")
 
-    val sql1 = """
-                 |select * from t1 where exists (select 1 from t2 where t1.a = t2.a) or t1.a > 1
-                 |""".stripMargin
-    compareResultsAgainstVanillaSpark(sql1, true, { _ => })
+      val sql1 = """
+                   |select * from t1 where exists (select 1 from t2 where t1.a = t2.a) or t1.a > 1
+                   |""".stripMargin
+      compareResultsAgainstVanillaSpark(sql1, true, { _ => })
 
-    val sql2 = """
-                 |select * from t1 where exists (select 1 from t2 where t1.a = t2.a) or t1.a > 3
-                 |""".stripMargin
-    compareResultsAgainstVanillaSpark(sql2, true, { _ => })
+      val sql2 = """
+                   |select * from t1 where exists (select 1 from t2 where t1.a = t2.a) or t1.a > 3
+                   |""".stripMargin
+      compareResultsAgainstVanillaSpark(sql2, true, { _ => })
 
-    val sql3 = """
-                 |select * from t1 where exists (select 1 from t2 where t1.a = t2.a) or t1.b > 0
-                 |""".stripMargin
-    compareResultsAgainstVanillaSpark(sql3, true, { _ => })
+      val sql3 = """
+                   |select * from t1 where exists (select 1 from t2 where t1.a = t2.a) or t1.b > 0
+                   |""".stripMargin
+      compareResultsAgainstVanillaSpark(sql3, true, { _ => })
 
-    val sql4 = """
-                 |select * from t1 where exists (select 1 from t2
-                 |where t1.a = t2.a and t1.b = t2.b) or t1.a > 0
-                 |""".stripMargin
-    compareResultsAgainstVanillaSpark(sql4, true, { _ => })
-
-    spark.sql("drop table t1")
-    spark.sql("drop table t2")
+      val sql4 = """
+                   |select * from t1 where exists (select 1 from t2
+                   |where t1.a = t2.a and t1.b = t2.b) or t1.a > 0
+                   |""".stripMargin
+      compareResultsAgainstVanillaSpark(sql4, true, { _ => })
+    }
   }
 
   test("gluten-7077 bug in cross broad cast join") {
-    spark.sql("create table cross_join_t(a bigint, b string, c string) using parquet")
-    var sql = """
-                | insert into cross_join_t
-                | select id as a, cast(id as string) as b,
-                |   concat('1231231232323232322', cast(id as string)) as c
-                | from range(0, 5000)
-                |""".stripMargin
-    spark.sql(sql)
-    sql = """
-            | insert into cross_join_t
-            | select id as a, cast(id as string) as b,
-            |   concat('1231231232323232322', cast(id as string)) as c
-            | from range(5000, 10000)
-            |""".stripMargin
-    spark.sql(sql)
-    sql = """
-            |select * from (
-            | select a as a1, b as b1, c as c1 from cross_join_t
-            |) as t1 full join (
-            | select a as a2, b as b2, c as c2 from cross_join_t
-            |) as t2
-            |order by a1, b1, c1, a2, b2, c2
-            |limit 10
-            |""".stripMargin
-    compareResultsAgainstVanillaSpark(sql, true, { _ => })
-    spark.sql("drop table cross_join_t")
+    withTable("cross_join_t") {
+      spark.sql("create table cross_join_t(a bigint, b string, c string) using parquet")
+      var sql = """
+                  | insert into cross_join_t
+                  | select id as a, cast(id as string) as b,
+                  |   concat('1231231232323232322', cast(id as string)) as c
+                  | from range(0, 5000)
+                  |""".stripMargin
+      spark.sql(sql)
+      sql = """
+              | insert into cross_join_t
+              | select id as a, cast(id as string) as b,
+              |   concat('1231231232323232322', cast(id as string)) as c
+              | from range(5000, 10000)
+              |""".stripMargin
+      spark.sql(sql)
+      sql = """
+              |select * from (
+              | select a as a1, b as b1, c as c1 from cross_join_t
+              |) as t1 full join (
+              | select a as a2, b as b2, c as c2 from cross_join_t
+              |) as t2
+              |order by a1, b1, c1, a2, b2, c2
+              |limit 10
+              |""".stripMargin
+      compareResultsAgainstVanillaSpark(sql, true, { _ => })
+    }
   }
 
   test("Pushdown aggregation pre-projection ahead expand") {
-    spark.sql("create table t1(a bigint, b bigint, c bigint, d bigint) using parquet")
-    spark.sql("insert into t1 values(1,2,3,4), (1,2,4,5), (1,3,4,5), (2,3,4,5)")
-    var sql = """
-                | select a, b , sum(d+c) from t1 group by a,b with cube
-                | order by a,b
-                |""".stripMargin
-    compareResultsAgainstVanillaSpark(sql, true, { _ => })
-    sql = """
-            | select a, b , sum(a+c), sum(b+d) from t1 group by a,b with cube
-            | order by a,b
-            |""".stripMargin
-    compareResultsAgainstVanillaSpark(sql, true, { _ => })
-    spark.sql("drop table t1")
+    withTable("t1") {
+      spark.sql("create table t1(a bigint, b bigint, c bigint, d bigint) using parquet")
+      spark.sql("insert into t1 values(1,2,3,4), (1,2,4,5), (1,3,4,5), (2,3,4,5)")
+      var sql = """
+                  | select a, b , sum(d+c) from t1 group by a,b with cube
+                  | order by a,b
+                  |""".stripMargin
+      compareResultsAgainstVanillaSpark(sql, true, { _ => })
+      sql = """
+              | select a, b , sum(a+c), sum(b+d) from t1 group by a,b with cube
+              | order by a,b
+              |""".stripMargin
+      compareResultsAgainstVanillaSpark(sql, true, { _ => })
+    }
   }
 
   test("GLUTEN-7780 fix split diff") {
@@ -521,55 +523,57 @@ class GlutenClickHouseTPCHSuite extends MergeTreeSuite {
     compareResultsAgainstVanillaSpark(sql, true, { _ => })
   }
   test("GLUTEN-8142 duplicated columns in group by") {
-    sql("create table test_8142 (day string, rtime int, uid string, owner string) using parquet")
-    sql("insert into test_8142 values ('2024-09-01', 123, 'user1', 'owner1')")
-    sql("insert into test_8142 values ('2024-09-01', 123, 'user1', 'owner1')")
-    sql("insert into test_8142 values ('2024-09-02', 567, 'user2', 'owner2')")
-    compareResultsAgainstVanillaSpark(
-      """
-        |select days, rtime, uid, owner, day1
-        |from (
-        | select day1 as days, rtime, uid, owner, day1
-        | from (
-        |   select distinct coalesce(day, "today") as day1, rtime, uid, owner
-        |   from test_8142 where day = '2024-09-01'
-        | )) group by days, rtime, uid, owner, day1
-        |""".stripMargin,
-      true,
-      { _ => }
-    )
-    sql("drop table test_8142")
+    withTable("test_8142") {
+      sql("create table test_8142 (day string, rtime int, uid string, owner string) using parquet")
+      sql("insert into test_8142 values ('2024-09-01', 123, 'user1', 'owner1')")
+      sql("insert into test_8142 values ('2024-09-01', 123, 'user1', 'owner1')")
+      sql("insert into test_8142 values ('2024-09-02', 567, 'user2', 'owner2')")
+      compareResultsAgainstVanillaSpark(
+        """
+          |select days, rtime, uid, owner, day1
+          |from (
+          | select day1 as days, rtime, uid, owner, day1
+          | from (
+          |   select distinct coalesce(day, "today") as day1, rtime, uid, owner
+          |   from test_8142 where day = '2024-09-01'
+          | )) group by days, rtime, uid, owner, day1
+          |""".stripMargin,
+        true,
+        { _ => }
+      )
+    }
   }
 
   test("GLUTEN-9317 duplicated column names") {
-    withSQLConf(("spark.sql.autoBroadcastJoinThreshold", "-1")) {
+    withTable("test_9317") {
+      withSQLConf(("spark.sql.autoBroadcastJoinThreshold", "-1")) {
 
-      sql("create table test_9317 (a int, b int, c int) using parquet")
-      sql("insert into test_9317 values (1, 2, 3), (4, 5, 6), (7, 8, 9)")
-      sql("insert into test_9317 values (1, 2, 3), (4, 5, 6), (7, 8, 9)")
-      val sqlStr =
-        """
-          | select * from (
-          |select * from (
-          | select a, b, b, row_number() over(partition by a order by c) as r
-          | from test_9317
-          |) where r = 1
-          |) order by a, b
-          |""".stripMargin
-      compareResultsAgainstVanillaSpark(
-        sqlStr,
-        true,
-        {
-          df =>
-            {
-              val shuffles = df.queryExecution.executedPlan.collect {
-                case shuffle: ColumnarShuffleExchangeExec => shuffle
+        sql("create table test_9317 (a int, b int, c int) using parquet")
+        sql("insert into test_9317 values (1, 2, 3), (4, 5, 6), (7, 8, 9)")
+        sql("insert into test_9317 values (1, 2, 3), (4, 5, 6), (7, 8, 9)")
+        val sqlStr =
+          """
+            | select * from (
+            |select * from (
+            | select a, b, b, row_number() over(partition by a order by c) as r
+            | from test_9317
+            |) where r = 1
+            |) order by a, b
+            |""".stripMargin
+        compareResultsAgainstVanillaSpark(
+          sqlStr,
+          true,
+          {
+            df =>
+              {
+                val shuffles = df.queryExecution.executedPlan.collect {
+                  case shuffle: ColumnarShuffleExchangeExec => shuffle
+                }
+                assert(shuffles.size == 2)
               }
-              assert(shuffles.size == 2)
-            }
-        }
-      )
-      sql("drop table test_9317")
+          }
+        )
+      }
     }
   }
 }

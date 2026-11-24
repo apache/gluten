@@ -122,37 +122,37 @@ abstract class GlutenClickHouseCacheBaseTestSuite
   }
 
   test("GLUTEN-7542: Fix cache refresh") {
-    withSQLConf("spark.sql.hive.manageFilesourcePartitions" -> "false") {
-      val filePath = s"$remotePath/$SPARK_DIR_NAME/issue_7542/"
-      val targetDirs = new Path(filePath)
-      val fs = targetDirs.getFileSystem(spark.sessionState.newHadoopConf())
-      fs.mkdirs(targetDirs)
-      val out = fs.create(new Path(s"$filePath/00000_0"))
-      IOUtils.write("1\n2\n3\n4\n5", out, Charset.defaultCharset())
-      out.close()
-      sql(s"""
-             |CREATE external TABLE `issue_7542`(
-             |  `c_custkey` int )
-             |using CSV
-             |LOCATION
-             |  '$filePath/'
-             |""".stripMargin)
+    withTable("issue_7542") {
+      withSQLConf("spark.sql.hive.manageFilesourcePartitions" -> "false") {
+        val filePath = s"$remotePath/$SPARK_DIR_NAME/issue_7542/"
+        val targetDirs = new Path(filePath)
+        val fs = targetDirs.getFileSystem(spark.sessionState.newHadoopConf())
+        fs.mkdirs(targetDirs)
+        val out = fs.create(new Path(s"$filePath/00000_0"))
+        IOUtils.write("1\n2\n3\n4\n5", out, Charset.defaultCharset())
+        out.close()
+        sql(s"""
+               |CREATE external TABLE `issue_7542`(
+               |  `c_custkey` int )
+               |using CSV
+               |LOCATION
+               |  '$filePath/'
+               |""".stripMargin)
 
-      sql(s"""select * from issue_7542""").collect()
-      fs.delete(new Path(s"$filePath/00000_0"), false)
-      val out2 = fs.create(new Path(s"$filePath/00000_0"))
-      IOUtils.write("1\n2\n3\n4\n3\n3\n3", out2, Charset.defaultCharset())
-      out2.close()
-      val df = sql(s"""select count(*) from issue_7542 where c_custkey=3""")
-      // refresh list file
-      collect(df.queryExecution.executedPlan) {
-        case scanExec: FileSourceScanExecTransformer => scanExec.relation.location.refresh()
+        sql(s"""select * from issue_7542""").collect()
+        fs.delete(new Path(s"$filePath/00000_0"), false)
+        val out2 = fs.create(new Path(s"$filePath/00000_0"))
+        IOUtils.write("1\n2\n3\n4\n3\n3\n3", out2, Charset.defaultCharset())
+        out2.close()
+        val df = sql(s"""select count(*) from issue_7542 where c_custkey=3""")
+        // refresh list file
+        collect(df.queryExecution.executedPlan) {
+          case scanExec: FileSourceScanExecTransformer => scanExec.relation.location.refresh()
+        }
+        val result = df.collect()
+        assert(result.length == 1)
+        assert(result.head.getLong(0) == 4)
       }
-      val result = df.collect()
-      assert(result.length == 1)
-      assert(result.head.getLong(0) == 4)
-
-      sql("drop table issue_7542")
     }
   }
 

@@ -1476,30 +1476,30 @@ class BoltPaimonSuite extends WholeStageTransformerSuite {
               PartitionSQLAndValue(66.777, 66.78))
         }
 
-        spark.sql(s"""
-                     |CREATE TABLE T (a INT, b STRING, pt $ptField)
-                     |PARTITIONED BY (pt)
-                     |""".stripMargin)
+        withTable("T") {
+          spark.sql(s"""
+                       |CREATE TABLE T (a INT, b STRING, pt $ptField)
+                       |PARTITIONED BY (pt)
+                       |""".stripMargin)
 
-        spark.sql(s"INSERT INTO T SELECT 1, 'a', ${sv1.sql} UNION ALL SELECT 2, 'b', ${sv2.sql}")
-        checkAnswer(
-          spark.sql("SELECT * FROM T ORDER BY a"),
-          Row(1, "a", sv1.value) :: Row(2, "b", sv2.value) :: Nil)
+          spark.sql(s"INSERT INTO T SELECT 1, 'a', ${sv1.sql} UNION ALL SELECT 2, 'b', ${sv2.sql}")
+          checkAnswer(
+            spark.sql("SELECT * FROM T ORDER BY a"),
+            Row(1, "a", sv1.value) :: Row(2, "b", sv2.value) :: Nil)
 
-        // overwrite the whole table
-        spark.sql(
-          s"INSERT OVERWRITE T SELECT 3, 'c', ${sv1.sql} UNION ALL SELECT 4, 'd', ${sv2.sql}")
-        checkAnswer(
-          spark.sql("SELECT * FROM T ORDER BY a"),
-          Row(3, "c", sv1.value) :: Row(4, "d", sv2.value) :: Nil)
+          // overwrite the whole table
+          spark.sql(
+            s"INSERT OVERWRITE T SELECT 3, 'c', ${sv1.sql} UNION ALL SELECT 4, 'd', ${sv2.sql}")
+          checkAnswer(
+            spark.sql("SELECT * FROM T ORDER BY a"),
+            Row(3, "c", sv1.value) :: Row(4, "d", sv2.value) :: Nil)
 
-        // overwrite the a=1 partition
-        spark.sql(s"INSERT OVERWRITE T PARTITION (pt = ${sv1.value}) VALUES (5, 'e'), (7, 'g')")
-        checkAnswer(
-          spark.sql("SELECT * FROM T ORDER BY a"),
-          Row(4, "d", sv2.value) :: Row(5, "e", sv1.value) :: Row(7, "g", sv1.value) :: Nil)
-
-        spark.sql("DROP TABLE T")
+          // overwrite the a=1 partition
+          spark.sql(s"INSERT OVERWRITE T PARTITION (pt = ${sv1.value}) VALUES (5, 'e'), (7, 'g')")
+          checkAnswer(
+            spark.sql("SELECT * FROM T ORDER BY a"),
+            Row(4, "d", sv2.value) :: Row(5, "e", sv1.value) :: Row(7, "g", sv1.value) :: Nil)
+        }
     }
   }
 
