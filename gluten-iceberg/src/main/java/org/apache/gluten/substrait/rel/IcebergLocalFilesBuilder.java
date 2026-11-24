@@ -32,7 +32,7 @@ public class IcebergLocalFilesBuilder {
       List<String> preferredLocations,
       List<List<DeleteFile>> deleteFilesList,
       List<Map<String, String>> metadataColumns,
-      Map<String, Integer> fieldIds,
+      List<IcebergFieldId> fieldIds,
       Map<String, String> initialDefaults) {
     return new IcebergLocalFilesNode(
         index,

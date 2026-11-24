@@ -113,6 +113,33 @@ class IcebergExecutionListenerTest {
   }
 
   @Test
+  void renamedColumnIsReadNativelyByFieldId() throws Exception {
+    // Reading by field ID checks data-file footers with the Iceberg Parquet classes on the
+    // classpath, which this harness provides unshaded.
+    spark.sql("CREATE TABLE coverage.default.renamed (id BIGINT, data STRING) USING iceberg");
+    try {
+      spark.sql("INSERT INTO coverage.default.renamed VALUES (1, 'a')");
+      spark.sql("ALTER TABLE coverage.default.renamed RENAME COLUMN data TO note");
+      spark.sql("INSERT INTO coverage.default.renamed VALUES (2, 'b')");
+      List<List<Row>> rows = new ArrayList<>();
+      JsonNode result =
+          observe(
+              "renamed",
+              TestExecutionResult.successful(),
+              () ->
+                  rows.add(
+                      spark
+                          .sql("SELECT id, note FROM coverage.default.renamed ORDER BY id")
+                          .collectAsList()));
+      assertEquals("PASSED_NATIVE", result.path("status").asText(), result.toString());
+      assertTrue(result.path("native").toString().contains("IcebergScanTransformer"));
+      assertEquals("[[1,a], [2,b]]", rows.get(0).toString());
+    } finally {
+      spark.sql("DROP TABLE coverage.default.renamed");
+    }
+  }
+
+  @Test
   void sparkFallbackDoesNotCountOtherNativeOperators() throws Exception {
     spark.conf().set("spark.gluten.sql.columnar.iceberg.enableNativeRead", false);
     spark.conf().set("spark.gluten.sql.columnar.iceberg.enableNativeWrite", false);

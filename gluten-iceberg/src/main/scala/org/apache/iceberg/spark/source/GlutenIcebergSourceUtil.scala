@@ -21,7 +21,7 @@ import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.execution.SparkDataSourceRDDPartition
 import org.apache.gluten.expression.ConverterUtils
-import org.apache.gluten.substrait.rel.{IcebergLocalFilesBuilder, SplitInfo}
+import org.apache.gluten.substrait.rel.{IcebergFieldId, IcebergLocalFilesBuilder, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.softaffinity.SoftAffinity
@@ -31,14 +31,20 @@ import org.apache.spark.sql.types.StructType
 
 import org.apache.hadoop.fs.Path
 import org.apache.iceberg._
+import org.apache.iceberg.avro.AvroSchemaUtil
 import org.apache.iceberg.io.{FileIO, SupportsStorageCredentials}
+import org.apache.iceberg.orc.GlutenOrcUtil
+import org.apache.iceberg.parquet.GlutenParquetUtil
 import org.apache.iceberg.spark.SparkSchemaUtil
+import org.apache.iceberg.types.{Type, Types, TypeUtil => IcebergTypeUtil}
 import org.apache.iceberg.util.PropertyUtil
 
 import java.lang.{Long => JLong}
-import java.util.{ArrayList => JArrayList, HashMap => JHashMap, List => JList, Map => JMap}
+import java.util.{ArrayList => JArrayList, HashMap => JHashMap, List => JList, Locale, Map => JMap}
 
 import scala.collection.JavaConverters._
+import scala.collection.mutable
+import scala.util.control.NonFatal
 
 object GlutenIcebergSourceUtil {
   private val InputFileNameCol = "input_file_name"
@@ -105,7 +111,7 @@ object GlutenIcebergSourceUtil {
       partition: SparkDataSourceRDDPartition,
       readPartitionSchema: StructType,
       metadataColumnNames: Seq[String],
-      fieldIds: JMap[String, Integer],
+      fieldIds: JList[IcebergFieldId],
       initialDefaults: JMap[String, String]): SplitInfo = {
     val paths = new JArrayList[String]()
     val starts = new JArrayList[JLong]()
@@ -158,22 +164,130 @@ object GlutenIcebergSourceUtil {
     )
   }
 
-  def getFieldIds(sparkScan: Scan): JHashMap[String, Integer] = {
-    val fieldIds = new JHashMap[String, Integer]()
-    getTable(sparkScan).schema().columns().asScala.foreach {
-      field => fieldIds.put(field.name(), field.fieldId())
+  def getFieldIds(sparkScan: Scan): JArrayList[IcebergFieldId] = {
+    val fieldIds = new JArrayList[IcebergFieldId]()
+    getExpectedSchema(sparkScan).columns().asScala.foreach {
+      field =>
+        fieldIds.add(new IcebergFieldId(
+          AvroSchemaUtil.makeCompatibleName(field.name()),
+          field.fieldId(),
+          childFieldIds(field.`type`())))
     }
     fieldIds
   }
 
+  /**
+   * Returns true when matching file columns by name can differ from matching them by field ID,
+   * which happens when some name or field ID maps differently in a historical table schema than in
+   * the scan's expected schema (renamed, or deleted and re-added fields). Otherwise both resolve
+   * every file the same way and the scan can read by name, without field IDs.
+   *
+   * An incomplete schema history also counts as a change: snapshot expiration with metadata cleanup
+   * removes schemas that live data files may still have been written with.
+   */
+  def hasFieldIdNameChanges(sparkScan: Scan): Boolean = {
+    val schemas = getTable(sparkScan).schemas()
+    // Schema IDs are assigned contiguously from 0, so a gap means schemas were removed.
+    if (schemas.isEmpty || schemas.keySet().asScala.map(_.intValue()).max != schemas.size() - 1) {
+      return true
+    }
+    val expected = getExpectedSchema(sparkScan).asStruct()
+    // Names are compared case-insensitively because native readers may resolve them that way.
+    def idsByName(struct: Types.StructType): Map[String, Set[Int]] =
+      IcebergTypeUtil
+        .indexByName(struct)
+        .asScala
+        .toSeq
+        .groupBy(_._1.toLowerCase(Locale.ROOT))
+        .map { case (name, ids) => name -> ids.map(_._2.intValue()).toSet }
+    val expectedIdsByName = idsByName(expected)
+    val expectedNamesById = IcebergTypeUtil.indexNameById(expected).asScala
+    schemas.values().asScala.exists {
+      schema =>
+        val struct = schema.asStruct()
+        idsByName(struct).exists {
+          case (name, ids) => expectedIdsByName.get(name).exists(_ != ids)
+        } || IcebergTypeUtil.indexNameById(struct).asScala.exists {
+          case (id, name) => expectedNamesById.get(id).exists(_ != name)
+        }
+    }
+  }
+
+  def validateDataFileFieldIds(sparkScan: Scan, maxFiles: Int): Option[String] = {
+    val files = getScanTasks(sparkScan).flatMap {
+      case task if task.isFileScanTask => Iterator(task.asFileScanTask().file())
+      case task: CombinedScanTask => task.tasks().asScala.iterator.map(_.file())
+      case _ =>
+        throw new UnsupportedOperationException(
+          "Only support iceberg CombinedScanTask and FileScanTask.")
+    }
+    validateDataFileFieldIds(files, getTable(sparkScan).io(), maxFiles)
+  }
+
+  private def validateDataFileFieldIds(
+      files: Iterator[DataFile],
+      io: FileIO,
+      maxFiles: Int): Option[String] = {
+    require(maxFiles >= 0, "Field ID validation file limit must be nonnegative")
+    // Decide whether the whole scan fits the budget before opening any footer. Checking a
+    // sample is unsafe: an unchecked legacy file can silently return nulls or wrong columns.
+    val paths = mutable.LinkedHashSet.empty[(String, FileFormat)]
+    while (files.hasNext && paths.size <= maxFiles) {
+      val file = files.next()
+      paths += ((file.path().toString, file.format()))
+    }
+    if (paths.size > maxFiles) {
+      return Some(s"Iceberg field ID validation exceeds the limit of $maxFiles data files")
+    }
+
+    paths.iterator.map {
+      case (path, format) =>
+        try {
+          val hasIds = format match {
+            case FileFormat.PARQUET => GlutenParquetUtil.hasFieldIds(io.newInputFile(path))
+            case FileFormat.ORC => GlutenOrcUtil.hasFieldIds(io.newInputFile(path))
+            case _ => false
+          }
+          if (hasIds) {
+            None
+          } else {
+            Some(
+              s"Iceberg $format files without field IDs require Spark name mapping or fallback IDs")
+          }
+        } catch {
+          case e: LinkageError =>
+            Some("Cannot verify Iceberg field IDs: incompatible Iceberg runtime " +
+              s"(${e.getClass.getSimpleName})")
+          case NonFatal(e) =>
+            Some(s"Cannot verify Iceberg field IDs for $path (${e.getClass.getSimpleName})")
+        }
+    }.collectFirst { case Some(reason) => reason }
+  }
+
+  private def toFieldId(field: Types.NestedField): IcebergFieldId = {
+    new IcebergFieldId(field.name(), field.fieldId(), childFieldIds(field.`type`()))
+  }
+
+  private def childFieldIds(dataType: Type): JArrayList[IcebergFieldId] = {
+    val children = new JArrayList[IcebergFieldId]()
+    if (dataType.isNestedType) {
+      dataType
+        .asNestedType()
+        .fields()
+        .asScala
+        .foreach(field => children.add(toFieldId(field)))
+    }
+    children
+  }
+
   def getInitialDefaults(sparkScan: Scan): JHashMap[String, String] = {
     val initialDefaults = new JHashMap[String, String]()
-    getTable(sparkScan).schema().columns().asScala.foreach {
+    getExpectedSchema(sparkScan).columns().asScala.foreach {
       field =>
         val defaultValue = IcebergDefaultValueUtil.getInitialDefault(field)
         if (defaultValue != null) {
           initialDefaults.put(
-            field.name(),
+            AvroSchemaUtil.makeCompatibleName(field.name()),
             TypeUtil.getPartitionValueString(field.`type`(), defaultValue))
         }
     }
@@ -304,6 +418,15 @@ object GlutenIcebergSourceUtil {
         }
     }
     throw new UnsupportedOperationException("Failed to get partition schema from iceberg scan.")
+  }
+
+  private def getExpectedSchema(sparkScan: Scan): Schema = sparkScan match {
+    case scan: SparkBatchQueryScan => scan.expectedSchema()
+    case scan: SparkCopyOnWriteScan => scan.expectedSchema()
+    case scan: SparkStagedScan => scan.expectedSchema()
+    case _ =>
+      throw new GlutenNotSupportException(
+        s"Unsupported Iceberg scan: ${sparkScan.getClass.getName}.")
   }
 
   def getTable(sparkScan: Scan): Table = sparkScan match {

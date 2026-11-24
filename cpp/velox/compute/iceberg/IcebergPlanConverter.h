@@ -20,15 +20,23 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "substrait/SubstraitToVeloxPlan.h"
 #include "velox/connectors/hive/iceberg/IcebergDeleteFile.h"
+#include "velox/dwio/common/ParquetFieldId.h"
 
 using namespace facebook::velox::connector::hive::iceberg;
 
 namespace gluten {
-struct IcebergColumnInfo {
+struct IcebergFieldIdInfo {
+  std::string name;
   int32_t fieldId;
+  std::vector<IcebergFieldIdInfo> children;
+};
+
+struct IcebergColumnInfo {
+  IcebergFieldIdInfo field;
   std::optional<std::string> initialDefault;
 };
 
@@ -44,6 +52,9 @@ struct IcebergSplitInfo : SplitInfo {
 
 class IcebergPlanConverter {
  public:
+  static facebook::velox::parquet::ParquetFieldId
+  toParquetFieldId(const IcebergFieldIdInfo& field, const facebook::velox::TypePtr& type, bool asLowerCase);
+
   static std::shared_ptr<IcebergSplitInfo> parseIcebergSplitInfo(
       substrait::ReadRel_LocalFiles_FileOrFiles file,
       const substrait::extensions::AdvancedExtension& extension,

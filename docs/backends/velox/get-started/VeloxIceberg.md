@@ -105,14 +105,37 @@ Only support SELECT.
 ## Schema evolution
 PartialOffload
 
-Gluten uses column name to match the parquet file, so if the column is renamed or
-the added column name is same to the deleted column, the scan will fall back.
+Gluten passes recursive Iceberg field IDs to Velox for Parquet and ORC reads.
+Fields are matched by identity, including nested structs, array elements, and
+map keys and values. Renamed, reordered, and deleted/re-added fields can be read
+without falling back solely because their names changed.
+
+Scans whose columns resolve the same way by name and by field ID in every table
+schema, such as tables that were never evolved or only had columns added, are read
+by name as before, or by field ID when they read columns with initial defaults.
+These scans never check data-file footers. As before, scans reading columns with
+initial defaults assume that every data file carries physical field IDs. If old
+schemas were removed from the table metadata, for example by snapshot expiration
+with metadata cleanup, Gluten cannot tell how columns were named when older files
+were written and reads by field ID with footer validation.
+
+Files without physical Iceberg field IDs require Spark's name mapping or fallback
+IDs. Scans with renamed or deleted/re-added fields fall back to Spark over such
+files. Until the native readers support this case, Gluten checks the data-file
+footers of these scans during planning. The check is bounded by
+`spark.gluten.sql.columnar.iceberg.maxFieldIdValidationFiles` (default: 100 distinct
+data files). Scans over the limit fall back before any data-file footer is opened;
+files are never sampled. Unreadable footers or incompatible Iceberg reader classes
+also cause fallback. Set the limit to 0 to avoid footer validation and fall back
+for all nonempty scans that validate footers: scans with renamed or
+deleted/re-added fields, or whose table metadata lost old schemas.
 
 ## Configuration
 ### Gluten Options
 | Gluten option | Default | Description |
 | --- | --- | --- |
 | spark.gluten.sql.columnar.iceberg.enableNativeRead | true | Enable offloading Iceberg scans to the native backend. When disabled, Iceberg scans fall back to vanilla Spark while scans of other formats stay offloaded. |
+| spark.gluten.sql.columnar.iceberg.maxFieldIdValidationFiles | 100 | Maximum distinct data files to validate for physical field IDs. Larger scans fall back before opening data files; 0 falls back for all nonempty scans that validate footers (renamed or deleted/re-added fields, or removed old schemas). |
 | spark.gluten.sql.columnar.iceberg.enableNativeWrite | true | Enable offloading Iceberg writes to the native backend. When disabled, Iceberg writes fall back to vanilla Spark. Note the Velox backend additionally requires `spark.gluten.sql.enable.enhancedFeatures` to be enabled. |
 | spark.gluten.sql.columnar.parquet.write.blockSize | 128MB | Target Parquet row-group size for native writes. When explicitly set, overrides the Iceberg table property `write.parquet.row-group-size-bytes`. Accepts byte counts or sizes such as `32MB` and `1GB`. |
 | spark.gluten.sql.columnar.backend.velox.parquet_writer_compression_level | (unset) | Overrides Iceberg's Parquet compression level for gzip and zstd. |

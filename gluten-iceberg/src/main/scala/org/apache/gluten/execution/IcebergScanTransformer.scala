@@ -17,14 +17,14 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.backendsapi.BackendsApiManager
-import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.config.{GlutenConfig, GlutenIcebergConfig}
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.execution.IcebergScanTransformer.{containsMetadataColumn, containsUuidOrFixedType}
 import org.apache.gluten.expression.ConverterUtils
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.expression.{ExpressionBuilder, ExpressionNode}
-import org.apache.gluten.substrait.rel.{LocalFilesNode, RelBuilder, SplitInfo}
+import org.apache.gluten.substrait.rel.{IcebergFieldId, LocalFilesNode, RelBuilder, SplitInfo}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ColumnMappingMode
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
@@ -46,7 +46,7 @@ import org.apache.iceberg.types.{Type, Types, TypeUtil}
 import org.apache.iceberg.types.Type.TypeID
 import org.apache.iceberg.types.Types.{ListType, MapType, NestedField}
 
-import java.util.{HashMap => JHashMap}
+import java.util.{ArrayList => JArrayList}
 
 import scala.collection.JavaConverters._
 
@@ -75,12 +75,26 @@ case class IcebergScanTransformer(
   private lazy val icebergInitialDefaults =
     GlutenIcebergSourceUtil.getInitialDefaults(scan)
 
+  // Reading by name and by field ID can resolve a column differently only when a name or field ID
+  // changed in the table's schema history. Such scans must only read files carrying physical
+  // field IDs, which costs a footer read per file during validation.
+  private lazy val requiresFieldIdValidation =
+    BackendsApiManager.getSettings.supportIcebergFieldIdRead() &&
+      GlutenIcebergSourceUtil.hasFieldIdNameChanges(scan)
+
+  // Initial defaults are matched by field ID, but without name or field ID changes every file
+  // resolves the same way by name, so these scans skip footer validation.
   private lazy val icebergFieldIds =
-    if (icebergInitialDefaults.isEmpty) {
-      new JHashMap[String, Integer]()
-    } else {
+    if (requiresFieldIdValidation || !icebergInitialDefaults.isEmpty) {
       GlutenIcebergSourceUtil.getFieldIds(scan)
+    } else {
+      new JArrayList[IcebergFieldId]()
     }
+
+  private lazy val fieldIdValidationFailure =
+    GlutenIcebergSourceUtil.validateDataFileFieldIds(
+      scan,
+      GlutenIcebergConfig.get.maxFieldIdValidationFiles)
 
   override def withNewPushdownFilters(filters: Seq[Expression]): BatchScanExecTransformerBase = {
     this.copy(pushDownFilters = Some(filters))
@@ -119,6 +133,10 @@ case class IcebergScanTransformer(
       return validationResult
     }
 
+    if (requiresFieldIdValidation) {
+      fieldIdValidationFailure.foreach(reason => return ValidationResult.failed(reason))
+    }
+
     if (!BackendsApiManager.getSettings.supportIcebergEqualityDeleteRead()) {
       val notSupport = GlutenIcebergSourceUtil.getTable(scan) match {
         case t: BaseTable =>
@@ -153,7 +171,7 @@ case class IcebergScanTransformer(
         return ValidationResult.failed("Contains equality delete files")
       }
 
-      if (hasRenamedColumn) {
+      if (!BackendsApiManager.getSettings.supportIcebergFieldIdRead() && hasRenamedColumn) {
         return ValidationResult.failed(
           "The column is renamed or data type mismatch, cannot read it.")
       }

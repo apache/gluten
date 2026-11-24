@@ -23,6 +23,8 @@ class GlutenIcebergConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def enableNativeRead: Boolean = getConf(ENABLE_NATIVE_READ)
 
+  def maxFieldIdValidationFiles: Int = getConf(MAX_FIELD_ID_VALIDATION_FILES)
+
   def enableNativeWrite: Boolean = getConf(ENABLE_NATIVE_WRITE)
 }
 
@@ -38,6 +40,17 @@ object GlutenIcebergConfig extends ConfigRegistry {
         " fall back to vanilla Spark while scans of other formats stay offloaded.")
       .booleanConf
       .createWithDefault(true)
+
+  val MAX_FIELD_ID_VALIDATION_FILES: ConfigEntry[Int] =
+    buildConf("spark.gluten.sql.columnar.iceberg.maxFieldIdValidationFiles")
+      .doc("Maximum number of distinct data files whose field IDs can be checked during" +
+        " native Iceberg scan validation. Larger scans fall back to Spark before opening" +
+        " any data files. Set to 0 to fall back for all nonempty scans that validate" +
+        " footers: scans with renamed or deleted/re-added fields, or whose table metadata" +
+        " lost old schemas.")
+      .intConf
+      .checkValue(_ >= 0, "must be nonnegative.")
+      .createWithDefault(100)
 
   val ENABLE_NATIVE_WRITE: ConfigEntry[Boolean] =
     buildConf("spark.gluten.sql.columnar.iceberg.enableNativeWrite")
