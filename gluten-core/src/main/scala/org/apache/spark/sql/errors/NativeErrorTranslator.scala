@@ -18,79 +18,44 @@ package org.apache.spark.sql.errors
 
 import org.apache.gluten.exception.GlutenException
 
-import org.apache.spark.{QueryContext, SparkArithmeticException}
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.internal.SQLConf
 
 /**
- * Translates native errors that carry a Spark error condition into the matching Spark exception.
+ * Translates native errors that carry a Spark error code into the matching Spark exception.
  *
- * Velox reports the condition as the error code "SPARK:<condition>". The native error message holds
- * it in the line "Error Code: SPARK:<condition>", for example "Error Code: SPARK:DIVIDE_BY_ZERO".
- *
- * Only the GlutenException that the JNI boundary raises for a native error is translated. It has
- * the native error message and no cause. Any other exception, such as one thrown by a Java callback
- * and restored at the JNI boundary, keeps the existing handling even if one of its causes holds a
- * native error.
+ * Native code sets the error code, for example "SPARK:DIVIDE_BY_ZERO", on the GlutenException that
+ * the JNI boundary raises for a native error. Any other exception, including one with a native
+ * error as its cause, keeps the existing handling.
  */
 object NativeErrorTranslator extends Logging {
 
-  private val SparkErrorCodePrefix = "SPARK:"
-
-  // Only the first "Error Code:" line is used. It comes before the "Reason:" line, which may hold
-  // user data, so a value in the reason cannot pose as the error code.
-  private val ErrorCodeLine = "(?m)^Error Code: (\\S*)\\s*$".r
-
-  /** Returns the Spark error condition in a native error message, if any. */
-  def sparkCondition(message: String): Option[String] = {
-    Option(message)
-      .flatMap(ErrorCodeLine.findFirstMatchIn(_))
-      .map(_.group(1))
-      .filter(code => code.startsWith(SparkErrorCodePrefix))
-      .map(_.substring(SparkErrorCodePrefix.length))
-      .filter(_.nonEmpty)
-  }
-
   /**
    * Returns the Spark exception for a native error, with the native error as its cause. Returns
-   * null if the error is not a native error raised at the JNI boundary, has no Spark error
-   * condition, or the condition is not supported yet.
+   * null if the error has no error code or its error code is not supported.
    */
-  def translate(error: Throwable): RuntimeException = {
-    val condition =
-      if (isNativeError(error)) sparkCondition(error.getMessage) else None
-    condition match {
-      case Some(c) =>
-        toSparkException(c) match {
-          case Some(sparkError) =>
-            sparkError.initCause(error)
-            logInfo(
-              s"Translated native error with Spark error condition $c to " +
-                s"${sparkError.getClass.getName}.")
-            sparkError
-          case None =>
+  def translate(error: Throwable): RuntimeException = error match {
+    case e: GlutenException if e.getErrorCode != null =>
+      val errorCode = e.getErrorCode
+      toSparkException(errorCode) match {
+        case Some(sparkError) =>
+          sparkError.initCause(e)
+          logInfo(
+            s"Translated native error with error code $errorCode to " +
+              s"${sparkError.getClass.getName}.")
+          sparkError
+        case None =>
+          if (errorCode.startsWith(NativeErrorCodes.SparkErrorCodePrefix)) {
             logWarning(
-              s"Native error has Spark error condition $c, which is not supported yet. " +
+              s"Native error has error code $errorCode, which is not supported yet. " +
                 "Keeping the native error.")
-            null
-        }
-      case None => null
-    }
+          }
+          null
+      }
+    case _ => null
   }
 
-  // The JNI boundary raises a native error as a GlutenException with no cause. Subclasses and
-  // exceptions with a cause come from Java code.
-  private def isNativeError(error: Throwable): Boolean =
-    error != null && error.getClass == classOf[GlutenException] && error.getCause == null
-
-  private def toSparkException(condition: String): Option[RuntimeException] = condition match {
-    case "DIVIDE_BY_ZERO" =>
-      Some(
-        new SparkArithmeticException(
-          "DIVIDE_BY_ZERO",
-          Map("config" -> QueryExecutionErrors.toSQLConf(SQLConf.ANSI_ENABLED.key)),
-          Array.empty[QueryContext],
-          ""))
+  private def toSparkException(errorCode: String): Option[RuntimeException] = errorCode match {
+    case NativeErrorCodes.DivideByZero => Some(QueryExecutionErrors.divideByZeroError(null))
     case _ => None
   }
 }

@@ -18,17 +18,36 @@ package org.apache.gluten.exception;
 
 public class GlutenException extends RuntimeException {
 
-  public GlutenException() {}
+  // Native error code, for example "SPARK:DIVIDE_BY_ZERO". Null if not set.
+  private final String errorCode;
+
+  public GlutenException() {
+    this.errorCode = null;
+  }
 
   public GlutenException(String message) {
     super(message);
+    this.errorCode = null;
   }
 
   public GlutenException(String message, Throwable cause) {
     super(message, cause);
+    this.errorCode = null;
   }
 
   public GlutenException(Throwable cause) {
     super(cause);
+    this.errorCode = null;
+  }
+
+  /** Called from native code for a native error that has an error code. */
+  public GlutenException(String message, String errorCode) {
+    super(message);
+    this.errorCode = errorCode;
+  }
+
+  /** Returns the native error code, or null if not set. */
+  public String getErrorCode() {
+    return errorCode;
   }
 }

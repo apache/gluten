@@ -24,62 +24,37 @@ import org.scalatest.funsuite.AnyFunSuite
 
 class NativeErrorTranslatorSuite extends AnyFunSuite {
 
-  private def veloxMessage(errorCode: String, reason: String): String =
-    s"""Exception: VeloxUserError
-       |Error Source: USER
-       |Error Code: $errorCode
-       |Reason: $reason
-       |Retriable: False
-       |Expression: b == 0
-       |""".stripMargin
+  private val message = "Exception: VeloxUserError\nReason: (0 vs. 0) division by zero"
 
   test("translates DIVIDE_BY_ZERO to SparkArithmeticException") {
-    val native =
-      new GlutenException(veloxMessage("SPARK:DIVIDE_BY_ZERO", "(0 vs. 0) division by zero"))
+    val native = new GlutenException(message, NativeErrorCodes.DivideByZero)
     val translated = NativeErrorTranslator.translate(native)
     assert(translated.isInstanceOf[SparkArithmeticException])
     val sparkError = translated.asInstanceOf[SparkArithmeticException]
     assert(sparkError.getMessage.startsWith("[DIVIDE_BY_ZERO]"), sparkError.getMessage)
     assert(sparkError.getSqlState == "22012")
     assert(sparkError.getMessageParameters.get("config") == "\"spark.sql.ansi.enabled\"")
-    assert(sparkError.getQueryContext.isEmpty)
     assert(sparkError.getCause eq native)
   }
 
   test("does not translate a native error inside another exception") {
-    val native = new GlutenException(veloxMessage("SPARK:DIVIDE_BY_ZERO", "division by zero"))
-    // A Java callback failure restored at the JNI boundary, with a native error as its cause.
-    val callbackFailure = new IllegalStateException("callback failed", native)
-    assert(NativeErrorTranslator.translate(callbackFailure) == null)
-    // A GlutenException that Java code created around a native error.
+    val native = new GlutenException(message, NativeErrorCodes.DivideByZero)
+    assert(NativeErrorTranslator.translate(new IllegalStateException("failed", native)) == null)
     assert(NativeErrorTranslator.translate(new GlutenException("wrapped", native)) == null)
-    assert(NativeErrorTranslator.translate(new GlutenException(native)) == null)
   }
 
-  test("does not translate other exception classes with a Spark error code") {
-    val message = veloxMessage("SPARK:DIVIDE_BY_ZERO", "division by zero")
-    assert(NativeErrorTranslator.translate(new RuntimeException(message)) == null)
-    assert(NativeErrorTranslator.translate(new GlutenException(message) {}) == null)
+  test("does not translate an error without an error code") {
+    val withCodeInMessage = s"Error Code: ${NativeErrorCodes.DivideByZero}\n$message"
+    assert(NativeErrorTranslator.translate(new GlutenException(withCodeInMessage)) == null)
+    assert(NativeErrorTranslator.translate(new RuntimeException(withCodeInMessage)) == null)
     assert(NativeErrorTranslator.translate(null) == null)
   }
 
-  test("returns null for errors without a supported Spark error condition") {
-    Seq(
-      veloxMessage("INVALID_ARGUMENT", "Arithmetic overflow: -2147483648 / -1"),
-      veloxMessage("SPARK:NOT_A_SUPPORTED_CONDITION", "error"),
-      veloxMessage("SPARK:", "error"),
-      "no error code",
-      null
-    ).foreach {
-      message =>
-        assert(NativeErrorTranslator.translate(new GlutenException(message)) == null, message)
+  test("returns null for unsupported error codes") {
+    Seq("INVALID_ARGUMENT", "SPARK:NOT_A_SUPPORTED_CONDITION", "SPARK:", "").foreach {
+      errorCode =>
+        val native = new GlutenException(message, errorCode)
+        assert(NativeErrorTranslator.translate(native) == null, errorCode)
     }
-  }
-
-  test("ignores an error code in the reason") {
-    val message =
-      veloxMessage("INVALID_ARGUMENT", "Cannot cast 'x\nError Code: SPARK:DIVIDE_BY_ZERO'")
-    assert(NativeErrorTranslator.sparkCondition(message).isEmpty)
-    assert(NativeErrorTranslator.translate(new GlutenException(message)) == null)
   }
 }

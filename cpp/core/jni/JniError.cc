@@ -16,6 +16,63 @@
  */
 #include "JniError.h"
 
+#include <atomic>
+
+namespace {
+
+std::atomic<gluten::ErrorCodeGetter> errorCodeGetter{nullptr};
+
+std::string errorCodeOf(const std::exception& error) noexcept {
+  const auto getter = errorCodeGetter.load(std::memory_order_acquire);
+  if (getter == nullptr) {
+    return {};
+  }
+  try {
+    return getter(error);
+  } catch (...) {
+    LOG(WARNING) << "Unable to get the error code of a native exception";
+    return {};
+  }
+}
+
+// Throws GlutenException(message, errorCode). Returns false if the exception could not be thrown.
+bool throwGlutenExceptionWithErrorCode(JNIEnv* env, const std::exception& error, const std::string& errorCode) {
+  auto* state = gluten::getJniErrorState();
+  jstring message = env->NewStringUTF(error.what());
+  jstring code = message == nullptr ? nullptr : env->NewStringUTF(errorCode.c_str());
+  jobject exception = code == nullptr
+      ? nullptr
+      : env->NewObject(state->glutenExceptionClass(), state->glutenExceptionWithErrorCodeCtor(), message, code);
+  const bool thrown = exception != nullptr && env->Throw(static_cast<jthrowable>(exception)) == JNI_OK;
+  if (!thrown) {
+    env->ExceptionClear();
+  }
+  env->DeleteLocalRef(exception);
+  env->DeleteLocalRef(code);
+  env->DeleteLocalRef(message);
+  return thrown;
+}
+
+} // namespace
+
+void gluten::setErrorCodeGetter(ErrorCodeGetter getter) {
+  errorCodeGetter.store(getter, std::memory_order_release);
+}
+
+void gluten::throwGlutenException(JNIEnv* env, const std::exception& error) {
+  const auto errorCode = errorCodeOf(error);
+  if (!errorCode.empty()) {
+    if (throwGlutenExceptionWithErrorCode(env, error, errorCode)) {
+      return;
+    }
+    LOG(WARNING) << "Unable to throw GlutenException with error code " << errorCode
+                 << " at JNI boundary, throwing it without the error code";
+  }
+  if (env->ThrowNew(getJniErrorState()->glutenExceptionClass(), error.what()) != JNI_OK) {
+    LOG(ERROR) << "Unable to throw GlutenException at JNI boundary";
+  }
+}
+
 void gluten::JniErrorState::ensureInitialized(JNIEnv* env) {
   std::lock_guard<std::mutex> lockGuard(mtx_);
   if (initialized_) {
@@ -46,8 +103,15 @@ jclass gluten::JniErrorState::glutenExceptionClass() {
   return glutenExceptionClass_;
 }
 
+jmethodID gluten::JniErrorState::glutenExceptionWithErrorCodeCtor() {
+  assertInitialized();
+  return glutenExceptionWithErrorCodeCtor_;
+}
+
 void gluten::JniErrorState::initialize(JNIEnv* env) {
   glutenExceptionClass_ = createGlobalClassReference(env, "Lorg/apache/gluten/exception/GlutenException;");
+  glutenExceptionWithErrorCodeCtor_ =
+      getMethodIdOrError(env, glutenExceptionClass_, "<init>", "(Ljava/lang/String;Ljava/lang/String;)V");
   ioExceptionClass_ = createGlobalClassReference(env, "Ljava/io/IOException;");
   runtimeExceptionClass_ = createGlobalClassReference(env, "Ljava/lang/RuntimeException;");
   unsupportedOperationExceptionClass_ = createGlobalClassReference(env, "Ljava/lang/UnsupportedOperationException;");

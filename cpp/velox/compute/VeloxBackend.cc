@@ -50,6 +50,7 @@
 #ifdef ENABLE_S3
 #include "filesystem/GlutenS3FileSystem.h"
 #endif
+#include "jni/JniError.h"
 #include "jni/JniFileSystem.h"
 #include "memory/GlutenBufferedInputBuilder.h"
 #include "operators/functions/SparkExprToSubfieldFilterParser.h"
@@ -127,6 +128,11 @@ void veloxThreadManagerReleaser(ThreadManager* threadManager) {
   delete threadManager;
 }
 
+std::string veloxErrorCode(const std::exception& error) {
+  const auto* veloxError = dynamic_cast<const facebook::velox::VeloxException*>(&error);
+  return veloxError == nullptr ? std::string() : veloxError->errorCode();
+}
+
 bool hasCudaDevice() {
 #ifdef GLUTEN_ENABLE_GPU
   int count = 0;
@@ -164,6 +170,9 @@ void VeloxBackend::init(
   MemoryManager::registerFactory(kVeloxBackendKind, veloxMemoryManagerFactory, veloxMemoryManagerReleaser);
   ThreadManager::registerFactory(kVeloxBackendKind, veloxThreadManagerFactory, veloxThreadManagerReleaser);
   Runtime::registerFactory(kVeloxBackendKind, veloxRuntimeFactory, veloxRuntimeReleaser);
+
+  // Pass the Velox error code, e.g. "SPARK:DIVIDE_BY_ZERO", to Java with the native error.
+  setErrorCodeGetter(veloxErrorCode);
 
   if (backendConf_->get<bool>(kDebugModeEnabled, false)) {
     LOG(INFO) << "VeloxBackend config:" << printConfig(backendConf_->rawConfigs());
