@@ -16,20 +16,9 @@
  */
 package org.apache.spark.sql.execution.python
 
-import org.apache.spark.TaskContext
-import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression}
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.metric.SQLMetric
-import org.apache.spark.sql.vectorized.ColumnarBatch
-
-/**
- * Evaluates an Arrow-optimized Python UDTF. Each returned batch holds the flattened UDTF result
- * columns of a single `eval` (one per input row, in input order) or `terminate` call.
- */
-trait ArrowPythonUDTFEvaluator extends Serializable {
-  def evaluate(iter: Iterator[InternalRow], context: TaskContext): Iterator[ColumnarBatch]
-}
 
 /** Python UDTFs are not available before Spark 3.5. */
 object ArrowEvalPythonUDTFShim {
@@ -42,7 +31,6 @@ object ArrowEvalPythonUDTFShim {
       udtf: Expression,
       evalType: Int,
       childOutput: Seq[Attribute],
-      resultAttrs: Seq[Attribute],
       pythonMetrics: Map[String, SQLMetric]): ArrowPythonUDTFEvaluator =
     throw new UnsupportedOperationException("Python UDTF is not supported before Spark 3.5")
 }

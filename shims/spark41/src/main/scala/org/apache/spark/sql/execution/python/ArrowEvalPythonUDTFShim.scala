@@ -17,45 +17,40 @@
 package org.apache.spark.sql.execution.python
 
 import org.apache.spark.{JobArtifactSet, TaskContext}
+import org.apache.spark.api.python.PythonEvalType
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, MutableProjection, NamedArgumentExpression, PythonUDTF}
-import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.execution.python.EvalPythonExec.ArgumentMetadata
-import org.apache.spark.sql.types.{DataType, StructField, StructType, UserDefinedType}
-import org.apache.spark.sql.types.DataType.equalsIgnoreCompatibleCollation
-import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch}
+import org.apache.spark.sql.types.{DataType, StructField, StructType}
+import org.apache.spark.sql.vectorized.ColumnarBatch
 
 import scala.collection.mutable.ArrayBuffer
 
-/**
- * Evaluates an Arrow-optimized Python UDTF. Each returned batch holds the flattened UDTF result
- * columns of a single `eval` (one per input row, in input order) or `terminate` call.
- */
-trait ArrowPythonUDTFEvaluator extends Serializable {
-  def evaluate(iter: Iterator[InternalRow], context: TaskContext): Iterator[ColumnarBatch]
-}
-
 object ArrowEvalPythonUDTFShim {
+
+  /**
+   * Only matches `SQL_ARROW_TABLE_UDF`. ArrowEvalPythonUDTFExec also plans `SQL_ARROW_UDTF`
+   * (`@arrow_udtf`), whose Python worker doesn't return one batch per input row.
+   */
   def unapply(
       plan: SparkPlan): Option[(Expression, Seq[Attribute], Seq[Attribute], SparkPlan, Int)] =
     plan match {
-      case p: ArrowEvalPythonUDTFExec =>
+      case p: ArrowEvalPythonUDTFExec if p.evalType == PythonEvalType.SQL_ARROW_TABLE_UDF =>
         Some((p.udtf, p.requiredChildOutput, p.resultAttrs, p.child, p.evalType))
       case _ => None
     }
 
   /**
-   * Mirrors EvalPythonUDTFExec#doExecute and ArrowEvalPythonUDTFExec#evaluate, without converting
-   * the Python output to rows. Must be called on the driver.
+   * Mirrors the input side of EvalPythonUDTFExec#doExecute and ArrowEvalPythonUDTFExec#evaluate,
+   * and returns the raw output of ArrowPythonUDTFRunner. Must be called on the driver.
    */
   def createEvaluator(
       plan: SparkPlan,
       udtf: Expression,
       evalType: Int,
       childOutput: Seq[Attribute],
-      resultAttrs: Seq[Attribute],
       pythonMetrics: Map[String, SQLMetric]): ArrowPythonUDTFEvaluator = {
     val pythonUDTF = udtf.asInstanceOf[PythonUDTF]
     val conf = plan.conf
@@ -93,7 +88,8 @@ object ArrowEvalPythonUDTFShim {
                 dataTypes += value.dataType
                 ArgumentMetadata(allInputs.length - 1, key, isTableArg)
               }
-          }.toArray
+          }
+          .toArray
         val projection = MutableProjection.create(allInputs.toSeq, childOutput)
         projection.initialize(context.partitionId())
         val schema = StructType(dataTypes.zipWithIndex.map {
@@ -105,11 +101,7 @@ object ArrowEvalPythonUDTFShim {
           if (batchSize > 0) new BatchIterator(projectedRowIter, batchSize)
           else Iterator(projectedRowIter)
 
-        val outputTypes = resultAttrs.map(_.dataType.transformRecursively {
-          case udt: UserDefinedType[_] => udt.sqlType
-        })
-
-        val columnarBatchIter = new ArrowPythonUDTFRunner(
+        new ArrowPythonUDTFRunner(
           pythonUDTF,
           evalType,
           argMetas,
@@ -120,26 +112,6 @@ object ArrowEvalPythonUDTFShim {
           pythonMetrics,
           jobArtifactUUID,
           sessionUUID).compute(batchIter, context.partitionId(), context)
-
-        columnarBatchIter.map {
-          batch =>
-            // UDTF returns a StructType column in ColumnarBatch. Flatten the columnar batch here.
-            val columnVector = batch.column(0).asInstanceOf[ArrowColumnVector]
-            val outputVectors = resultAttrs.indices.map(columnVector.getChild)
-            val flattenedBatch = new ColumnarBatch(outputVectors.toArray)
-
-            val actualDataTypes =
-              (0 until flattenedBatch.numCols()).map(i => flattenedBatch.column(i).dataType())
-            if (!equalsIgnoreCompatibleCollation(outputTypes, actualDataTypes)) {
-              throw QueryExecutionErrors.arrowDataTypeMismatchError(
-                "Python UDTF",
-                outputTypes,
-                actualDataTypes)
-            }
-
-            flattenedBatch.setNumRows(batch.numRows())
-            flattenedBatch
-        }
       }
     }
   }
