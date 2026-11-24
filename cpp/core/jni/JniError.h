@@ -29,20 +29,31 @@
 // macro ended
 #endif
 
-#define JNI_METHOD_END_WITH_RUNTIME(fallback_expr, runtime) \
-  }                                                         \
-  catch (const std::exception& e) {                         \
-    gluten::handleJniException(env, e, runtime);            \
-    return fallback_expr;                                   \
-  }
-
 #ifndef JNI_METHOD_END
-#define JNI_METHOD_END(fallback_expr) JNI_METHOD_END_WITH_RUNTIME(fallback_expr, nullptr)
+#define JNI_METHOD_END(fallback_expr)   \
+  }                                     \
+  catch (const std::exception& e) {     \
+    gluten::handleJniException(env, e); \
+    return fallback_expr;               \
+  }
 #endif
 
 namespace gluten {
 
-void handleJniException(JNIEnv* env, const std::exception& error, const Runtime* runtime);
+// Register for the lifetime of the backend library. Called under the registry lock, the
+// callback must only inspect its own wrapper and return its immediate cause (otherwise nullptr).
+class JniExceptionUnwrapperRegistration final {
+ public:
+  explicit JniExceptionUnwrapperRegistration(ExceptionUnwrapper unwrap);
+  ~JniExceptionUnwrapperRegistration();
+  JniExceptionUnwrapperRegistration(const JniExceptionUnwrapperRegistration&) = delete;
+  JniExceptionUnwrapperRegistration& operator=(const JniExceptionUnwrapperRegistration&) = delete;
+
+ private:
+  ExceptionUnwrapper unwrap_;
+};
+
+void handleJniException(JNIEnv* env, const std::exception& error);
 
 class JniErrorState {
  public:

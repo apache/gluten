@@ -150,6 +150,13 @@ class GlutenDeltaNativeConstraintSuite extends GlutenQueryTest with SharedSparkS
           withSQLConf(nativeWriteKey -> "false") {
             val expected = rejectedWrite(path, invalidRows, errorClass)
             assertSameError(actual, expected)
+            if (notNull) {
+              assert(
+                actual.getSuppressed.toSeq.map(_.getClass) ==
+                  expected.getSuppressed.toSeq.map(_.getClass),
+                "A NOT NULL violation rebuilt from text suppresses the original write failure"
+              )
+            }
           }
       }
     }

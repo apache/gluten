@@ -16,21 +16,67 @@
  */
 #include "JniError.h"
 
-void gluten::handleJniException(JNIEnv* env, const std::exception& error, const Runtime* runtime) {
+#include <algorithm>
+#include <vector>
+
+namespace gluten {
+namespace {
+struct UnwrapperRegistry {
+  std::mutex mutex;
+  std::vector<ExceptionUnwrapper> unwrappers;
+};
+
+UnwrapperRegistry& unwrapperRegistry() {
+  static UnwrapperRegistry registry;
+  return registry;
+}
+
+std::exception_ptr unwrapBackendException(const std::exception& error) noexcept {
+  auto& registry = unwrapperRegistry();
+  // Unregistering a backend must wait until its callback has returned.
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  for (auto unwrap : registry.unwrappers) {
+    if (auto cause = unwrap(error)) {
+      return cause;
+    }
+  }
+  return nullptr;
+}
+} // namespace
+
+JniExceptionUnwrapperRegistration::JniExceptionUnwrapperRegistration(ExceptionUnwrapper unwrap) : unwrap_(unwrap) {
+  GLUTEN_CHECK(unwrap != nullptr, "JNI exception unwrapper must not be null");
+  auto& registry = unwrapperRegistry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  auto& entries = registry.unwrappers;
+  GLUTEN_CHECK(
+      std::find(entries.begin(), entries.end(), unwrap) == entries.end(), "JNI exception unwrapper already registered");
+  entries.push_back(unwrap);
+}
+
+JniExceptionUnwrapperRegistration::~JniExceptionUnwrapperRegistration() {
+  auto& registry = unwrapperRegistry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  auto& entries = registry.unwrappers;
+  entries.erase(std::find(entries.begin(), entries.end(), unwrap_));
+}
+
+void handleJniException(JNIEnv* env, const std::exception& error) {
   if (env->ExceptionCheck()) {
     return;
   }
-  const auto recovered = runtime ? runtime->findJniOutputException(std::current_exception()) : std::nullopt;
-  const std::exception& cause = recovered ? *recovered : error;
-  if (const auto* java = dynamic_cast<const JavaException*>(&cause)) {
-    java->throwToJava(env);
-  } else {
-    JavaException::throwNestedToJava(env, cause);
+  const auto cause = findJavaExceptionCause(error, unwrapBackendException);
+  if (cause) {
+    cause->exception.throwToJava(env);
   }
-  if (!env->ExceptionCheck() && env->ThrowNew(getJniErrorState()->glutenExceptionClass(), cause.what()) != JNI_OK) {
-    LOG(ERROR) << "Unable to throw GlutenException at JNI boundary";
+  if (!env->ExceptionCheck()) {
+    const char* message = cause && cause->viaBackend ? cause->exception.what() : error.what();
+    if (env->ThrowNew(getJniErrorState()->glutenExceptionClass(), message) != JNI_OK) {
+      LOG(ERROR) << "Unable to throw GlutenException at JNI boundary";
+    }
   }
 }
+} // namespace gluten
 
 void gluten::JniErrorState::ensureInitialized(JNIEnv* env) {
   std::lock_guard<std::mutex> lockGuard(mtx_);

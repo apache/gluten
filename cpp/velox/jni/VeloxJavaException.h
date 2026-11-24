@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <optional>
 #include <utility>
 
 #include "jni/JavaException.h"
@@ -43,28 +42,9 @@ decltype(auto) wrapJavaException(F&& callback) {
   }
 }
 
-inline std::optional<JavaException> findJavaException(std::exception_ptr error) noexcept {
-  if (error == nullptr) {
-    return std::nullopt;
-  }
-  try {
-    std::rethrow_exception(error);
-  } catch (const JavaException& original) {
-    return original;
-  } catch (const facebook::velox::VeloxException& e) {
-    if (auto original = findJavaException(e.wrappedException())) {
-      return original;
-    }
-    if (const auto* nested = dynamic_cast<const std::nested_exception*>(&e);
-        nested && nested->nested_ptr() != e.wrappedException()) {
-      return findJavaException(nested->nested_ptr());
-    }
-  } catch (const std::nested_exception& e) {
-    return findJavaException(e.nested_ptr());
-  } catch (...) {
-    // Non-standard native causes cannot carry a JavaException.
-  }
-  return std::nullopt;
+inline std::exception_ptr unwrapVeloxException(const std::exception& error) noexcept {
+  const auto* veloxError = dynamic_cast<const facebook::velox::VeloxException*>(&error);
+  return veloxError ? veloxError->wrappedException() : nullptr;
 }
 
 } // namespace gluten

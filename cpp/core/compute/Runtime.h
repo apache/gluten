@@ -19,9 +19,6 @@
 
 #include <glog/logging.h>
 
-#include <exception>
-#include <optional>
-
 #include "compute/ProtobufUtils.h"
 #include "compute/ResultIterator.h"
 #include "memory/ColumnarBatch.h"
@@ -39,7 +36,6 @@
 
 namespace gluten {
 
-class JavaException;
 class ResultIterator;
 
 struct SparkTaskInfo {
@@ -193,9 +189,6 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
   virtual WholeStageDumper* getDumper() {
     return dumper_.get();
   }
-
-  // Only backends with their own exception wrappers need to supply a captured Java cause.
-  virtual std::optional<JavaException> findJniOutputException(std::exception_ptr error) const noexcept;
 
   ObjectHandle saveObject(std::shared_ptr<void> obj) {
     return objStore_->save(obj);

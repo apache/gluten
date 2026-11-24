@@ -50,8 +50,10 @@
 #ifdef ENABLE_S3
 #include "filesystem/GlutenS3FileSystem.h"
 #endif
+#include "jni/JniError.h"
 #include "jni/JniFileSystem.h"
 #include "jni/VeloxInputIterator.h"
+#include "jni/VeloxJavaException.h"
 #include "memory/GlutenBufferedInputBuilder.h"
 #include "operators/functions/SparkExprToSubfieldFilterParser.h"
 #include "operators/plannodes/RowVectorStream.h"
@@ -166,6 +168,7 @@ void VeloxBackend::init(
   ThreadManager::registerFactory(kVeloxBackendKind, veloxThreadManagerFactory, veloxThreadManagerReleaser);
   Runtime::registerFactory(kVeloxBackendKind, veloxRuntimeFactory, veloxRuntimeReleaser);
   registerJniInputIteratorFactory(kVeloxBackendKind, createVeloxJniInputIterator);
+  static const JniExceptionUnwrapperRegistration exceptionUnwrapper(unwrapVeloxException);
 
   if (backendConf_->get<bool>(kDebugModeEnabled, false)) {
     LOG(INFO) << "VeloxBackend config:" << printConfig(backendConf_->rawConfigs());
