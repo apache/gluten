@@ -17,12 +17,14 @@
 package org.apache.gluten.functions
 
 import org.apache.gluten.execution.{BatchScanExecTransformer, ProjectExecTransformer}
+import org.apache.gluten.tags.AnsiTest
 
 import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.types.Decimal
 
 import java.sql.Timestamp
 
+@AnsiTest
 class DateFunctionsValidateSuite extends FunctionsValidateSuite {
   disableFallbackCheck
 

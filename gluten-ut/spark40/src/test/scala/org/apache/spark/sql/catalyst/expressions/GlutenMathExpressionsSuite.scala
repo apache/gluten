@@ -16,12 +16,15 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
+import org.apache.gluten.tags.AnsiTest
+
 import org.apache.spark.sql.GlutenExpressionOffloadTracker
 import org.apache.spark.sql.catalyst.dsl.expressions._
 import org.apache.spark.sql.types._
 
 import java.nio.charset.StandardCharsets
 
+@AnsiTest
 class GlutenMathExpressionsSuite extends MathExpressionsSuite with GlutenExpressionOffloadTracker {
   override protected def offloadCategory: String = "math"
   testGluten("round/bround/floor/ceil") {
