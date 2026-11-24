@@ -18,6 +18,7 @@ package org.apache.spark.sql.delta
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.config.VeloxDeltaConfig
+import org.apache.gluten.execution.SortExecTransformer
 
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.catalyst.TableIdentifier
@@ -583,6 +584,37 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
           assert(
             writerPlan.find(_.isInstanceOf[GlutenDeltaInvariantCheckerExec]).isEmpty,
             writerPlan)
+      }
+    }
+  }
+
+  test("native partitioned delta write with presorted input") {
+    // A string partition column goes through the project that turns empty strings into nulls.
+    val rows =
+      Seq((1L, "a", 1), (2L, "b", 2), (3L, "a", 1), (4L, "c", 3), (5L, "", 4), (6L, null, 4))
+    for {
+      partitionColumn <- Seq("s", "p")
+      presorted <- Seq(false, true)
+    } {
+      val expected = rows.map {
+        case (id, "", p) if partitionColumn == "s" => Row(id, null, p)
+        case row => Row.fromTuple(row)
+      }
+      withNativeWriteOffloadConf {
+        withTempDir {
+          dir =>
+            val path = dir.getCanonicalPath
+            GlutenDeltaFileFormatWriter.clearExecutedPlanForTesting()
+            val df = rows.toDF("id", "s", "p")
+            val input = if (presorted) df.sortWithinPartitions(partitionColumn) else df
+            input.write.format("delta").partitionBy(partitionColumn).save(path)
+            assert(!writerPlan.treeString.contains("ColumnarToRow"), writerPlan)
+            // The writer sorts unsorted input; presorted input keeps the user's sort only.
+            assert(writerPlan.collect { case s: SortExecTransformer => s }.size == 1, writerPlan)
+            assert(
+              spark.read.format("delta").load(path).select("id", "s", "p").orderBy("id")
+                .collect().toSeq == expected)
+        }
       }
     }
   }

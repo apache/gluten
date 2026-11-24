@@ -266,8 +266,12 @@ object GlutenDeltaFileFormatWriter extends Logging {
     val empty2NullPlan = if (projectList.nonEmpty) ProjectExecTransformer(projectList, plan) else plan
 
     writeAndCommit(job, description, committer) {
+      def collapseStages(input: SparkPlan): SparkPlan =
+        GenerateTransformStageId()(
+          ColumnarCollapseTransformStages(new GlutenConfig(sparkSession.sessionState.conf))(input))
       val (planToExecute, concurrentOutputWriterSpec) = if (orderingMatched) {
-        (empty2NullPlan, None)
+        // The empty-to-null project is a bare transformer, which can't run outside a stage.
+        (if (projectList.nonEmpty) collapseStages(empty2NullPlan) else empty2NullPlan, None)
       } else {
         val sortPlan = createSortPlan(empty2NullPlan, requiredOrdering, outputSpec)
         val concurrentOutputWriterSpec =
@@ -286,10 +290,7 @@ object GlutenDeltaFileFormatWriter extends Logging {
             case wst @ WholeStageTransformer(wholeStageChild, _) =>
               wst.withNewChildren(Seq(addNativeSort(wholeStageChild)))
             case other if Convention.get(other).batchType == VeloxBatchType =>
-              val nativeSortPlan = addNativeSort(other)
-              val nativeSortPlanWithWst =
-                GenerateTransformStageId()(ColumnarCollapseTransformStages(new GlutenConfig(sparkSession.sessionState.conf))(nativeSortPlan))
-              nativeSortPlanWithWst
+              collapseStages(addNativeSort(other))
             case other =>
               Transitions.toBatchPlan(sortPlan, VeloxBatchType)
           }

@@ -356,12 +356,18 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
   }
 
   test("native partitioned delta write with concurrent writers or presorted input") {
-    val rows = Seq((1L, "a", 1), (2L, "b", 2), (3L, "a", 1), (4L, "c", 3))
+    // A string partition column goes through the project that turns empty strings into nulls.
+    val rows =
+      Seq((1L, "a", 1), (2L, "b", 2), (3L, "a", 1), (4L, "c", 3), (5L, "", 4), (6L, null, 4))
     for {
       maxWriters <- Seq("0", "2")
       partitionColumn <- Seq("s", "p")
       presorted <- Seq(false, true)
     } {
+      val expected = rows.map {
+        case (id, "", p) if partitionColumn == "s" => Row(id, null, p)
+        case row => Row.fromTuple(row)
+      }
       withNativeWriteOffloadConf {
         withTempDir {
           dir =>
@@ -377,7 +383,7 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
             }
             assert(
               spark.read.format("delta").load(path).select("id", "s", "p").orderBy("id")
-                .collect().toSeq == rows.map(Row.fromTuple))
+                .collect().toSeq == expected)
         }
       }
     }
