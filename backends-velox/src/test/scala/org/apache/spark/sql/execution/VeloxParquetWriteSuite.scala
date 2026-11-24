@@ -26,6 +26,7 @@ import org.apache.spark.util.Utils
 
 import org.apache.hadoop.fs.Path
 import org.apache.parquet.hadoop.ParquetFileReader
+import org.apache.parquet.hadoop.metadata.{ColumnChunkMetaData, CompressionCodecName}
 import org.apache.parquet.hadoop.util.HadoopInputFile
 import org.apache.parquet.schema.PrimitiveType
 
@@ -391,11 +392,12 @@ class VeloxParquetWriteHadoopConfSuite extends VeloxWholeStageTransformerSuite w
     super.sparkConf
       .set(GlutenConfig.NATIVE_WRITER_ENABLED.key, "true")
       .set(s"spark.hadoop.parquet.enable.dictionary", "false")
+      .set("spark.hadoop.parquet.compression", "gzip")
   }
 
   private val dictionaryEncodingNames = Set("PLAIN_DICTIONARY", "RLE_DICTIONARY")
 
-  private def parquetColumnEncodings(dir: File): Seq[Set[String]] = {
+  private def parquetColumnChunks[T](dir: File)(f: ColumnChunkMetaData => T): Seq[T] = {
     val parquetFiles = dir.list((_, name) => name.contains("parquet"))
     assert(parquetFiles.nonEmpty)
     parquetFiles.flatMap {
@@ -403,13 +405,13 @@ class VeloxParquetWriteHadoopConfSuite extends VeloxWholeStageTransformerSuite w
         val path = new Path(dir.getAbsolutePath, file)
         val in = HadoopInputFile.fromPath(path, spark.sessionState.newHadoopConf())
         Utils.tryWithResource(ParquetFileReader.open(in)) {
-          reader =>
-            reader.getFooter.getBlocks.asScala.flatMap {
-              block => block.getColumns.asScala.map(_.getEncodings.asScala.map(_.name()).toSet)
-            }
+          reader => reader.getFooter.getBlocks.asScala.flatMap(_.getColumns.asScala.map(f))
         }
     }.toSeq
   }
+
+  private def parquetColumnEncodings(dir: File): Seq[Set[String]] =
+    parquetColumnChunks(dir)(_.getEncodings.asScala.map(_.name()).toSet)
 
   test("native writer should respect parquet dictionary config from spark.hadoop config") {
     spark
@@ -428,6 +430,17 @@ class VeloxParquetWriteHadoopConfSuite extends VeloxWholeStageTransformerSuite w
         val columnEncodings = parquetColumnEncodings(hadoopConfDir)
         assert(columnEncodings.nonEmpty)
         assert(!columnEncodings.exists(_.exists(dictionaryEncodingNames.contains)))
+    }
+  }
+
+  test("native writer should prefer Spark SQL codec over spark.hadoop.parquet.compression") {
+    withSQLConf(SQLConf.PARQUET_COMPRESSION.key -> "zstd") {
+      withTempPath {
+        dir =>
+          checkNativeWrite(
+            s"INSERT OVERWRITE DIRECTORY '${dir.getCanonicalPath}' USING PARQUET SELECT 1 AS id")
+          assert(parquetColumnChunks(dir)(_.getCodec).toSet == Set(CompressionCodecName.ZSTD))
+      }
     }
   }
 }
