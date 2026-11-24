@@ -119,15 +119,18 @@ object GlutenExplainUtils extends AdaptiveSparkPlanHelper {
    *     from physical or logical [[FallbackTags]], or a synthetic default when no tag is present
    *   - nodes ignored by [[shouldIgnoreInFallbackStats]]: no callback
    *
-   * Recurses into AQE subqueries and query stages, and into each visited operator's
-   * `innerChildren`. Subqueries reached purely via expressions on a vanilla Spark plan are not
-   * visited here; callers that need full subquery coverage should use [[processPlan]], which
-   * performs an explicit subquery walk.
+   * Recurses into finalized AQE subqueries and query stages, and into each visited operator's
+   * `innerChildren`. Unfinished AQE subqueries are skipped because their columnar rules have not
+   * run yet; their plans are checked when AQE prepares their stages. Subqueries reached purely via
+   * expressions on a vanilla Spark plan are not visited here; callers that need full subquery
+   * coverage should use [[processPlan]], which performs an explicit subquery walk.
    */
   def visitFallbackNodes(
       plan: QueryPlan[_],
       onFallback: (SparkPlan, String) => Unit,
       onGluten: SparkPlan => Unit = _ => ()): Unit = {
+
+    val visited = newSetFromMap[AnyRef](new util.IdentityHashMap())
 
     def fallbackReason(p: SparkPlan): String =
       FallbackTags
@@ -138,26 +141,35 @@ object GlutenExplainUtils extends AdaptiveSparkPlanHelper {
 
     def visit(tmp: QueryPlan[_]): Unit = {
       tmp.foreachUp {
-        case cmd: CommandResultExec => visit(cmd.commandPhysicalPlan)
-        case p: V2CommandExec
-            if !shouldIgnoreInFallbackStats(p) =>
-          onFallback(p, fallbackReason(p))
-        case sub: AdaptiveSparkPlanExec if sub.isSubquery => visit(sub.executedPlan)
-        case p: QueryStageExec => visit(p.plan)
-        case i: InMemoryTableScanExec =>
-          if (PlanUtil.isGlutenTableCache(i)) {
-            onGluten(i)
-          } else {
-            onFallback(i, "Columnar table cache is disabled")
+        node =>
+          if (visited.add(node.asInstanceOf[AnyRef])) {
+            node match {
+              case cmd: CommandResultExec => visit(cmd.commandPhysicalPlan)
+              case p: V2CommandExec
+                  if !shouldIgnoreInFallbackStats(p) =>
+                onFallback(p, fallbackReason(p))
+              // AQE is a leaf, so foreachUp cannot enter its plan before this guard.
+              case sub: AdaptiveSparkPlanExec if sub.isSubquery && sub.isFinalPlan =>
+                visit(sub.executedPlan)
+              case reused: ReusedSubqueryExec => visit(reused.child)
+              case p: QueryStageExec => visit(p.plan)
+              case i: InMemoryTableScanExec =>
+                if (PlanUtil.isGlutenTableCache(i)) {
+                  onGluten(i)
+                } else {
+                  onFallback(i, "Columnar table cache is disabled")
+                }
+              case p: SparkPlan if shouldIgnoreInFallbackStats(p) => // Ignore
+              case p: GlutenPlan =>
+                onGluten(p)
+                p.innerChildren.foreach(visit)
+              case _: BaseSubqueryExec =>
+              case p: SparkPlan =>
+                onFallback(p, fallbackReason(p))
+                p.innerChildren.foreach(visit)
+              case _ =>
+            }
           }
-        case p: SparkPlan if shouldIgnoreInFallbackStats(p) => // Ignore
-        case p: GlutenPlan =>
-          onGluten(p)
-          p.innerChildren.foreach(visit)
-        case p: SparkPlan =>
-          onFallback(p, fallbackReason(p))
-          p.innerChildren.foreach(visit)
-        case _ =>
       }
     }
     visit(plan)
