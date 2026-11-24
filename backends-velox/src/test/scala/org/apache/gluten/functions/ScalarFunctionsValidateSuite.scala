@@ -709,7 +709,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
       // EXCEPTION policy raises on a duplicate.
       val df = sql(duplicateKeyQuery)
       checkGlutenPlan[ProjectExecTransformer](df)
-      val e = intercept[SparkException] {
+      val e = intercept[Exception] {
         df.collect()
       }
       assert(e.getMessage.contains("Duplicate map key"))
@@ -743,7 +743,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
 
       val df = sql(duplicateKeyQuery)
       checkGlutenPlan[ProjectExecTransformer](df)
-      val e = intercept[SparkException] {
+      val e = intercept[Exception] {
         df.collect()
       }
       assert(e.getMessage.contains("Duplicate map key"))
@@ -778,7 +778,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
       // EXCEPTION policy raises on a duplicate.
       val df = sql(duplicateKeyQuery)
       checkGlutenPlan[ProjectExecTransformer](df)
-      val e = intercept[SparkException] {
+      val e = intercept[Exception] {
         df.collect()
       }
       assert(e.getMessage.contains("Duplicate map key"))
@@ -820,7 +820,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
       // EXCEPTION policy raises on a duplicate.
       val df = sql(duplicateKeyQuery)
       checkGlutenPlan[ProjectExecTransformer](df)
-      val e = intercept[SparkException] {
+      val e = intercept[Exception] {
         df.collect()
       }
       assert(e.getMessage.contains("Duplicate map key"))

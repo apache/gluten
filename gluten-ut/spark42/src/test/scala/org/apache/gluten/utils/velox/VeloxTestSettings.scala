@@ -1019,9 +1019,6 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenDataFrameFunctionsSuite]
     // Rewrite this test because Velox sorts rows by key for primitive data types, which disrupts the original row sequence.
     .exclude("map_zip_with function - map of primitive types")
-    // Vanilla spark throw SparkRuntimeException, gluten throw SparkException.
-    .exclude("map_concat function")
-    .exclude("transform keys function - primitive data types")
     // Overridden.
     .exclude("map with arrays")
     // Overridden: asserts vanilla WholeStageCodegenExec, which Gluten replaces.
