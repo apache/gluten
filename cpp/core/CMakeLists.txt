@@ -148,6 +148,7 @@ set(SPARK_COLUMNAR_PLUGIN_SRCS
     utils/ObjectStore.cc
     jni/JniError.cc
     jni/JniCommon.cc
+    jni/JniThreadExit.cc
     jni/TaskContextJniWrapper.cc)
 
 file(MAKE_DIRECTORY ${root_directory}/releases)
