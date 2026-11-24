@@ -99,6 +99,15 @@ class DeltaRowTrackingScanInfoSuite extends QueryTest with SharedSparkSession
       val skipped = table.where(col("id") >= 10).select(col("id"), col(RowId.QUALIFIED_COLUMN_NAME))
       assert(!readsMissingRowTrackingMetadata(skipped))
       checkAnswer(skipped, (0 until 10).map(i => Row(10L + i, i.toLong)))
+      // The files come from the scan's own filters, not the prepared scan: without the data filter,
+      // the file index selects the old file again.
+      val skippedScan = fileSourceScan(skipped)
+      assert(
+        DeltaRowTrackingScanInfo.missingRequiredRowTrackingMetadata(
+          skippedScan.relation,
+          skippedScan.output,
+          skippedScan.partitionFilters,
+          Nil))
     }
   }
 
@@ -124,7 +133,8 @@ class DeltaRowTrackingScanInfoSuite extends QueryTest with SharedSparkSession
     DeltaRowTrackingScanInfo.missingRequiredRowTrackingMetadata(
       scan.relation,
       scan.output,
-      scan.partitionFilters)
+      scan.partitionFilters,
+      scan.dataFilters)
   }
 
   private def readsMetadataField(filter: Expression): Boolean =

@@ -24,5 +24,6 @@ object DeltaRowTrackingScanInfo {
   def missingRequiredRowTrackingMetadata(
       relation: HadoopFsRelation,
       output: Seq[Attribute],
-      partitionFilters: Seq[Expression]): Boolean = false
+      partitionFilters: Seq[Expression],
+      dataFilters: Seq[Expression]): Boolean = false
 }

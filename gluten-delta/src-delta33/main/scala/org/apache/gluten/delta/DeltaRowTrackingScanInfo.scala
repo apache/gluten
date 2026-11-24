@@ -20,7 +20,6 @@ import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, FileSou
 import org.apache.spark.sql.delta.{DefaultRowCommitVersion, DeltaParquetFileFormat, RowId}
 import org.apache.spark.sql.delta.actions.AddFile
 import org.apache.spark.sql.delta.files.TahoeFileIndex
-import org.apache.spark.sql.delta.stats.PreparedDeltaFileIndex
 import org.apache.spark.sql.execution.datasources.HadoopFsRelation
 
 object DeltaRowTrackingScanInfo {
@@ -31,13 +30,14 @@ object DeltaRowTrackingScanInfo {
    * `DeltaParquetFileFormat.fileConstantMetadataExtractors` fails such a read with "Missing ...
    * value for file"; the native scan would return NULL.
    *
-   * The files are the ones selected at planning time, before dynamic partition pruning, so this may
-   * flag a scan whose pruned files all have the values. That scan then runs on Spark and succeeds.
+   * The files are the ones the scan lists before dynamic partition pruning, so this may flag a scan
+   * whose pruned files all have the values. That scan then runs on Spark and succeeds.
    */
   def missingRequiredRowTrackingMetadata(
       relation: HadoopFsRelation,
       output: Seq[Attribute],
-      partitionFilters: Seq[Expression]): Boolean = {
+      partitionFilters: Seq[Expression],
+      dataFilters: Seq[Expression]): Boolean = {
     // Unlike Delta 4.x, Delta 3.3 has no nullable variant of these fields.
     if (!relation.fileFormat.isInstanceOf[DeltaParquetFileFormat]) {
       return false
@@ -49,21 +49,26 @@ object DeltaRowTrackingScanInfo {
     if (!readsBaseRowId && !readsDefaultRowCommitVersion) {
       return false
     }
-    candidateFiles(relation, partitionFilters).exists {
+    candidateFiles(relation, partitionFilters, dataFilters).exists {
       file =>
         (readsBaseRowId && file.baseRowId.isEmpty) ||
         (readsDefaultRowCommitVersion && file.defaultRowCommitVersion.isEmpty)
     }
   }
 
+  /**
+   * The files the scan lists, as `FileSourceScanExec` lists them before dynamic partition pruning.
+   * `PreparedDeltaFileIndex` returns its prepared files only when the scan's filters match the
+   * prepared ones and selects the files again otherwise.
+   */
   private def candidateFiles(
       relation: HadoopFsRelation,
-      partitionFilters: Seq[Expression]): Seq[AddFile] = relation.location match {
-    case index: PreparedDeltaFileIndex => index.preparedScan.files
+      partitionFilters: Seq[Expression],
+      dataFilters: Seq[Expression]): Seq[AddFile] = relation.location match {
     case index: TahoeFileIndex =>
       val staticPartitionFilters =
         partitionFilters.filterNot(_.exists(_.isInstanceOf[PlanExpression[_]]))
-      index.matchingFiles(staticPartitionFilters, Nil)
+      index.matchingFiles(staticPartitionFilters, dataFilters)
     case _ => Nil
   }
 }

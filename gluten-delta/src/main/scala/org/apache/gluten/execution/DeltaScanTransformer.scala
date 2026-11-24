@@ -112,7 +112,8 @@ case class DeltaScanTransformer(
       DeltaRowTrackingScanInfo.missingRequiredRowTrackingMetadata(
         relation,
         output,
-        partitionFilters)
+        partitionFilters,
+        dataFilters)
     ) {
       return ValidationResult.failed(DeltaScanTransformer.MISSING_ROW_TRACKING_METADATA)
     }
