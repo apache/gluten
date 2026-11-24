@@ -32,11 +32,13 @@ inputs:
     default: '^$'
 outputs:
   base_sha:
-    description: The apache/gluten main commit the branch was merged onto.
-    value: ${{ steps.merge.outputs.base_sha }}
+    description: >-
+      The apache/gluten main commit the branch was merged onto: the latest main, or an
+      older one when the fork rejected the merge for bringing in newer workflow files.
+    value: ${{ steps.publish.outputs.base_sha || steps.merge.outputs.base_sha }}
   revision:
     description: The merged commit, published in the fork. Empty when `relevant` is 'false'.
-    value: ${{ steps.merge.outputs.revision }}
+    value: ${{ steps.publish.outputs.revision || steps.merge.outputs.revision }}
   relevant:
     description: "'false' if nothing in `paths` changed."
     value: ${{ steps.merge.outputs.relevant }}
@@ -73,9 +75,40 @@ runs:
     # One ref per workflow and branch, overwritten by the next run. Slashes in the
     # branch name are replaced so that branches `a` and `a/b` don't collide.
     - name: Publish the merged commit in the fork
+      id: publish
       if: steps.merge.outputs.relevant == 'true'
       shell: bash
+      env:
+        MAIN_SHA: ${{ steps.merge.outputs.base_sha }}
       run: |
         workflow=${GITHUB_WORKFLOW_REF%%@*}
         workflow=${workflow##*/}
-        git push --force origin "HEAD:refs/gluten-ci/${workflow%.*}/${GITHUB_REF_NAME//\//-}"
+        ref="refs/gluten-ci/${workflow%.*}/${GITHUB_REF_NAME//\//-}"
+        if push_log=$(git push --force origin "HEAD:$ref" 2>&1); then
+          echo "$push_log"
+          exit 0
+        fi
+        echo "$push_log"
+        # The workflow token may not add workflow files, so the fork rejects the push when main
+        # changed .github/workflows/ after this branch was cut and the fork doesn't have those
+        # changes yet. Merge onto the last main commit before the first such change instead.
+        if ! grep -q "refusing to allow a GitHub App to create or update workflow" <<< "$push_log"; then
+          exit 1
+        fi
+        # `tail`, not `head`: under pipefail, `head` closing the pipe early would fail the step.
+        fork_base=$(git merge-base "$GITHUB_SHA" "$MAIN_SHA")
+        first_change=$(git rev-list --first-parent "$fork_base..$MAIN_SHA" -- .github/workflows | tail -n 1)
+        if [ -z "$first_change" ]; then
+          exit 1
+        fi
+        base_sha=$(git rev-parse "$first_change^")
+        git checkout --quiet --detach "$base_sha"
+        if ! git merge --squash --no-commit "$GITHUB_SHA"; then
+          echo "::error::$GITHUB_REF_NAME does not merge cleanly into apache/gluten main ($base_sha). Rebase it and push again."
+          exit 1
+        fi
+        git commit --quiet --allow-empty -m "Squash-merge $GITHUB_SHA onto $base_sha"
+        git push --force origin "HEAD:$ref"
+        echo "::warning::apache/gluten main changed .github/workflows/ after $GITHUB_REF_NAME was cut, so this run tests it on $base_sha instead of the latest main ($MAIN_SHA). Rebase onto main to test against the latest."
+        echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+        echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
