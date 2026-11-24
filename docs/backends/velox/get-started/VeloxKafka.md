@@ -18,7 +18,7 @@ and streaming sinks. Kafka writes use Spark's Kafka writer.
 
 ## How Gluten reads Kafka
 
-![Spark's driver plans offset ranges and tracks checkpoints; executor tasks use JNI and the Velox Kafka connector to read topic partitions into columnar batches.](../image/velox-kafka-read.svg)
+![Spark's driver plans offset ranges and tracks checkpoints; executor tasks use JNI and the Velox Kafka connector to read topic partitions into columnar batches.](../../../image/velox-kafka-read.svg)
 
 1. **Spark** resolves topic partitions and plans offset ranges for each micro-batch.
 2. **Gluten** replaces an eligible Kafka scan with
@@ -35,7 +35,9 @@ Spark can distribute tasks across multiple executors.
 ## Supported reads
 
 - Kafka DataSource V2 **micro-batch reads** are eligible for offloading. Batch
-  reads, continuous processing, and Kafka writes are outside this native path.
+  reads and continuous processing remain available through Spark's Java Kafka
+  reader. Kafka writes use Spark's Kafka writer. Gluten does not offload these
+  operations.
 - Supported columns are `key` and `value` (`binary`), `topic` (`string`),
   `partition` and `timestampType` (`int`), `offset` (`long`), and `timestamp`
   (`timestamp`). Decode keys and values in the query as needed.
@@ -45,17 +47,29 @@ Spark can distribute tasks across multiple executors.
 - Spark's driver uses the Java Kafka client; native readers use librdkafka.
   Unknown native properties are skipped, and Java JAAS, callback, and credential
   settings are not translated. Validate both client paths before using TLS or
-  SASL. The example uses a local PLAINTEXT broker.
+  SASL. Unsupported authentication settings can cause native reads to fail;
+  these failures do not automatically fall back to Spark's Java Kafka reader.
+  The example uses a local PLAINTEXT broker.
+
+To use Spark's Java Kafka reader explicitly, set
+`spark.gluten.sql.columnar.kafkaScan=false` before starting the streaming query,
+for example with `--conf spark.gluten.sql.columnar.kafkaScan=false` when launching
+Spark. Supported downstream operators remain eligible for native execution.
+The setting defaults to `true`.
 
 ## Build Gluten with Kafka support
 
 The commands below use **Spark 3.5.5, Scala 2.12, and JDK 17 on Linux**, matching
-the Kafka CI build configuration. The Gluten checkout must include the Velox
-Kafka scan offload rule and native Kafka plan conversion, as well as the native
-reader. Building the reader alone does not enable scan offloading.
+the Kafka CI build configuration. The Kafka CI workflow currently runs Spark
+3.5 only. Native Kafka compatibility with other Spark versions supported by
+Gluten is not established by this example or that workflow.
+
+The Gluten checkout must include the Velox Kafka scan offload rule and native
+Kafka plan conversion, as well as the native reader. Building the reader alone
+does not enable scan offloading.
 
 Follow the prerequisites in the
-[Velox build guide](../backends/velox/get-started/Velox.md), then build native
+[Velox build guide](Velox.md), then build native
 libraries before the JVM bundle:
 
 ```bash
@@ -73,7 +87,8 @@ export PROMPT_ALWAYS_RESPOND=y
 Both Kafka build options are disabled by default:
 
 - `--enable_kafka=ON` builds the native Kafka connector and installs librdkafka.
-- `-Pkafka` includes Gluten's JVM Kafka integration in the build.
+- `-Pkafka` builds Gluten's JVM Kafka integration and includes it in the Velox
+  bundle through the backend's `gluten-kafka` dependency.
 
 `buildbundle-veloxbe.sh` does not add the `kafka` Maven profile automatically.
 
@@ -189,6 +204,18 @@ and reuse them on restart; recovered offsets take precedence over `startingOffse
 
 ## Verify Gluten offloading
 
+Check that the bundle contains the JVM Kafka integration:
+
+```bash
+jar tf "$GLUTEN_JAR" | grep -E \
+  'OffloadKafkaScan|MicroBatchScanExecTransformer|VeloxKafkaComponent'
+```
+
+Expect the `OffloadKafkaScan`, `MicroBatchScanExecTransformer`, and
+`VeloxKafkaComponent` classes, plus the component registration resource
+`META-INF/gluten-components/org.apache.gluten.component.VeloxKafkaComponent`.
+Then verify native execution using the streaming plan.
+
 The example calls `consumer.explain(true)` after processing records. Inspect
 that output or the executed streaming plan in Spark UI for
 **`MicroBatchScanExecTransformer`** on the Kafka source. This is the Gluten scan
@@ -203,7 +230,7 @@ in the plan do not prove that the Kafka scan was offloaded.
 | Symptom | Check |
 | --- | --- |
 | Kafka data source missing | Supply the matching `spark-sql-kafka-0-10` runtime package. |
-| Kafka scan stays in Spark | Confirm `GlutenPlugin` is loaded, both Kafka build options are enabled, and the build includes Velox Kafka scan offloading. |
+| Kafka scan stays in Spark | Confirm `GlutenPlugin` is loaded, both Kafka build options are enabled, the bundle contains the Kafka classes and component resource listed above, and `spark.gluten.sql.columnar.kafkaScan` is `true`. |
 | Unsupported native schema | Use the supported Kafka columns listed above; requesting `headers` falls back to Spark. |
 | Native read times out | Check broker reachability, authentication compatibility, offset availability, and `kafkaConsumer.pollTimeoutMs`. |
 
