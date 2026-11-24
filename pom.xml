@@ -1460,8 +1460,8 @@
       <properties>
         <sparkbundle.version>4.2</sparkbundle.version>
         <sparkshim.artifactId>spark-sql-columnar-shims-spark42</sparkshim.artifactId>
-        <spark.version>4.2.0</spark.version>
-        <!-- Spark 4.2.0 uses Scala 2.13.18; override the shared scala-2.13
+        <spark.version>4.2.1</spark.version>
+        <!-- Spark 4.2.1 uses Scala 2.13.18; override the shared scala-2.13
              profile (2.13.17) for Spark 4.2 builds only. -->
         <scala.version>2.13.18</scala.version>
         <delta.package.name>delta-spark_${sparkbundle.version}</delta.package.name>
@@ -1472,7 +1472,7 @@
              (activeByDefault=false) and are NOT enabled on the Spark 4.2 CI lane. -->
         <iceberg.version>1.11.0</iceberg.version>
         <hudi.version>1.2.0</hudi.version>
-        <!-- Spark 4.2.0 ships Jackson 2.21.2; jackson-annotations has no 2.21.2
+        <!-- Spark 4.2.1 ships Jackson 2.21.2; jackson-annotations has no 2.21.2
              patch release, so it is pinned separately to 2.21. -->
         <fasterxml.version>2.21.2</fasterxml.version>
         <fasterxml.annotations.version>2.21</fasterxml.annotations.version>
