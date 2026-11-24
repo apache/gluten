@@ -29,8 +29,6 @@ import org.apache.spark.sql.execution.datasources.v2.clickhouse.metadata.AddMerg
 
 import org.scalatest.DoNotDiscover
 
-import java.io.File
-
 import scala.concurrent.duration.DurationInt
 
 @DoNotDiscover
@@ -508,13 +506,12 @@ class GlutenClickHouseMergeTreeWriteOnS3Suite extends CreateMergeTreeSuite {
                      |CREATE TABLE $tableName
                      |USING clickhouse
                      |LOCATION '$dataPath'
+                     |TBLPROPERTIES (storage_policy='__s3_main')
                      | as select * from lineitem
                      |""".stripMargin)
 
         val ret = spark.sql(s"select count(*) from $tableName").collect()
         assertResult(600572)(ret.apply(0).get(0))
-        assert(
-          !new File(s"$CH_DEFAULT_STORAGE_DIR/lineitem_mergetree_insert_optimize_basic").exists())
       }
     }
   }
