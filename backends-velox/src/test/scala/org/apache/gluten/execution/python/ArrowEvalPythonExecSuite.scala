@@ -139,15 +139,15 @@ class ArrowEvalPythonExecSuite extends WholeStageTransformerSuite {
       val df = query()
       checkAnswer(df, expected)
       checkSparkPlan[ColumnarArrowEvalPythonExec](df)
-      // Only Arrow data loading and offloading are needed around the UDFs.
+      // The UDFs take and produce Velox batches, so no Arrow transitions are needed around them.
       val plan = getExecutedPlan(df)
       val udfs = plan.collect { case p: ColumnarArrowEvalPythonExec => p }
       assert(udfs.size == 2, plan)
-      assert(udfs.forall(_.child.isInstanceOf[LoadArrowDataExec]), plan)
+      assert(udfs.forall(!_.child.isInstanceOf[LoadArrowDataExec]), plan)
       val offloadedUdfs = plan.collect {
         case p: OffloadArrowDataExec if p.child.isInstanceOf[ColumnarArrowEvalPythonExec] => p
       }
-      assert(offloadedUdfs.size == 2, plan)
+      assert(offloadedUdfs.isEmpty, plan)
     }
   }
 
