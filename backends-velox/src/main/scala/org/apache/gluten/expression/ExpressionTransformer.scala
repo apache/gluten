@@ -23,7 +23,7 @@ import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.expression._
 
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.types.{IntegerType, LongType, TimestampType}
+import org.apache.spark.sql.types.{IntegerType, LongType, TimestampNTZType, TimestampType}
 
 import java.lang.{Integer => JInteger}
 import java.util.{ArrayList => JArrayList}
@@ -120,6 +120,7 @@ case class ToUnixTimestampTransformer(
   override def children: Seq[ExpressionTransformer] = {
     timeExpTransformer.dataType match {
       case _: TimestampType => Seq(timeExpTransformer)
+      case TimestampNTZType => Seq(timeExpTransformer)
       case _ => Seq(timeExpTransformer, formatTransformer)
     }
   }

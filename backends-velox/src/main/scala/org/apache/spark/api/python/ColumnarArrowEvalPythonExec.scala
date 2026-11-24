@@ -44,6 +44,7 @@ import java.io.{DataInputStream, DataOutputStream}
 import java.util.concurrent.atomic.AtomicBoolean
 
 import scala.annotation.nowarn
+import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 import scala.util.control.NonFatal
@@ -92,10 +93,15 @@ class ColumnarArrowPythonRunner(
       private var reader: ArrowStreamReader = _
       private var root: VectorSchemaRoot = _
       private var schema: StructType = _
-      private var vectors: Array[ColumnVector] = _
+      // The last batch read but not returned by next() yet, e.g. one that hasNext() read ahead.
+      private var unclaimed: ColumnarBatch = _
 
       context.addTaskCompletionListener[Unit] {
         _ =>
+          if (unclaimed != null) {
+            unclaimed.close()
+            unclaimed = null
+          }
           if (reader != null) {
             reader.close(false)
           }
@@ -106,6 +112,12 @@ class ColumnarArrowPythonRunner(
 
       private var batchLoaded = true
 
+      override def next(): ColumnarBatch = {
+        val batch = super.next()
+        unclaimed = null
+        batch
+      }
+
       override protected def read(): ColumnarBatch = {
         if (writer.exception.isDefined) {
           throw writer.exception.get
@@ -114,9 +126,14 @@ class ColumnarArrowPythonRunner(
           if (reader != null && batchLoaded) {
             batchLoaded = reader.loadNextBatch()
             if (batchLoaded) {
-              val batch = new ColumnarBatch(vectors)
-              batch.setNumRows(root.getRowCount)
-              batch
+              // The reader loads every batch into the vectors of `root`. Move the buffers to new
+              // vectors, so that each batch owns its data and closing it frees only that batch.
+              val numRows = root.getRowCount
+              val vectors = root.getFieldVectors.asScala.map(ArrowColumnVectors.adopt(_, allocator))
+              unclaimed = new ColumnarBatch(
+                ArrowColumnVectors.wrap(vectors.asJava).toArray[ColumnVector],
+                numRows)
+              unclaimed
             } else {
               reader.close(false)
               // Reach end of stream. Call `read()` again to read control data.
@@ -128,9 +145,6 @@ class ColumnarArrowPythonRunner(
                 reader = new ArrowStreamReader(stream, allocator)
                 root = reader.getVectorSchemaRoot()
                 schema = SparkArrowUtil.fromArrowSchema(root.getSchema())
-                vectors = ArrowColumnVectors
-                  .wrap(root.getFieldVectors)
-                  .toArray[ColumnVector]
                 read()
               case SpecialLengths.TIMING_DATA =>
                 handleTimingData()
@@ -317,6 +331,11 @@ case class ColumnarArrowEvalPythonExec(
   override def rowType(): Convention.RowType = Convention.RowType.None
 
   override protected def doValidateInternal(): ValidationResult = {
+    if (!ColumnarArrowEvalPythonExec.supportedEvalTypes.contains(evalType)) {
+      // The output batches are joined with the input batches one by one, but an iterator UDF
+      // may return its rows in batches of other sizes than its input.
+      return ValidationResult.failed(s"Python eval type $evalType is not supported")
+    }
     val (_, inputs) = udfs.map(ColumnarArrowEvalPythonExec.collectFunctions).unzip
     inputs.foreach {
       input =>
@@ -377,12 +396,19 @@ case class ColumnarArrowEvalPythonExec(
 
     columnarBatchIter.map {
       batch =>
-        val actualDataTypes = (0 until batch.numCols()).map(i => batch.column(i).dataType())
-        assert(
-          outputTypes == actualDataTypes,
-          "Invalid schema from arrow_udf: " +
-            s"expected ${outputTypes.mkString(", ")}, got ${actualDataTypes.mkString(", ")}")
-        batch
+        try {
+          val actualDataTypes = (0 until batch.numCols()).map(i => batch.column(i).dataType())
+          assert(
+            outputTypes == actualDataTypes,
+            "Invalid schema from arrow_udf: " +
+              s"expected ${outputTypes.mkString(", ")}, got ${actualDataTypes.mkString(", ")}")
+          batch
+        } catch {
+          case NonFatal(e) =>
+            // The batch hasn't reached its consumer, which would close it.
+            batch.close()
+            throw e
+        }
     }
   }
 
@@ -475,23 +501,35 @@ case class ColumnarArrowEvalPythonExec(
         val res =
           outputColumnarBatchIterator.zipWithIndex.map {
             case (outputCb, batchId) =>
-              val inputCb = inputCbCache(batchId)
-              val joinedVectors = (0 until inputCb.numCols).toArray.map(
-                i => inputCb.column(i)) ++ (0 until outputCb.numCols).toArray.map(
-                i => outputCb.column(i))
-              // Columns in outputCb has random 0 or 1 refCnt and will fail checks in ensureOffload,
-              // so we do a hard reset here.
-              (0 until joinedVectors.length).foreach(
-                i => {
-                  adjustRefCnt(joinedVectors(i).asInstanceOf[RefCountedArrowColumnVector], 1)
-                })
-              val numRows = inputCb.numRows
-              numOutputBatches += 1
-              numOutputRows += numRows
-              val batch = new ColumnarBatch(joinedVectors, numRows)
-              ColumnarBatches.checkLoaded(batch)
-              procTime += (System.nanoTime() - start_time) / 1000000
-              batch
+              try {
+                val inputCb = inputCbCache(batchId)
+                require(
+                  outputCb.numRows == inputCb.numRows,
+                  s"Python UDF returned ${outputCb.numRows} rows for an input batch of " +
+                    s"${inputCb.numRows} rows")
+                val joinedVectors = (0 until inputCb.numCols).toArray.map(
+                  i => inputCb.column(i)) ++ (0 until outputCb.numCols).toArray.map(
+                  i => outputCb.column(i))
+                // The input columns hold the reference taken for inputCbCache and may still hold
+                // the producer's, so their count is 1 or 2. Offloading requires the same reference
+                // count on every column, so we do a hard reset here.
+                (0 until joinedVectors.length).foreach(
+                  i => {
+                    adjustRefCnt(joinedVectors(i).asInstanceOf[RefCountedArrowColumnVector], 1)
+                  })
+                val numRows = inputCb.numRows
+                numOutputBatches += 1
+                numOutputRows += numRows
+                val batch = new ColumnarBatch(joinedVectors, numRows)
+                ColumnarBatches.checkLoaded(batch)
+                procTime += (System.nanoTime() - start_time) / 1000000
+                batch
+              } catch {
+                case NonFatal(e) =>
+                  // The output batch hasn't reached its consumer, which would close it.
+                  outputCb.close()
+                  throw e
+              }
           }
         Iterators
           .wrap(res)
@@ -525,6 +563,10 @@ case class ColumnarArrowEvalPythonExec(
 }
 
 object ColumnarArrowEvalPythonExec {
+
+  // SQL_ARROW_BATCHED_UDF, SQL_SCALAR_PANDAS_UDF and SQL_SCALAR_ARROW_UDF, as numbers because
+  // older Spark profiles don't define all of them. Scalar iterator UDFs (204, 251) fall back.
+  private val supportedEvalTypes = Set(101, 200, 250)
 
   def collectFunctions(udf: PythonUDF): ((ChainedPythonFunctions, Long), Seq[Expression]) = {
     udf.children match {
