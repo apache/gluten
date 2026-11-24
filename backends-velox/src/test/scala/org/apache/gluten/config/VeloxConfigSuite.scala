@@ -72,4 +72,12 @@ class VeloxConfigSuite extends AnyFunSuite {
         assert(native.get(nullStructKey).contains(value))
     }
   }
+
+  test("memory manager capacity ratio is passed to the native backend") {
+    val key = GlutenConfig.MEMORY_MANAGER_CAPACITY_RATIO.key
+    val conf = GlutenConfig.getNativeBackendConf("velox", Map(key -> "0.5"))
+    assert(conf.get(key) == "0.5")
+    // Not passed when unset, so the native default applies.
+    assert(!GlutenConfig.getNativeBackendConf("velox", Map.empty).containsKey(key))
+  }
 }

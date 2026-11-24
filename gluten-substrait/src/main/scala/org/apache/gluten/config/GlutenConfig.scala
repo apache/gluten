@@ -719,7 +719,8 @@ object GlutenConfig extends ConfigRegistry {
       SPARK_REDACTION_REGEX,
       SQLConf.LEGACY_TIME_PARSER_POLICY.key,
       SQLConf.LEGACY_STATISTICAL_AGGREGATE.key,
-      COLUMNAR_CUDF_ENABLED.key
+      COLUMNAR_CUDF_ENABLED.key,
+      MEMORY_MANAGER_CAPACITY_RATIO.key
     )
 
     nativeConfMap ++= conf.filter {
