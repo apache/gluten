@@ -21,9 +21,7 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.Partition
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.execution.datasources._
-import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.SparkResourceUtil
 import org.apache.spark.util.collection.BitSet
 
@@ -33,13 +31,10 @@ import scala.collection.mutable.ArrayBuffer
 
 case class CHPartitionsUtil(
     relation: HadoopFsRelation,
-    requiredSchema: StructType,
     selectedPartitions: Array[PartitionDirectory],
-    output: Seq[Attribute],
     bucketedScan: Boolean,
     optionalBucketSet: Option[BitSet],
-    optionalNumCoalescedBuckets: Option[Int],
-    disableBucketedScan: Boolean)
+    optionalNumCoalescedBuckets: Option[Int])
   extends Logging {
 
   def genPartitionSeq(): Seq[Partition] = {
@@ -178,9 +173,5 @@ case class CHPartitionsUtil(
     }
     closePartition()
     partitions.toSeq
-  }
-
-  private def toAttribute(colName: String): Option[Attribute] = {
-    output.find(_.name == colName)
   }
 }
