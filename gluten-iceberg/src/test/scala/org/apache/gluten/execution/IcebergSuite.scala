@@ -324,10 +324,7 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
           assert(getExecutedPlan(df).exists {
             case s: IcebergScanTransformer =>
               s.getKeyGroupPartitioning.isDefined &&
-              s.runtimeFilters.exists {
-                case DynamicPruningExpression(e) => e != Literal.TrueLiteral
-                case _ => false
-              }
+              s.runtimeFilters.exists(_ != DynamicPruningExpression(Literal.TrueLiteral))
             case _ => false
           })
         }
