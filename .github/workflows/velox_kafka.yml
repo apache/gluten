@@ -160,8 +160,21 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  spark35:
-    needs: build-native
+  spark-kafka:
+    name: Native Kafka / Spark ${{ matrix.spark }}
+    needs: [merge-upstream, build-native]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - spark: '3.5'
+            scala: '2.12'
+          - spark: '4.0'
+            scala: '2.13'
+          - spark: '4.1'
+            scala: '2.13'
+          - spark: '4.2'
+            scala: '2.13'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -204,12 +217,14 @@ jobs:
         with:
           name: velox-kafka-native-${{ github.sha }}
           path: cpp/build/releases/
-      - name: Install Spark 3.5 modules with Kafka support
+      - name: Install Spark ${{ matrix.spark }} modules with Kafka support
         run: |
-          ./build/mvn -B -ntp install -Pbackends-velox -Pspark-3.5 -Pscala-2.12 \
-            -Pjava-17 -Pkafka -Pspark-ut -Pfast-build -DskipTests
+          ./build/mvn -B -ntp install -Pbackends-velox -Pspark-${{ matrix.spark }} \
+            -Pscala-${{ matrix.scala }} -Pjava-17 -Pkafka -Pspark-ut -Pfast-build \
+            -Dmaven.compiler.release=17 -DskipTests
 
       - name: Check Kafka schema validation without a broker
+        if: matrix.spark == '3.5'
         run: |
           ./build/mvn -B -ntp test -pl gluten-ut/spark35 -Pbackends-velox -Pspark-3.5 \
             -Pscala-2.12 -Pjava-17 -Pspark-ut -Pfast-build \
@@ -217,14 +232,33 @@ jobs:
 
       - name: Check native micro-batch reads and headers fallback
         run: |
-          ./build/mvn -B -ntp test -pl backends-velox -Pbackends-velox -Pspark-3.5 \
-            -Pscala-2.12 -Pjava-17 -Pkafka -Pfast-build \
+          ./build/mvn -B -ntp test -pl backends-velox -Pbackends-velox \
+            -Pspark-${{ matrix.spark }} -Pscala-${{ matrix.scala }} -Pjava-17 \
+            -Pkafka -Pfast-build -Dmaven.compiler.release=17 \
             -Dsuites=org.apache.gluten.execution.kafka.VeloxGlutenKafkaScanSuite
+      - name: Require native reader tests to execute
+        run: |
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          report = Path("backends-velox/target/surefire-reports") / (
+              "TEST-org.apache.gluten.execution.kafka.VeloxGlutenKafkaScanSuite.xml")
+          suite = ET.parse(report).getroot()
+          cases = list(suite.iter("testcase"))
+          if len(cases) < 3 or any(
+              case.find(tag) is not None
+              for case in cases for tag in ("failure", "error", "skipped")
+          ):
+              raise SystemExit("Native Kafka reader suite must run and pass every test")
+          print(f"Verified {len(cases)} native Kafka reader and fallback tests")
+          PYTHON
 
       # PR #13237 is merged upstream. A checkout missing its Velox integration
       # must fail the native scan assertions, rather than pass on Spark fallback.
       # The upstream suites start their own embedded Kafka brokers.
       - name: Run Spark Kafka correctness and native scan assertions
+        if: matrix.spark == '3.5'
         run: |
           ./build/mvn -B -ntp test -pl gluten-ut/spark35 -Pbackends-velox -Pspark-3.5 \
             -Pscala-2.12 -Pjava-17 -Pkafka -Pspark-ut -Pfast-build \
@@ -233,7 +267,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: velox-kafka-spark35-results
+          name: velox-kafka-spark${{ matrix.spark }}-results
           path: |
             **/surefire-reports/*
             **/target/*.log
