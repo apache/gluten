@@ -105,14 +105,13 @@ jint JNI_OnLoad(JavaVM* vm, void*) {
   initVeloxJniUDF(env);
   initVeloxJniHashTable(env, vm);
 
-  infoCls = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/validate/NativePlanValidationInfo;");
+  infoCls = createGlobalClassReferenceOrError(env, "org/apache/gluten/validate/NativePlanValidationInfo");
   infoClsInitMethod = getMethodIdOrError(env, infoCls, "<init>", "(ILjava/lang/String;)V");
 
-  blockStripesClass =
-      createGlobalClassReferenceOrError(env, "Lorg/apache/spark/sql/execution/datasources/BlockStripes;");
+  blockStripesClass = createGlobalClassReferenceOrError(env, "org/apache/spark/sql/execution/datasources/BlockStripes");
   blockStripesConstructor = getMethodIdOrError(env, blockStripesClass, "<init>", "(J[J[II[[B)V");
 
-  batchWriteMetricsClass = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/metrics/BatchWriteMetrics;");
+  batchWriteMetricsClass = createGlobalClassReferenceOrError(env, "org/apache/gluten/metrics/BatchWriteMetrics");
   batchWriteMetricsConstructor = getMethodIdOrError(env, batchWriteMetricsClass, "<init>", "(JIJJ)V");
 
   DLOG(INFO) << "Loaded Velox backend.";
@@ -792,7 +791,7 @@ Java_org_apache_gluten_vectorized_CelebornPartitionWriterJniWrapper_createPartit
   const auto ctx = getRuntime(env, wrapper);
 
   jclass celebornPartitionPusherClass =
-      createGlobalClassReferenceOrError(env, "Lorg/apache/spark/shuffle/CelebornPartitionPusher;");
+      createGlobalClassReferenceOrError(env, "org/apache/spark/shuffle/CelebornPartitionPusher");
   jmethodID celebornPushPartitionDataMethod =
       getMethodIdOrError(env, celebornPartitionPusherClass, "pushPartitionData", "(I[BI)I");
   std::shared_ptr<JavaRssClient> celebornClient =
@@ -836,7 +835,7 @@ Java_org_apache_gluten_vectorized_UnifflePartitionWriterJniWrapper_createPartiti
   const auto ctx = getRuntime(env, wrapper);
 
   jclass unifflePartitionPusherClass =
-      createGlobalClassReferenceOrError(env, "Lorg/apache/spark/shuffle/writer/PartitionPusher;");
+      createGlobalClassReferenceOrError(env, "org/apache/spark/shuffle/writer/PartitionPusher");
   jmethodID unifflePushPartitionDataMethod =
       getMethodIdOrError(env, unifflePartitionPusherClass, "pushPartitionData", "(I[BI)I");
   std::shared_ptr<JavaRssClient> uniffleClient =
