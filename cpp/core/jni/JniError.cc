@@ -58,7 +58,12 @@ JniExceptionUnwrapperRegistration::~JniExceptionUnwrapperRegistration() {
   auto& registry = unwrapperRegistry();
   std::lock_guard<std::mutex> lock(registry.mutex);
   auto& entries = registry.unwrappers;
-  entries.erase(std::find(entries.begin(), entries.end(), unwrap_));
+  const auto it = std::find(entries.begin(), entries.end(), unwrap_);
+  if (it == entries.end()) {
+    LOG(ERROR) << "Cannot unregister JNI exception unwrapper: no matching registration";
+    return;
+  }
+  entries.erase(it);
 }
 
 void handleJniException(JNIEnv* env, const std::exception& error) {
