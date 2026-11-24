@@ -32,6 +32,7 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
   val SUPPORTED_SQL_QUERY_LIST: Set[String] = Set(
     "ansi/conditional-functions.sql",
     "ansi/decimalArithmeticOperations.sql",
+    "bitwise.sql",
     "cast.sql",
     "change-column.sql",
     "ceil-floor-with-scale-param.sql",
@@ -235,8 +236,6 @@ object VeloxSQLQueryTestSettings extends SQLQueryTestSettings {
     "linear-regression.sql",
     // Overwrite exception message.
     "array.sql",
-    // Overwrite exception message.
-    "bitwise.sql",
     // Enable NullPropagation rule for
     // "legacy behavior: allow calling function count without parameters".
     "count.sql",

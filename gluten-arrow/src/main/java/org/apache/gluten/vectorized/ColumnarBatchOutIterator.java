@@ -143,6 +143,13 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
   private static final Pattern CHAR_VARCHAR_LENGTH_EXCEEDED =
       Pattern.compile("Exceeds allowed length limitation: (\\d+)");
 
+  // Velox's messages when getbit's position is negative or not below the bit width of its input,
+  // e.g. "(-1 vs. 0) The value of 'pos' argument must be greater than or equal to zero.".
+  private static final Pattern INVALID_BIT_POSITION =
+      Pattern.compile(
+          "\\((-?\\d+) vs\\. -?\\d+\\) The value of 'pos' argument must "
+              + "(be greater than or equal to zero|not exceed the number of bits in 'x' - 1)\\.");
+
   /**
    * Translates a Velox type conversion error into a SchemaColumnConvertNotSupportedException.
    * Returns null if the message does not indicate a type conversion error.
@@ -174,6 +181,25 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
         "EXCEED_LIMIT_LENGTH", new Map.Map1<>("limit", limit), e, new QueryContext[0], "");
   }
 
+  /**
+   * Translates a Velox getbit position check failure into the exception Spark 3.x throws for a
+   * position outside the bits of its input. Returns null if the message does not indicate one.
+   */
+  private static RuntimeException translateToInvalidBitPositionException(String msg, Exception e) {
+    // Spark 4.x names the function, getbit or bit_get, in this error, and Velox's message does not.
+    if (SparkVersionUtil.gteSpark40()) {
+      return null;
+    }
+    Matcher matcher = INVALID_BIT_POSITION.matcher(msg);
+    if (!matcher.find()) {
+      return null;
+    }
+    String reason =
+        matcher.group(2).startsWith("be") ? "is less than zero" : "exceeds the bit upper limit";
+    return new IllegalArgumentException(
+        "Invalid bit position: " + matcher.group(1) + " " + reason, e);
+  }
+
   @Override
   protected RuntimeException translateException(Exception e) {
     String msg = findFirstNonNullMessage(e);
@@ -186,6 +212,10 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
       RuntimeException lengthEx = translateToCharVarcharLengthException(msg, e);
       if (lengthEx != null) {
         return lengthEx;
+      }
+      RuntimeException bitPositionEx = translateToInvalidBitPositionException(msg, e);
+      if (bitPositionEx != null) {
+        return bitPositionEx;
       }
     }
     // A GlutenException raised by native/nested code is already translated; return it
