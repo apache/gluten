@@ -143,6 +143,12 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
   private static final Pattern CHAR_VARCHAR_LENGTH_EXCEEDED =
       Pattern.compile("Exceeds allowed length limitation: (\\d+)");
 
+  // Velox's messages when a map has a duplicate key: "Duplicate map key was found: <key>", and
+  // "Duplicate map key <key> was found." from map_concat.
+  private static final Pattern DUPLICATED_MAP_KEY =
+      Pattern.compile(
+          "^Reason: Duplicate map key (?:was found: (.*)|(.*) was found\\.)$", Pattern.MULTILINE);
+
   /**
    * Translates a Velox type conversion error into a SchemaColumnConvertNotSupportedException.
    * Returns null if the message does not indicate a type conversion error.
@@ -174,6 +180,25 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
         "EXCEED_LIMIT_LENGTH", new Map.Map1<>("limit", limit), e, new QueryContext[0], "");
   }
 
+  /**
+   * Translates a Velox duplicate map key error into the exception Spark throws for a duplicate map
+   * key. Returns null if the message does not indicate one.
+   */
+  private static RuntimeException translateToDuplicatedMapKeyException(String msg, Exception e) {
+    Matcher matcher = DUPLICATED_MAP_KEY.matcher(msg);
+    if (!matcher.find()) {
+      return null;
+    }
+    String key = matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
+    // Builds the exception QueryExecutionErrors.duplicateMapKeyFoundError builds.
+    return new SparkRuntimeException(
+        "DUPLICATED_MAP_KEY",
+        new Map.Map2<>("key", key, "mapKeyDedupPolicy", "\"spark.sql.mapKeyDedupPolicy\""),
+        e,
+        new QueryContext[0],
+        "");
+  }
+
   @Override
   protected RuntimeException translateException(Exception e) {
     String msg = findFirstNonNullMessage(e);
@@ -186,6 +211,10 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
       RuntimeException lengthEx = translateToCharVarcharLengthException(msg, e);
       if (lengthEx != null) {
         return lengthEx;
+      }
+      RuntimeException mapKeyEx = translateToDuplicatedMapKeyException(msg, e);
+      if (mapKeyEx != null) {
+        return mapKeyEx;
       }
     }
     // A GlutenException raised by native/nested code is already translated; return it
