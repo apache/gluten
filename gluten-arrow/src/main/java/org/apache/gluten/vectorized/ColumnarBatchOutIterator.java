@@ -21,14 +21,17 @@ import org.apache.gluten.exception.GlutenException;
 import org.apache.gluten.iterator.ClosableIterator;
 import org.apache.gluten.runtime.Runtime;
 import org.apache.gluten.runtime.RuntimeAware;
-import org.apache.gluten.sql.shims.SparkShimLoader;
 
+import org.apache.spark.QueryContext;
+import org.apache.spark.SparkArrayIndexOutOfBoundsException;
 import org.apache.spark.sql.execution.datasources.SchemaColumnConvertNotSupportedException;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 
 import java.io.IOException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import scala.collection.immutable.Map;
 
 public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
     implements RuntimeAware {
@@ -157,19 +160,25 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
   /**
    * Translates a Velox invalid bitmap position error from bitmap_construct_agg into Spark's
    * INVALID_BITMAP_POSITION exception. Returns null if the message does not indicate an invalid
-   * bitmap position, or if the running Spark version has no bitmap aggregate functions.
+   * bitmap position.
    */
   private static RuntimeException translateToInvalidBitmapPositionException(String msg) {
-    if (!msg.contains("Bitmap position out of bounds")) {
-      return null;
-    }
     Matcher matcher = BITMAP_POSITION_OUT_OF_BOUNDS.matcher(msg);
     if (!matcher.find()) {
       return null;
     }
-    long bitPosition = Long.parseLong(matcher.group(1));
-    return SparkShimLoader.getSparkShims()
-        .invalidBitmapPositionError(bitPosition, BITMAP_NUM_BYTES);
+    // Builds the exception QueryExecutionErrors.invalidBitmapPositionError builds.
+    return new SparkArrayIndexOutOfBoundsException(
+        "INVALID_BITMAP_POSITION",
+        new Map.Map3<>(
+            "bitPosition",
+            matcher.group(1),
+            "bitmapNumBytes",
+            String.valueOf(BITMAP_NUM_BYTES),
+            "bitmapNumBits",
+            String.valueOf(BITMAP_NUM_BYTES * 8)),
+        new QueryContext[0],
+        "");
   }
 
   @Override
