@@ -969,19 +969,12 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("InMemoryRelation statistics")
     // Extra ColumnarToRow is needed to transform vanilla columnar data to gluten columnar data.
     .exclude("SPARK-37369: Avoid redundant ColumnarToRow transition on InMemoryTableScan")
-    // Rewritten because native raise_error throws Spark exception
-    .exclude("SPARK-52684: Atomicity of cache table on error")
     // Rewrite for different cache size.
     .exclude("SPARK-36120: Support cache/uncache table with TimestampNTZ type")
   enableSuite[GlutenCacheTableInKryoSuite]
   enableSuite[GlutenFileSourceCharVarcharTestSuite]
   enableSuite[GlutenDSV2CharVarcharTestSuite]
   enableSuite[GlutenColumnExpressionSuite]
-    // Velox raise_error('errMsg') throws a velox_user_error exception with the message 'errMsg'.
-    // The final caught Spark exception's getCause().getMessage() contains 'errMsg' but does not
-    // equal 'errMsg' exactly. The following two tests will be skipped and overridden in Gluten.
-    .exclude("raise_error")
-    .exclude("assert_true")
   enableSuite[GlutenComplexTypeSuite]
   enableSuite[GlutenConfigBehaviorSuite]
     // Gluten columnar operator will have different number of jobs

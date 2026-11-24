@@ -18,7 +18,7 @@ package org.apache.spark.sql
 
 import org.apache.gluten.config.GlutenConfig
 
-import org.apache.spark.{SparkConf, SparkException}
+import org.apache.spark.SparkConf
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.execution.columnar.InMemoryRelation
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeLike
@@ -35,15 +35,6 @@ class GlutenCachedTableSuite
     super.sparkConf
       .set("spark.sql.shuffle.partitions", "5")
       .set(GlutenConfig.COLUMNAR_TABLE_CACHE_ENABLED.key, "true")
-
-  testGluten("SPARK-52684: Atomicity of cache table on error") {
-    withTempView("SPARK_52684") {
-      intercept[SparkException] {
-        spark.sql("CACHE TABLE SPARK_52684 AS SELECT raise_error('SPARK-52684') AS c1")
-      }
-      assert(!spark.catalog.tableExists("SPARK_52684"))
-    }
-  }
 
   testGluten("InMemoryRelation statistics") {
     sql("CACHE TABLE testData")

@@ -143,6 +143,14 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
   private static final Pattern CHAR_VARCHAR_LENGTH_EXCEEDED =
       Pattern.compile("Exceeds allowed length limitation: (\\d+)");
 
+  // Velox's message when raise_error fails, which assert_true also calls. The Context line names
+  // the expression that failed, and the Reason line, absent for an empty message, is the message.
+  private static final Pattern RAISE_ERROR_FAILED =
+      Pattern.compile(
+          "^Error Code: INVALID_ARGUMENT\n(?:Reason: ([\\s\\S]*?)\n)?Retriable: False\n"
+              + "Context: (?:Top-level Expression: )?raise_error\\(",
+          Pattern.MULTILINE);
+
   /**
    * Translates a Velox type conversion error into a SchemaColumnConvertNotSupportedException.
    * Returns null if the message does not indicate a type conversion error.
@@ -174,6 +182,30 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
         "EXCEED_LIMIT_LENGTH", new Map.Map1<>("limit", limit), e, new QueryContext[0], "");
   }
 
+  /**
+   * Translates a Velox raise_error failure into the exception Spark's raise_error throws. Returns
+   * null if the message does not indicate one.
+   */
+  private static RuntimeException translateToUserRaisedException(String msg, Exception e) {
+    Matcher matcher = RAISE_ERROR_FAILED.matcher(msg);
+    if (!matcher.find()) {
+      return null;
+    }
+    // raise_error(NULL) gives Velox an empty message, so a missing Reason line is a null message.
+    String message = matcher.group(1);
+    if (!SparkVersionUtil.gteSpark40()) {
+      // Spark 3.x has no USER_RAISED_EXCEPTION error class and throws this plain RuntimeException.
+      return new RuntimeException(message, e);
+    }
+    // Builds the exception QueryExecutionErrors.raiseError builds for USER_RAISED_EXCEPTION.
+    return new SparkRuntimeException(
+        "USER_RAISED_EXCEPTION",
+        new Map.Map1<>("errorMessage", message == null ? "null" : message),
+        e,
+        new QueryContext[0],
+        "");
+  }
+
   @Override
   protected RuntimeException translateException(Exception e) {
     String msg = findFirstNonNullMessage(e);
@@ -186,6 +218,10 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
       RuntimeException lengthEx = translateToCharVarcharLengthException(msg, e);
       if (lengthEx != null) {
         return lengthEx;
+      }
+      RuntimeException raisedEx = translateToUserRaisedException(msg, e);
+      if (raisedEx != null) {
+        return raisedEx;
       }
     }
     // A GlutenException raised by native/nested code is already translated; return it
