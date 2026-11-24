@@ -92,19 +92,20 @@ object GlutenIcebergSourceUtil {
     }
   }
 
-  def deleteExists(p: SparkDataSourceRDDPartition): Boolean = {
-    p.inputPartitions.exists {
-      case ip: SparkInputPartition =>
-        val tasks = ip.taskGroup[ScanTask]().tasks().asScala
-        asFileScanTask(tasks.toList).exists(task => !task.deletes().isEmpty())
-      case _ => throw new UnsupportedOperationException(s"Unsupported InputPartition type")
-    }
-  }
+  /**
+   * Whether any planned scan task has delete files. It reads the scan's own tasks instead of
+   * Spark's filtered partitions: these exist before runtime filters are applied, so validation does
+   * not need the results of runtime filter subqueries (for example the `_file IN (subquery)` filter
+   * of copy-on-write operations).
+   */
+  def hasDeleteFiles(sparkScan: Scan): Boolean =
+    asFileScanTask(getScanTasks(sparkScan).toList).exists(!_.deletes().isEmpty)
 
   def genSplitInfo(
       partition: SparkDataSourceRDDPartition,
       readPartitionSchema: StructType,
       metadataColumnNames: Seq[String],
+      readsRowLineage: Boolean,
       fieldIds: JMap[String, Integer],
       initialDefaults: JMap[String, String]): SplitInfo = {
     val paths = new JArrayList[String]()
@@ -126,8 +127,17 @@ object GlutenIcebergSourceUtil {
             lengths.add(task.length())
             partitionColumns.add(getPartitionColumns(task, readPartitionSchema))
             deleteFilesList.add(task.deletes())
-            metadataColumns.add(
-              genMetadataColumns(metadataColumnNames, filePath, task.start(), task.length()))
+            val fileMetadata =
+              genMetadataColumns(metadataColumnNames, filePath, task.start(), task.length())
+            if (readsRowLineage) {
+              Option(task.file().firstRowId()).foreach {
+                value => fileMetadata.put("$first_row_id", value.toString)
+              }
+              Option(task.file().dataSequenceNumber()).foreach {
+                value => fileMetadata.put("$data_sequence_number", value.toString)
+              }
+            }
+            metadataColumns.add(fileMetadata)
             val currentFileFormat = convertFileFormat(task.file().format())
             if (fileFormat == ReadFileFormat.UnknownFormat) {
               fileFormat = currentFileFormat
@@ -162,6 +172,12 @@ object GlutenIcebergSourceUtil {
     val fieldIds = new JHashMap[String, Integer]()
     getTable(sparkScan).schema().columns().asScala.foreach {
       field => fieldIds.put(field.name(), field.fieldId())
+    }
+    Seq(MetadataColumns.ROW_ID, MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER).foreach {
+      field =>
+        if (sparkScan.readSchema().fieldNames.exists(_.equalsIgnoreCase(field.name()))) {
+          fieldIds.put(field.name(), field.fieldId())
+        }
     }
     fieldIds
   }

@@ -33,6 +33,7 @@
 #endif
 #include "velox/connectors/hive/HiveDataSink.h"
 #include "velox/connectors/hive/iceberg/IcebergColumnHandle.h"
+#include "velox/connectors/hive/iceberg/IcebergMetadataColumns.h"
 #include "velox/connectors/hive/iceberg/IcebergTableHandle.h"
 #include "velox/exec/TableWriter.h"
 #include "velox/type/Type.h"
@@ -1656,6 +1657,19 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
     }
     veloxTypeList = SubstraitParser::parseNamedStruct(baseSchema, asLowerCase);
     SubstraitParser::parseColumnTypes(baseSchema, columnTypes);
+  }
+
+  // Spark marks the Iceberg row-lineage columns as metadata columns. Velox's Iceberg reader takes
+  // them as data columns: it reads the stored values, fills in the missing ones and only then
+  // evaluates their filters.
+  if (std::dynamic_pointer_cast<IcebergSplitInfo>(splitInfo)) {
+    using connector::hive::iceberg::IcebergMetadataColumn;
+    for (int idx = 0; idx < colNameList.size(); idx++) {
+      if (colNameList[idx] == IcebergMetadataColumn::kRowIdColumnName ||
+          colNameList[idx] == IcebergMetadataColumn::kLastUpdatedSequenceNumberColumnName) {
+        columnTypes[idx] = ColumnType::kRegular;
+      }
+    }
   }
 
   auto names = colNameList;

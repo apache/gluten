@@ -22,7 +22,9 @@ import org.apache.gluten.utils.VeloxFileSystemValidationJniWrapper
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.catalyst.expressions.DynamicPruningExpression
 import org.apache.spark.sql.connector.catalog.{Identifier, TableCatalog}
+import org.apache.spark.sql.execution.InSubqueryExec
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.utils.GlutenSuiteUtils
 
@@ -279,6 +281,49 @@ class VeloxIcebergSuite extends IcebergSuite {
         df =>
           checkAnswer(df, Seq(Row(1, "IN"), Row(2, "IN")))
           checkGlutenPlan[IcebergScanTransformer](df)
+      }
+    }
+  }
+
+  test("iceberg v3 scan with a dynamic partition pruning runtime filter") {
+    withTable("iceberg_v3_dpp_fact", "iceberg_v3_dpp_dim") {
+      spark.sql("""
+                  |CREATE TABLE iceberg_v3_dpp_fact (id INT, part INT)
+                  |USING iceberg
+                  |PARTITIONED BY (part)
+                  |TBLPROPERTIES ('format-version' = '3')
+                  |""".stripMargin)
+      spark.sql("INSERT INTO iceberg_v3_dpp_fact VALUES (1, 1), (2, 1), (3, 2), (4, 3)")
+      spark.sql("CREATE TABLE iceberg_v3_dpp_dim (part INT, name STRING) USING iceberg")
+      spark.sql("INSERT INTO iceberg_v3_dpp_dim VALUES (1, 'a'), (2, 'b'), (3, 'c')")
+
+      // Validation of the v3 scan must not evaluate the runtime filter: its subquery has no
+      // result yet when the plan is validated. Copy-on-write DML adds the same kind of filter.
+      withSQLConf(
+        "spark.sql.adaptive.enabled" -> "false",
+        "spark.sql.optimizer.dynamicPartitionPruning.enabled" -> "true",
+        "spark.sql.optimizer.dynamicPartitionPruning.reuseBroadcastOnly" -> "false",
+        // The tables are too small for Spark to estimate a benefit from pruning.
+        "spark.sql.optimizer.dynamicPartitionPruning.fallbackFilterRatio" -> "100"
+      ) {
+        runQueryAndCompare("""
+                             |SELECT f.id, f._row_id, d.name
+                             |FROM iceberg_v3_dpp_fact f
+                             |JOIN iceberg_v3_dpp_dim d ON f.part = d.part
+                             |WHERE d.name IN ('a', 'c')
+                             |""".stripMargin) {
+          df =>
+            val scans = collect(df.queryExecution.executedPlan) {
+              case s: IcebergScanTransformer
+                  if s.runtimeFilters.exists {
+                    case DynamicPruningExpression(_: InSubqueryExec) => true
+                    case _ => false
+                  } =>
+                s
+            }
+            assert(scans.nonEmpty, df.queryExecution.executedPlan)
+            assert(df.collect().map(_.getInt(0)).sorted.toSeq == Seq(1, 2, 4))
+        }
       }
     }
   }
