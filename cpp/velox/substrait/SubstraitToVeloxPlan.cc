@@ -24,7 +24,7 @@
 #include "compute/iceberg/IcebergPlanConverter.h"
 #include "jni/JniHashTable.h"
 #include "operators/functions/IncrementMetricFunction.h"
-#include "operators/hashjoin/HashTableBuilder.h"
+#include "operators/hashjoin/BroadcastHashTable.h"
 #include "operators/plannodes/RowVectorStream.h"
 #ifdef ENABLE_KAFKA
 #include "kafka.pb.h"
@@ -470,18 +470,19 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   } else if (
       sJoin.has_advanced_extension() &&
       SubstraitParser::configSetInOptimization(sJoin.advanced_extension(), "isBHJ=")) {
-    const std::string hashTableId = sJoin.hashtableid();
+    std::string cacheKey;
     bool useHashTableCache = false;
-    if (!hashTableId.empty()) {
+    if (!sJoin.hashtableid().empty()) {
       try {
-        const auto handle = getJoin(hashTableId);
+        cacheKey = getJoinCacheKey(sJoin.hashtableid());
+        const auto handle = getJoin(cacheKey);
         if (handle != 0) {
-          auto hashTableBuilder = ObjectStore::retrieve<gluten::HashTableBuilder>(handle);
-          useHashTableCache = (hashTableBuilder != nullptr);
+          auto hashTable = ObjectStore::retrieve<gluten::BroadcastHashTable>(handle);
+          useHashTableCache = (hashTable != nullptr);
         }
       } catch (const std::exception& e) {
-        LOG(WARNING) << "Failed to retrieve pre-built HashTableBuilder for cache key: " << hashTableId
-                     << ", error: " << e.what() << ". Disable hash table cache and build a new table.";
+        LOG(WARNING) << "Failed to retrieve pre-built hash table for cache key: " << cacheKey << ", error: " << e.what()
+                     << ". Disable hash table cache and build a new table.";
       }
     }
 
@@ -511,7 +512,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         getJoinOutputType(leftNode, rightNode, joinType),
         useHashTableCache,
         false,
-        sJoin.hashtableid());
+        cacheKey);
   } else {
     // Create HashJoinNode node
     return std::make_shared<core::HashJoinNode>(
@@ -735,7 +736,7 @@ std::shared_ptr<connector::hive::HiveInsertTableHandle> makeHiveInsertTableHandl
     const std::vector<std::string>& partitionedBy,
     const std::shared_ptr<connector::hive::HiveBucketProperty>& bucketProperty,
     const std::shared_ptr<connector::hive::LocationHandle>& locationHandle,
-    const std::shared_ptr<dwio::common::WriterOptions>& writerOptions,
+    const std::unordered_map<std::string, std::string>& serdeParameters,
     const dwio::common::FileFormat& tableStorageFormat = dwio::common::FileFormat::PARQUET,
     const std::optional<common::CompressionKind>& compressionKind = {}) {
   std::vector<std::shared_ptr<const connector::hive::HiveColumnHandle>> columnHandles;
@@ -783,11 +784,12 @@ std::shared_ptr<connector::hive::HiveInsertTableHandle> makeHiveInsertTableHandl
   return std::make_shared<connector::hive::HiveInsertTableHandle>(
       columnHandles,
       locationHandle,
+      // The default of Velox's insert_existing_partitions_behavior, which Gluten does not set.
+      connector::hive::HiveConfig::InsertExistingPartitionsBehavior::kError,
       tableStorageFormat,
       bucketProperty,
       compressionKind,
-      std::unordered_map<std::string, std::string>{},
-      writerOptions);
+      serdeParameters);
 }
 
 #ifdef GLUTEN_ENABLE_GPU
@@ -913,7 +915,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
           partitionedKey,
           bucketProperty,
           makeLocationHandle(writePath, fileName, fileFormat, compressionKind, bucketProperty != nullptr),
-          writerOptions,
+          makeParquetWriteSerdeParameters(writeConfs),
           fileFormat,
           compressionKind),
       folly::F14FastSet<std::string>{});

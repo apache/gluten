@@ -17,5 +17,15 @@
 package org.apache.spark.sql.sources
 
 import org.apache.spark.sql.GlutenSQLTestsBaseTrait
+import org.apache.spark.util.Utils
 
-class GlutenResolvedDataSourceSuite extends ResolvedDataSourceSuite with GlutenSQLTestsBaseTrait {}
+class GlutenResolvedDataSourceSuite extends ResolvedDataSourceSuite with GlutenSQLTestsBaseTrait {
+  override def testNameBlackList: Seq[String] = {
+    // The kafka profile adds the connector, so Spark's missing module check no longer applies.
+    if (Utils.classIsLoadable("org.apache.spark.sql.kafka010.KafkaSourceProvider")) {
+      super.testNameBlackList :+ "kafka: show deploy guide for loading the external kafka module"
+    } else {
+      super.testNameBlackList
+    }
+  }
+}

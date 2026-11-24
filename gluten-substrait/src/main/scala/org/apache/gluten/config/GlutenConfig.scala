@@ -21,6 +21,7 @@ import org.apache.gluten.shuffle.SupportsColumnarShuffle
 
 import org.apache.spark.network.util.{ByteUnit, JavaUtils}
 import org.apache.spark.sql.internal.{GlutenConfigUtil, SQLConf}
+import org.apache.spark.util.SparkVersionUtil
 
 import org.apache.hadoop.security.UserGroupInformation
 
@@ -500,6 +501,11 @@ object GlutenConfig extends ConfigRegistry {
   val SPARK_SHUFFLE_SPILL_COMPRESS_DEFAULT: Boolean = true
   val SPARK_IO_COMPRESSION_CODEC = "spark.io.compression.codec"
   val SPARK_MAX_BROADCAST_TABLE_SIZE = "spark.sql.maxBroadcastTableSize"
+  // Added in Spark 4.1 with default false (SPARK-53535). Earlier versions behave as if it is true.
+  val SPARK_LEGACY_PARQUET_RETURN_NULL_STRUCT_IF_ALL_FIELDS_MISSING =
+    "spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing"
+  val SPARK_LEGACY_PARQUET_RETURN_NULL_STRUCT_IF_ALL_FIELDS_MISSING_DEFAULT: Boolean =
+    !SparkVersionUtil.gteSpark41
 
   def get: GlutenConfig = {
     new GlutenConfig(GlutenCoreConfig.activeSQLConf)
@@ -524,7 +530,7 @@ object GlutenConfig extends ConfigRegistry {
     SQLConf.RUNTIME_BLOOM_FILTER_MAX_NUM_BITS.key,
     SQLConf.RUNTIME_BLOOM_FILTER_MAX_NUM_ITEMS.key,
     "spark.sql.decimalOperations.allowPrecisionLoss",
-    "spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing",
+    SPARK_LEGACY_PARQUET_RETURN_NULL_STRUCT_IF_ALL_FIELDS_MISSING,
     // s3 config
     SPARK_S3_ACCESS_KEY,
     SPARK_S3_SECRET_KEY,
@@ -592,7 +598,10 @@ object GlutenConfig extends ConfigRegistry {
         GLUTEN_COLUMNAR_TO_ROW_MEM_THRESHOLD.defaultValue.get.toString),
       (SPARK_SHUFFLE_SPILL_COMPRESS, SPARK_SHUFFLE_SPILL_COMPRESS_DEFAULT.toString),
       (SQLConf.SESSION_LOCAL_TIMEZONE.key, SQLConf.SESSION_LOCAL_TIMEZONE.defaultValueString),
-      (SQLConf.ANSI_ENABLED.key, SQLConf.ANSI_ENABLED.defaultValueString)
+      (SQLConf.ANSI_ENABLED.key, SQLConf.ANSI_ENABLED.defaultValueString),
+      (
+        SPARK_LEGACY_PARQUET_RETURN_NULL_STRUCT_IF_ALL_FIELDS_MISSING,
+        SPARK_LEGACY_PARQUET_RETURN_NULL_STRUCT_IF_ALL_FIELDS_MISSING_DEFAULT.toString)
     ).foreach { case (k, defaultValue) => nativeConfMap.put(k, conf.getOrElse(k, defaultValue)) }
 
     Seq(
@@ -885,7 +894,8 @@ object GlutenConfig extends ConfigRegistry {
       .doc(
         "This is tmp config to specify whether to enable the native validation based on " +
           "Substrait plan. After the validations in all backends are correctly implemented, " +
-          "this config should be removed.")
+          "this config should be removed. Disabling native validation is intended for debugging " +
+          "and may cause unsupported operations to fail at runtime instead of falling back.")
       .booleanConf
       .createWithDefault(true)
 
