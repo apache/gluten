@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 #include <pthread.h>
 
+#include <cstdlib>
 #include <thread>
 
 #include "jni/JniCommon.h"
@@ -52,9 +53,12 @@ void hdfsLikeDestructor(void* value) {
   vmOf(*state->jni)->DetachCurrentThread();
 }
 
+// Also called during static initialization, where gtest assertions must not be used, so abort on failure.
 pthread_key_t createHdfsLikeKey() {
   pthread_key_t key;
-  EXPECT_EQ(pthread_key_create(&key, hdfsLikeDestructor), 0);
+  if (pthread_key_create(&key, hdfsLikeDestructor) != 0) {
+    std::abort();
+  }
   return key;
 }
 
