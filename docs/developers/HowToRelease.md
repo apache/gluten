@@ -538,3 +538,42 @@ svn mv --username <asf-id> \
 - Update the download page on the website.
 - Bump the development version on the release branch with
   `bash dev/release/bump-version.sh <next-version>-SNAPSHOT`.
+
+## Alternative: Apache Trusted Releases (ATR)
+
+[Apache Trusted Releases](https://releases.apache.org/) (ATR) is the ASF's release platform. It
+went to Beta in October 2026, and several projects already release through it. It replaces the SVN
+steps: you upload artifacts to ATR instead of `dist.apache.org`, and ATR publishes them to
+`dist/release/gluten/` once the vote passes. ATR is still in Beta, so follow its own documentation
+at <https://releases.apache.org/docs/> (tutorial at <https://releases.apache.org/tutorial>) where it
+differs from this summary.
+
+**Choose ATR or SVN for each release candidate, never both.** ATR keeps its own record of the
+candidate. Mixing the two paths leaves the SVN copy and the ATR record out of sync.
+
+What stays the same:
+
+- Building, packaging and the preflight (steps 1–2).
+- **Signing.** ASF policy still requires a detached GPG signature and a SHA-512 checksum for every
+  artifact, made by the release manager. ATR doesn't sign for you, so run
+  `dev/release/sign-artifacts.sh` (steps 6–8) as before.
+- **`KEYS`.** Keep your key in <https://downloads.apache.org/gluten/KEYS> (step 5), which voters
+  verify against.
+- The vote on dev@gluten.apache.org with at least 3 binding PMC +1s, open for at least 72 hours.
+
+What changes:
+
+| SVN step | With ATR |
+|---|---|
+| — | One-time setup: upload your OpenPGP public key at <https://releases.apache.org/keys>. For rsync uploads, add an SSH public key on the same page. API tokens are created at <https://releases.apache.org/tokens> and expire after 180 days. |
+| 9–10. `svn co` / `svn add` / `svn ci` to `dist/dev`, then check the listing | Create the candidate in ATR and upload the tarballs with their `.asc` and `.sha512` files (web UI, rsync or API). ATR runs its own checks on them (signatures, checksums, licenses). Review the results, together with `dev/release/verify-release.sh`, before calling the vote. |
+| 11–12. Send `[VOTE]`, count the votes, send `[RESULT][VOTE]` | ATR can send the vote email and tally the votes. You can also keep sending the emails by hand using the templates above. |
+| 14. `svn mv dist/dev/... dist/release/...` | Finish the release in ATR, which publishes it to `dist/release/gluten/` and records a release attestation. |
+
+Before finishing a release in ATR, set the project's **default download path suffix** so artifacts
+land in `dist/release/gluten/<version>/`. By default, files go directly into
+`dist/release/gluten/`.
+
+Gluten has to be onboarded to ATR before its first ATR release. Ask on the
+`#apache-trusted-releases` ASF Slack channel. Until a release has gone through ATR end to end,
+treat the SVN steps above as the reference process.
