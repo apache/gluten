@@ -24,7 +24,7 @@ import org.apache.spark.scheduler.{SparkListener, SparkListenerEvent}
 import org.apache.spark.sql.{DataFrame, GlutenDeltaTestUtils, Row}
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.delta.DeltaLog
-import org.apache.spark.sql.execution.SparkPlanInfo
+import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlanInfo}
 import org.apache.spark.sql.execution.ui.{SparkListenerSQLAdaptiveExecutionUpdate, SparkListenerSQLExecutionStart}
 import org.apache.spark.sql.types._
 import org.apache.spark.util.SparkVersionUtil
@@ -61,15 +61,15 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
                    |create table delta_cm1 (id int, name string) using delta
                    |tblproperties ("delta.columnMapping.mode"= "id")
                    |""".stripMargin)
-      spark.sql(s"""
-                   |insert into delta_cm1 values (1, "v1"), (2, "v2")
-                   |""".stripMargin)
-      val df1 = runQueryAndCompare("select * from delta_cm1") { _ => }
-      checkLengthAndPlan(df1, 2)
+      withSQLConf(vanillaSparkConfs(): _*) {
+        spark.sql(s"""
+                     |insert into delta_cm1 values (1, "v1"), (2, "v2")
+                     |""".stripMargin)
+      }
+      val df1 = runColumnMappingQuery("select * from delta_cm1", "id")
       checkAnswer(df1, Row(1, "v1") :: Row(2, "v2") :: Nil)
 
-      val df2 = runQueryAndCompare("select name from delta_cm1 where id = 2") { _ => }
-      checkLengthAndPlan(df2, 1)
+      val df2 = runColumnMappingQuery("select name from delta_cm1 where id = 2", "id")
       checkAnswer(df2, Row("v2") :: Nil)
     }
   }
@@ -83,13 +83,22 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
       spark.sql(s"""
                    |insert into delta_cm2 values (1, "v1"), (2, "v2")
                    |""".stripMargin)
-      val df1 = runQueryAndCompare("select * from delta_cm2") { _ => }
-      checkLengthAndPlan(df1, 2)
+      val df1 = runColumnMappingQuery("select * from delta_cm2", "name")
       checkAnswer(df1, Row(1, "v1") :: Row(2, "v2") :: Nil)
 
-      val df2 = runQueryAndCompare("select name from delta_cm2 where id = 2") { _ => }
-      checkLengthAndPlan(df2, 1)
+      val df2 = runColumnMappingQuery("select name from delta_cm2 where id = 2", "name")
       checkAnswer(df2, Row("v2") :: Nil)
+    }
+  }
+
+  private def runColumnMappingQuery(query: String, mode: String): DataFrame = {
+    runQueryAndCompare(query, noFallBack = mode != "id") {
+      df =>
+        val plan = df.queryExecution.executedPlan
+        val nativeScans = collect(plan) { case scan: DeltaScanTransformer => scan }
+        val sparkScans = collect(plan) { case scan: FileSourceScanExec => scan }
+        assert(nativeScans.nonEmpty == (mode != "id"), plan)
+        assert(sparkScans.nonEmpty == (mode == "id"), plan)
     }
   }
 
@@ -99,17 +108,18 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
   private def deltaInputFileCount(df: org.apache.spark.sql.DataFrame): Int =
     df.inputFiles.length
 
-  // Counts the partition directories selected by the executed scan after Gluten's rewrite.
+  // Counts the partition directories selected by the native scan or its Spark fallback.
   // Backed by `selectedPartitions` -> `relation.location.listFiles(partitionFilters, dataFilters)`,
   // which is the exact call site of issue #10511: pre-fix, physical-named partition filters
   // could not match Delta's logical partition schema, so this returned all directories. We use
   // `getPartitionArray` rather than `getPartitions` because the latter reflects post-coalesce
   // splits (Velox may merge small files into one split, hiding the per-partition count).
   private def selectedPartitionCount(df: org.apache.spark.sql.DataFrame): Int = {
-    val scan = df.queryExecution.executedPlan.collect {
-      case f: DeltaScanTransformer => f
+    collect(df.queryExecution.executedPlan) {
+      case scan: DeltaScanTransformer => scan.getPartitionArray.length
+      case scan: FileSourceScanExec =>
+        scan.relation.location.listFiles(scan.partitionFilters, scan.dataFilters).length
     }.head
-    scan.getPartitionArray.length
   }
 
   // Regression for issue #10511: with column mapping, a partition column filter must prune
@@ -124,35 +134,35 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
                        |partitioned by (id)
                        |tblproperties ("delta.columnMapping.mode" = "$mode")
                        |""".stripMargin)
-          // Use multiple inserts so each value lands in its own partition directory & file.
-          spark.sql("insert into delta_cm_part values (1, \"v1\")")
-          spark.sql("insert into delta_cm_part values (2, \"v2\")")
-          spark.sql("insert into delta_cm_part values (3, \"v3\")")
+          // Spark's writer preserves the field IDs required by id-mapped reads.
+          withSQLConf(vanillaSparkConfs(): _*) {
+            // Use multiple inserts so each value lands in its own partition directory & file.
+            spark.sql("insert into delta_cm_part values (1, \"v1\")")
+            spark.sql("insert into delta_cm_part values (2, \"v2\")")
+            spark.sql("insert into delta_cm_part values (3, \"v3\")")
+          }
 
           // Equality on partition column. 1 of 3 partitions matches.
-          val df1 = runQueryAndCompare("select name from delta_cm_part where id = 2") { _ => }
-          checkLengthAndPlan(df1, 1)
+          val df1 = runColumnMappingQuery("select name from delta_cm_part where id = 2", mode)
           checkAnswer(df1, Row("v2") :: Nil)
           assert(deltaInputFileCount(df1) == 1, "Delta should prune to 1 file")
-          assert(selectedPartitionCount(df1) == 1, "native scan should see 1 split")
+          assert(selectedPartitionCount(df1) == 1, "scan should select 1 partition")
 
           // Range on partition column (the exact case from the bug report).
-          val df2 = runQueryAndCompare("select name from delta_cm_part where id > 2") { _ => }
-          checkLengthAndPlan(df2, 1)
+          val df2 = runColumnMappingQuery("select name from delta_cm_part where id > 2", mode)
           checkAnswer(df2, Row("v3") :: Nil)
           assert(deltaInputFileCount(df2) == 1)
           assert(selectedPartitionCount(df2) == 1)
 
           // IN list on partition column. 2 of 3 partitions match.
           val df3 =
-            runQueryAndCompare("select name from delta_cm_part where id in (1, 3)") { _ => }
-          checkLengthAndPlan(df3, 2)
+            runColumnMappingQuery("select name from delta_cm_part where id in (1, 3)", mode)
           checkAnswer(df3, Row("v1") :: Row("v3") :: Nil)
           assert(deltaInputFileCount(df3) == 2)
           assert(selectedPartitionCount(df3) == 2)
 
           // No filter -- baseline: all 3 partitions read.
-          val dfAll = runQueryAndCompare("select name from delta_cm_part") { _ => }
+          val dfAll = runColumnMappingQuery("select name from delta_cm_part", mode)
           assert(deltaInputFileCount(dfAll) == 3)
           assert(selectedPartitionCount(dfAll) == 3)
         }
@@ -166,22 +176,24 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
                        |using delta partitioned by (region, id)
                        |tblproperties ("delta.columnMapping.mode" = "$mode")
                        |""".stripMargin)
-          spark.sql("insert into delta_cm_part_multi values (1, \"us\", \"v1\")")
-          spark.sql("insert into delta_cm_part_multi values (2, \"us\", \"v2\")")
-          spark.sql("insert into delta_cm_part_multi values (1, \"eu\", \"v3\")")
-          spark.sql("insert into delta_cm_part_multi values (2, \"eu\", \"v4\")")
+          withSQLConf(vanillaSparkConfs(): _*) {
+            spark.sql("insert into delta_cm_part_multi values (1, \"us\", \"v1\")")
+            spark.sql("insert into delta_cm_part_multi values (2, \"us\", \"v2\")")
+            spark.sql("insert into delta_cm_part_multi values (1, \"eu\", \"v3\")")
+            spark.sql("insert into delta_cm_part_multi values (2, \"eu\", \"v4\")")
+          }
 
-          val df = runQueryAndCompare(
-            "select name from delta_cm_part_multi where region = 'us' and id > 1") { _ => }
-          checkLengthAndPlan(df, 1)
+          val df = runColumnMappingQuery(
+            "select name from delta_cm_part_multi where region = 'us' and id > 1",
+            mode)
           checkAnswer(df, Row("v2") :: Nil)
           assert(deltaInputFileCount(df) == 1, "Delta should prune to 1 file with both filters")
           assert(selectedPartitionCount(df) == 1)
 
           // Filter on only one of two partition columns.
-          val df2 = runQueryAndCompare(
-            "select name from delta_cm_part_multi where region = 'eu'") { _ => }
-          checkLengthAndPlan(df2, 2)
+          val df2 = runColumnMappingQuery(
+            "select name from delta_cm_part_multi where region = 'eu'",
+            mode)
           checkAnswer(df2, Row("v3") :: Row("v4") :: Nil)
           assert(deltaInputFileCount(df2) == 2)
           assert(selectedPartitionCount(df2) == 2)
@@ -195,15 +207,17 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
                        |using delta partitioned by (id)
                        |tblproperties ("delta.columnMapping.mode" = "$mode")
                        |""".stripMargin)
-          spark.sql("insert into delta_cm_part_data values (1, \"a\", 10), (1, \"b\", 20)")
-          spark.sql("insert into delta_cm_part_data values (2, \"c\", 30), (2, \"d\", 40)")
-          spark.sql("insert into delta_cm_part_data values (3, \"e\", 50), (3, \"f\", 60)")
+          withSQLConf(vanillaSparkConfs(): _*) {
+            spark.sql("insert into delta_cm_part_data values (1, \"a\", 10), (1, \"b\", 20)")
+            spark.sql("insert into delta_cm_part_data values (2, \"c\", 30), (2, \"d\", 40)")
+            spark.sql("insert into delta_cm_part_data values (3, \"e\", 50), (3, \"f\", 60)")
+          }
 
           // Combined: partition pruning to id > 1 keeps 2 files; data stats-skipping on age >= 50
           // further drops the id=2 file (max age 40 < 50). Should leave 1 file.
-          val df1 = runQueryAndCompare(
-            "select name from delta_cm_part_data where id > 1 and age >= 50") { _ => }
-          checkLengthAndPlan(df1, 2)
+          val df1 = runColumnMappingQuery(
+            "select name from delta_cm_part_data where id > 1 and age >= 50",
+            mode)
           checkAnswer(df1, Row("e") :: Row("f") :: Nil)
           assert(
             deltaInputFileCount(df1) == 1,
@@ -211,9 +225,8 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
 
           // Data filter alone -- file-level stats skipping should resolve column names.
           // Only the id=2 file (age 30..40) matches age = 30.
-          val df2 = runQueryAndCompare(
-            "select name from delta_cm_part_data where age = 30") { _ => }
-          checkLengthAndPlan(df2, 1)
+          val df2 =
+            runColumnMappingQuery("select name from delta_cm_part_data where age = 30", mode)
           checkAnswer(df2, Row("c") :: Nil)
           assert(
             deltaInputFileCount(df2) == 1,
@@ -228,18 +241,22 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
                        |using delta partitioned by (id)
                        |tblproperties ("delta.columnMapping.mode" = "$mode")
                        |""".stripMargin)
-          spark.sql("insert into delta_cm_part_null values (1, \"v1\")")
-          spark.sql("insert into delta_cm_part_null values (2, \"v2\")")
-          spark.sql("insert into delta_cm_part_null values (cast(null as int), \"vn\")")
+          withSQLConf(vanillaSparkConfs(): _*) {
+            spark.sql("insert into delta_cm_part_null values (1, \"v1\")")
+            spark.sql("insert into delta_cm_part_null values (2, \"v2\")")
+            spark.sql("insert into delta_cm_part_null values (cast(null as int), \"vn\")")
+          }
 
-          val df1 = runQueryAndCompare(
-            "select name from delta_cm_part_null where id is null") { _ => }
+          val df1 = runColumnMappingQuery(
+            "select name from delta_cm_part_null where id is null",
+            mode)
           checkAnswer(df1, Row("vn") :: Nil)
           assert(deltaInputFileCount(df1) == 1)
           assert(selectedPartitionCount(df1) == 1)
 
-          val df2 = runQueryAndCompare(
-            "select name from delta_cm_part_null where id is not null") { _ => }
+          val df2 = runColumnMappingQuery(
+            "select name from delta_cm_part_null where id is not null",
+            mode)
           checkAnswer(df2, Row("v1") :: Row("v2") :: Nil)
           assert(deltaInputFileCount(df2) == 2)
           assert(selectedPartitionCount(df2) == 2)
@@ -253,16 +270,18 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
                        |using delta partitioned by (id)
                        |tblproperties ("delta.columnMapping.mode" = "$mode")
                        |""".stripMargin)
-          spark.sql("insert into delta_cm_part_rename values (1, \"v1\")")
-          spark.sql("insert into delta_cm_part_rename values (2, \"v2\")")
-          spark.sql("insert into delta_cm_part_rename values (3, \"v3\")")
+          withSQLConf(vanillaSparkConfs(): _*) {
+            spark.sql("insert into delta_cm_part_rename values (1, \"v1\")")
+            spark.sql("insert into delta_cm_part_rename values (2, \"v2\")")
+            spark.sql("insert into delta_cm_part_rename values (3, \"v3\")")
+          }
           // Rename the partition column. The physical name in storage stays the same; only the
           // logical name changes, so the logical-name-based partition filter must still resolve.
           spark.sql("alter table delta_cm_part_rename rename column id to pid")
 
-          val df = runQueryAndCompare(
-            "select name from delta_cm_part_rename where pid >= 2") { _ => }
-          checkLengthAndPlan(df, 2)
+          val df = runColumnMappingQuery(
+            "select name from delta_cm_part_rename where pid >= 2",
+            mode)
           checkAnswer(df, Row("v2") :: Row("v3") :: Nil)
           assert(deltaInputFileCount(df) == 2)
           assert(selectedPartitionCount(df) == 2)
@@ -276,16 +295,18 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
                        |using delta
                        |tblproperties ("delta.columnMapping.mode" = "$mode")
                        |""".stripMargin)
-          spark.sql("insert into delta_cm_data_rename values (1, 10, \"a\")")
-          spark.sql("insert into delta_cm_data_rename values (2, 20, \"b\")")
-          spark.sql("insert into delta_cm_data_rename values (3, 30, \"c\")")
+          withSQLConf(vanillaSparkConfs(): _*) {
+            spark.sql("insert into delta_cm_data_rename values (1, 10, \"a\")")
+            spark.sql("insert into delta_cm_data_rename values (2, 20, \"b\")")
+            spark.sql("insert into delta_cm_data_rename values (3, 30, \"c\")")
+          }
           // Rename a data column. Filter pushdown must still match physical column in parquet,
           // and Delta's stats-based skipping must still resolve the logical name `years`.
           spark.sql("alter table delta_cm_data_rename rename column age to years")
 
-          val df = runQueryAndCompare(
-            "select name from delta_cm_data_rename where years = 20") { _ => }
-          checkLengthAndPlan(df, 1)
+          val df = runColumnMappingQuery(
+            "select name from delta_cm_data_rename where years = 20",
+            mode)
           checkAnswer(df, Row("b") :: Nil)
           assert(
             deltaInputFileCount(df) == 1,
