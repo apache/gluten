@@ -54,7 +54,7 @@ import scala.collection.mutable.ListBuffer
  *   child plan
  */
 case class ColumnarPartialProjectExec(projectList: Seq[Expression], child: SparkPlan)(
-    replacedAlias: Seq[Alias])
+    val replacedAlias: Seq[Alias])
   extends UnaryExecNode
   with OrderPreservingUnaryExecNode
   with PartitioningPreservingUnaryExecNode

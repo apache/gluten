@@ -23,6 +23,7 @@ import org.apache.spark.SparkConf
 import org.apache.spark.sql.catalyst.optimizer.{ConstantFolding, NullPropagation}
 import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.functions.udf
+import org.apache.spark.utils.GlutenSuiteUtils
 
 import java.io.File
 
@@ -44,6 +45,8 @@ class UDFPartialProjectSuite extends WholeStageTransformerSuite {
       .set("spark.unsafe.exceptionOnMemoryLeak", "true")
       .set("spark.sql.autoBroadcastJoinThreshold", "-1")
       .set("spark.sql.sources.useV1SourceList", "avro")
+      .set(GlutenConfig.GLUTEN_UI_ENABLED.key, "true")
+      .set("spark.ui.enabled", "true")
       .set(
         "spark.sql.optimizer.excludedRules",
         ConstantFolding.ruleName + "," +
@@ -92,6 +95,30 @@ class UDFPartialProjectSuite extends WholeStageTransformerSuite {
   ignore("test plus_one without cast") {
     runQueryAndCompare("SELECT sum(plus_one(l_orderkey) + hash(l_orderkey)) from lineitem") {
       checkGlutenPlan[ColumnarPartialProjectExec]
+    }
+  }
+
+  test("record partial project rejection reason") {
+    GlutenSuiteUtils.withFallbackEventListener(spark.sparkContext) {
+      events =>
+        spark.sql("SELECT plus_one(l_orderkey) FROM lineitem").collect()
+        GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
+        val fallbackReasons = events.flatMap(_.fallbackNodeToReason.values)
+        assert(
+          fallbackReasons.exists(
+            _.contains(
+              "Partial project rejected: " +
+                "The partial projected expressions need all the columns in child output")))
+    }
+
+    GlutenSuiteUtils.withFallbackEventListener(spark.sparkContext) {
+      events =>
+        runQueryAndCompare("SELECT plus_one(l_orderkey), l_partkey FROM lineitem") {
+          checkGlutenPlan[ColumnarPartialProjectExec]
+        }
+        GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
+        val fallbackReasons = events.flatMap(_.fallbackNodeToReason.values)
+        assert(!fallbackReasons.exists(_.contains("Partial project rejected")))
     }
   }
 
