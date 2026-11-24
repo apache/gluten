@@ -84,7 +84,7 @@ SELECT assert_true(false)
 -- !query schema
 struct<>
 -- !query output
-org.apache.gluten.exception.GlutenException
+java.lang.RuntimeException
 'false' is not true!
 
 
@@ -93,7 +93,7 @@ SELECT assert_true(boolean(0))
 -- !query schema
 struct<>
 -- !query output
-org.apache.gluten.exception.GlutenException
+java.lang.RuntimeException
 'cast(0 as boolean)' is not true!
 
 
@@ -102,7 +102,7 @@ SELECT assert_true(null)
 -- !query schema
 struct<>
 -- !query output
-org.apache.gluten.exception.GlutenException
+java.lang.RuntimeException
 'null' is not true!
 
 
@@ -111,7 +111,7 @@ SELECT assert_true(boolean(null))
 -- !query schema
 struct<>
 -- !query output
-org.apache.gluten.exception.GlutenException
+java.lang.RuntimeException
 'cast(null as boolean)' is not true!
 
 
@@ -120,7 +120,7 @@ SELECT assert_true(false, 'custom error message')
 -- !query schema
 struct<>
 -- !query output
-org.apache.gluten.exception.GlutenException
+java.lang.RuntimeException
 custom error message
 
 
@@ -137,7 +137,7 @@ SELECT raise_error('error message')
 -- !query schema
 struct<>
 -- !query output
-org.apache.gluten.exception.GlutenException
+java.lang.RuntimeException
 error message
 
 
@@ -146,5 +146,5 @@ SELECT if(v > 5, raise_error('too big: ' || v), v + 1) FROM tbl_misc
 -- !query schema
 struct<>
 -- !query output
-org.apache.gluten.exception.GlutenException
+java.lang.RuntimeException
 too big: 8

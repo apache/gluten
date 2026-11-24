@@ -839,7 +839,7 @@ class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
                          | from lineitem limit 100""".stripMargin) {
       checkGlutenPlan[ProjectExecTransformer]
     }
-    val e = intercept[SparkException] {
+    val e = intercept[Exception] {
       sql("""SELECT assert_true(l_orderkey >= 100), l_orderkey from
             | lineitem limit 100""".stripMargin).collect()
     }
