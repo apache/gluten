@@ -697,8 +697,6 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("map_zip_with function - map of primitive types")
     // Exception class different.
     .exclude("array_insert functions")
-    // Overridden.
-    .exclude("map with arrays")
   enableSuite[GlutenDataFrameHintSuite]
   enableSuite[GlutenDataFrameImplicitsSuite]
   enableSuite[GlutenDataFrameJoinSuite]

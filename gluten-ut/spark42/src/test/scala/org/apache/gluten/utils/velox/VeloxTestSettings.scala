@@ -1022,8 +1022,6 @@ class VeloxTestSettings extends BackendTestSettings {
     // Vanilla spark throw SparkRuntimeException, gluten throw SparkException.
     .exclude("map_concat function")
     .exclude("transform keys function - primitive data types")
-    // Overridden.
-    .exclude("map with arrays")
     // Overridden: asserts vanilla WholeStageCodegenExec, which Gluten replaces.
     .exclude("array_join with nullable nullReplacement under whole-stage codegen")
     .exclude(

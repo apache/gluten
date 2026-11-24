@@ -33,6 +33,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import scala.collection.immutable.Map;
+import scala.collection.immutable.Map$;
 
 public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
     implements RuntimeAware {
@@ -143,6 +144,10 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
   private static final Pattern CHAR_VARCHAR_LENGTH_EXCEEDED =
       Pattern.compile("Exceeds allowed length limitation: (\\d+)");
 
+  // Velox's message when a map is built with a null key.
+  private static final Pattern NULL_MAP_KEY =
+      Pattern.compile("^Reason: Cannot use null as map key!$", Pattern.MULTILINE);
+
   /**
    * Translates a Velox type conversion error into a SchemaColumnConvertNotSupportedException.
    * Returns null if the message does not indicate a type conversion error.
@@ -174,6 +179,19 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
         "EXCEED_LIMIT_LENGTH", new Map.Map1<>("limit", limit), e, new QueryContext[0], "");
   }
 
+  /**
+   * Translates a Velox null map key error into the exception Spark throws for a null map key.
+   * Returns null if the message does not indicate one.
+   */
+  private static RuntimeException translateToNullMapKeyException(String msg, Exception e) {
+    if (!NULL_MAP_KEY.matcher(msg).find()) {
+      return null;
+    }
+    // Builds the exception QueryExecutionErrors.nullAsMapKeyNotAllowedError builds.
+    return new SparkRuntimeException(
+        "NULL_MAP_KEY", Map$.MODULE$.<String, String>empty(), e, new QueryContext[0], "");
+  }
+
   @Override
   protected RuntimeException translateException(Exception e) {
     String msg = findFirstNonNullMessage(e);
@@ -186,6 +204,10 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
       RuntimeException lengthEx = translateToCharVarcharLengthException(msg, e);
       if (lengthEx != null) {
         return lengthEx;
+      }
+      RuntimeException nullKeyEx = translateToNullMapKeyException(msg, e);
+      if (nullKeyEx != null) {
+        return nullKeyEx;
       }
     }
     // A GlutenException raised by native/nested code is already translated; return it
