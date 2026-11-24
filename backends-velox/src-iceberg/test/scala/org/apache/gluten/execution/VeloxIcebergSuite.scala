@@ -22,8 +22,11 @@ import org.apache.gluten.utils.VeloxFileSystemValidationJniWrapper
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.catalyst.expressions.DynamicPruningExpression
+import org.apache.spark.sql.catalyst.expressions.Literal.TrueLiteral
 import org.apache.spark.sql.connector.catalog.{Identifier, TableCatalog}
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.utils.GlutenSuiteUtils
 
 import org.apache.iceberg.{FileScanTask, UpdateSchema}
@@ -279,6 +282,52 @@ class VeloxIcebergSuite extends IcebergSuite {
         df =>
           checkAnswer(df, Seq(Row(1, "IN"), Row(2, "IN")))
           checkGlutenPlan[IcebergScanTransformer](df)
+      }
+    }
+  }
+
+  test("iceberg v3 scan with dynamic partition pruning") {
+    withTable("iceberg_v3_dpp_fact", "iceberg_v3_dpp_dim") {
+      spark.sql("""
+                  |CREATE TABLE iceberg_v3_dpp_fact (k INT, v INT)
+                  |USING iceberg
+                  |PARTITIONED BY (k)
+                  |TBLPROPERTIES (
+                  |  'format-version' = '3',
+                  |  'write.delete.mode' = 'merge-on-read')
+                  |""".stripMargin)
+      spark.sql("INSERT INTO iceberg_v3_dpp_fact VALUES (1, 10), (2, 20), (2, 21), (3, 30)")
+      spark.sql("CREATE TABLE iceberg_v3_dpp_dim (k INT, tag STRING) USING iceberg")
+      spark.sql("INSERT INTO iceberg_v3_dpp_dim VALUES (2, 'keep'), (3, 'drop')")
+      val query =
+        """
+          |SELECT f.k, f.v FROM iceberg_v3_dpp_fact f
+          |JOIN iceberg_v3_dpp_dim d ON f.k = d.k
+          |WHERE d.tag = 'keep'
+          |""".stripMargin
+
+      withSQLConf(SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "10MB") {
+        runQueryAndCompare(query) {
+          df =>
+            checkAnswer(df, Seq(Row(2, 20), Row(2, 21)))
+            assert(getExecutedPlan(df).exists {
+              case s: IcebergScanTransformer =>
+                s.runtimeFilters.exists(_ != DynamicPruningExpression(TrueLiteral))
+              case _ => false
+            })
+        }
+
+        // A deletion vector makes the dynamically pruned scan fall back instead of failing.
+        spark.sql("DELETE FROM iceberg_v3_dpp_fact WHERE v = 21")
+        runQueryAndCompare(query, noFallBack = false) {
+          df =>
+            checkAnswer(df, Seq(Row(2, 20)))
+            assert(getExecutedPlan(df).exists {
+              case s: BatchScanExec =>
+                s.runtimeFilters.exists(_ != DynamicPruningExpression(TrueLiteral))
+              case _ => false
+            })
+        }
       }
     }
   }

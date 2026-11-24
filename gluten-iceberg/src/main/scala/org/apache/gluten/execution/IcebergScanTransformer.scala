@@ -174,14 +174,9 @@ case class IcebergScanTransformer(
       return ValidationResult.failed("Iceberg initial-default reads are not supported")
     }
     if (metadata.formatVersion() >= 3) {
-      val hasUnsupportedDelete = finalPartitions.exists {
-        case p: SparkDataSourceRDDPartition =>
-          GlutenIcebergSourceUtil.deleteExists(p)
-        case other =>
-          return ValidationResult.failed(
-            s"Unsupported partition type: ${other.getClass.getSimpleName}")
-      }
-      if (hasUnsupportedDelete) {
+      // Check the planned scan tasks rather than finalPartitions: the latter applies runtime
+      // filters, whose dynamic pruning subquery results are not available during validation.
+      if (GlutenIcebergSourceUtil.deleteExists(scan)) {
         return ValidationResult.failed("Delete file format puffin is not supported")
       }
     }
