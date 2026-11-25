@@ -19,6 +19,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/velox_backend_x86.yml'
+      - '.github/workflows/util/install-spark-deps.sh'
       - '.github/workflows/util/parallel-ut/**'
       - '.github/workflows/iceberg_spark_ut.yml'
       - '.github/workflows/iceberg_upstream_revision.yml'
@@ -122,7 +123,7 @@ jobs:
         uses: ./.github/actions/squash-merge-upstream
         with:
           # The `paths:` list above. Keep the two in sync.
-          paths: '^(\.github/workflows/(velox_backend_x86|iceberg_spark_ut|iceberg_upstream_revision|velox_native_build)\.yml$|\.github/workflows/util/(parallel-ut|iceberg-upstream)/|\.github/actions/|pom\.xml$|build/mvn$|(backends-velox|gluten-(uniffle|celeborn|core|substrait|arrow|delta|iceberg|hudi|paimon|ut)|package|shims|tools/gluten-it|ep/build-velox|cpp|dev)/)'
+          paths: '^(\.github/workflows/(velox_backend_x86|iceberg_spark_ut|iceberg_upstream_revision|velox_native_build)\.yml$|\.github/workflows/util/(install-spark-deps\.sh$|(parallel-ut|iceberg-upstream)/)|\.github/actions/|pom\.xml$|build/mvn$|(backends-velox|gluten-(uniffle|celeborn|core|substrait|arrow|delta|iceberg|hudi|paimon|ut)|package|shims|tools/gluten-it|ep/build-velox|cpp|dev)/)'
           paths-ignore: '^cpp/bolt/|^cpp/bolt\.CMakeLists\.cmake$'
 
   # Detect which parts of the codebase were modified so downstream jobs can
