@@ -26,7 +26,7 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.analysis.PartitionSpec
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BinaryComparison, BoundReference, CaseWhen, Cast, Coalesce, ConvertTimezone, Expression, GetStructField, Hour, If, In, InSet, IsNotNull, IsNull, Lag, Lead, Literal, MakeTimestamp, Minute, NthValue, RangeFrame, Second, SortOrder, SpecialFrameBoundary, SpecifiedWindowFrame, TimestampAdd, ToUnixTimestamp, UnixTimestamp, WindowExpression, WindowFrame, WindowSpecDefinition}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BinaryComparison, BoundReference, CaseWhen, Cast, Coalesce, ConvertTimezone, DenseRank, Expression, GetStructField, Greatest, Hour, If, In, InSet, IsNotNull, IsNull, Lag, Lead, Least, Literal, MakeTimestamp, Minute, NthValue, PercentRank, RangeFrame, Rank, Second, SortOrder, SpecialFrameBoundary, SpecifiedWindowFrame, TimestampAdd, ToUnixTimestamp, UnixTimestamp, WindowExpression, WindowFrame, WindowSpecDefinition}
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, Count, First, Last, Max, Min}
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
@@ -379,13 +379,15 @@ object Validators {
     private def isSupportedNtzNode(expression: Expression): Boolean = expression match {
       case _: Attribute | _: BoundReference | _: Alias | _: Literal | _: GetStructField => true
       case _: SortOrder | _: IsNull | _: IsNotNull | _: BinaryComparison => true
-      case _: In | _: InSet => true
+      case _: In | _: InSet | _: Greatest | _: Least => true
       case _: If | _: CaseWhen | _: Coalesce => true
       case _: Cast | _: Hour | _: Minute | _: Second | _: TimestampAdd | _: ConvertTimezone => true
       case _: MakeTimestamp => true
       case _: AggregateExpression | _: Min | _: Max | _: First | _: Last | _: Count => true
       case _: WindowExpression | _: WindowSpecDefinition | _: SpecifiedWindowFrame => true
       case _: Lag | _: Lead | _: NthValue => true
+      // Their children are the window order keys, which they only compare.
+      case _: Rank | _: DenseRank | _: PercentRank => true
       case _ => false
     }
 

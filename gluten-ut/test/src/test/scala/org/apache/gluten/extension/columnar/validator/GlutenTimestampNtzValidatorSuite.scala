@@ -187,6 +187,8 @@ class GlutenTimestampNtzValidatorSuite extends SparkFunSuite {
       FilterExec(And(IsNotNull(ts), GreaterThan(ts, ntzLiteral)), left),
       FilterExec(In(ts, Seq(ntzLiteral, Literal(null, TimestampNTZType))), left),
       FilterExec(InSet(ts, Set(1704067200000000L, 1704153600000000L)), left),
+      FilterExec(GreaterThan(Greatest(Seq(ts, ntzLiteral)), ntzLiteral), left),
+      FilterExec(LessThan(Least(Seq(ts, ntzLiteral)), ntzLiteral), left),
       SortMergeJoinExec(Seq(ts), Seq(ts2), Inner, None, left, right),
       UnionExec(Seq(left, InputPlan(Seq(id, ts2)))),
       WindowExec(
@@ -213,6 +215,18 @@ class GlutenTimestampNtzValidatorSuite extends SparkFunSuite {
           "rn")()),
         Seq(id),
         Seq(SortOrder(ts, Descending)),
+        left
+      ),
+      WindowExec(
+        Seq(Rank(Seq(ts)), DenseRank(Seq(ts)), PercentRank(Seq(ts))).map(
+          f =>
+            Alias(
+              WindowExpression(
+                f,
+                WindowSpecDefinition(Seq(id), Seq(SortOrder(ts, Ascending)), rowFrame)),
+              f.prettyName)()),
+        Seq(id),
+        Seq(SortOrder(ts, Ascending)),
         left
       )
     )
