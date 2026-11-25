@@ -19,14 +19,17 @@ package org.apache.spark.sql.delta
 import org.apache.gluten.backendsapi.velox.VeloxBatchType
 import org.apache.gluten.extension.columnar.transition.Transitions
 
-import org.apache.spark.sql.{AnalysisException, Dataset}
+import org.apache.spark.sql.{AnalysisException, Dataset, SparkSession}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet}
+import org.apache.spark.sql.catalyst.optimizer.ComputeCurrentTime
 import org.apache.spark.sql.delta.actions.{AddFile, FileAction}
-import org.apache.spark.sql.delta.constraints.{Constraint, Constraints, DeltaInvariantCheckerExec, GlutenDeltaInvariantChecker, GlutenDeltaInvariantCheckerExec}
+import org.apache.spark.sql.delta.constraints.{CheckDeltaInvariant, Constraint, Constraints, DeltaInvariantCheckerExec, GlutenDeltaInvariantChecker, GlutenDeltaInvariantCheckerExec}
 import org.apache.spark.sql.delta.files.{GlutenDeltaFileFormatWriter, TransactionalWrite}
 import org.apache.spark.sql.delta.hooks.AutoCompact
 import org.apache.spark.sql.delta.perf.{DeltaOptimizedWriterExec, GlutenDeltaOptimizedWriterExec}
 import org.apache.spark.sql.delta.schema.InnerInvariantViolationException
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
+import org.apache.spark.sql.delta.util.AnalysisHelper
 import org.apache.spark.sql.execution.{SparkPlan, SQLExecution}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
 import org.apache.spark.sql.execution.datasources.{BasicWriteJobStatsTracker, FileFormatWriter, WriteJobStatsTracker}
@@ -115,11 +118,18 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
           aqe.copy(supportsColumnar = true)
         case _ => Transitions.toBatchPlan(plan, VeloxBatchType)
       }
-      // When every constraint is a top-level NOT NULL, check them on the Velox batches.
+      // Check the constraints on the Velox batches: top-level NOT NULL constraints natively, and
+      // any others with Delta's checks on the columns they reference.
       val nativeInvariantChecker =
-        GlutenDeltaInvariantChecker.create(empty2NullPlan.output, constraints)
+        GlutenDeltaInvariantChecker
+          .create(empty2NullPlan.output, constraints)
+          .orElse(referencedColumnsChecker(spark, empty2NullPlan.output, constraints))
       val veloxPlan = nativeInvariantChecker match {
-        case Some(checker) => GlutenDeltaInvariantCheckerExec(toVeloxPlan(empty2NullPlan), checker)
+        case Some(checker) =>
+          // Delta's Empty2Null projection on the string partition columns also runs natively.
+          GlutenDeltaInvariantCheckerExec(
+            GlutenDeltaEmpty2Null.toVeloxPlan(empty2NullPlan, spark.sessionState.conf, toVeloxPlan),
+            checker)
         case None => toVeloxPlan(maybeCheckInvariants)
       }
       // No need to plan optimized write if the write command is OPTIMIZE, which aims to produce
@@ -264,5 +274,38 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
     writeOptions
       .flatMap(_.optimizeWrite)
       .getOrElse(TransactionalWrite.shouldOptimizeWrite(metadata, sessionConf))
+  }
+
+  /**
+   * A checker that runs Delta's checks of `constraints` on the columns of `output` they reference,
+   * as DeltaInvariantCheckerExec runs them on whole rows, or None if Delta cannot build the checks.
+   * DeltaInvariantCheckerExec then raises the same error when it runs.
+   */
+  private def referencedColumnsChecker(
+      spark: SparkSession,
+      output: Seq[Attribute],
+      constraints: Seq[Constraint]): Option[GlutenDeltaInvariantChecker] = {
+    if (constraints.isEmpty) {
+      return None
+    }
+    val invariantChecks =
+      try {
+        DeltaInvariantCheckerExec.buildInvariantChecks(output, constraints, spark)
+      } catch {
+        case NonFatal(_) => return None
+      }
+    // Resolve current_date()/current_time() for all checks together, as DeltaInvariantCheckerExec
+    // does.
+    val checks = ComputeCurrentTime(AnalysisHelper.FakeLogicalPlan(invariantChecks, Nil))
+      .expressions
+      .map(_.asInstanceOf[CheckDeltaInvariant])
+    // The extractors build the column values in a CHECK violation's message.
+    val references = AttributeSet(checks.flatMap {
+      check => check.child.references ++ check.columnExtractors.values.flatMap(_.references)
+    })
+    val columns = output.filter(references.contains)
+    Some(
+      GlutenDeltaInvariantChecker
+        .forColumns(output, columns, checks.map(_.withBoundReferences(columns))))
   }
 }

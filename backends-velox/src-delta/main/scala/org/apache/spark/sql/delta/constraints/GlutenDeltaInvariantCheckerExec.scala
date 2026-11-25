@@ -24,9 +24,9 @@ import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 /**
- * Gluten's columnar version of Delta's DeltaInvariantCheckerExec, for writes whose constraints are
- * all top-level NOT NULL constraints. It checks the Velox batches in place, so the write plan needs
- * no conversion to rows and back around it.
+ * Gluten's columnar version of Delta's DeltaInvariantCheckerExec. It checks the Velox batches with
+ * a [[GlutenDeltaInvariantChecker]] and passes them on, so the write plan needs no conversion to
+ * rows and back around it.
  */
 case class GlutenDeltaInvariantCheckerExec(
     override val child: SparkPlan,

@@ -16,11 +16,15 @@
  */
 package org.apache.spark.sql.delta.constraints
 
-import org.apache.gluten.columnarbatch.VeloxColumnarBatches
+import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.columnarbatch.{ColumnarBatches, VeloxColumnarBatches}
+import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
 
-import org.apache.spark.sql.catalyst.expressions.Attribute
-import org.apache.spark.sql.delta.constraints.Constraints.NotNull
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, UnsafeProjection}
+import org.apache.spark.sql.delta.constraints.Constraints.{Check, NotNull}
 import org.apache.spark.sql.delta.schema.{DeltaInvariantViolationException, SchemaUtils}
+import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType}
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 import org.apache.commons.lang3.exception.ExceptionUtils
@@ -28,22 +32,30 @@ import org.apache.commons.lang3.exception.ExceptionUtils
 import scala.collection.JavaConverters._
 
 /**
- * Checks top-level NOT NULL constraints on Velox batches, for [[GlutenDeltaInvariantCheckerExec]].
- * Nulls are found natively, but a violation is thrown on the JVM as Delta's own
- * [[DeltaInvariantViolationException]]: an exception raised inside Velox would reach Spark only as
- * a GlutenException.
+ * Checks Delta constraints on Velox batches, for [[GlutenDeltaInvariantCheckerExec]]. A violation
+ * is thrown on the JVM as Delta's own exception: an exception raised inside Velox would reach Spark
+ * only as a GlutenException.
+ */
+abstract private[delta] class GlutenDeltaInvariantChecker extends Serializable {
+
+  /** Checks `batch`, and throws the violation of the first row that breaks a constraint. */
+  def check(batch: ColumnarBatch): Unit
+}
+
+/**
+ * Checks top-level NOT NULL constraints. Nulls are found natively.
  *
  * @param columnOrdinals
  *   the ordinal in the checked plan's output of the column each constraint checks
  * @param constraints
  *   the constraints, parallel to `columnOrdinals`
  */
-private[delta] class GlutenDeltaInvariantChecker private (
+private[delta] class GlutenDeltaNotNullChecker(
     columnOrdinals: Array[Int],
     constraints: Array[NotNull])
-  extends Serializable {
+  extends GlutenDeltaInvariantChecker {
 
-  def check(batch: ColumnarBatch): Unit = {
+  override def check(batch: ColumnarBatch): Unit = {
     val failedConstraintIndex = VeloxColumnarBatches.firstNullColumnIndex(batch, columnOrdinals)
     if (failedConstraintIndex >= 0) {
       throw DeltaInvariantViolationException(constraints(failedConstraintIndex))
@@ -53,11 +65,89 @@ private[delta] class GlutenDeltaInvariantChecker private (
   override def toString: String = constraints.map(_.column.head).mkString("NOT NULL [", ", ", "]")
 }
 
+/**
+ * Checks constraints of any kind, such as CHECK constraints, generated columns and nested NOT NULL
+ * constraints, with Delta's own checks. Only the columns that the checks reference are exported
+ * from the Velox batch to the JVM, and the checks run on those rows as in Delta's
+ * DeltaInvariantCheckerExec, so they raise the same errors.
+ *
+ * @param columnOrdinals
+ *   the ordinals in the checked plan's output of the columns the checks reference
+ * @param boundChecks
+ *   Delta's CheckDeltaInvariant expressions, bound to the columns at `columnOrdinals`
+ */
+private[delta] class GlutenDeltaReferencedColumnsChecker(
+    columnOrdinals: Array[Int],
+    boundChecks: Seq[Expression])
+  extends GlutenDeltaInvariantChecker {
+
+  // Created once per deserialized checker, that is, once per task.
+  @transient private lazy val assertions = UnsafeProjection.create(boundChecks)
+
+  // The message of a CHECK violation prints the values of the columns the CHECK reads. A struct,
+  // array or map value prints as its object, which DeltaInvariantCheckerExec reads from an
+  // UnsafeRow. Such checks run on unsafe copies of the rows, so that the message is the same.
+  private val printsComplexValues: Boolean = boundChecks.exists {
+    case check: CheckDeltaInvariant =>
+      check.constraint.isInstanceOf[Check] &&
+      check.columnExtractors.toSeq.exists { case (_, extractor) => isComplex(extractor.dataType) }
+    case _ => false
+  }
+
+  @transient private var unsafeCopy: UnsafeProjection = _
+
+  override def check(batch: ColumnarBatch): Unit = {
+    val numRows = batch.numRows()
+    if (numRows == 0) {
+      return
+    }
+    if (columnOrdinals.isEmpty) {
+      // The checks read no column, e.g. `CHECK (current_date() > '2000-01-01')`.
+      for (_ <- 0 until numRows) assertions(InternalRow.empty)
+      return
+    }
+    val selected =
+      ColumnarBatches.select(BackendsApiManager.getBackendName, batch, columnOrdinals)
+    if (ColumnarBatches.isLightBatch(selected)) {
+      // `load` closes the selected batch, and the loaded one is closed here.
+      val loaded = ColumnarBatches.load(ArrowBufferAllocators.contextInstance(), selected)
+      try {
+        assertRows(loaded)
+      } finally {
+        loaded.close()
+      }
+    } else {
+      // A batch on the JVM: the selected batch shares its column vectors.
+      assertRows(selected)
+    }
+  }
+
+  private def assertRows(batch: ColumnarBatch): Unit = {
+    if (printsComplexValues && unsafeCopy == null) {
+      unsafeCopy =
+        UnsafeProjection.create((0 until batch.numCols()).map(batch.column(_).dataType).toArray)
+    }
+    var rowId = 0
+    while (rowId < batch.numRows()) {
+      val row = batch.getRow(rowId)
+      assertions(if (printsComplexValues) unsafeCopy(row) else row)
+      rowId += 1
+    }
+  }
+
+  private def isComplex(dataType: DataType): Boolean = dataType match {
+    case _: StructType | _: ArrayType | _: MapType => true
+    case _ => false
+  }
+
+  override def toString: String = boundChecks.mkString("[", ", ", "]")
+}
+
 private[delta] object GlutenDeltaInvariantChecker {
 
   /**
-   * Returns a checker for `constraints` if all of them are top-level NOT NULL constraints on
-   * columns of `output`, or None if any of them needs Delta's row-based DeltaInvariantCheckerExec.
+   * Returns a native checker for `constraints` if all of them are top-level NOT NULL constraints on
+   * columns of `output`, or None otherwise.
    */
   def create(
       output: Seq[Attribute],
@@ -82,9 +172,20 @@ private[delta] object GlutenDeltaInvariantChecker {
     if (columnOrdinals.contains(-1)) {
       return None
     }
-    Some(new GlutenDeltaInvariantChecker(
-      columnOrdinals.toArray,
-      topLevelNotNullConstraints.toArray))
+    Some(new GlutenDeltaNotNullChecker(columnOrdinals.toArray, topLevelNotNullConstraints.toArray))
+  }
+
+  /**
+   * Returns a checker that runs Delta's `boundChecks` on the `columns` of `output` that they are
+   * bound to.
+   */
+  def forColumns(
+      output: Seq[Attribute],
+      columns: Seq[Attribute],
+      boundChecks: Seq[Expression]): GlutenDeltaInvariantChecker = {
+    val columnOrdinals = columns.map(column => output.indexWhere(_.exprId == column.exprId))
+    assert(!columnOrdinals.contains(-1), s"Columns $columns are not all in $output")
+    new GlutenDeltaReferencedColumnsChecker(columnOrdinals.toArray, boundChecks)
   }
 
   /**
