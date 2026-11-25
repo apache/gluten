@@ -202,12 +202,37 @@ struct RssPartitionWriterOptions {
   int64_t pushBufferMaxSize = kDefaultPushMemoryThreshold;
   int64_t sortBufferMaxSize = kDefaultSortBufferThreshold;
 
+  // Payload merging for hash-based RSS shuffle, see `RssPayloadMerger`. Small per-partition
+  // payloads are coalesced into payloads of up to `mergeBufferSize` rows before being pushed,
+  // which cuts the number of push requests and, more importantly, the number of tiny batches the
+  // reducer has to decode.
+  //
+  // `mergeThreshold <= 0` disables merging and keeps the previous push-as-you-go behavior. The
+  // default here is "disabled" so that an RSS backend keeps its current behavior until it passes
+  // the value down explicitly; Celeborn does pass it down, from
+  // `spark.gluten.sql.columnar.shuffle.merge.threshold` (the same knob the local shuffle writer
+  // uses), so merging is enabled by default there and setting that conf to 0 turns it back off.
+  int32_t mergeBufferSize = kDefaultShuffleWriterBufferSize;
+  double mergeThreshold = 0;
+
   RssPartitionWriterOptions() = default;
 
   RssPartitionWriterOptions(int32_t compressionBufferSize, int64_t pushBufferMaxSize, int64_t sortBufferMaxSize)
       : compressionBufferSize(compressionBufferSize),
         pushBufferMaxSize(pushBufferMaxSize),
         sortBufferMaxSize(sortBufferMaxSize) {}
+
+  RssPartitionWriterOptions(
+      int32_t compressionBufferSize,
+      int64_t pushBufferMaxSize,
+      int64_t sortBufferMaxSize,
+      int32_t mergeBufferSize,
+      double mergeThreshold)
+      : compressionBufferSize(compressionBufferSize),
+        pushBufferMaxSize(pushBufferMaxSize),
+        sortBufferMaxSize(sortBufferMaxSize),
+        mergeBufferSize(mergeBufferSize),
+        mergeThreshold(mergeThreshold) {}
 };
 
 struct ShuffleWriterMetrics {

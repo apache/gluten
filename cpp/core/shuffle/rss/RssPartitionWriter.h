@@ -22,6 +22,7 @@
 
 #include "shuffle/PartitionWriter.h"
 #include "shuffle/rss/RssClient.h"
+#include "shuffle/rss/RssPayloadMerger.h"
 #include "utils/Macros.h"
 
 namespace gluten {
@@ -74,8 +75,16 @@ class RssPartitionWriter final : public PartitionWriter {
   // `arrow::io::BufferOutputStream` would round up to on its own.
   static constexpr int64_t kMinPushBufferSize = 1024;
 
+  // Drains the payloads pending in `merger_` for all partitions and pushes them out.
+  // `fromSpill` must be true when called from the memory reclaim path, so that the partition
+  // currently being merged (whose allocation triggered the reclaim) is skipped and nothing is
+  // concatenated - see `RssPayloadMerger::finish`.
+  arrow::Status flushMerger(bool fromSpill, int64_t& evictBytes);
+
   std::shared_ptr<RssPartitionWriterOptions> options_;
   std::shared_ptr<RssClient> rssClient_;
+
+  std::shared_ptr<RssPayloadMerger> merger_{nullptr};
 
   // Staging buffer that every hash-evicted payload is serialized into before being handed to the
   // RSS client. It is reused across payloads and only ever grows: allocating one buffer per

@@ -30,7 +30,13 @@ void RssPartitionWriter::init() {
   rawPartitionLengths_.resize(numPartitions_, 0);
 }
 
-arrow::Status RssPartitionWriter::stop(ShuffleWriterMetrics* metrics, int64_t& /* evictBytes */) {
+arrow::Status RssPartitionWriter::stop(ShuffleWriterMetrics* metrics, int64_t& evictBytes) {
+  // Push the payloads still pending in the merger before closing the client.
+  RETURN_NOT_OK(flushMerger(/*fromSpill=*/false, evictBytes));
+  merger_.reset();
+  pushBuffer_ = nullptr;
+  compressBuffer_ = nullptr;
+
   spillTime_ -= compressTimeInSpill_;
   rssClient_->stop();
 
@@ -47,7 +53,32 @@ arrow::Status RssPartitionWriter::stop(ShuffleWriterMetrics* metrics, int64_t& /
 }
 
 arrow::Status RssPartitionWriter::reclaimFixedSize(int64_t size, int64_t* actual) {
-  *actual = 0;
+  int64_t evictBytes = 0;
+  // The only memory this writer holds on to is the payload pending in the merger. Push it out.
+  //
+  // What is reported back is what the payload pool actually gave up, measured the same way
+  // `LocalPartitionWriter::reclaimFixedSize` measures it, rather than the nominal size of the
+  // drained payloads. The two differ whenever a drained payload shares buffers with something
+  // still alive, and over-reporting here makes the caller believe the pressure is gone and stop
+  // spilling, which is how a writer ends up pinned at its budget.
+  const int64_t beforeEvict = payloadPool_->bytes_allocated();
+  RETURN_NOT_OK(flushMerger(/*fromSpill=*/true, evictBytes));
+  *actual = std::max<int64_t>(0, beforeEvict - payloadPool_->bytes_allocated());
+  return arrow::Status::OK();
+}
+
+arrow::Status RssPartitionWriter::flushMerger(bool fromSpill, int64_t& evictBytes) {
+  if (merger_ == nullptr) {
+    return arrow::Status::OK();
+  }
+  for (uint32_t pid = 0; pid < numPartitions_; ++pid) {
+    // With `fromSpill` the payloads come back unmerged: concatenating them would allocate from
+    // `payloadPool_`, which the reclaim path does not allow.
+    ARROW_ASSIGN_OR_RAISE(auto drained, merger_->finish(pid, fromSpill));
+    for (auto& payload : drained) {
+      RETURN_NOT_OK(doEvict(pid, std::move(payload), evictBytes));
+    }
+  }
   return arrow::Status::OK();
 }
 
@@ -57,7 +88,24 @@ arrow::Status RssPartitionWriter::hashEvict(
     Evict::type evictType,
     bool reuseBuffers,
     int64_t& evictBytes) {
-  return doEvict(partitionId, std::move(inMemoryPayload), evictBytes);
+  if (evictType == Evict::kSpill || options_->mergeThreshold <= 0) {
+    // Under memory pressure the caller wants memory released right away, so bypass the merger.
+    // The merger itself has already been drained by `reclaimFixedSize` at this point.
+    return doEvict(partitionId, std::move(inMemoryPayload), evictBytes);
+  }
+
+  if (merger_ == nullptr) {
+    merger_ = std::make_shared<RssPayloadMerger>(
+        payloadPool_.get(),
+        options_->mergeBufferSize,
+        static_cast<int32_t>(options_->mergeBufferSize * options_->mergeThreshold));
+  }
+
+  ARROW_ASSIGN_OR_RAISE(auto merged, merger_->merge(partitionId, std::move(inMemoryPayload), reuseBuffers));
+  for (auto& payload : merged) {
+    RETURN_NOT_OK(doEvict(partitionId, std::move(payload), evictBytes));
+  }
+  return arrow::Status::OK();
 }
 
 arrow::Status RssPartitionWriter::sortEvict(
