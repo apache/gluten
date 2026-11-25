@@ -43,5 +43,7 @@ public class CelebornPartitionWriterJniWrapper implements RuntimeAware {
       int compressionBufferSize,
       int pushBufferMaxSize,
       long sortBufferMaxSize,
+      int mergeBufferSize,
+      double mergeThreshold,
       Object pusher);
 }

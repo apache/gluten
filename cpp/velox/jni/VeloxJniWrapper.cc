@@ -782,6 +782,8 @@ Java_org_apache_gluten_vectorized_CelebornPartitionWriterJniWrapper_createPartit
     jint compressionBufferSize,
     jint pushBufferMaxSize,
     jlong sortBufferMaxSize,
+    jint mergeBufferSize,
+    jdouble mergeThreshold,
     jobject partitionPusher) {
   JNI_METHOD_START
   JavaVM* vm;
@@ -801,7 +803,9 @@ Java_org_apache_gluten_vectorized_CelebornPartitionWriterJniWrapper_createPartit
   auto partitionWriterOptions = std::make_shared<RssPartitionWriterOptions>(
       compressionBufferSize,
       pushBufferMaxSize > 0 ? pushBufferMaxSize : kDefaultPushMemoryThreshold,
-      sortBufferMaxSize > 0 ? sortBufferMaxSize : kDefaultSortBufferThreshold);
+      sortBufferMaxSize > 0 ? sortBufferMaxSize : kDefaultSortBufferThreshold,
+      mergeBufferSize > 0 ? mergeBufferSize : kDefaultShuffleWriterBufferSize,
+      mergeThreshold);
 
   auto partitionWriter = std::make_shared<RssPartitionWriter>(
       numPartitions,
