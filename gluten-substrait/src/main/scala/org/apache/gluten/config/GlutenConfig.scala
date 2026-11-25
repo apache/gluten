@@ -1058,6 +1058,7 @@ object GlutenConfig extends ConfigRegistry {
 
   val COLUMNAR_STREAMING_AGGREGATE_REPORT_ORDERING =
     buildConf("spark.gluten.sql.columnar.streamingAggregate.reportOrdering")
+      .internal()
       .doc(
         "When true, a streaming aggregate reports its grouping keys (ascending) as its output " +
           "ordering, like vanilla Spark's SortAggregateExec. A parent sort merge join or " +
