@@ -108,13 +108,10 @@ Do not commit code that fails CI checks.
 
 ## Testing
 
-For CI investigation, consult [Gluten CI](CONTRIBUTING.md#gluten-ci).
-Before declaring ClickHouse CI inaccessible after an unauthenticated HTTP 403,
-follow the access procedure linked from
-[ClickHouse Backend CI](CONTRIBUTING.md#clickhouse-backend-ci) to
-[New CI System](docs/backends/clickhouse/get-started/ClickHouse.md#new-ci-system).
-Keep access details in that canonical document; do not copy credentials into
-logs, replies, or other instructions.
+If ClickHouse CI returns HTTP 403 to an unauthenticated request, follow the
+login instructions linked from [ClickHouse Backend CI](CONTRIBUTING.md#clickhouse-backend-ci)
+and retry the request before reporting that access is unavailable. Do not copy
+credentials into logs, replies, or other instructions.
 
 Add at least one unit test (under `gluten-ut/`) for any fix or feature not
 covered by existing Spark UTs.
