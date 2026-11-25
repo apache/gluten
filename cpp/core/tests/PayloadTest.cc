@@ -18,12 +18,16 @@
 #include "shuffle/Payload.h"
 #include "shuffle/Utils.h"
 #include "utils/Compression.h"
+#include "utils/Exception.h"
 
 #include <arrow/buffer.h>
 #include <arrow/io/memory.h>
+#include <arrow/util/bit_util.h>
 #include <gtest/gtest.h>
 
 #include <cstring>
+#include <memory>
+#include <vector>
 
 namespace gluten {
 namespace {
@@ -82,6 +86,96 @@ std::vector<std::shared_ptr<arrow::Buffer>> roundTrip(
   auto result = BlockPayload::deserialize(in.get(), codec, pool, numRows, deserializeTime, decompressTime).ValueOrDie();
   EXPECT_EQ(numRows, kNumRows);
   return result;
+}
+
+arrow::MemoryPool* defaultPool() {
+  return arrow::default_memory_pool();
+}
+
+// Buffer layout of a two-column batch, as produced by the shuffle writers:
+//   column 0: int32  -> {validity, values}
+//   column 1: string -> {validity, offsets, values}
+const std::vector<bool> kMergeIsValidityBuffer{true, false, true, false, false};
+
+const std::vector<bool> kSingleBufferIsValidityBuffer{false};
+
+std::shared_ptr<arrow::ResizableBuffer> makeFilledBuffer(int64_t size, int seed) {
+  GLUTEN_ASSIGN_OR_THROW(
+      std::shared_ptr<arrow::ResizableBuffer> buffer, arrow::AllocateResizableBuffer(size, defaultPool()));
+  for (int64_t i = 0; i < size; ++i) {
+    buffer->mutable_data()[i] = static_cast<uint8_t>((seed * 31 + i * 7) & 0xff);
+  }
+  return buffer;
+}
+
+// Describes one payload to build: its row count, and whether its validity buffers are absent.
+// An absent validity buffer means "all rows of this payload are valid" and both merge paths must
+// expand it to all-ones over that payload's row range.
+struct PayloadSpec {
+  uint32_t numRows;
+  bool nullValidity;
+};
+
+std::unique_ptr<InMemoryPayload> makeMergeInput(const PayloadSpec& spec, int seed) {
+  std::vector<std::shared_ptr<arrow::Buffer>> buffers;
+  buffers.reserve(kMergeIsValidityBuffer.size());
+  for (size_t i = 0; i < kMergeIsValidityBuffer.size(); ++i) {
+    if (kMergeIsValidityBuffer[i]) {
+      if (spec.nullValidity) {
+        buffers.push_back(nullptr);
+      } else {
+        buffers.push_back(makeFilledBuffer(arrow::bit_util::BytesForBits(spec.numRows), seed + static_cast<int>(i)));
+      }
+      continue;
+    }
+    buffers.push_back(makeFilledBuffer(static_cast<int64_t>(spec.numRows) * 4, seed + static_cast<int>(i)));
+  }
+  return std::make_unique<InMemoryPayload>(spec.numRows, &kMergeIsValidityBuffer, nullptr, std::move(buffers));
+}
+
+std::vector<std::unique_ptr<InMemoryPayload>> makeMergeInputs(const std::vector<PayloadSpec>& specs) {
+  std::vector<std::unique_ptr<InMemoryPayload>> payloads;
+  payloads.reserve(specs.size());
+  for (size_t i = 0; i < specs.size(); ++i) {
+    // The seed depends on the index only, so calling this twice yields two byte-identical lists.
+    payloads.push_back(makeMergeInput(specs[i], static_cast<int>(i) + 1));
+  }
+  return payloads;
+}
+
+std::shared_ptr<arrow::Buffer> serializeToBuffer(Payload* payload) {
+  GLUTEN_ASSIGN_OR_THROW(auto stream, arrow::io::BufferOutputStream::Create(1024, defaultPool()));
+  GLUTEN_THROW_NOT_OK(payload->serialize(stream.get()));
+  GLUTEN_ASSIGN_OR_THROW(auto buffer, stream->Finish());
+  return buffer;
+}
+
+void expectPayloadEqual(InMemoryPayload* expected, InMemoryPayload* actual) {
+  ASSERT_EQ(actual->numRows(), expected->numRows());
+  ASSERT_EQ(actual->numBuffers(), expected->numBuffers());
+  const auto numRows = expected->numRows();
+  for (uint32_t i = 0; i < expected->numBuffers(); ++i) {
+    GLUTEN_ASSIGN_OR_THROW(auto expectedBuffer, expected->readBufferAt(i));
+    GLUTEN_ASSIGN_OR_THROW(auto actualBuffer, actual->readBufferAt(i));
+    ASSERT_EQ(actualBuffer == nullptr, expectedBuffer == nullptr) << "buffer " << i;
+    if (expectedBuffer == nullptr) {
+      continue;
+    }
+    ASSERT_EQ(actualBuffer->size(), expectedBuffer->size()) << "buffer " << i;
+    if (kMergeIsValidityBuffer[i]) {
+      // Only the first `numRows` bits carry information. Neither code path initializes the padding
+      // bits of the last byte, so they are excluded from the comparison.
+      for (uint32_t row = 0; row < numRows; ++row) {
+        ASSERT_EQ(
+            arrow::bit_util::GetBit(actualBuffer->data(), row), arrow::bit_util::GetBit(expectedBuffer->data(), row))
+            << "buffer " << i << ", row " << row;
+      }
+      continue;
+    }
+    if (expectedBuffer->size() > 0) {
+      ASSERT_EQ(0, memcmp(actualBuffer->data(), expectedBuffer->data(), expectedBuffer->size())) << "buffer " << i;
+    }
+  }
 }
 
 } // namespace
@@ -158,6 +252,131 @@ TEST(PayloadTest, copiedBuffersArePadded) {
     buffers.push_back(payload->readBufferAt(i).ValueOrDie());
   }
   expectPadded(buffers);
+}
+
+// `mergeAll` is the N-way counterpart of `merge` and must be a drop-in replacement for folding a
+// list of payloads pairwise with it. The specs below cover an absent validity buffer in the first
+// payload (the merge result's validity buffer has to be materialized from scratch), in a later
+// payload (the result's bits have to be filled with ones), and a payload without rows.
+TEST(PayloadTest, mergeAllMatchesPairwiseMerge) {
+  const std::vector<PayloadSpec> specs{{1024, true}, {1, false}, {512, true}, {0, true}, {777, false}, {333, true}};
+
+  auto toFold = makeMergeInputs(specs);
+  auto expected = std::move(toFold[0]);
+  for (size_t i = 1; i < toFold.size(); ++i) {
+    GLUTEN_ASSIGN_OR_THROW(expected, InMemoryPayload::merge(std::move(expected), std::move(toFold[i]), defaultPool()));
+  }
+
+  GLUTEN_ASSIGN_OR_THROW(auto actual, InMemoryPayload::mergeAll(makeMergeInputs(specs), defaultPool()));
+
+  uint32_t totalRows = 0;
+  for (const auto& spec : specs) {
+    totalRows += spec.numRows;
+  }
+  ASSERT_EQ(actual->numRows(), totalRows);
+  expectPayloadEqual(expected.get(), actual.get());
+}
+
+// `mergeAll` allocates its output buffers itself, so it has to keep the SIMD padding invariant
+// that `merge` and the deserialization path maintain.
+TEST(PayloadTest, mergeAllBuffersArePadded) {
+  GLUTEN_ASSIGN_OR_THROW(
+      auto merged,
+      InMemoryPayload::mergeAll(makeMergeInputs({{1024, false}, {512, true}, {64, false}}), defaultPool()));
+  std::vector<std::shared_ptr<arrow::Buffer>> buffers;
+  for (uint32_t i = 0; i < merged->numBuffers(); ++i) {
+    auto buffer = merged->readBufferAt(i).ValueOrDie();
+    if (buffer != nullptr) {
+      buffers.push_back(std::move(buffer));
+    }
+  }
+  ASSERT_FALSE(buffers.empty());
+  expectPadded(buffers);
+}
+
+TEST(PayloadTest, mergeAllSinglePayloadIsPassedThrough) {
+  auto payloads = makeMergeInputs({{128, false}});
+  const auto* expected = payloads[0].get();
+  GLUTEN_ASSIGN_OR_THROW(auto merged, InMemoryPayload::mergeAll(std::move(payloads), defaultPool()));
+  ASSERT_EQ(merged.get(), expected);
+}
+
+// A missing data buffer would silently drop the rows of that payload instead of merging them, so
+// it must be rejected rather than merged.
+TEST(PayloadTest, mergeAllRejectsNullDataBuffer) {
+  auto payloads = makeMergeInputs({{64, false}, {64, false}});
+  std::vector<std::shared_ptr<arrow::Buffer>> buffers(kMergeIsValidityBuffer.size(), nullptr);
+  payloads[1] = std::make_unique<InMemoryPayload>(64, &kMergeIsValidityBuffer, nullptr, std::move(buffers));
+  auto merged = InMemoryPayload::mergeAll(std::move(payloads), defaultPool());
+  ASSERT_FALSE(merged.ok());
+}
+
+TEST(PayloadTest, mergeAllRejectsMismatchedBufferCount) {
+  auto payloads = makeMergeInputs({{64, false}, {64, false}});
+  std::vector<std::shared_ptr<arrow::Buffer>> buffers{makeFilledBuffer(8, 1)};
+  payloads[1] = std::make_unique<InMemoryPayload>(64, &kSingleBufferIsValidityBuffer, nullptr, std::move(buffers));
+  auto merged = InMemoryPayload::mergeAll(std::move(payloads), defaultPool());
+  ASSERT_FALSE(merged.ok());
+}
+
+// `serializedSize` is used to size the push buffer before serializing into it, so it must return
+// exactly the number of bytes `serialize` writes - for every payload type.
+TEST(PayloadTest, serializedSizeMatchesSerialize) {
+  auto codec = createCompressionCodec(arrow::Compression::LZ4_FRAME, CodecBackend::NONE);
+  ASSERT_NE(codec, nullptr);
+
+  for (const auto& spec : std::vector<PayloadSpec>{{1024, false}, {1024, true}, {1, false}}) {
+    for (auto type : {Payload::Type::kUncompressed, Payload::Type::kToBeCompressed, Payload::Type::kCompressed}) {
+      GLUTEN_ASSIGN_OR_THROW(auto payload, makeMergeInput(spec, 1)->toBlockPayload(type, defaultPool(), codec.get()));
+      const auto reportedSize = payload->serializedSize();
+      auto serialized = serializeToBuffer(payload.get());
+      ASSERT_EQ(reportedSize, serialized->size()) << "payload type " << static_cast<int>(type);
+    }
+  }
+
+  // `kRaw` carries a single, already serialized buffer.
+  std::vector<std::shared_ptr<arrow::Buffer>> raw{makeFilledBuffer(2048, 1)};
+  GLUTEN_ASSIGN_OR_THROW(
+      auto rawPayload,
+      BlockPayload::fromBuffers(
+          Payload::Type::kRaw, 100, std::move(raw), &kSingleBufferIsValidityBuffer, defaultPool(), nullptr));
+  const auto reportedSize = rawPayload->serializedSize();
+  auto serialized = serializeToBuffer(rawPayload.get());
+  ASSERT_EQ(reportedSize, serialized->size());
+  ASSERT_EQ(reportedSize, 2048);
+}
+
+// Compressing into a caller-owned scratch buffer must produce the exact same bytes on the wire as
+// compressing into a freshly allocated one, and the scratch buffer must only ever grow so that the
+// steady state costs no allocation per payload.
+TEST(PayloadTest, reusedCompressBufferProducesIdenticalPayload) {
+  auto codec = createCompressionCodec(arrow::Compression::LZ4_FRAME, CodecBackend::NONE);
+  ASSERT_NE(codec, nullptr);
+
+  GLUTEN_ASSIGN_OR_THROW(
+      std::shared_ptr<arrow::ResizableBuffer> reusableBuffer, arrow::AllocateResizableBuffer(0, defaultPool()));
+  int64_t previousCapacity = 0;
+  // Shrinking row counts in between, to cover the case where the scratch buffer is already larger
+  // than the worst-case compressed length of the payload at hand.
+  for (const auto& spec : std::vector<PayloadSpec>{{4096, false}, {64, false}, {2048, true}, {32, false}}) {
+    GLUTEN_ASSIGN_OR_THROW(
+        auto expected, makeMergeInput(spec, 1)->toBlockPayload(Payload::Type::kCompressed, defaultPool(), codec.get()));
+    GLUTEN_ASSIGN_OR_THROW(
+        auto actual,
+        makeMergeInput(spec, 1)->toBlockPayload(
+            Payload::Type::kCompressed, defaultPool(), codec.get(), reusableBuffer));
+
+    ASSERT_EQ(actual->numRows(), expected->numRows());
+    ASSERT_EQ(actual->serializedSize(), expected->serializedSize());
+    auto expectedBytes = serializeToBuffer(expected.get());
+    auto actualBytes = serializeToBuffer(actual.get());
+    ASSERT_EQ(actualBytes->size(), expectedBytes->size());
+    ASSERT_EQ(0, memcmp(actualBytes->data(), expectedBytes->data(), expectedBytes->size()));
+
+    ASSERT_GE(reusableBuffer->capacity(), previousCapacity);
+    previousCapacity = reusableBuffer->capacity();
+  }
+  ASSERT_GT(previousCapacity, 0);
 }
 
 } // namespace gluten
