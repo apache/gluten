@@ -22,10 +22,17 @@ import org.apache.gluten.iterator.ClosableIterator;
 import org.apache.gluten.runtime.Runtime;
 import org.apache.gluten.runtime.RuntimeAware;
 
+import org.apache.spark.QueryContext;
+import org.apache.spark.SparkRuntimeException;
 import org.apache.spark.sql.execution.datasources.SchemaColumnConvertNotSupportedException;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
+import org.apache.spark.util.SparkVersionUtil;
 
 import java.io.IOException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import scala.collection.immutable.Map;
 
 public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
     implements RuntimeAware {
@@ -132,6 +139,10 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
     nativeRequestBarrier(iterHandle);
   }
 
+  // Velox's message when a char or varchar value is longer than its declared length.
+  private static final Pattern CHAR_VARCHAR_LENGTH_EXCEEDED =
+      Pattern.compile("Exceeds allowed length limitation: (\\d+)");
+
   /**
    * Translates a Velox type conversion error into a SchemaColumnConvertNotSupportedException.
    * Returns null if the message does not indicate a type conversion error.
@@ -143,6 +154,26 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
     return null;
   }
 
+  /**
+   * Translates a Velox char/varchar length check failure into the exception Spark throws for a
+   * value longer than its declared length. Returns null if the message does not indicate one.
+   */
+  private static RuntimeException translateToCharVarcharLengthException(String msg, Exception e) {
+    Matcher matcher = CHAR_VARCHAR_LENGTH_EXCEEDED.matcher(msg);
+    if (!matcher.find()) {
+      return null;
+    }
+    String limit = matcher.group(1);
+    if (!SparkVersionUtil.gteSpark35()) {
+      // Spark 3.4 has no EXCEED_LIMIT_LENGTH error class and throws this plain RuntimeException.
+      return new RuntimeException("Exceeds char/varchar type length limitation: " + limit, e);
+    }
+    // Builds the exception QueryExecutionErrors.exceedMaxLimit builds, with the Velox error as its
+    // cause. SparkRuntimeException's cause can only be set through its constructor.
+    return new SparkRuntimeException(
+        "EXCEED_LIMIT_LENGTH", new Map.Map1<>("limit", limit), e, new QueryContext[0], "");
+  }
+
   @Override
   protected RuntimeException translateException(Exception e) {
     String msg = findFirstNonNullMessage(e);
@@ -151,6 +182,10 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
       if (schemaEx != null) {
         schemaEx.initCause(e);
         return schemaEx;
+      }
+      RuntimeException lengthEx = translateToCharVarcharLengthException(msg, e);
+      if (lengthEx != null) {
+        return lengthEx;
       }
     }
     // A GlutenException raised by native/nested code is already translated; return it
