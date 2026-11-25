@@ -50,13 +50,13 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
 
   import testImplicits._
 
-  // GLUTEN-13179: Spark 4.2's FunctionRegistry rejects the 1-part FunctionIdentifier
+  // GLUTEN-13179: Spark 4.2+'s FunctionRegistry rejects the 1-part FunctionIdentifier
   // "velox_dummy_expression" registered in beforeAll (it must be fully qualified), which aborts
-  // the suite. Ignore every test on Spark 4.2 only; with no runnable tests ScalaTest also skips
+  // the suite. Ignore every test on Spark 4.2+ only; with no runnable tests ScalaTest also skips
   // beforeAll/afterAll. Other Spark versions run the suite unchanged.
   override def tags: Map[String, Set[String]] = {
     val inherited = super.tags
-    if (matchSparkVersion(Some("4.2"), Some("4.2"))) {
+    if (matchSparkVersion(Some("4.2"))) {
       inherited ++ testNames.map {
         name => name -> (inherited.getOrElse(name, Set.empty[String]) + "org.scalatest.Ignore")
       }.toMap
