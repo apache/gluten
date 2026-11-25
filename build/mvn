@@ -15,11 +15,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Use the Maven version pinned in pom.xml, reusing a matching system installation
-# or the one under build/.mvn. Otherwise fetch from the Apache CDN with curl or
-# wget, falling back to the Apache archive if the tarball or checksum is unavailable.
-# Cached tarballs need only a fresh checksum. Verify SHA-512 with sha512sum or
-# shasum before extraction; a mismatch is an error, not a reason to try another source.
+# Reuse the Maven version pinned in pom.xml from the system or build/.mvn. If
+# the tarball is not cached, download it from the Apache CDN with curl or wget,
+# falling back to the Apache archive on download failure. Before extraction,
+# verify the tarball against the pinned SHA-512 with sha512sum or shasum.
 # Usage: build/mvn <maven-args>
 #
 
@@ -30,6 +29,14 @@ MVN_DOWNLOAD_DIR="${DOWNLOAD_DIR}/.mvn"
 
 # Global variable for Maven binary path
 MVN_BIN=""
+
+pom_property() {
+    awk -F '[<>]' -v name="$1" '
+        /<!--/,/-->/ {next}
+        $2 == "/properties" {exit}
+        $2 == name && $4 == "/" name {print $3}
+    ' "${GLUTEN_HOME}/pom.xml"
+}
 
 download_mvn() {
     local URL="$1"
@@ -48,6 +55,7 @@ download_mvn() {
     fi
 
     local ATTEMPT STATUS
+    echo "URL: ${URL}" >&2
     rm -f "$PARTIAL" || return 1
     for ATTEMPT in 1 2 3; do
         if "${DOWNLOAD_CMD[@]}" "$URL"; then
@@ -72,7 +80,7 @@ download_mvn() {
 }
 
 verify_mvn() {
-    local ARCHIVE="$1" CHECKSUM_FILE="$2" CHECKSUM
+    local ARCHIVE="$1" CHECKSUM="$2"
     local SHA512
     if command -v sha512sum > /dev/null 2>&1; then
         SHA512=(sha512sum)
@@ -83,12 +91,6 @@ verify_mvn() {
         return 1
     fi
 
-    # Apache publishes a bare SHA-512 digest, not a checksum-tool manifest.
-    if ! CHECKSUM=$(tr -d '[:space:]' < "$CHECKSUM_FILE") ||
-            ! [[ "$CHECKSUM" =~ ^[0-9a-fA-F]{128}$ ]]; then
-        echo "ERROR: Invalid SHA-512 checksum in ${CHECKSUM_FILE}" >&2
-        return 1
-    fi
     # Keep checkout paths out of the line-based checksum manifest.
     if ! printf '%s  %s\n' "$CHECKSUM" "${ARCHIVE##*/}" |
             (cd "${ARCHIVE%/*}" && "${SHA512[@]}" -c -) >&2; then
@@ -97,12 +99,9 @@ verify_mvn() {
     fi
 }
 
-# Read Maven version from pom.xml if not set
 install_mvn() {
-    # Get Maven version from pom.xml using grep and sed
     local VERSION
-    VERSION=$(grep "<maven.version>" "${GLUTEN_HOME}/pom.xml" | head -n1 | \
-              awk -F '[<>]' '{print $3}')
+    VERSION=$(pom_property maven.version)
 
     if [ -z "$VERSION" ]; then
         echo "ERROR: Could not read maven.version from pom.xml. Please define <maven.version> in ${GLUTEN_HOME}/pom.xml" >&2
@@ -127,47 +126,28 @@ install_mvn() {
     local MVN_LOCAL_BIN="${MVN_DOWNLOAD_DIR}/apache-maven-${VERSION}/bin/mvn"
 
     if [ ! -f "${MVN_LOCAL_BIN}" ]; then
-        echo "Maven ${VERSION} not found locally. Downloading..." >&2
+        local MVN_SHA512
+        MVN_SHA512=$(pom_property maven.distribution.sha512)
+        if ! [[ "$MVN_SHA512" =~ ^[0-9a-fA-F]{128}$ ]]; then
+            echo "ERROR: Missing or invalid maven.distribution.sha512 in ${GLUTEN_HOME}/pom.xml" >&2
+            exit 1
+        fi
 
         # Create download directory
         mkdir -p "${MVN_DOWNLOAD_DIR}" || exit 1
 
         local MVN_TAR="${MVN_DOWNLOAD_DIR}/apache-maven-${VERSION}-bin.tar.gz"
-        local MVN_SHA512="${MVN_TAR}.sha512"
-        local DISTRIBUTION_PATH="maven/maven-${VERSION%%.*}/${VERSION}/binaries/apache-maven-${VERSION}-bin.tar.gz"
-        local SOURCE DOWNLOAD_URL CHECKSUM_URL VERIFIED=false
-        # A missing checksum is not a reason to discard a pre-existing archive.
-        local DOWNLOAD_FILES=("$MVN_SHA512")
         if [ ! -f "$MVN_TAR" ]; then
-            DOWNLOAD_FILES+=("$MVN_TAR")
+            echo "Maven ${VERSION} not found locally. Downloading..." >&2
+            local DISTRIBUTION_PATH="maven/maven-${VERSION%%.*}/${VERSION}/binaries/${MVN_TAR##*/}"
+            if ! download_mvn "https://dlcdn.apache.org/${DISTRIBUTION_PATH}" "$MVN_TAR"; then
+                echo "WARNING: Maven distribution unavailable; trying the Apache archive..." >&2
+                download_mvn "https://archive.apache.org/dist/${DISTRIBUTION_PATH}" "$MVN_TAR" || exit 1
+            fi
         fi
 
-        for SOURCE in https://dlcdn.apache.org https://archive.apache.org/dist; do
-            DOWNLOAD_URL="${SOURCE}/${DISTRIBUTION_PATH}"
-            CHECKSUM_URL="${DOWNLOAD_URL}.sha512"
-            if [ "$SOURCE" = https://dlcdn.apache.org ]; then
-                CHECKSUM_URL="https://downloads.apache.org/${DISTRIBUTION_PATH}.sha512"
-            fi
-
-            echo "URL: ${DOWNLOAD_URL}" >&2
-            if { [ -f "$MVN_TAR" ] || download_mvn "$DOWNLOAD_URL" "$MVN_TAR"; } &&
-                    download_mvn "$CHECKSUM_URL" "$MVN_SHA512"; then
-                if ! verify_mvn "$MVN_TAR" "$MVN_SHA512"; then
-                    rm -f "$MVN_TAR" "$MVN_SHA512"
-                    exit 1
-                fi
-                VERIFIED=true
-                break
-            fi
-
-            rm -f "${DOWNLOAD_FILES[@]}"
-            if [ "$SOURCE" = https://dlcdn.apache.org ]; then
-                echo "WARNING: Maven distribution or checksum unavailable; trying the Apache archive..." >&2
-            fi
-        done
-
-        if [ "$VERIFIED" != true ]; then
-            echo "ERROR: Failed to download Maven ${VERSION} and its SHA-512 checksum from Apache." >&2
+        if ! verify_mvn "$MVN_TAR" "$MVN_SHA512"; then
+            rm -f "$MVN_TAR"
             exit 1
         fi
 
@@ -175,11 +155,11 @@ install_mvn() {
         echo "Extracting Maven to ${MVN_DOWNLOAD_DIR}..." >&2
         if ! (cd "${MVN_DOWNLOAD_DIR}" && tar -xzf "${MVN_TAR##*/}"); then
             echo "ERROR: Failed to extract Maven" >&2
-            rm -f "$MVN_TAR" "$MVN_SHA512"
+            rm -f "$MVN_TAR"
             exit 1
         fi
 
-        rm -f "$MVN_TAR" "$MVN_SHA512"
+        rm -f "$MVN_TAR"
 
         echo "Maven ${VERSION} installed successfully to ${MVN_DOWNLOAD_DIR}/apache-maven-${VERSION}" >&2
     else

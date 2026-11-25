@@ -131,8 +131,9 @@
     <fasterxml.version>2.22.3</fasterxml.version>
     <fasterxml.annotations.version>${fasterxml.version}</fasterxml.annotations.version>
     <junit.version>4.13.1</junit.version>
-    <!-- Maven version for build/mvn wrapper script -->
+    <!-- Update both build/mvn pins together using Apache's published -bin.tar.gz.sha512. -->
     <maven.version>3.9.16</maven.version>
+    <maven.distribution.sha512>831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6</maven.distribution.sha512>
     <junit5.version>5.11.4</junit5.version>
     <flexmark.version>0.62.2</flexmark.version>
 
