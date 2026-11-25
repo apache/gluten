@@ -31,12 +31,17 @@ import org.apache.spark.sql.types.{IntegerType, LongType, StructType}
 import org.apache.spark.sql.util.QueryExecutionListener
 import org.apache.spark.util.SparkVersionUtil
 
+import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
+import org.apache.parquet.crypto.{DecryptionPropertiesFactory, EncryptionPropertiesFactory, FileDecryptionProperties, FileEncryptionProperties}
 import org.apache.parquet.hadoop.ParquetFileReader
+import org.apache.parquet.hadoop.api.WriteSupport.WriteContext
 import org.apache.parquet.hadoop.util.HadoopInputFile
 import org.json4s.{JInt, JNothing}
 import org.json4s.jackson.JsonMethods.parse
 
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
 import java.util.concurrent.ConcurrentLinkedQueue
 
 import scala.collection.JavaConverters._
@@ -280,4 +285,234 @@ class GlutenDeltaNativePartitionWriteSuite extends GlutenQueryTest with SharedSp
       }
     }
   }
+
+  for (
+    (option, sessionLimit, partitioned, expectedNative) <- Seq(
+      (None, 1, false, false),
+      (Some("1"), 0, false, false),
+      (Some("0"), 1, false, true),
+      (Some("-1"), 1, false, true),
+      (Some("1"), 0, true, true));
+    collectStats <- Seq(false, true)
+  ) {
+    test(s"Delta streaming safeguards: file limit option=$option, session=$sessionLimit, " +
+      s"partitioned=$partitioned, stats=$collectStats") {
+      assume(BackendTestUtils.isVeloxBackendLoaded())
+      import testImplicits._
+      withSQLConf(
+        "spark.gluten.sql.columnar.backend.velox.delta.enableNativeStreamingWrite" -> "true",
+        "spark.sql.files.maxRecordsPerFile" -> sessionLimit.toString,
+        "spark.databricks.delta.stats.collect" -> collectStats.toString
+      ) {
+        withTempDir {
+          dir =>
+            val path = dir.getCanonicalPath + "/data"
+            val input = MemoryStream[Long](numPartitions = 1)(implicitly, spark.sqlContext)
+            val writer = input.toDF().selectExpr("value AS id", "0 AS part")
+              .writeStream.format("delta").outputMode("append")
+              .option("checkpointLocation", dir.getCanonicalPath + "/checkpoint")
+            option.foreach(value => writer.option("MaXrEcOrDsPeRfIlE", value))
+            val query = (if (partitioned) writer.partitionBy("part") else writer).start(path)
+            try {
+              input.addData(1L, 2L)
+              query.processAllAvailable()
+            } finally {
+              query.stop()
+            }
+            withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+              val files = DeltaLog.forTable(spark, path).update().allFiles.collect()
+              val expectNative = expectedNative &&
+                SparkVersionUtil.compareMajorMinorVersion((3, 5)) == 0
+              val rowCounts = files.map {
+                file =>
+                  assert(file.size > 0, s"Committed zero-byte file: ${file.path}")
+                  val reader = ParquetFileReader.open(HadoopInputFile.fromPath(
+                    DeltaFileOperations.absolutePath(path, file.path),
+                    spark.sessionState.newHadoopConf()))
+                  try {
+                    assert(reader.getFooter.getFileMetaData.getCreatedBy
+                      .startsWith("parquet-mr") == !expectNative)
+                    reader.getFooter.getBlocks.asScala.map(_.getRowCount).sum
+                  } finally {
+                    reader.close()
+                  }
+              }.sorted.toSeq
+              val limit = option.map(_.toLong).getOrElse(sessionLimit.toLong)
+              assert(rowCounts == (if (limit > 0) Seq(1L, 1L) else Seq(2L)))
+              checkAnswer(
+                spark.read.format("delta").load(path).select("id"),
+                Seq(Row(1L), Row(2L)))
+            }
+        }
+      }
+    }
+  }
+
+  for (setting <- Seq("session", "hadoop", "table", "table-after-start")) {
+    test(s"Delta streaming safeguards: Parquet encryption from $setting") {
+      assume(BackendTestUtils.isVeloxBackendLoaded())
+      import testImplicits._
+      val cryptoKey = "parquet.crypto.factory.class"
+      val factory = classOf[GlutenDeltaStreamingEncryptionFactory].getName
+      val hadoopConf = spark.sparkContext.hadoopConfiguration
+      val previousFactory = Option(hadoopConf.get(cryptoKey))
+      withSQLConf(
+        "spark.gluten.sql.columnar.backend.velox.delta.enableNativeStreamingWrite" -> "true",
+        "spark.databricks.delta.stats.collect" -> "false") {
+        withTempDir {
+          dir =>
+            val path = dir.getCanonicalPath + "/data"
+            // Create metadata only, so no plaintext data files predate encryption.
+            spark.sql(s"CREATE TABLE delta.`$path` (id BIGINT) USING delta")
+            if (setting == "table") {
+              spark.sql(s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('$cryptoKey'='$factory')")
+            }
+            if (setting == "hadoop") hadoopConf.set(cryptoKey, factory)
+            try {
+              val settings = if (setting == "session") Seq(cryptoKey -> factory) else Seq.empty
+              withSQLConf(settings: _*) {
+                val input = MemoryStream[Long](numPartitions = 1)(implicitly, spark.sqlContext)
+                val query = input.toDF().toDF("id").writeStream
+                  .format("delta").outputMode("append")
+                  .option("checkpointLocation", dir.getCanonicalPath + "/checkpoint").start(path)
+                try {
+                  query.processAllAvailable()
+                  if (setting == "table-after-start") {
+                    spark.sql(
+                      s"ALTER TABLE delta.`$path` SET TBLPROPERTIES ('$cryptoKey'='$factory')")
+                  }
+                  input.addData(1L, 2L)
+                  query.processAllAvailable()
+                } finally {
+                  query.stop()
+                }
+              }
+            } finally {
+              previousFactory match {
+                case Some(value) => hadoopConf.set(cryptoKey, value)
+                case None => hadoopConf.unset(cryptoKey)
+              }
+            }
+            withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false", cryptoKey -> factory) {
+              val files = DeltaLog.forTable(spark, path).update().allFiles.collect()
+              assert(files.nonEmpty)
+              files.foreach {
+                file =>
+                  val filePath = DeltaFileOperations.absolutePath(path, file.path)
+                  val stream = filePath.getFileSystem(spark.sessionState.newHadoopConf())
+                    .open(filePath)
+                  try {
+                    val magic = new Array[Byte](4)
+                    stream.readFully(magic)
+                    assert(
+                      new String(magic, StandardCharsets.US_ASCII) == "PARE",
+                      s"Expected encrypted Parquet file: ${file.path}")
+                  } finally {
+                    stream.close()
+                  }
+              }
+              checkAnswer(spark.read.format("delta").load(path), Seq(Row(1L), Row(2L)))
+            }
+        }
+      }
+    }
+  }
+
+  for (collectStats <- Seq(false, true)) {
+    test(s"Delta streaming safeguards: replay committed epoch, stats=$collectStats") {
+      assume(BackendTestUtils.isVeloxBackendLoaded())
+      withSQLConf(
+        "spark.gluten.sql.columnar.backend.velox.delta.enableNativeStreamingWrite" -> "true",
+        "spark.databricks.delta.stats.collect" -> collectStats.toString) {
+        withTempDir {
+          dir =>
+            val source = new java.io.File(dir, "source")
+            assert(source.mkdir())
+            def addInput(name: String, ids: Seq[Long]): Unit = {
+              val json = ids.map(id => s"""{"id":$id}""").mkString("\n")
+              Files.write(
+                new java.io.File(source, name).toPath,
+                json.getBytes(StandardCharsets.UTF_8))
+            }
+            val path = dir.getCanonicalPath + "/data"
+            val checkpoint = dir.getCanonicalPath + "/checkpoint"
+            def startQuery() = spark.readStream.schema(new StructType().add("id", LongType))
+              .json(source.getCanonicalPath).coalesce(1)
+              .writeStream.format("delta").outputMode("append")
+              .option("checkpointLocation", checkpoint).start(path)
+            addInput("first.json", Seq(1L, 2L))
+            val first = startQuery()
+            try {
+              first.processAllAvailable()
+            } finally {
+              first.stop()
+            }
+            val log = DeltaLog.forTable(spark, path)
+            val committed = log.update()
+            val filesBeforeReplay = committed.allFiles.collect().toSet
+            assert(committed.transactions(first.id.toString) == 0L)
+            val commitPath = new Path(checkpoint + "/commits/0")
+            val fs = commitPath.getFileSystem(spark.sessionState.newHadoopConf())
+            assert(fs.exists(new Path(checkpoint + "/offsets/0")))
+            // Recreate the durable state after Delta commits but before Spark records completion.
+            // Keep the source offset and Delta SetTransaction; remove only Spark's commit marker.
+            assert(fs.delete(commitPath, false))
+            val replay = startQuery()
+            try {
+              assert(replay.id == first.id)
+              assert(replay.runId != first.runId)
+              replay.processAllAvailable()
+              assert(fs.exists(commitPath), "Spark did not finish replaying epoch 0")
+              val replayed = log.update()
+              assert(replayed.version == committed.version)
+              assert(replayed.allFiles.collect().toSet == filesBeforeReplay)
+              withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+                checkAnswer(spark.read.format("delta").load(path), Seq(Row(1L), Row(2L)))
+              }
+              addInput("second.json", Seq(3L, 4L))
+              replay.processAllAvailable()
+              val next = log.update()
+              assert(next.version == committed.version + 1)
+              assert(next.transactions(replay.id.toString) == 1L)
+              assert(next.allFiles.collect().toSet.diff(filesBeforeReplay).nonEmpty)
+            } finally {
+              replay.stop()
+            }
+            withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+              checkAnswer(
+                spark.read.format("delta").load(path),
+                Seq(Row(1L), Row(2L), Row(3L), Row(4L)))
+              log.update().allFiles.collect().foreach {
+                file =>
+                  val reader = ParquetFileReader.open(HadoopInputFile.fromPath(
+                    DeltaFileOperations.absolutePath(path, file.path),
+                    spark.sessionState.newHadoopConf()))
+                  try {
+                    val expectNative = SparkVersionUtil.compareMajorMinorVersion((3, 5)) == 0
+                    assert(reader.getFooter.getFileMetaData.getCreatedBy
+                      .startsWith("parquet-mr") == !expectNative)
+                  } finally {
+                    reader.close()
+                  }
+              }
+            }
+        }
+      }
+    }
+  }
+}
+
+// Fixed test-only key: real encrypted files let the tests detect a plaintext native write.
+class GlutenDeltaStreamingEncryptionFactory
+  extends EncryptionPropertiesFactory with DecryptionPropertiesFactory {
+  override def getFileEncryptionProperties(
+      conf: Configuration,
+      path: Path,
+      context: WriteContext): FileEncryptionProperties =
+    FileEncryptionProperties.builder(Array.fill[Byte](16)(1)).build()
+
+  override def getFileDecryptionProperties(
+      conf: Configuration,
+      path: Path): FileDecryptionProperties =
+    FileDecryptionProperties.builder().withFooterKey(Array.fill[Byte](16)(1)).build()
 }

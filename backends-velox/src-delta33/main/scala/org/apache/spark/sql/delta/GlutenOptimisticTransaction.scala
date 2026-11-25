@@ -34,6 +34,8 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.util.ScalaExtensions.OptionExt
 import org.apache.spark.util.SerializableConfiguration
 
+import org.apache.parquet.crypto.EncryptionPropertiesFactory
+
 import scala.collection.mutable.ListBuffer
 import scala.util.control.NonFatal
 
@@ -58,9 +60,25 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
           "falling back to the vanilla Delta write path.")
       return super.writeFiles(inputData, writeOptions, isOptimize, additionalConstraints)
     }
-    hasWritten = true
-
     val spark = inputData.sparkSession
+    // Check the current transaction metadata, including table properties added after stream startup.
+    // Use the same effective configuration as Delta's writer and the Delta 4.x native write gate.
+    // scalastyle:off deltahadoopconfiguration
+    val jobHadoopConf =
+      spark.sessionState.newHadoopConfWithOptions(metadata.configuration ++ deltaLog.options)
+    // scalastyle:on deltahadoopconfiguration
+    val encrypted =
+      jobHadoopConf.get(EncryptionPropertiesFactory.CRYPTO_FACTORY_CLASS_PROPERTY_NAME) != null
+    val maxRecordsPerFile = writeOptions
+      .flatMap(_.options.get(DeltaOptions.MAX_RECORDS_PER_FILE))
+      .map(_.toLong)
+      .getOrElse(spark.sessionState.conf.maxRecordsPerFile)
+    // Only the partitioned native writer can split a columnar batch across output files.
+    if (encrypted || (metadata.partitionColumns.isEmpty && maxRecordsPerFile > 0)) {
+      logInfo("Writing with vanilla Delta to honor Parquet encryption or maxRecordsPerFile.")
+      return super.writeFiles(inputData, writeOptions, isOptimize, additionalConstraints)
+    }
+    hasWritten = true
 
     val (data, partitionSchema) = performCDCPartition(inputData)
     val outputPath = deltaLog.dataPath
@@ -190,10 +208,7 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
           ), // This is changed to Gluten's Delta format.
           committer = committer,
           outputSpec = outputSpec,
-          // scalastyle:off deltahadoopconfiguration
-          hadoopConf =
-            spark.sessionState.newHadoopConfWithOptions(metadata.configuration ++ deltaLog.options),
-          // scalastyle:on deltahadoopconfiguration
+          hadoopConf = jobHadoopConf,
           partitionColumns = partitioningColumns,
           bucketSpec = None,
           statsTrackers =

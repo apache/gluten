@@ -35,7 +35,8 @@ import scala.collection.JavaConverters._
  *
  * Run this main class using spark-submit with the backends-velox test jar, the native Gluten
  * bundle, Delta jars and the Spark test-jar classpath used by DeltaPlanningBenchmark. The workload
- * uses local[2], two input partitions and identical fixed-size batches for both writers.
+ * uses local[2], two input partitions and identical 24-column batches for both writers, with Gluten
+ * enabled in both runs. Only native streaming writing is toggled.
  *
  * Reports Spark's triggerExecution duration and JVM process CPU separately. CPU covers source
  * enqueue through processAllAvailable, including MemoryStream encoding and local executor work; it
@@ -80,7 +81,7 @@ object DeltaStreamingWriteBenchmark extends SqlBasedBenchmark {
   override def runBenchmarkSuite(mainArgs: Array[String]): Unit = {
     require(warmupBatches >= 0 && measuredBatches > 0)
     require(processCpu.getProcessCpuTime >= 0, "JVM process CPU time is unavailable")
-    report(s"local[2], input partitions=2, statistics=true, " +
+    report(s"local[2], input partitions=2, columns=24, Gluten=true, statistics=true, " +
       s"warmup batches=$warmupBatches, measured batches=$measuredBatches")
     report("CPU interval: source enqueue through processAllAvailable, in this JVM only")
     report("mode,rows_per_batch,sample,triggerExecution_ms,local_process_cpu_ms")
@@ -92,10 +93,15 @@ object DeltaStreamingWriteBenchmark extends SqlBasedBenchmark {
   private def runStreamingCase(rowsPerBatch: Int, nativeWrite: Boolean): Unit = {
     import spark.implicits._
     val rows = (0 until rowsPerBatch).map(_.toLong).toVector
-    val mode = if (nativeWrite) "native" else "vanilla"
+    val mode = if (nativeWrite) "native" else "spark"
+    val columns = "value AS id" +: (1 until 24).map {
+      i =>
+        if (i % 3 == 0) s"concat('value-$i-', value) AS c$i"
+        else s"value * $i AS c$i"
+    }
     withSQLConf(
-      "spark.gluten.enabled" -> nativeWrite.toString,
-      "spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite" -> nativeWrite.toString,
+      "spark.gluten.enabled" -> "true",
+      "spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite" -> "true",
       "spark.gluten.sql.columnar.backend.velox.delta.enableNativeStreamingWrite" ->
         nativeWrite.toString,
       "spark.databricks.delta.stats.collect" -> "true",
@@ -106,14 +112,15 @@ object DeltaStreamingWriteBenchmark extends SqlBasedBenchmark {
           val path = directory.getCanonicalPath + "/data"
           val input = MemoryStream[Long](numPartitions = 2)(implicitly, spark.sqlContext)
           val query = input.toDF()
-            .selectExpr("value AS id", "value * 2 AS doubled", "concat('value-', value) AS payload")
+            .selectExpr(columns: _*)
             .writeStream.format("delta").outputMode("append")
             .option("checkpointLocation", directory.getCanonicalPath + "/checkpoint")
             .start(path)
           val samples = scala.collection.mutable.ArrayBuffer.empty[(Long, Double)]
           try {
             query.processAllAvailable()
-            var previousBatchId = Option(query.lastProgress).map(_.batchId).getOrElse(-1L)
+            // Idle progress can report batch 0 before the first data batch uses that same ID.
+            var previousBatchId = -1L
             for (batch <- 0 until warmupBatches + measuredBatches) {
               val startCpu = processCpu.getProcessCpuTime
               input.addData(rows)
