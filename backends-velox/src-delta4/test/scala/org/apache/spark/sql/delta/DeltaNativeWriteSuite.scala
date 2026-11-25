@@ -20,7 +20,7 @@ import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.config.VeloxDeltaConfig
 import org.apache.gluten.execution.SortExecTransformer
 
-import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.{Column, DataFrame, Row}
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.delta.actions.AddFile
 import org.apache.spark.sql.delta.commands.optimize.OptimizeMetrics
@@ -617,6 +617,49 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
         }
       }
     }
+  }
+
+  test("native delta write of input sorted before the empty-to-null project") {
+    def check(rows: Seq[(Long, String, Int)], partitionBy: Seq[String], writerSorts: Boolean)(
+        sortBy: Column*): Unit = {
+      withNativeWriteOffloadConf {
+        withTempDir {
+          dir =>
+            val path = dir.getCanonicalPath
+            // One task and one row per batch, so a partition that comes back after another
+            // partition gets a second file.
+            withSQLConf(GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> "1") {
+              GlutenDeltaFileFormatWriter.clearExecutedPlanForTesting()
+              spark.sparkContext
+                .parallelize(rows, 1)
+                .toDF("id", "s", "p")
+                .sortWithinPartitions(sortBy: _*)
+                .write
+                .format("delta")
+                .partitionBy(partitionBy: _*)
+                .save(path)
+              assert(!writerPlan.treeString.contains("ColumnarToRow"), writerPlan)
+            }
+            val partitions = files(DeltaLog.forTable(spark, path)).toSeq.map(_.partitionValues)
+            assert(partitions.size == 2 && partitions.distinct.size == 2, partitions)
+            val sorts = writerPlan.collect { case s: SortExecTransformer => s }
+            assert(sorts.size == (if (writerSorts) 2 else 1), writerPlan)
+        }
+      }
+    }
+    // Empty2Null turns these into (null, 1), (null, 2), (null, 1), (null, 2).
+    val twoColumns = Seq((1L, null, 1), (2L, null, 2), (3L, "", 1), (4L, "", 2))
+    check(twoColumns, Seq("s", "p"), writerSorts = true)($"s", $"p")
+    val oneColumn = Seq((1L, "", 1), (2L, "a", 1), (3L, null, 1))
+    // These become null, "a", null.
+    check(oneColumn, Seq("s"), writerSorts = true)($"s".asc_nulls_last)
+    check(oneColumn, Seq("s"), writerSorts = true)($"s".desc_nulls_first)
+    // These stay grouped: null, null, "a" and "a", null, null.
+    check(oneColumn, Seq("s"), writerSorts = false)($"s")
+    check(oneColumn, Seq("s"), writerSorts = false)($"s".desc_nulls_last)
+    // The same with s after another partition column.
+    check(oneColumn, Seq("p", "s"), writerSorts = true)($"p", $"s".asc_nulls_last)
+    check(oneColumn, Seq("p", "s"), writerSorts = false)($"p", $"s")
   }
 
   test("native delta write checks NOT NULL constraints on a partitioned table") {

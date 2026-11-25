@@ -241,9 +241,9 @@ object GlutenDeltaFileFormatWriter extends Logging {
         committer,
         outputSpec,
         requiredOrdering,
+        actualOrdering,
         partitionColumns,
         sortColumns,
-        orderingMatched,
         isNativeWritable
       )
     }
@@ -258,9 +258,9 @@ object GlutenDeltaFileFormatWriter extends Logging {
                             committer: FileCommitProtocol,
                             outputSpec: OutputSpec,
                             requiredOrdering: Seq[Expression],
+                            actualOrdering: Seq[SortOrder],
                             partitionColumns: Seq[Attribute],
                             sortColumns: Seq[Attribute],
-                            orderingMatched: Boolean,
                             writeOffloadable: Boolean): Set[String] = {
     val projectList = V1WritesUtils.convertEmptyToNull(plan.output, partitionColumns)
     val empty2NullPlan = if (projectList.nonEmpty) ProjectExecTransformer(projectList, plan) else plan
@@ -269,7 +269,8 @@ object GlutenDeltaFileFormatWriter extends Logging {
       def collapseStages(input: SparkPlan): SparkPlan =
         GenerateTransformStageId()(
           ColumnarCollapseTransformStages(new GlutenConfig(sparkSession.sessionState.conf))(input))
-      val (planToExecute, concurrentOutputWriterSpec) = if (orderingMatched) {
+      val sortedAfterProject = isSortedAfterProject(requiredOrdering, actualOrdering, projectList)
+      val (planToExecute, concurrentOutputWriterSpec) = if (sortedAfterProject) {
         // The empty-to-null project is a bare transformer, which can't run outside a stage.
         (if (projectList.nonEmpty) collapseStages(empty2NullPlan) else empty2NullPlan, None)
       } else {
@@ -423,6 +424,30 @@ object GlutenDeltaFileFormatWriter extends Logging {
     val orderingExpr =
       bindReferences(requiredOrdering.map(SortOrder(_, Ascending)), outputSpec.outputColumns)
     SortExec(orderingExpr, global = false, child = plan)
+  }
+
+  /**
+   * Whether input sorted by `actualOrdering` is still sorted by `requiredOrdering` after
+   * `projectList`, whose Empty2Null turns "" into null. With one such column, the last required
+   * one, null and "" stay next to each other when the column is ASC NULLS FIRST or DESC NULLS
+   * LAST. Otherwise the project can break up a partition: sorted (null, 1), (null, 2), ("", 1)
+   * becomes (null, 1), (null, 2), (null, 1).
+   */
+  private def isSortedAfterProject(
+      requiredOrdering: Seq[Expression],
+      actualOrdering: Seq[SortOrder],
+      projectList: Seq[NamedExpression]): Boolean = {
+    V1WritesUtils.isOrderingMatched(requiredOrdering, actualOrdering) &&
+    (projectList.collect { case Alias(Empty2Null(column), _) => column } match {
+      case Seq() => true
+      case Seq(column) if requiredOrdering.lastOption.exists(_.semanticEquals(column)) =>
+        val order = actualOrdering(requiredOrdering.length - 1)
+        (order.direction, order.nullOrdering) match {
+          case (Ascending, NullsFirst) | (Descending, NullsLast) => true
+          case _ => false
+        }
+      case _ => false
+    })
   }
 
   private def createConcurrentOutputWriterSpec(
