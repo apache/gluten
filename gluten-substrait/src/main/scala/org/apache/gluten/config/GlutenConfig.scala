@@ -206,8 +206,14 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   // scalastyle:off classforname
   def shuffleManagerSupportsColumnarShuffle: Boolean = {
-    classOf[SupportsColumnarShuffle].isAssignableFrom(Class.forName(conf
-      .getConfString("spark.shuffle.manager", "org.apache.spark.shuffle.sort.SortShuffleManager")))
+    val sortShuffleManager = "org.apache.spark.shuffle.sort.SortShuffleManager"
+    val configured = conf.getConfString("spark.shuffle.manager", sortShuffleManager)
+    // Spark also accepts the aliases "sort" and "tungsten-sort", case-insensitively.
+    val className = configured.toLowerCase(Locale.ROOT) match {
+      case "sort" | "tungsten-sort" => sortShuffleManager
+      case _ => configured
+    }
+    classOf[SupportsColumnarShuffle].isAssignableFrom(Class.forName(className))
   }
   // scalastyle:on classforname
 
@@ -719,7 +725,8 @@ object GlutenConfig extends ConfigRegistry {
       SPARK_REDACTION_REGEX,
       SQLConf.LEGACY_TIME_PARSER_POLICY.key,
       SQLConf.LEGACY_STATISTICAL_AGGREGATE.key,
-      COLUMNAR_CUDF_ENABLED.key
+      COLUMNAR_CUDF_ENABLED.key,
+      MEMORY_MANAGER_CAPACITY_RATIO.key
     )
 
     nativeConfMap ++= conf.filter {
