@@ -17,11 +17,12 @@
 package org.apache.gluten.execution.kafka
 
 import org.apache.gluten.execution.{MicroBatchScanExecTransformer, VeloxWholeStageTransformerSuite}
+import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
-import org.apache.spark.sql.execution.streaming.StreamingQueryWrapper
 import org.apache.spark.sql.streaming.Trigger
+import org.apache.spark.sql.types.{BinaryType, StructField, StructType}
 
 import org.apache.kafka.clients.admin.{AdminClient, AdminClientConfig, NewTopic}
 
@@ -44,6 +45,8 @@ class VeloxGlutenKafkaScanSuite extends VeloxWholeStageTransformerSuite {
     super.sparkConf
       .set("spark.shuffle.manager", "org.apache.spark.shuffle.sort.ColumnarShuffleManager")
       .set("spark.sql.shuffle.partitions", "2")
+      // Keep the same native-reader contract on Spark 4, where ANSI is enabled by default.
+      .set("spark.sql.ansi.enabled", "false")
   }
 
   private def withTopic(func: String => Unit): Unit = {
@@ -72,9 +75,16 @@ class VeloxGlutenKafkaScanSuite extends VeloxWholeStageTransformerSuite {
       topic =>
         withTempDir {
           dir =>
-            spark
-              .range(1000)
-              .selectExpr("cast(id as string) as value")
+            val values = spark.range(1000).selectExpr("cast(id as string) as value")
+            val messages = if (includeHeaders) {
+              values.selectExpr(
+                "value",
+                "array(named_struct('key', 'record-id', " +
+                  "'value', cast(concat('header-', value) as binary))) as headers")
+            } else {
+              values
+            }
+            messages
               .write
               .format("kafka")
               .option("kafka.bootstrap.servers", kafkaBootstrapServers)
@@ -102,16 +112,22 @@ class VeloxGlutenKafkaScanSuite extends VeloxWholeStageTransformerSuite {
 
             try {
               assert(streamQuery.awaitTermination(60000), "Kafka micro-batch did not finish")
-              val scans = streamQuery
-                .asInstanceOf[StreamingQueryWrapper]
-                .streamingQuery
-                .lastExecution
-                .executedPlan
+              val scans = SparkShimLoader.getSparkShims.getStreamingQueryExecutedPlan(streamQuery)
                 .collect { case p: MicroBatchScanExecTransformer => p }
               assert(scans.size == (if (includeHeaders) 0 else 1))
-              checkAnswer(
-                spark.read.parquet(dir.getCanonicalPath + "/data").select("id"),
-                (0 until 1000).map(Row(_)))
+              val actual = spark.read.parquet(dir.getCanonicalPath + "/data")
+              if (includeHeaders) {
+                checkAnswer(
+                  actual.selectExpr(
+                    "id",
+                    "size(headers)",
+                    "headers[0].key",
+                    "cast(headers[0].value as string)"),
+                  (0 until 1000).map(id => Row(id, 1, "record-id", s"header-$id"))
+                )
+              } else {
+                checkAnswer(actual.select("id"), (0 until 1000).map(Row(_)))
+              }
             } finally {
               streamQuery.stop()
             }
@@ -123,7 +139,49 @@ class VeloxGlutenKafkaScanSuite extends VeloxWholeStageTransformerSuite {
     checkStreamingRead(includeHeaders = false)
   }
 
-  test("kafka micro-batch scan with headers falls back and returns every record") {
+  test("kafka micro-batch scan with headers falls back and preserves every header") {
     checkStreamingRead(includeHeaders = true)
+  }
+
+  test("kafka native micro-batch scan preserves null, empty, and binary values") {
+    val expected = Seq(
+      Row(Array[Byte](1), null),
+      Row(Array[Byte](2), Array.empty[Byte]),
+      Row(Array[Byte](3), Array[Byte](0, -1, -128, 127)))
+    val schema = StructType(Seq(
+      StructField("key", BinaryType),
+      StructField("value", BinaryType)))
+    withTopic {
+      topic =>
+        withTempDir {
+          dir =>
+            spark.createDataFrame(spark.sparkContext.parallelize(expected), schema)
+              .write.format("kafka")
+              .option("kafka.bootstrap.servers", kafkaBootstrapServers)
+              .option("topic", topic)
+              .save()
+            val query = spark.readStream.format("kafka")
+              .option("kafka.bootstrap.servers", kafkaBootstrapServers)
+              .option("subscribe", topic)
+              .option("startingOffsets", "earliest")
+              .load()
+              .select("key", "value")
+              .writeStream.format("parquet")
+              .option("checkpointLocation", dir.getCanonicalPath + "/checkpoint")
+              .trigger(Trigger.AvailableNow())
+              .start(dir.getCanonicalPath + "/data")
+            try {
+              assert(query.awaitTermination(60000), "Kafka micro-batch did not finish")
+              val scans = SparkShimLoader.getSparkShims.getStreamingQueryExecutedPlan(query)
+                .collect { case p: MicroBatchScanExecTransformer => p }
+              assert(scans.size == 1)
+              checkAnswer(
+                spark.read.parquet(dir.getCanonicalPath + "/data").select("key", "value"),
+                expected)
+            } finally {
+              query.stop()
+            }
+        }
+    }
   }
 }

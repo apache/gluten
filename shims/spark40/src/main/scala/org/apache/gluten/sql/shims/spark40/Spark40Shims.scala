@@ -55,6 +55,10 @@ import java.util.{Map => JMap}
 import scala.jdk.CollectionConverters._
 
 class Spark40Shims extends SparkShims {
+  override def getStreamingQueryExecutedPlan(
+      query: org.apache.spark.sql.streaming.StreamingQuery): SparkPlan =
+    query.asInstanceOf[org.apache.spark.sql.execution.streaming.StreamingQueryWrapper]
+      .streamingQuery.lastExecution.executedPlan
 
   override def getSampleSeed(plan: SampleExec): Long = plan.seed
 
