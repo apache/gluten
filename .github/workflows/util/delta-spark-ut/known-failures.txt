@@ -20,10 +20,6 @@
 # Velox forks x ~4G run close to the ~16G runner limit) -- so a baseline captured
 # at a different parallelism spuriously flags them as regressions.
 # ---------------------------------------------------------------------------
-org.apache.spark.sql.delta.CheckpointsSuite#SC-86940: writing a GCS checkpoint should happen in a new thread
-org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch100Suite#SC-86940: writing a GCS checkpoint should happen in a new thread
-org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch1Suite#SC-86940: writing a GCS checkpoint should happen in a new thread
-org.apache.spark.sql.delta.CheckpointsWithCatalogOwnedBatch2Suite#SC-86940: writing a GCS checkpoint should happen in a new thread
 org.apache.spark.sql.delta.CloneTableSQLSuite#shallow clone across file systems
 org.apache.spark.sql.delta.CloneTableSQLWithCatalogOwnedBatch100Suite#shallow clone across file systems
 org.apache.spark.sql.delta.CloneTableSQLWithCatalogOwnedBatch1Suite#shallow clone across file systems
