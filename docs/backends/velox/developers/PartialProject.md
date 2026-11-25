@@ -21,9 +21,23 @@ For example, with the expression `hash(udf(col0)), col1, col2, col3, col4`, part
 
 ## Adding Partial Projection for Unsupported Expressions
 
-The partial projection feature can also benefit from expressions that are not natively supported. For example, `substr(from_json(col_a))`. Since `from_json` is not fully supported, Gluten may use the JVM code path. Instead of projecting the whole expression, partial projection will attempt to project `from_json()` and perform a native projection of `substr()`.
+Partial projection can also run a built-in expression on the JVM while keeping the rest of the projection native.
+For example, assume `json_input` is a Parquet table with columns `id` and `json_text` (a string containing JSON):
 
-In the case of blacklisted expressions defined in `spark.gluten.expression.blacklist`, this feature is also beneficial. 
+```sql
+SET spark.gluten.sql.columnar.partial.project=true;
+SET spark.gluten.expression.blacklist=from_json;
+
+SELECT id, substring(from_json(json_text, 'name STRING').name, 1, 3) AS name_prefix
+FROM json_input;
+```
+
+The blacklist makes `from_json` run on the JVM. The `.name` access passes a string to `substring`, not the parsed struct.
+If the scan and the remaining expressions can run natively and partial projection passes validation,
+`ColumnarPartialProject` evaluates `from_json` and passes its result to the native projection.
+Use `EXPLAIN FORMATTED` to check which path the query takes.
+
+See [JSON function fallback](../velox-backend-limitations.md#json-function-fallback) for cases where Velox declines to run `from_json` or `to_json` natively.
 
 ## Limitations
 
