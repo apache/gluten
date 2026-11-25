@@ -151,8 +151,10 @@ object Queries {
         line.queryResult match {
           case QueryRunner.Success(_, runResult) =>
             inc.next().write(runResult.rows.size)
+            inc.next().write(runResult.planningTimeMillis)
             inc.next().write(runResult.executionTimeMillis)
           case QueryRunner.Failure(_, error) =>
+            inc.next().write(None)
             inc.next().write(None)
             inc.next().write(None)
         }
@@ -161,8 +163,12 @@ object Queries {
   }
 
   private def printResults(out: PrintStream, results: Seq[TestResultLine]): Unit = {
-    val render = TableRender
-      .plain[TestResultLine]("Query ID", "Was Passed", "Row Count", "Query Time (Millis)")
+    val render = TableRender.plain[TestResultLine](
+      "Query ID",
+      "Was Passed",
+      "Row Count",
+      "Planning Time (Millis)",
+      "Query Time (Millis)")
 
     results.foreach(line => render.appendRow(line))
 
