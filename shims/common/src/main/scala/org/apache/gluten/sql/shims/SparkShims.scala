@@ -227,6 +227,12 @@ trait SparkShims {
     None
   }
 
+  /**
+   * Whether Spark runs this file scan in a single task (single-task execution, Spark 4.3+). Such a
+   * scan reports `SinglePartition`, so Spark may have elided a shuffle above it.
+   */
+  def isSingleTaskExecutionScan(scan: FileSourceScanExec): Boolean = false
+
   def unsupportedCodec: Seq[CompressionCodecName] = {
     Seq(CompressionCodecName.LZO, CompressionCodecName.BROTLI)
   }

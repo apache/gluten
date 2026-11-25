@@ -1,0 +1,21 @@
+VeloxColumnarToRow
+  WholeStageCodegenTransformer (3)
+    ProjectExecTransformer [sum(CASE WHEN StartsWith(p_type, PROMO) THEN (l_extendedprice * (1 - l_discount)) ELSE 0 END),sum((l_extendedprice * (1 - l_discount)))]
+      RegularHashAggregateExecTransformer [sum,isEmpty,sum,isEmpty] [sum(CASE WHEN StartsWith(p_type, PROMO) THEN (l_extendedprice * (1 - l_discount)) ELSE 0 END),sum((l_extendedprice * (1 - l_discount))),sum,isEmpty,sum,isEmpty]
+        InputIteratorTransformer
+          InputAdapter
+            ColumnarExchange #1
+              VeloxResizeBatches
+                WholeStageCodegenTransformer (2)
+                  FlushableHashAggregateExecTransformer [_pre_x,_pre_x] [sum,isEmpty,sum,isEmpty,sum,isEmpty,sum,isEmpty,sum,isEmpty,sum,isEmpty]
+                    ProjectExecTransformer [p_type,l_extendedprice,l_discount]
+                      BroadcastHashJoinExecTransformer [l_partkey,p_partkey]
+                        ProjectExecTransformer [l_partkey,l_extendedprice,l_discount]
+                          FilterExecTransformer [l_shipdate,l_partkey]
+                            FileSourceScanExecTransformer parquet spark_catalog.default.lineitem [l_partkey,l_extendedprice,l_discount,l_shipdate]
+                        InputIteratorTransformer
+                          InputAdapter
+                            ColumnarBroadcastExchange #2
+                              WholeStageCodegenTransformer (1)
+                                FilterExecTransformer [p_partkey]
+                                  FileSourceScanExecTransformer parquet spark_catalog.default.part [p_partkey,p_type]
