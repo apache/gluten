@@ -18,7 +18,26 @@ package org.apache.gluten.functions
 
 import org.apache.gluten.execution.WindowExecTransformer
 
+import org.apache.spark.sql.execution.ColumnarShuffleExchangeExec
+
 class WindowFunctionsValidateSuite extends FunctionsValidateSuite {
+
+  private def createNtzWindowTable(): Unit = {
+    spark
+      .sql("""
+             |select * from values
+             |  (1, TIMESTAMP_NTZ '2024-01-01 00:00:00', 10),
+             |  (1, TIMESTAMP_NTZ '2024-01-02 00:00:00', 20),
+             |  (2, TIMESTAMP_NTZ '2024-01-01 00:00:00', 30),
+             |  (2, TIMESTAMP_NTZ '2024-01-02 00:00:00.123456', 40),
+             |  (3, TIMESTAMP_NTZ '1969-12-31 23:59:59', 50),
+             |  (3, null, 60),
+             |  (4, null, 70)
+             |as t(k, ts, v)
+          """.stripMargin)
+      .write
+      .saveAsTable("ntz_window_data")
+  }
 
   test("lag/lead window function with negative input offset") {
     runQueryAndCompare(
@@ -90,6 +109,139 @@ class WindowFunctionsValidateSuite extends FunctionsValidateSuite {
           "from nullable_window_data") {
         checkGlutenPlan[WindowExecTransformer]
       }
+    }
+  }
+
+  test("window partition/order by TIMESTAMP_NTZ goes native") {
+    withTable("ntz_window_data") {
+      createNtzWindowTable()
+
+      runQueryAndCompare(
+        "select k, ts, rank() over (partition by k order by ts) as rnk " +
+          "from ntz_window_data") {
+        checkGlutenPlan[WindowExecTransformer]
+      }
+    }
+  }
+
+  test("window partition by TIMESTAMP_NTZ goes native") {
+    withTable("ntz_window_data") {
+      // Fixture has repeated ('2024-01-01') and null (k=3, k=4) ts keys.
+      createNtzWindowTable()
+      withSQLConf(
+        "spark.sql.shuffle.partitions" -> "3",
+        "spark.sql.adaptive.enabled" -> "false") {
+        runQueryAndCompare(
+          "select k, ts, count(v) over (partition by ts) as cnt " +
+            "from ntz_window_data") {
+          df =>
+            checkGlutenPlan[WindowExecTransformer](df)
+            // Confirms the shuffle itself went native, not just Window.
+            checkSparkPlan[ColumnarShuffleExchangeExec](df)
+        }
+      }
+    }
+  }
+
+  test("lag(TIMESTAMP_NTZ) window function goes native") {
+    withTable("ntz_window_data") {
+      createNtzWindowTable()
+      runQueryAndCompare(
+        "select k, lag(ts, 1) over (partition by k order by v) " +
+          "from ntz_window_data") {
+        checkGlutenPlan[WindowExecTransformer]
+      }
+    }
+  }
+
+  test("lead(TIMESTAMP_NTZ) window function goes native") {
+    withTable("ntz_window_data") {
+      createNtzWindowTable()
+      runQueryAndCompare(
+        "select k, lead(ts, 1) over (partition by k order by v) " +
+          "from ntz_window_data") {
+        checkGlutenPlan[WindowExecTransformer]
+      }
+    }
+  }
+
+  test("nth_value(TIMESTAMP_NTZ) window function goes native") {
+    withTable("ntz_window_data") {
+      createNtzWindowTable()
+      runQueryAndCompare(
+        "select k, nth_value(ts, 1) over (partition by k order by v) " +
+          "from ntz_window_data") {
+        checkGlutenPlan[WindowExecTransformer]
+      }
+    }
+  }
+
+  test("first_value(TIMESTAMP_NTZ) window function goes native") {
+    withTable("ntz_window_data") {
+      createNtzWindowTable()
+      runQueryAndCompare(
+        "select k, first_value(ts) over (partition by k order by v) " +
+          "from ntz_window_data") {
+        checkGlutenPlan[WindowExecTransformer]
+      }
+    }
+  }
+
+  test("last_value(TIMESTAMP_NTZ) window function goes native") {
+    withTable("ntz_window_data") {
+      createNtzWindowTable()
+      runQueryAndCompare(
+        "select k, last_value(ts) over (partition by k order by v) " +
+          "from ntz_window_data") {
+        checkGlutenPlan[WindowExecTransformer]
+      }
+    }
+  }
+
+  test("count(TIMESTAMP_NTZ) window function goes native") {
+    withTable("ntz_window_data") {
+      createNtzWindowTable()
+      runQueryAndCompare(
+        "select k, count(ts) over (partition by k) " +
+          "from ntz_window_data") {
+        checkGlutenPlan[WindowExecTransformer]
+      }
+    }
+  }
+
+  test("min(TIMESTAMP_NTZ) window function goes native") {
+    withTable("ntz_window_data") {
+      createNtzWindowTable()
+      runQueryAndCompare(
+        "select k, min(ts) over (partition by k) " +
+          "from ntz_window_data") {
+        checkGlutenPlan[WindowExecTransformer]
+      }
+    }
+  }
+
+  test("max(TIMESTAMP_NTZ) window function goes native") {
+    withTable("ntz_window_data") {
+      createNtzWindowTable()
+      runQueryAndCompare(
+        "select k, max(ts) over (partition by k) " +
+          "from ntz_window_data") {
+        checkGlutenPlan[WindowExecTransformer]
+      }
+    }
+  }
+
+  test("unaudited window function argument with TIMESTAMP_NTZ falls back") {
+    withTable("ntz_window_data") {
+      createNtzWindowTable()
+
+      val df = spark.sql(
+        "select k, collect_list(ts) over (partition by k order by v) " +
+          "from ntz_window_data")
+      df.collect()
+      // collect_list isn't whitelisted for NTZ support, so this must
+      // always fall back.
+      checkGlutenPlanCount[WindowExecTransformer](df, 0)
     }
   }
 }

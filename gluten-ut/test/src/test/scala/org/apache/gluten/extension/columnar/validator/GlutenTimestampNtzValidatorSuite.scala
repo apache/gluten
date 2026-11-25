@@ -21,11 +21,13 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.ResolvedPartitionSpec
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.catalyst.expressions.aggregate.Sum
+import org.apache.spark.sql.catalyst.expressions.aggregate.{CollectList, Count, First, Last, Max, Min, Sum}
+import org.apache.spark.sql.catalyst.plans.physical.{HashPartitioning, RangePartitioning, SinglePartition}
 import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.connector.catalog.SupportsPartitionManagement
-import org.apache.spark.sql.execution.{FilterExec, LeafExecNode, ProjectExec, SparkPlan}
+import org.apache.spark.sql.execution.{FilterExec, LeafExecNode, ProjectExec, SortExec, SparkPlan}
 import org.apache.spark.sql.execution.datasources.v2.DropPartitionExec
+import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
 import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.types._
 
@@ -46,6 +48,47 @@ class GlutenTimestampNtzValidatorSuite extends SparkFunSuite {
   private def windowPlan(spec: WindowSpecDefinition): WindowExec = {
     val sum = Alias(WindowExpression(Sum(id).toAggregateExpression(), spec), "sum")()
     WindowExec(Seq(sum), spec.partitionSpec, spec.orderSpec, input)
+  }
+
+  private val ntz = AttributeReference("ntz", TimestampNTZType)()
+  private val tz = AttributeReference("tz", TimestampType)()
+  private val ntzInput = InputPlan(Seq(id, ntz))
+  // A non-Attribute key that's genuinely TimestampNTZType.
+  private val computedNtz = Cast(tz, TimestampNTZType)
+
+  private def ntzWindowPlan(
+      windowFunctions: Seq[Expression],
+      partitionSpec: Seq[Expression] = Seq(id),
+      orderSpec: Seq[SortOrder] = Seq(SortOrder(id, Ascending))): WindowExec = {
+    val spec = WindowSpecDefinition(
+      partitionSpec,
+      orderSpec,
+      SpecifiedWindowFrame(RowFrame, UnboundedPreceding, CurrentRow))
+    val aliases = windowFunctions.zipWithIndex.map {
+      case (fn, i) => Alias(WindowExpression(fn, spec), s"w$i")()
+    }
+    WindowExec(aliases, spec.partitionSpec, spec.orderSpec, ntzInput)
+  }
+
+  /** Passed only if supported, NTZ is backed, and validation isn't forced; else Failed. */
+  private def checkNtzWhitelist(
+      plan: SparkPlan,
+      expectSupported: Boolean,
+      failureMessage: String,
+      clue: String): Unit = {
+    for {
+      supportsNtz <- Seq(false, true)
+      enableValidation <- Seq(false, true)
+    } {
+      withClue(s"$clue, supportsNtz=$supportsNtz, validation=$enableValidation") {
+        val expected = if (expectSupported && supportsNtz && !enableValidation) {
+          Validator.Passed
+        } else {
+          Validator.Failed(failureMessage)
+        }
+        assert(validator(supportsNtz, enableValidation).validate(plan) == expected)
+      }
+    }
   }
 
   test("timestamp literals inside projections and filters respect backend support") {
@@ -187,6 +230,119 @@ class GlutenTimestampNtzValidatorSuite extends SparkFunSuite {
         Validator.Failed("Project has TimestampNTZType in input/output schema")
       }
       assert(validator(supportsNtz, enableValidation).validate(plan) == expected)
+    }
+  }
+
+  test("supported NTZ window functions pass, unsupported ones fail") {
+    val supported = Seq(
+      "Lag" -> new Lag(ntz),
+      "Lead" -> new Lead(ntz),
+      "NthValue" -> new NthValue(ntz, Literal(1)),
+      "First" -> new First(ntz).toAggregateExpression(),
+      "Last" -> new Last(ntz).toAggregateExpression(),
+      "Count" -> Count(Seq(ntz)).toAggregateExpression(),
+      "Min" -> Min(ntz).toAggregateExpression(),
+      "Max" -> Max(ntz).toAggregateExpression()
+    )
+    val unsupported = Seq(
+      "Sum" -> Sum(ntz).toAggregateExpression(),
+      "CollectList" -> CollectList(ntz).toAggregateExpression())
+    (supported.map { case (n, f) => (n, f, true) } ++
+      unsupported.map { case (n, f) => (n, f, false) }).foreach {
+      case (name, windowFunction, expectSupported) =>
+        checkNtzWhitelist(
+          ntzWindowPlan(Seq(windowFunction)),
+          expectSupported,
+          "Window has TimestampNTZType in input/output schema",
+          name)
+    }
+    // Rank's children mirror the order key, so give it a real NTZ orderSpec.
+    checkNtzWhitelist(
+      ntzWindowPlan(Seq(Rank(Seq(ntz))), orderSpec = Seq(SortOrder(ntz, Ascending))),
+      expectSupported = true,
+      "Window has TimestampNTZType in input/output schema",
+      "Rank"
+    )
+  }
+
+  test("a mix of supported and unsupported window expressions fails as a whole") {
+    // Sum isn't whitelisted, so the node fails despite Lag being supported.
+    val plan = ntzWindowPlan(Seq(new Lag(ntz), Sum(ntz).toAggregateExpression()))
+    checkNtzWhitelist(
+      plan,
+      expectSupported = false,
+      "Window has TimestampNTZType in input/output schema",
+      "Lag + Sum")
+  }
+
+  test("bare NTZ partition/order keys pass, computed NTZ keys fail") {
+    assert(computedNtz.dataType == TimestampNTZType)
+    val cases = Seq(
+      "bare partition key" ->
+        (ntzWindowPlan(Seq(new Lag(ntz)), partitionSpec = Seq(ntz)), true),
+      "computed partition key" ->
+        (ntzWindowPlan(Seq(new Lag(ntz)), partitionSpec = Seq(computedNtz)), false),
+      "bare order key" ->
+        (ntzWindowPlan(Seq(new Lag(ntz)), orderSpec = Seq(SortOrder(ntz, Ascending))), true),
+      "computed order key" -> (
+        ntzWindowPlan(Seq(new Lag(ntz)), orderSpec = Seq(SortOrder(computedNtz, Ascending))),
+        false)
+    )
+    cases.foreach {
+      case (description, (plan, expectSupported)) =>
+        checkNtzWhitelist(
+          plan,
+          expectSupported,
+          "Window has TimestampNTZType in input/output schema",
+          description)
+    }
+  }
+
+  test("SortExec with bare and computed NTZ sort keys") {
+    assert(computedNtz.dataType == TimestampNTZType)
+    val cases = Seq(
+      "bare sort key" ->
+        (SortExec(Seq(SortOrder(ntz, Ascending)), global = true, ntzInput), true),
+      "computed sort key" ->
+        (SortExec(Seq(SortOrder(computedNtz, Ascending)), global = true, ntzInput), false)
+    )
+    cases.foreach {
+      case (description, (plan, expectSupported)) =>
+        checkNtzWhitelist(
+          plan,
+          expectSupported,
+          "Sort has TimestampNTZType in input/output schema",
+          description)
+    }
+  }
+
+  test("ShuffleExchangeExec with hash and range partitioning over NTZ keys") {
+    assert(computedNtz.dataType == TimestampNTZType)
+    val cases = Seq(
+      "bare hash key" ->
+        (ShuffleExchangeExec(HashPartitioning(Seq(ntz), 4), ntzInput), true),
+      "computed hash key" ->
+        (ShuffleExchangeExec(HashPartitioning(Seq(computedNtz), 4), ntzInput), false),
+      "bare range key" -> (
+        ShuffleExchangeExec(
+          RangePartitioning(Seq(SortOrder(ntz, Ascending)), 4),
+          ntzInput),
+        true),
+      "computed range key" -> (
+        ShuffleExchangeExec(
+          RangePartitioning(Seq(SortOrder(computedNtz, Ascending)), 4),
+          ntzInput),
+        false),
+      // Non-hash/range partitioning has no keys to check, so it defaults to supported.
+      "single partition" -> (ShuffleExchangeExec(SinglePartition, ntzInput), true)
+    )
+    cases.foreach {
+      case (description, (plan, expectSupported)) =>
+        checkNtzWhitelist(
+          plan,
+          expectSupported,
+          "Exchange has TimestampNTZType in input/output schema",
+          description)
     }
   }
 }
