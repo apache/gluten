@@ -523,8 +523,8 @@ class GlutenClickHouseMergeTreeWriteOnS3Suite extends CreateMergeTreeSuite {
             val parts =
               fileIndex.matchingFiles(Nil, Nil).map(f => f.asInstanceOf[AddMergeTreeParts])
             assertResult(600572)(parts.map(_.rows).sum)
-            // The insert writes a part per block of 10000 rows, which the merge combines into
-            // one, as in the HDFS suite.
+            // With MIN_INSERT_BLOCK_SIZE_ROWS at 10000 the insert writes several parts, which the
+            // merge combines into one, as in the HDFS suite.
             assertResult(1)(parts.size)
         }
 
