@@ -48,33 +48,39 @@ public class VeloxListenerApiTest {
         parsed.get("spark.gluten.sql.columnar.backend.velox.filePreloadThreshold").get());
   }
 
+  // Library file names are platform specific (.so on Linux, .dylib on macOS).
+  private static final String CORE = System.mapLibraryName("gluten");
+  private static final String BACKEND = System.mapLibraryName("velox");
+
+  private static String inDir(String name) {
+    return new File("/opt/gluten", name).getPath();
+  }
+
   @Test
   public void testLibPathLoadsCoreLibraryFirst() {
     assertEquals(
-        Arrays.asList("/opt/gluten/libgluten.so", "/opt/gluten/libvelox.so"),
-        JavaConverters.seqAsJavaList(
-            VeloxListenerApi.libPathsToLoad("/opt/gluten/libvelox.so", "gluten")));
+        Arrays.asList(inDir(CORE), inDir(BACKEND)),
+        JavaConverters.seqAsJavaList(VeloxListenerApi.libPathsToLoad(inDir(BACKEND), "gluten")));
   }
 
   @Test
   public void testLibPathPointingAtCoreLibraryLoadsItOnce() {
     assertEquals(
-        Arrays.asList("/opt/gluten/libgluten.so"),
-        JavaConverters.seqAsJavaList(
-            VeloxListenerApi.libPathsToLoad("/opt/gluten/libgluten.so", "gluten")));
+        Arrays.asList(inDir(CORE)),
+        JavaConverters.seqAsJavaList(VeloxListenerApi.libPathsToLoad(inDir(CORE), "gluten")));
   }
 
   @Test
   public void testRelativeLibPathLoadsCoreLibraryFromSameDirectory() {
     assertEquals(
-        Arrays.asList("libgluten.so", "libvelox.so"),
-        JavaConverters.seqAsJavaList(VeloxListenerApi.libPathsToLoad("libvelox.so", "gluten")));
+        Arrays.asList(CORE, BACKEND),
+        JavaConverters.seqAsJavaList(VeloxListenerApi.libPathsToLoad(BACKEND, "gluten")));
   }
 
   @Test
   public void testMissingCoreLibraryNamesLibnameConf() throws Exception {
     Path dir = Files.createTempDirectory("gluten-libpath");
-    File backend = Files.createFile(dir.resolve("libvelox.so")).toFile();
+    File backend = Files.createFile(dir.resolve(BACKEND)).toFile();
     GlutenException e =
         assertThrows(
             GlutenException.class,
