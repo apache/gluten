@@ -140,26 +140,23 @@ function install_minio {
 }
 
 function setup_minio {
-  local spark_version="${1:-3.5}"
-  local spark_version_short=$(echo "${spark_version}" | cut -d '.' -f 1,2 | tr -d '.')
-
-  case "$spark_version" in
-    3.4|3.5*) hadoop_aws_version="3.3.4"; aws_sdk_artifact="aws-java-sdk-bundle"; aws_sdk_version="1.12.262" ;;
-    4.0) hadoop_aws_version="3.4.0"; aws_sdk_artifact="bundle"; aws_sdk_version="2.25.11" ;;
-    4.1) hadoop_aws_version="3.4.1"; aws_sdk_artifact="bundle"; aws_sdk_version="2.25.11" ;;
-    *) hadoop_aws_version="3.3.4"; aws_sdk_artifact="aws-java-sdk-bundle"; aws_sdk_version="1.12.262" ;;
+  local hadoop_aws_version aws_sdk_artifact
+  case "${1:-3.5}" in
+    4.0) hadoop_aws_version="3.4.0"; aws_sdk_artifact="software.amazon.awssdk:bundle:2.25.11" ;;
+    4.1) hadoop_aws_version="3.4.1"; aws_sdk_artifact="software.amazon.awssdk:bundle:2.25.11" ;;
+    *) hadoop_aws_version="3.3.4"; aws_sdk_artifact="com.amazonaws:aws-java-sdk-bundle:1.12.262" ;;
   esac
 
-  local spark_jars_dir="${GITHUB_WORKSPACE:-$PWD}/tools/gluten-it/package/target/lib"
-  mkdir -p "$spark_jars_dir"
-
-  wget -nv https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/${hadoop_aws_version}/hadoop-aws-${hadoop_aws_version}.jar -P "$spark_jars_dir" || return 1
-
-  if [ "$aws_sdk_artifact" == "aws-java-sdk-bundle" ]; then
-    wget -nv https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/${aws_sdk_version}/aws-java-sdk-bundle-${aws_sdk_version}.jar -P "$spark_jars_dir" || return 1
-  else
-    wget -nv https://repo1.maven.org/maven2/software/amazon/awssdk/bundle/${aws_sdk_version}/bundle-${aws_sdk_version}.jar -P "$spark_jars_dir" || return 1
-  fi
+  local workspace
+  workspace=$(cd "${GITHUB_WORKSPACE:-$(dirname "${BASH_SOURCE[0]}")/../../..}" && pwd) || return 1
+  local spark_jars_dir="$workspace/tools/gluten-it/package/target/lib"
+  local artifact
+  for artifact in "org.apache.hadoop:hadoop-aws:$hadoop_aws_version" "$aws_sdk_artifact"; do
+    # Use the dependency plugin already cached by the gluten-it package build.
+    "$workspace/build/mvn" -B -ntp -N -f "$workspace/pom.xml" \
+      org.apache.maven.plugins:maven-dependency-plugin:3.6.0:copy \
+      -Dartifact="$artifact" -DoutputDirectory="$spark_jars_dir" || return 1
+  done
 
   export MINIO_DATA_DIR="${RUNNER_TEMP:-/tmp}/minio-data"
   mkdir -p "$MINIO_DATA_DIR"
