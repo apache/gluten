@@ -18,7 +18,26 @@ Except the unsupported operators, functions, file formats, data sources listed i
 
 #### ANSI
 Gluten currently doesn't support ANSI mode. If ANSI is enabled, Spark plan's execution will always fall back to vanilla Spark.
+This whole-plan fallback is controlled by `spark.gluten.sql.ansiFallback.enabled` (default `true`). Setting it to `false` lets Gluten try to run the plan natively with ANSI mode enabled.
 We now have a issue tracker on ANSI support progress. Please check [issue-10134](https://github.com/apache/gluten/issues/10134).
+
+Spark stores the ANSI mode in each expression when the query is analyzed, so an expression can carry a different mode from the current session:
+
+- A view runs its body with the ANSI mode it was created with (SPARK-33141, and since Spark 4.0.1 the setting is always stored with the view, SPARK-53348). A view created with ANSI off and read after an upgrade to Spark 4, where ANSI is on by default, mixes both modes in one query.
+- A DataFrame is analyzed when it is created. If `spark.sql.ansi.enabled` changes before an action runs it, its expressions keep the mode from creation. This also holds for a temporary view registered from it with `createOrReplaceTempView`, which keeps the analyzed plan.
+
+Some Velox functions have one name per mode and are always correct, for example `+`, `cast` and `try_*`. Others read the ANSI mode from the session config. An expression of the second group that carries a different mode from the session is not offloaded, and its operator falls back to vanilla Spark. This applies with either value of `spark.gluten.sql.ansiFallback.enabled` and cannot be disabled. With the default whole-plan fallback it matters when the session has ANSI off, for example a view created with ANSI on. The expressions are:
+
+- `%` / `mod`, `pmod`, unary `-`, `abs`
+- `round` and `bround` on integral types
+- `ceil` and `floor` on doubles
+- `conv`, `elt`, `make_date`, `make_timestamp`, `unix_timestamp`, `to_unix_timestamp`, `to_timestamp` / `to_date` with a format, `next_day`
+- `element_at` on arrays, and on maps when it fails on a missing key
+- the aggregates `sum` and `avg`
+
+Spark throws on `ceil` / `floor` overflow of a double only since Spark 4.3 (SPARK-58052). Earlier versions return the saturated value (`ceil(1e20)` is 9223372036854775807) in both modes, so Gluten treats these expressions as ANSI off before Spark 4.3. With ANSI on in the session they fall back.
+
+Array subscript (`arr[i]`) with ANSI on also falls back, because Velox's `get` returns NULL for an invalid index instead of throwing. `get(arr, i)` never throws and stays native.
 
 #### Case Sensitive mode
 Gluten only supports spark default case-insensitive mode. If case-sensitive mode is enabled, user may get incorrect result.

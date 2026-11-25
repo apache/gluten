@@ -603,6 +603,11 @@ object VeloxAggregateFunctionsBuilder {
         case e: Throwable => throw e
       }
 
+    // Same backend check as AggregateFunctionsBuilder, which this builder replaces.
+    if (!BackendsApiManager.getValidatorApiInstance.doExprValidate(sigName, aggFunc)) {
+      throw new GlutenNotSupportException(s"Aggregate function not supported for $aggFunc.")
+    }
+
     context.registerFunction(
       ConverterUtils.makeFuncName(
         // Substrait-to-Velox procedure will choose appropriate companion function if needed.
