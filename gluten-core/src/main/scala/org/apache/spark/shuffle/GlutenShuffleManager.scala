@@ -29,6 +29,13 @@ import org.apache.spark.annotation.Experimental
  * Experimental: This is not expected to be used in production yet. Use backend shuffle manager
  * (e.g., ColumnarShuffleManager or other RSS shuffle manager provided in Gluten's code
  * base)instead.
+ *
+ * TODO: Spark 4.3 requires `spark.shuffle.manager` to be a `BlockingShuffleManager` (a
+ * `private[spark]` subtype of `ShuffleManager` that doesn't exist before 4.3) and rejects any other
+ * implementation at startup, so this class can't be used as the shuffle manager on Spark 4.3 yet.
+ * The same applies to `CelebornShuffleManager` (gluten-celeborn) and the backends'
+ * `UniffleShuffleManager` (src-uniffle, through Uniffle's `RssShuffleManagerBase`), which also
+ * implement `ShuffleManager` directly.
  */
 @Experimental
 class GlutenShuffleManager(conf: SparkConf, isDriver: Boolean) extends ShuffleManager {
@@ -65,7 +72,8 @@ class GlutenShuffleManager(conf: SparkConf, isDriver: Boolean) extends ShuffleMa
     routerBuilder.getOrBuild().unregisterShuffle(shuffleId)
   }
 
-  override def shuffleBlockResolver: ShuffleBlockResolver = {
+  // Not marked `override`: Spark 4.3 moved `shuffleBlockResolver` to `BlockingShuffleManager`.
+  def shuffleBlockResolver: ShuffleBlockResolver = {
     routerBuilder.getOrBuild().shuffleBlockResolver
   }
 
