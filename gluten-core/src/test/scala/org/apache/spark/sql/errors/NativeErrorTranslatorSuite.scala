@@ -35,6 +35,8 @@ class NativeErrorTranslatorSuite extends AnyFunSuite {
     assert(sparkError.getSqlState == "22012")
     assert(sparkError.getMessageParameters.get("config") == "\"spark.sql.ansi.enabled\"")
     assert(sparkError.getCause eq native)
+    // PySpark reads every query context entry, so a null entry fails the Python error conversion.
+    assert(sparkError.getQueryContext.isEmpty)
   }
 
   test("does not translate a native error inside another exception") {

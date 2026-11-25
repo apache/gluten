@@ -18,7 +18,9 @@ package org.apache.spark.sql.errors
 
 import org.apache.gluten.exception.GlutenException
 
+import org.apache.spark.{QueryContext, SparkArithmeticException}
 import org.apache.spark.internal.Logging
+import org.apache.spark.sql.internal.SQLConf
 
 /**
  * Translates native errors that carry a Spark error code into the matching Spark exception.
@@ -54,8 +56,16 @@ object NativeErrorTranslator extends Logging {
     case _ => null
   }
 
+  // The native error has no Spark query context. QueryExecutionErrors.divideByZeroError(null)
+  // would report a null context entry, which PySpark fails to read, so the context is left empty.
   private def toSparkException(errorCode: String): Option[RuntimeException] = errorCode match {
-    case NativeErrorCodes.DivideByZero => Some(QueryExecutionErrors.divideByZeroError(null))
+    case NativeErrorCodes.DivideByZero =>
+      Some(
+        new SparkArithmeticException(
+          "DIVIDE_BY_ZERO",
+          Map("config" -> QueryExecutionErrors.toSQLConf(SQLConf.ANSI_ENABLED.key)),
+          Array.empty[QueryContext],
+          ""))
     case _ => None
   }
 }
