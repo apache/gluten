@@ -143,6 +143,11 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
   private static final Pattern CHAR_VARCHAR_LENGTH_EXCEEDED =
       Pattern.compile("Exceeds allowed length limitation: (\\d+)");
 
+  // Velox's message when a result overflows a long, which is also the message of the
+  // ArithmeticException Java's Math.*Exact methods throw for Spark.
+  private static final Pattern LONG_OVERFLOW =
+      Pattern.compile("^Reason: long overflow$", Pattern.MULTILINE);
+
   /**
    * Translates a Velox type conversion error into a SchemaColumnConvertNotSupportedException.
    * Returns null if the message does not indicate a type conversion error.
@@ -174,6 +179,17 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
         "EXCEED_LIMIT_LENGTH", new Map.Map1<>("limit", limit), e, new QueryContext[0], "");
   }
 
+  /**
+   * Translates a Velox long overflow error into the ArithmeticException Spark throws for one.
+   * Returns null if the message does not indicate one.
+   */
+  private static RuntimeException translateToLongOverflowException(String msg) {
+    if (!LONG_OVERFLOW.matcher(msg).find()) {
+      return null;
+    }
+    return new ArithmeticException("long overflow");
+  }
+
   @Override
   protected RuntimeException translateException(Exception e) {
     String msg = findFirstNonNullMessage(e);
@@ -186,6 +202,11 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
       RuntimeException lengthEx = translateToCharVarcharLengthException(msg, e);
       if (lengthEx != null) {
         return lengthEx;
+      }
+      RuntimeException overflowEx = translateToLongOverflowException(msg);
+      if (overflowEx != null) {
+        overflowEx.initCause(e);
+        return overflowEx;
       }
     }
     // A GlutenException raised by native/nested code is already translated; return it
