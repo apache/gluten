@@ -201,7 +201,11 @@ class VeloxTransformerApi extends TransformerApi with Logging {
           GlutenFormatFactory(shortName)
             .nativeConf(
               writeOptions,
-              WriteFilesExecTransformer.getCompressionCodec(writeOptions))
+              // Match Spark's Parquet write precedence. Hadoop configuration is still passed
+              // through for filesystem and writer settings, but inherited Hadoop properties must
+              // not be treated as explicit data source options.
+              WriteFilesExecTransformer.getCompressionCodec(write.caseInsensitiveOptions)
+            )
         packPBMessage(
           ConfigMap
             .newBuilder()

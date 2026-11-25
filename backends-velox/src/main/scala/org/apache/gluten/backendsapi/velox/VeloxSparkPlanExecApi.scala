@@ -1053,7 +1053,8 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
                   case a: Attribute if buildAttrs.contains(a) =>
                     ConverterUtils.genColumnNameWithExprId(a)
                 }.toArray
-                val propagatesNulls = SparkShimLoader.getSparkShims.isNullIntolerant(cond)
+                val propagatesNulls =
+                  BroadcastHashJoinFilter.isNullOnNullBuildColumn(cond, buildAttrs)
                 (cols, propagatesNulls, true)
               case None =>
                 (Array.empty[String], false, false)
