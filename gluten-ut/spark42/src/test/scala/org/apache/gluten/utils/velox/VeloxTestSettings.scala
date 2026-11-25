@@ -53,6 +53,7 @@ class VeloxTestSettings extends BackendTestSettings {
   private val ansiNoFallback: Boolean =
     sys.props.get(GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key).contains("false")
   enableSuite[GlutenStringFunctionsSuite]
+  enableSuite[GlutenDecimalRoundSuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuiteCGOff]
   enableSuite[GlutenDataSourceV2DataFrameSessionCatalogSuite]
@@ -1289,10 +1290,6 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenLegacyParameterSubstitutionSuite]
   enableSuite[GlutenParametersSuite]
   enableSuite[GlutenResolveDefaultColumnsSuite]
-    // Velox char/varchar write-side check throws VeloxUserError instead of SparkRuntimeException.
-    // Rewritten in GlutenResolveDefaultColumnsSuite.
-    .exclude(
-      "SPARK-57187: non-foldable default exceeding CHAR/VARCHAR length fails at INSERT time (explicit DEFAULT keyword)")
   enableSuite[GlutenSubqueryHintPropagationSuite]
   enableSuite[GlutenUrlFunctionsSuite]
   enableSuite[GlutenParquetRowIndexSuite]

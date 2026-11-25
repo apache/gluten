@@ -78,25 +78,23 @@ class GlutenClickHouseMergeTreeOptimizeSuite extends CreateMergeTreeSuite {
   }
 
   test("test mergetree optimize basic") {
-    withSQLConf(DeltaSQLConf.DELTA_OPTIMIZE_MAX_FILE_SIZE.key -> "2000000") {
-      spark.sql(s"""
-                   |DROP TABLE IF EXISTS lineitem_mergetree_optimize;
-                   |""".stripMargin)
+    withTable("lineitem_mergetree_optimize") {
+      withSQLConf(DeltaSQLConf.DELTA_OPTIMIZE_MAX_FILE_SIZE.key -> "2000000") {
+        spark.sql(s"""
+                     |CREATE TABLE lineitem_mergetree_optimize
+                     |USING clickhouse
+                     |LOCATION '$dataHome/lineitem_mergetree_optimize'
+                     | as select * from lineitem
+                     |""".stripMargin)
 
-      spark.sql(s"""
-                   |CREATE TABLE IF NOT EXISTS lineitem_mergetree_optimize
-                   |USING clickhouse
-                   |LOCATION '$dataHome/lineitem_mergetree_optimize'
-                   | as select * from lineitem
-                   |""".stripMargin)
+        with_ut_conf(spark.sql("optimize lineitem_mergetree_optimize"))
+        val ret = spark.sql("select count(*) from lineitem_mergetree_optimize").collect()
+        assertResult(600572)(ret.apply(0).get(0))
 
-      with_ut_conf(spark.sql("optimize lineitem_mergetree_optimize"))
-      val ret = spark.sql("select count(*) from lineitem_mergetree_optimize").collect()
-      assertResult(600572)(ret.apply(0).get(0))
-
-      assertResult(480)(
-        countFiles(new File(s"$dataHome/lineitem_mergetree_optimize"))
-      ) // many merged parts
+        assertResult(480)(
+          countFiles(new File(s"$dataHome/lineitem_mergetree_optimize"))
+        ) // many merged parts
+      }
     }
   }
 
@@ -124,254 +122,242 @@ class GlutenClickHouseMergeTreeOptimizeSuite extends CreateMergeTreeSuite {
   }
 
   test("test mergetree optimize partitioned, each partition too small to trigger optimize") {
-    spark.sql(s"""
-                 |DROP TABLE IF EXISTS lineitem_mergetree_optimize_p;
-                 |""".stripMargin)
-
-    spark.sql(s"""
-                 |CREATE TABLE IF NOT EXISTS lineitem_mergetree_optimize_p
-                 |USING clickhouse
-                 |PARTITIONED BY (l_shipdate)
-                 |LOCATION '$dataHome/lineitem_mergetree_optimize_p'
-                 | as select * from lineitem
-                 |""".stripMargin)
-
-    spark.sparkContext.setJobGroup("test", "test")
-    with_ut_conf(spark.sql("optimize lineitem_mergetree_optimize_p"))
-    val job_ids = spark.sparkContext.statusTracker.getJobIdsForGroup("test")
-    assertResult(1)(job_ids.length)
-    spark.sparkContext.clearJobGroup()
-
-    val ret = spark.sql("select count(*) from lineitem_mergetree_optimize_p").collect()
-    assertResult(600572)(ret.apply(0).get(0))
-
-    assertResult(22728)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p")))
-    spark.sql("VACUUM lineitem_mergetree_optimize_p RETAIN 0 HOURS")
-    // For Spark 3.3 + Delta 2.3, vacuum command will create two commit files in deltalog dir.
-    assertResult(22730)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p")))
-
-    val ret2 = spark.sql("select count(*) from lineitem_mergetree_optimize_p").collect()
-    assertResult(600572)(ret2.apply(0).get(0))
-  }
-
-  test("test mergetree optimize partitioned by one low card column") {
-    spark.sql(s"""
-                 |DROP TABLE IF EXISTS lineitem_mergetree_optimize_p2;
-                 |""".stripMargin)
-
-    spark.sql(s"""
-                 |CREATE TABLE IF NOT EXISTS lineitem_mergetree_optimize_p2
-                 |USING clickhouse
-                 |PARTITIONED BY (l_returnflag)
-                 |LOCATION '$dataHome/lineitem_mergetree_optimize_p2'
-                 | as select * from lineitem
-                 |""".stripMargin)
-
-    spark.sparkContext.setJobGroup("test2", "test2")
-    with_ut_conf(spark.sql("optimize lineitem_mergetree_optimize_p2"))
-    val job_ids = spark.sparkContext.statusTracker.getJobIdsForGroup("test2")
-    assertResult(8)(job_ids.length) // WILL trigger actual merge job
-
-    spark.sparkContext.clearJobGroup()
-
-    val ret = spark.sql("select count(*) from lineitem_mergetree_optimize_p2").collect()
-    assertResult(600572)(ret.apply(0).get(0))
-
-    assertResult(343)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p2")))
-    spark.sql("VACUUM lineitem_mergetree_optimize_p2 RETAIN 0 HOURS")
-    assertResult(240)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p2")))
-    spark.sql("VACUUM lineitem_mergetree_optimize_p2 RETAIN 0 HOURS")
-    // the second VACUUM will remove some empty folders
-    assertResult(229)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p2")))
-
-    val ret2 = spark.sql("select count(*) from lineitem_mergetree_optimize_p2").collect()
-    assertResult(600572)(ret2.apply(0).get(0))
-  }
-
-  test("test mergetree optimize partitioned by two low card column") {
-    withSQLConf("spark.databricks.delta.vacuum.parallelDelete.enabled" -> "false") {
+    withTable("lineitem_mergetree_optimize_p") {
       spark.sql(s"""
-                   |DROP TABLE IF EXISTS lineitem_mergetree_optimize_p3;
-                   |""".stripMargin)
-
-      spark.sql(s"""
-                   |CREATE TABLE IF NOT EXISTS lineitem_mergetree_optimize_p3
+                   |CREATE TABLE lineitem_mergetree_optimize_p
                    |USING clickhouse
-                   |PARTITIONED BY (l_linenumber,l_returnflag)
-                   |LOCATION '$dataHome/lineitem_mergetree_optimize_p3'
+                   |PARTITIONED BY (l_shipdate)
+                   |LOCATION '$dataHome/lineitem_mergetree_optimize_p'
                    | as select * from lineitem
                    |""".stripMargin)
 
-      with_ut_conf(spark.sql("optimize lineitem_mergetree_optimize_p3"))
-      val ret = spark.sql("select count(*) from lineitem_mergetree_optimize_p3").collect()
+      spark.sparkContext.setJobGroup("test", "test")
+      with_ut_conf(spark.sql("optimize lineitem_mergetree_optimize_p"))
+      val job_ids = spark.sparkContext.statusTracker.getJobIdsForGroup("test")
+      assertResult(1)(job_ids.length)
+      spark.sparkContext.clearJobGroup()
+
+      val ret = spark.sql("select count(*) from lineitem_mergetree_optimize_p").collect()
       assertResult(600572)(ret.apply(0).get(0))
 
-      assertResult(458)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p3")))
-      spark.sql("VACUUM lineitem_mergetree_optimize_p3 RETAIN 0 HOURS")
-      assertResult(306)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p3")))
-      spark.sql("VACUUM lineitem_mergetree_optimize_p3 RETAIN 0 HOURS")
-      assertResult(288)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p3")))
+      assertResult(22728)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p")))
+      spark.sql("VACUUM lineitem_mergetree_optimize_p RETAIN 0 HOURS")
+      // For Spark 3.3 + Delta 2.3, vacuum command will create two commit files in deltalog dir.
+      assertResult(22730)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p")))
 
-      val ret2 = spark.sql("select count(*) from lineitem_mergetree_optimize_p3").collect()
+      val ret2 = spark.sql("select count(*) from lineitem_mergetree_optimize_p").collect()
       assertResult(600572)(ret2.apply(0).get(0))
+    }
+  }
+
+  test("test mergetree optimize partitioned by one low card column") {
+    withTable("lineitem_mergetree_optimize_p2") {
+      spark.sql(s"""
+                   |CREATE TABLE lineitem_mergetree_optimize_p2
+                   |USING clickhouse
+                   |PARTITIONED BY (l_returnflag)
+                   |LOCATION '$dataHome/lineitem_mergetree_optimize_p2'
+                   | as select * from lineitem
+                   |""".stripMargin)
+
+      spark.sparkContext.setJobGroup("test2", "test2")
+      with_ut_conf(spark.sql("optimize lineitem_mergetree_optimize_p2"))
+      val job_ids = spark.sparkContext.statusTracker.getJobIdsForGroup("test2")
+      assertResult(8)(job_ids.length) // WILL trigger actual merge job
+
+      spark.sparkContext.clearJobGroup()
+
+      val ret = spark.sql("select count(*) from lineitem_mergetree_optimize_p2").collect()
+      assertResult(600572)(ret.apply(0).get(0))
+
+      assertResult(343)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p2")))
+      spark.sql("VACUUM lineitem_mergetree_optimize_p2 RETAIN 0 HOURS")
+      assertResult(240)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p2")))
+      spark.sql("VACUUM lineitem_mergetree_optimize_p2 RETAIN 0 HOURS")
+      // the second VACUUM will remove some empty folders
+      assertResult(229)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p2")))
+
+      val ret2 = spark.sql("select count(*) from lineitem_mergetree_optimize_p2").collect()
+      assertResult(600572)(ret2.apply(0).get(0))
+    }
+  }
+
+  test("test mergetree optimize partitioned by two low card column") {
+    withTable("lineitem_mergetree_optimize_p3") {
+      withSQLConf("spark.databricks.delta.vacuum.parallelDelete.enabled" -> "false") {
+        spark.sql(s"""
+                     |CREATE TABLE lineitem_mergetree_optimize_p3
+                     |USING clickhouse
+                     |PARTITIONED BY (l_linenumber,l_returnflag)
+                     |LOCATION '$dataHome/lineitem_mergetree_optimize_p3'
+                     | as select * from lineitem
+                     |""".stripMargin)
+
+        with_ut_conf(spark.sql("optimize lineitem_mergetree_optimize_p3"))
+        val ret = spark.sql("select count(*) from lineitem_mergetree_optimize_p3").collect()
+        assertResult(600572)(ret.apply(0).get(0))
+
+        assertResult(458)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p3")))
+        spark.sql("VACUUM lineitem_mergetree_optimize_p3 RETAIN 0 HOURS")
+        assertResult(306)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p3")))
+        spark.sql("VACUUM lineitem_mergetree_optimize_p3 RETAIN 0 HOURS")
+        assertResult(288)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p3")))
+
+        val ret2 = spark.sql("select count(*) from lineitem_mergetree_optimize_p3").collect()
+        assertResult(600572)(ret2.apply(0).get(0))
+      }
     }
   }
 
   test("test mergetree optimize parallel delete") {
-    withSQLConf("spark.databricks.delta.vacuum.parallelDelete.enabled" -> "true") {
-      spark.sql(s"""
-                   |DROP TABLE IF EXISTS lineitem_mergetree_optimize_p4;
-                   |""".stripMargin)
+    withTable("lineitem_mergetree_optimize_p4") {
+      withSQLConf("spark.databricks.delta.vacuum.parallelDelete.enabled" -> "true") {
+        spark.sql(s"""
+                     |CREATE TABLE lineitem_mergetree_optimize_p4
+                     |USING clickhouse
+                     |PARTITIONED BY (l_linenumber,l_returnflag)
+                     |LOCATION '$dataHome/lineitem_mergetree_optimize_p4'
+                     | as select * from lineitem
+                     |""".stripMargin)
 
-      spark.sql(s"""
-                   |CREATE TABLE IF NOT EXISTS lineitem_mergetree_optimize_p4
-                   |USING clickhouse
-                   |PARTITIONED BY (l_linenumber,l_returnflag)
-                   |LOCATION '$dataHome/lineitem_mergetree_optimize_p4'
-                   | as select * from lineitem
-                   |""".stripMargin)
+        with_ut_conf(spark.sql("optimize lineitem_mergetree_optimize_p4"))
+        val ret = spark.sql("select count(*) from lineitem_mergetree_optimize_p4").collect()
+        assertResult(600572)(ret.apply(0).get(0))
 
-      with_ut_conf(spark.sql("optimize lineitem_mergetree_optimize_p4"))
-      val ret = spark.sql("select count(*) from lineitem_mergetree_optimize_p4").collect()
-      assertResult(600572)(ret.apply(0).get(0))
+        assertResult(458)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p4")))
+        spark.sql("VACUUM lineitem_mergetree_optimize_p4 RETAIN 0 HOURS")
+        assertResult(306)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p4")))
+        spark.sql("VACUUM lineitem_mergetree_optimize_p4 RETAIN 0 HOURS")
+        assertResult(288)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p4")))
 
-      assertResult(458)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p4")))
-      spark.sql("VACUUM lineitem_mergetree_optimize_p4 RETAIN 0 HOURS")
-      assertResult(306)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p4")))
-      spark.sql("VACUUM lineitem_mergetree_optimize_p4 RETAIN 0 HOURS")
-      assertResult(288)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p4")))
-
-      val ret2 = spark.sql("select count(*) from lineitem_mergetree_optimize_p4").collect()
-      assertResult(600572)(ret2.apply(0).get(0))
+        val ret2 = spark.sql("select count(*) from lineitem_mergetree_optimize_p4").collect()
+        assertResult(600572)(ret2.apply(0).get(0))
+      }
     }
   }
 
   test("test mergetree optimize with optimize.minFileSize and optimize.maxFileSize") {
-    withSQLConf(DeltaSQLConf.DELTA_OPTIMIZE_MIN_FILE_SIZE.key -> "838018") {
-      // 3 of 37 parts are >= 838,018, so after optimizing there should be 4 parts:
-      // 3 original parts and 1 merged part
-      spark.sql(s"""
-                   |DROP TABLE IF EXISTS lineitem_mergetree_optimize_p5;
-                   |""".stripMargin)
+    withTable("lineitem_mergetree_optimize_p5") {
+      withSQLConf(DeltaSQLConf.DELTA_OPTIMIZE_MIN_FILE_SIZE.key -> "838018") {
+        // 3 of 37 parts are >= 838,018, so after optimizing there should be 4 parts:
+        // 3 original parts and 1 merged part
 
-      spark.sql(s"""
-                   |CREATE TABLE IF NOT EXISTS lineitem_mergetree_optimize_p5
-                   |USING clickhouse
-                   |LOCATION '$dataHome/lineitem_mergetree_optimize_p5'
-                   | as select * from lineitem
-                   |""".stripMargin)
+        spark.sql(s"""
+                     |CREATE TABLE lineitem_mergetree_optimize_p5
+                     |USING clickhouse
+                     |LOCATION '$dataHome/lineitem_mergetree_optimize_p5'
+                     | as select * from lineitem
+                     |""".stripMargin)
 
+        with_ut_conf(spark.sql("optimize lineitem_mergetree_optimize_p5"))
+
+        spark.sql("VACUUM lineitem_mergetree_optimize_p5 RETAIN 0 HOURS")
+        spark.sql("VACUUM lineitem_mergetree_optimize_p5 RETAIN 0 HOURS")
+        // For Spark 3.3 + Delta 2.3, vacuum command will create two commit files in deltalog dir.
+        // this case will create a checkpoint
+        assertResult(106)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p5")))
+
+        val ret = spark.sql("select count(*) from lineitem_mergetree_optimize_p5").collect()
+        assertResult(600572)(ret.apply(0).get(0))
+      }
+
+      withSQLConf(
+        DeltaSQLConf.DELTA_OPTIMIZE_MAX_FILE_SIZE.key -> "10000000",
+        DeltaSQLConf.DELTA_OPTIMIZE_MIN_FILE_SIZE.key -> "838291") {
+        // of the remaining 3 original parts, 2 are < 838,291, 1 is larger (size 838,306)
+        // the merged part is ~27MB, so after optimizing there should be 3 parts:
+        // 1 merged part from 2 original parts, 1 merged part from 34 original parts
+        // and 1 original part (size 838,306)
+
+        with_ut_conf(spark.sql("optimize lineitem_mergetree_optimize_p5"))
+
+        spark.sql("VACUUM lineitem_mergetree_optimize_p5 RETAIN 0 HOURS")
+        spark.sql("VACUUM lineitem_mergetree_optimize_p5 RETAIN 0 HOURS")
+        // For Spark 3.3 + Delta 2.3, vacuum command will create two commit files in deltalog dir.
+        assertResult(106)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p5")))
+
+        val ret = spark.sql("select count(*) from lineitem_mergetree_optimize_p5").collect()
+        assertResult(600572)(ret.apply(0).get(0))
+      }
+
+      // now merge all parts (testing merging from merged parts)
       with_ut_conf(spark.sql("optimize lineitem_mergetree_optimize_p5"))
 
       spark.sql("VACUUM lineitem_mergetree_optimize_p5 RETAIN 0 HOURS")
       spark.sql("VACUUM lineitem_mergetree_optimize_p5 RETAIN 0 HOURS")
       // For Spark 3.3 + Delta 2.3, vacuum command will create two commit files in deltalog dir.
-      // this case will create a checkpoint
-      assertResult(106)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p5")))
+      assertResult(94)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p5")))
 
       val ret = spark.sql("select count(*) from lineitem_mergetree_optimize_p5").collect()
       assertResult(600572)(ret.apply(0).get(0))
     }
-
-    withSQLConf(
-      DeltaSQLConf.DELTA_OPTIMIZE_MAX_FILE_SIZE.key -> "10000000",
-      DeltaSQLConf.DELTA_OPTIMIZE_MIN_FILE_SIZE.key -> "838291") {
-      // of the remaining 3 original parts, 2 are < 838,291, 1 is larger (size 838,306)
-      // the merged part is ~27MB, so after optimizing there should be 3 parts:
-      // 1 merged part from 2 original parts, 1 merged part from 34 original parts
-      // and 1 original part (size 838,306)
-
-      with_ut_conf(spark.sql("optimize lineitem_mergetree_optimize_p5"))
-
-      spark.sql("VACUUM lineitem_mergetree_optimize_p5 RETAIN 0 HOURS")
-      spark.sql("VACUUM lineitem_mergetree_optimize_p5 RETAIN 0 HOURS")
-      // For Spark 3.3 + Delta 2.3, vacuum command will create two commit files in deltalog dir.
-      assertResult(106)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p5")))
-
-      val ret = spark.sql("select count(*) from lineitem_mergetree_optimize_p5").collect()
-      assertResult(600572)(ret.apply(0).get(0))
-    }
-
-    // now merge all parts (testing merging from merged parts)
-    with_ut_conf(spark.sql("optimize lineitem_mergetree_optimize_p5"))
-
-    spark.sql("VACUUM lineitem_mergetree_optimize_p5 RETAIN 0 HOURS")
-    spark.sql("VACUUM lineitem_mergetree_optimize_p5 RETAIN 0 HOURS")
-    // For Spark 3.3 + Delta 2.3, vacuum command will create two commit files in deltalog dir.
-    assertResult(94)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p5")))
-
-    val ret = spark.sql("select count(*) from lineitem_mergetree_optimize_p5").collect()
-    assertResult(600572)(ret.apply(0).get(0))
   }
 
   ignoreSpark33OnlyCase("test mergetree optimize table with partition and bucket") {
-    spark.sql(s"""
-                 |DROP TABLE IF EXISTS lineitem_mergetree_optimize_p6;
-                 |""".stripMargin)
-
-    spark.sql(s"""
-                 |CREATE TABLE IF NOT EXISTS lineitem_mergetree_optimize_p6
-                 |USING clickhouse
-                 |PARTITIONED BY (l_returnflag)
-                 |LOCATION '$dataHome/lineitem_mergetree_optimize_p6'
-                 | CLUSTERED BY (l_partkey)
-                 | SORTED BY (l_partkey) INTO 2 BUCKETS
-                 | as select * from lineitem
-                 |""".stripMargin)
-
-    spark.sql("optimize lineitem_mergetree_optimize_p6")
-
-    val ret = spark.sql("select count(*) from lineitem_mergetree_optimize_p6").collect()
-    assertResult(600572)(ret.apply(0).get(0))
-
-    assertResult(489)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p6")))
-    spark.sql("VACUUM lineitem_mergetree_optimize_p6 RETAIN 0 HOURS")
-    spark.sql("VACUUM lineitem_mergetree_optimize_p6 RETAIN 0 HOURS")
-    assertResult(333)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p6")))
-
-    val ret2 = spark.sql("select count(*) from lineitem_mergetree_optimize_p6").collect()
-    assertResult(600572)(ret2.apply(0).get(0))
-  }
-
-  test("test skip index after optimize") {
-    withSQLConf(
-      DeltaSQLConf.DELTA_OPTIMIZE_MAX_FILE_SIZE.key -> "2000000",
-      "spark.sql.adaptive.enabled" -> "false") {
+    withTable("lineitem_mergetree_optimize_p6") {
       spark.sql(s"""
-                   |DROP TABLE IF EXISTS lineitem_mergetree_index;
-                   |""".stripMargin)
-
-      spark.sql(s"""
-                   |CREATE TABLE IF NOT EXISTS lineitem_mergetree_index
+                   |CREATE TABLE lineitem_mergetree_optimize_p6
                    |USING clickhouse
-                   |LOCATION '$dataHome/lineitem_mergetree_index'
-                   |TBLPROPERTIES('bloomfilterIndexKey'='l_orderkey')
+                   |PARTITIONED BY (l_returnflag)
+                   |LOCATION '$dataHome/lineitem_mergetree_optimize_p6'
+                   | CLUSTERED BY (l_partkey)
+                   | SORTED BY (l_partkey) INTO 2 BUCKETS
                    | as select * from lineitem
                    |""".stripMargin)
 
-      with_ut_conf(spark.sql("optimize lineitem_mergetree_index"))
-      spark.sql("vacuum lineitem_mergetree_index")
+      spark.sql("optimize lineitem_mergetree_optimize_p6")
 
-      val df = spark
-        .sql(s"""
-                |select count(*) from lineitem_mergetree_index  where l_orderkey = '600000'
-                |""".stripMargin)
+      val ret = spark.sql("select count(*) from lineitem_mergetree_optimize_p6").collect()
+      assertResult(600572)(ret.apply(0).get(0))
 
-      val scanExec = collect(df.queryExecution.executedPlan) {
-        case f: FileSourceScanExecTransformer => f
+      assertResult(489)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p6")))
+      spark.sql("VACUUM lineitem_mergetree_optimize_p6 RETAIN 0 HOURS")
+      spark.sql("VACUUM lineitem_mergetree_optimize_p6 RETAIN 0 HOURS")
+      assertResult(333)(countFiles(new File(s"$dataHome/lineitem_mergetree_optimize_p6")))
+
+      val ret2 = spark.sql("select count(*) from lineitem_mergetree_optimize_p6").collect()
+      assertResult(600572)(ret2.apply(0).get(0))
+    }
+  }
+
+  test("test skip index after optimize") {
+    withTable("lineitem_mergetree_index") {
+      withSQLConf(
+        DeltaSQLConf.DELTA_OPTIMIZE_MAX_FILE_SIZE.key -> "2000000",
+        "spark.sql.adaptive.enabled" -> "false") {
+        spark.sql(s"""
+                     |CREATE TABLE lineitem_mergetree_index
+                     |USING clickhouse
+                     |LOCATION '$dataHome/lineitem_mergetree_index'
+                     |TBLPROPERTIES('bloomfilterIndexKey'='l_orderkey')
+                     | as select * from lineitem
+                     |""".stripMargin)
+
+        with_ut_conf(spark.sql("optimize lineitem_mergetree_index"))
+        spark.sql("vacuum lineitem_mergetree_index")
+
+        val df = spark
+          .sql(s"""
+                  |select count(*) from lineitem_mergetree_index  where l_orderkey = '600000'
+                  |""".stripMargin)
+
+        val scanExec = collect(df.queryExecution.executedPlan) {
+          case f: FileSourceScanExecTransformer => f
+        }
+        assertResult(1)(scanExec.size)
+        val mergetreeScan = scanExec.head
+        val ret = df.collect()
+        assertResult(2)(ret.apply(0).get(0))
+        val marks = mergetreeScan.metrics("selectedMarks").value
+        assertResult(1)(marks)
+
+        val directory = new File(s"$dataHome/lineitem_mergetree_index")
+        val partDir = directory.listFiles().filter(f => f.getName.endsWith("merged")).head
+        assert(
+          partDir.listFiles().exists(
+            p => p.getName.contains("skp_idx__bloomfilter_l_orderkey.idx")))
+
       }
-      assertResult(1)(scanExec.size)
-      val mergetreeScan = scanExec.head
-      val ret = df.collect()
-      assertResult(2)(ret.apply(0).get(0))
-      val marks = mergetreeScan.metrics("selectedMarks").value
-      assertResult(1)(marks)
-
-      val directory = new File(s"$dataHome/lineitem_mergetree_index")
-      val partDir = directory.listFiles().filter(f => f.getName.endsWith("merged")).head
-      assert(
-        partDir.listFiles().exists(p => p.getName.contains("skp_idx__bloomfilter_l_orderkey.idx")))
-
     }
   }
 
@@ -434,27 +420,26 @@ class GlutenClickHouseMergeTreeOptimizeSuite extends CreateMergeTreeSuite {
   }
 
   test("test mergetree insert with optimize basic") {
-    withSQLConf(
-      DeltaSQLConf.DELTA_OPTIMIZE_MIN_FILE_SIZE.key -> "200000000",
-      RuntimeSettings.MERGE_AFTER_INSERT.key -> "true"
-    ) {
-      spark.sql(s"""
-                   |DROP TABLE IF EXISTS lineitem_mergetree_insert_optimize_basic;
-                   |""".stripMargin)
+    withTable("lineitem_mergetree_insert_optimize_basic") {
+      withSQLConf(
+        DeltaSQLConf.DELTA_OPTIMIZE_MIN_FILE_SIZE.key -> "200000000",
+        RuntimeSettings.MERGE_AFTER_INSERT.key -> "true"
+      ) {
+        spark.sql(s"""
+                     |CREATE TABLE lineitem_mergetree_insert_optimize_basic
+                     |USING clickhouse
+                     |LOCATION '$dataHome/lineitem_mergetree_insert_optimize_basic'
+                     | as select * from lineitem
+                     |""".stripMargin)
 
-      spark.sql(s"""
-                   |CREATE TABLE IF NOT EXISTS lineitem_mergetree_insert_optimize_basic
-                   |USING clickhouse
-                   |LOCATION '$dataHome/lineitem_mergetree_insert_optimize_basic'
-                   | as select * from lineitem
-                   |""".stripMargin)
-
-      val ret = spark.sql("select count(*) from lineitem_mergetree_insert_optimize_basic").collect()
-      assertResult(600572)(ret.apply(0).get(0))
-      eventually(timeout(60.seconds), interval(3.seconds)) {
-        assertResult(2)(
-          new File(s"$dataHome/lineitem_mergetree_insert_optimize_basic").listFiles().length
-        )
+        val ret =
+          spark.sql("select count(*) from lineitem_mergetree_insert_optimize_basic").collect()
+        assertResult(600572)(ret.apply(0).get(0))
+        eventually(timeout(60.seconds), interval(3.seconds)) {
+          assertResult(2)(
+            new File(s"$dataHome/lineitem_mergetree_insert_optimize_basic").listFiles().length
+          )
+        }
       }
     }
   }
