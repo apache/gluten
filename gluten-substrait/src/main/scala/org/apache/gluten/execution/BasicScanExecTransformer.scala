@@ -125,6 +125,10 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
   def getInputStats: Option[InputStats] = Option.empty
 
   protected def validateExistenceDefaults(readSchema: StructType): ValidationResult = {
+    if (!GlutenConfig.get.scanFallbackOnExistenceDefaultsEnabled) {
+      return ValidationResult.succeeded
+    }
+
     val columns = readSchema.fields
       .zip(ResolveDefaultColumns.getExistenceDefaultValues(readSchema))
       .collect { case (field, value) if value != null => field.name }

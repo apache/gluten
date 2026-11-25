@@ -177,6 +177,9 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   def scanFileSchemeValidationEnabled: Boolean =
     getConf(VELOX_SCAN_FILE_SCHEME_VALIDATION_ENABLED)
 
+  def scanFallbackOnExistenceDefaultsEnabled: Boolean =
+    getConf(SCAN_FALLBACK_ON_EXISTENCE_DEFAULTS_ENABLED)
+
   // Whether to use GlutenShuffleManager (experimental).
   def isUseGlutenShuffleManager: Boolean =
     conf
@@ -1678,6 +1681,17 @@ object GlutenConfig extends ConfigRegistry {
         "When true, enable file path scheme validation for scan. Validation will fail if" +
           " file scheme is not supported by registered file systems, which will cause scan " +
           " operator fall back.")
+      .booleanConf
+      .createWithDefault(true)
+
+  val SCAN_FALLBACK_ON_EXISTENCE_DEFAULTS_ENABLED =
+    buildConf("spark.gluten.sql.scan.fallbackOnExistenceDefaults.enabled")
+      .doc(
+        "When true, V1/V2 file scans reading non-null EXISTS_DEFAULT columns fall back to Spark, " +
+          "including Parquet/ORC and Delta. Metadata persists after file rewrites, so fully " +
+          "populated files also fall back. Set false only if all read files contain the columns " +
+          "or incorrect results for missing fields are acceptable. Native readers do not " +
+          "materialize these defaults; other fallback checks still apply.")
       .booleanConf
       .createWithDefault(true)
 

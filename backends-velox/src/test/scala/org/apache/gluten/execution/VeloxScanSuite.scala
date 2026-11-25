@@ -60,9 +60,7 @@ class VeloxScanSuite extends VeloxWholeStageTransformerSuite {
   Seq(true, false).foreach {
     useV1 =>
       test(s"existence-default scan fallback and native controls (useV1=$useV1)") {
-        withSQLConf(
-          SQLConf.USE_V1_SOURCE_LIST.key -> (if (useV1) "parquet" else ""),
-          GlutenConfig.NATIVE_WRITER_ENABLED.key -> "false") {
+        withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> (if (useV1) "parquet" else "")) {
           withTempPath {
             dir =>
               spark.range(1).write.parquet(dir.getCanonicalPath)
@@ -110,6 +108,13 @@ class VeloxScanSuite extends VeloxWholeStageTransformerSuite {
               checkScan(read.select("id"), Nil)
               checkScan(read.selectExpr("count(*)"), Nil)
               checkScan(read.select("id", "null_default"), Nil)
+
+              withSQLConf(
+                GlutenConfig.SCAN_FALLBACK_ON_EXISTENCE_DEFAULTS_ENABLED.key -> "false") {
+                checkScan(read.select("value", "s", "null_default"), Nil)
+                checkScan(read.filter("value = 7").select("id"), Nil)
+              }
+              checkScan(read.select("value", "s"), Seq("value", "s"))
           }
         }
       }
