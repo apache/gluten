@@ -33,6 +33,7 @@ import io.github.zhztheplayer.velox4j.plan.PlanNode;
 import io.github.zhztheplayer.velox4j.plan.StatefulPlanNode;
 import io.github.zhztheplayer.velox4j.plan.StreamWindowAggregationNode;
 import io.github.zhztheplayer.velox4j.plan.StreamWindowPartitionFunctionSpec;
+import io.github.zhztheplayer.velox4j.stateful.KeyedStateSpec;
 
 import org.apache.flink.FlinkVersion;
 import org.apache.flink.api.dag.Transformation;
@@ -42,6 +43,7 @@ import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.api.operators.SimpleOperatorFactory;
 import org.apache.flink.streaming.api.transformations.OneInputTransformation;
+import org.apache.flink.table.api.TableException;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.planner.delegation.PlannerBase;
 import org.apache.flink.table.planner.plan.logical.WindowingStrategy;
@@ -68,7 +70,6 @@ import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonCre
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonProperty;
 
 import org.apache.calcite.rel.core.AggregateCall;
-import org.apache.commons.math3.util.ArithmeticUtils;
 
 import javax.annotation.Nullable;
 
@@ -78,7 +79,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.TimeZone;
 import java.util.stream.Collectors;
 
 import static org.apache.flink.util.Preconditions.checkArgument;
@@ -172,6 +172,26 @@ public class StreamExecWindowAggregate extends StreamExecWindowAggregateBase {
   @Override
   protected Transformation<RowData> translateToPlanInternal(
       PlannerBase planner, ExecNodeConfig config) {
+    // TODO(L2): support update-stream input once retract-capable aggregate
+    // functions land; reject at translation time so update-stream queries
+    // fail loudly instead of silently mis-aggregating.
+    if (needRetraction) {
+      throw new TableException(
+          "GFV window TVF aggregation does not support update-stream input yet (needRetraction=true, L2)");
+    }
+    // Window-type split (review follow-up): TUMBLE is native in this PR;
+    // HOP / SESSION / CUMULATE land in follow-up PRs. Reject at
+    // translation time so the unsupported window types fall back loudly
+    // instead of silently running the TUMBLE math.
+    {
+      int windowType = WindowUtils.extractWindowParameters(windowing).f4;
+      if (windowType != 1 /* TUMBLE, velox WindowType enum */) {
+        throw new TableException(
+            "GFV window TVF aggregation supports TUMBLE windows in this PR; "
+                + "HOP / SESSION / CUMULATE and the two-stage local-global split are "
+                + "planned follow-up PRs");
+      }
+    }
     final ExecEdge inputEdge = getInputEdges().get(0);
     final Transformation<RowData> inputTransform =
         (Transformation<RowData>) inputEdge.translateToPlan(planner);
@@ -190,7 +210,6 @@ public class StreamExecWindowAggregate extends StreamExecWindowAggregateBase {
             true); // isStateBackendDataViews
 
     // --- Begin Gluten-specific code changes ---
-    // TODO: velox window not equal to flink window.
     io.github.zhztheplayer.velox4j.type.RowType inputType =
         (io.github.zhztheplayer.velox4j.type.RowType) LogicalTypeConverter.toVLType(inputRowType);
     io.github.zhztheplayer.velox4j.type.RowType outputType =
@@ -205,8 +224,17 @@ public class StreamExecWindowAggregate extends StreamExecWindowAggregateBase {
             .limit(aggCalls.length)
             .collect(Collectors.toList());
     List<Integer> keyIndexes = Arrays.stream(grouping).boxed().collect(Collectors.toList());
+    // Keyless windows (empty grouping): rejected at translation until the
+    // keyed state backend supports an empty key (Flink keys them on an
+    // empty key row - EmptyRowDataKeySelector; a synthetic key column is
+    // not the right substitute). Fail fast at plan time, like needRetraction.
+    if (keyIndexes.isEmpty()) {
+      throw new TableException(
+          "GFV window TVF aggregation does not support keyless windows yet "
+              + "(empty grouping; empty-key state backend support is planned "
+              + "as a follow-up)");
+    }
     PartitionFunctionSpec keySelectorSpec = new HashPartitionFunctionSpec(inputType, keyIndexes);
-    // TODO: support more window types.
     Tuple5<Long, Long, Long, Integer, Integer> windowSpecParams =
         WindowUtils.extractWindowParameters(windowing);
     Tuple2<Integer, Integer> windowStartAndEndIndexes =
@@ -234,32 +262,21 @@ public class StreamExecWindowAggregate extends StreamExecWindowAggregateBase {
             List.of(new EmptyNode(inputType)),
             null,
             List.of());
-    // processing time window can not apply to local-global aggregate optimization, so here we need
-    // to set local aggregtate as null when it is not event time window.
-    PlanNode localAgg =
-        isRowTime
-            ? new AggregationNode(
-                PlanNodeIdGenerator.newId(),
-                AggregateStep.SINGLE,
-                groupingKeys,
-                groupingKeys,
-                aggNames,
-                aggregates,
-                false,
-                List.of(new EmptyNode(inputType)),
-                null,
-                List.of())
-            : null;
+    // KeyedStateSpec: the grouping key channels and types the native
+    // WindowAggregator builds its keyed state backend from (group-agg
+    // PR #13558 pattern). The children are already velox4j types - do not
+    // re-convert them through LogicalTypeConverter.
+    List<io.github.zhztheplayer.velox4j.type.Type> keyTypes =
+        keyIndexes.stream().map(inputType.getChildren()::get).collect(Collectors.toList());
+    KeyedStateSpec keyedStateSpec = new KeyedStateSpec(keyIndexes, keyTypes);
     PlanNode windowAgg =
         new StreamWindowAggregationNode(
             PlanNodeIdGenerator.newId(),
             aggregation,
-            localAgg,
             keySelectorSpec,
             sliceAssignerSpec,
-            ArithmeticUtils.gcd(size, slide),
-            TimeZone.getTimeZone(shiftTimeZone).useDaylightTime(),
-            false,
+            keyedStateSpec,
+            shiftTimeZone.getId(),
             size,
             slide,
             offset,
@@ -306,11 +323,13 @@ public class StreamExecWindowAggregate extends StreamExecWindowAggregateBase {
             WINDOW_AGG_MEMORY_RATIO,
             false);
 
-    // set KeyType and Selector for state
-    // This key selector will be updated in OffloadedJobGraphGenerator to GlutenKeySelector as
-    // needed.
-    transform.setStateKeySelector(selector);
-    transform.setStateKeyType(selector.getProducedType());
+    // Keys are owned by the velox side (KeyedStateSpec feeds the C++ keyed
+    // state backend), and routing is decided by the C++ StreamPartition
+    // exchange whose target subtask rides in the record. Declaring a Flink
+    // state key selector here would make the runtime recompute the key group
+    // with Flink's hash scheme and disagree with the velox routing at
+    // parallelism > 1 (group-agg PR #13558 lesson). Keep the transformation
+    // non-keyed on the Flink side.
     return transform;
   }
 }

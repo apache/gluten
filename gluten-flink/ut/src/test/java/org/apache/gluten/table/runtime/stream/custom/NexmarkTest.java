@@ -29,6 +29,7 @@ import org.apache.flink.streaming.api.transformations.PartitionTransformation;
 import org.apache.flink.streaming.runtime.partitioner.StreamPartitioner;
 import org.apache.flink.table.api.EnvironmentSettings;
 import org.apache.flink.table.api.Table;
+import org.apache.flink.table.api.TableException;
 import org.apache.flink.table.api.TableResult;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.apache.flink.types.Row;
@@ -88,7 +89,11 @@ public class NexmarkTest {
           "not yet migrated to operator-owned keyed state",
           "GroupAggregation operator is not supported yet",
           "Distinct aggregates are not supported yet",
-          "but the handler output column declares");
+          "but the handler output column declares",
+          "does not support keyless windows yet",
+          "does not support update-stream input yet",
+          "does not support CUMULATE windows yet",
+          "supports TUMBLE windows in this PR");
 
   private static final Map<String, String> NEXMARK_VARIABLES =
       new HashMap<String, String>() {
@@ -346,7 +351,21 @@ public class NexmarkTest {
 
     String insertQuery = sqlStatements[sqlStatements.length - 2].trim();
     if (!insertQuery.isEmpty()) {
-      TableResult insertResult = tEnv.executeSql(insertQuery);
+      TableResult insertResult;
+      try {
+        insertResult = tEnv.executeSql(insertQuery);
+      } catch (TableException e) {
+        // Planning-time rejections (e.g. keyless window TVF, update-stream input,
+        // CUMULATE windows) surface here before any job client exists.
+        if (isCausedByUnsupportedFeature(e)) {
+          LOG.warn(
+              "Query {} failed on an unsupported stream feature; skipping result verification",
+              queryFileName,
+              e);
+          return;
+        }
+        throw e;
+      }
       if (kafkaSource) {
         assertThat(checkJobRunningStatus(insertResult, 30000) == true);
       } else {
