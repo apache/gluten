@@ -22,6 +22,10 @@ import org.apache.spark.internal.config.UI.UI_ENABLED
 import org.apache.spark.rdd.EmptyRDD
 import org.apache.spark.shuffle.sort.SortShuffleManager
 import org.apache.spark.sql.test.SharedSparkSession
+import org.apache.spark.util.SparkVersionUtil
+
+import org.scalactic.source.Position
+import org.scalatest.Tag
 
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -33,6 +37,19 @@ class GlutenShuffleManagerSuite extends SharedSparkSession {
     super.sparkConf
       .set(SHUFFLE_MANAGER.key, classOf[GlutenShuffleManager].getName)
       .set(UI_ENABLED, false)
+
+  // TODO: Run on Spark 4.3. Spark 4.3 requires `spark.shuffle.manager` to be a
+  // `BlockingShuffleManager` and fails to create the SparkContext otherwise, but
+  // `GlutenShuffleManager` can't extend that `private[spark]` trait, which doesn't exist before
+  // Spark 4.3. Ignoring every test also skips `beforeAll`, which would create the SparkContext.
+  override protected def test(testName: String, testTags: Tag*)(testFun: => Any)(implicit
+      pos: Position): Unit = {
+    if (SparkVersionUtil.gteSpark43) {
+      super.ignore(testName, testTags: _*)(testFun)
+    } else {
+      super.test(testName, testTags: _*)(testFun)
+    }
+  }
 
   override protected def beforeEach(): Unit = {
     val registry = ShuffleManagerRegistry.get()
@@ -184,6 +201,23 @@ class GlutenShuffleManagerSuite extends SharedSparkSession {
         },
         classOf[ShuffleManager1].getName))
   }
+
+  test("shuffle read resolves blocks through the registered manager") {
+    val registry = ShuffleManagerRegistry.get()
+
+    registry.register(
+      new LookupKey {
+        override def accepts[K, V, C](dependency: ShuffleDependency[K, V, C]): Boolean = true
+      },
+      classOf[ShuffleManager1].getName)
+    val result = spark.sparkContext
+      .parallelize(1 to 10, 2)
+      .map(i => (i % 2, i))
+      .reduceByKey(_ + _)
+      .collect()
+    assert(result.toMap == Map(0 -> 30, 1 -> 25))
+    assert(counter1.count("shuffleBlockResolver") > 0)
+  }
 }
 
 object GlutenShuffleManagerSuite {
@@ -233,7 +267,7 @@ object GlutenShuffleManagerSuite {
       delegate.unregisterShuffle(shuffleId)
     }
 
-    override def shuffleBlockResolver: ShuffleBlockResolver = {
+    def shuffleBlockResolver: ShuffleBlockResolver = {
       counter.increment("shuffleBlockResolver")
       delegate.shuffleBlockResolver
     }
@@ -287,7 +321,7 @@ object GlutenShuffleManagerSuite {
       delegate.unregisterShuffle(shuffleId)
     }
 
-    override def shuffleBlockResolver: ShuffleBlockResolver = {
+    def shuffleBlockResolver: ShuffleBlockResolver = {
       counter.increment("shuffleBlockResolver")
       delegate.shuffleBlockResolver
     }
