@@ -206,6 +206,9 @@ abstract class FileSourceScanExecTransformerBase(
         s"Unsupported matching schema column names " +
           s"by field ids in native scan.")
     }
+    if (SparkShimLoader.getSparkShims.readsArchiveFiles(this)) {
+      return ValidationResult.failed("Unsupported archive file scan in native.")
+    }
     if (fileFormat == ReadFileFormat.TextReadFormat) {
       csvFieldDelimiter match {
         case Some(d) if isSingleAscii(d) =>

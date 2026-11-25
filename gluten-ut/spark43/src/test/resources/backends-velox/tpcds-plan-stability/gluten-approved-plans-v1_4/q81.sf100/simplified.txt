@@ -1,0 +1,107 @@
+VeloxColumnarToRow
+  TakeOrderedAndProjectExecTransformer [c_customer_id,c_salutation,c_first_name,c_last_name,ca_street_number,ca_street_name,ca_street_type,ca_suite_number,ca_city,ca_county,ca_state,ca_zip,ca_country,ca_gmt_offset,ca_location_type,ctr_total_return]
+    WholeStageCodegenTransformer (16)
+      ProjectExecTransformer [c_customer_id,c_salutation,c_first_name,c_last_name,ca_street_number,ca_street_name,ca_street_type,ca_suite_number,ca_city,ca_county,ca_state,ca_zip,ca_country,ca_gmt_offset,ca_location_type,ctr_total_return]
+        BroadcastHashJoinExecTransformer [ctr_state,ctr_state,ctr_total_return,(avg(ctr_total_return) * 1.2)]
+          ProjectExecTransformer [c_customer_id,c_salutation,c_first_name,c_last_name,ca_street_number,ca_street_name,ca_street_type,ca_suite_number,ca_city,ca_county,ca_state,ca_zip,ca_country,ca_gmt_offset,ca_location_type,ctr_state,ctr_total_return]
+            ShuffledHashJoinExecTransformer [c_customer_sk,ctr_customer_sk]
+              InputIteratorTransformer
+                InputAdapter
+                  ColumnarExchange [c_customer_sk,c_customer_id,c_salutation,c_first_name,c_last_name,ca_street_number,ca_street_name,ca_street_type,ca_suite_number,ca_city,ca_county,ca_state,ca_zip,ca_country,ca_gmt_offset,ca_location_type] #1
+                    VeloxResizeBatches
+                      WholeStageCodegenTransformer (2)
+                        ProjectExecTransformer [c_customer_sk,c_customer_id,c_salutation,c_first_name,c_last_name,ca_street_number,ca_street_name,ca_street_type,ca_suite_number,ca_city,ca_county,ca_state,ca_zip,ca_country,ca_gmt_offset,ca_location_type]
+                          BroadcastHashJoinExecTransformer [c_current_addr_sk,ca_address_sk]
+                            FilterExecTransformer [c_customer_sk,c_current_addr_sk]
+                              FileSourceScanExecTransformer parquet spark_catalog.default.customer [c_customer_sk,c_customer_id,c_current_addr_sk,c_salutation,c_first_name,c_last_name]
+                            InputIteratorTransformer
+                              InputAdapter
+                                ColumnarBroadcastExchange #2
+                                  WholeStageCodegenTransformer (1)
+                                    FilterExecTransformer [ca_state,ca_address_sk]
+                                      FileSourceScanExecTransformer parquet spark_catalog.default.customer_address [ca_address_sk,ca_street_number,ca_street_name,ca_street_type,ca_suite_number,ca_city,ca_county,ca_state,ca_zip,ca_country,ca_gmt_offset,ca_location_type]
+              InputIteratorTransformer
+                InputAdapter
+                  ColumnarExchange [ctr_customer_sk,ctr_state,ctr_total_return] #3
+                    VeloxResizeBatches
+                      WholeStageCodegenTransformer (8)
+                        ProjectExecTransformer [ctr_customer_sk,ctr_state,ctr_total_return]
+                          FilterExecTransformer [ctr_total_return]
+                            ProjectExecTransformer [cr_returning_customer_sk,ca_state,sum(UnscaledValue(cr_return_amt_inc_tax))]
+                              RegularHashAggregateExecTransformer [cr_returning_customer_sk,ca_state,sum] [sum(UnscaledValue(cr_return_amt_inc_tax)),sum]
+                                InputIteratorTransformer
+                                  InputAdapter
+                                    ColumnarExchange [cr_returning_customer_sk,ca_state,sum] #4
+                                      VeloxResizeBatches
+                                        WholeStageCodegenTransformer (7)
+                                          ProjectExecTransformer [cr_returning_customer_sk,ca_state,sum]
+                                            FlushableHashAggregateExecTransformer [cr_returning_customer_sk,ca_state,_pre_x] [sum,sum,sum]
+                                              ProjectExecTransformer [cr_returning_customer_sk,ca_state,cr_return_amt_inc_tax]
+                                                ShuffledHashJoinExecTransformer [cr_returning_addr_sk,ca_address_sk]
+                                                  InputIteratorTransformer
+                                                    InputAdapter
+                                                      ColumnarExchange [cr_returning_addr_sk,cr_returning_customer_sk,cr_return_amt_inc_tax] #5
+                                                        VeloxResizeBatches
+                                                          WholeStageCodegenTransformer (5)
+                                                            ProjectExecTransformer [cr_returning_addr_sk,cr_returning_customer_sk,cr_return_amt_inc_tax]
+                                                              BroadcastHashJoinExecTransformer [cr_returned_date_sk,d_date_sk]
+                                                                FilterExecTransformer [cr_returning_addr_sk,cr_returning_customer_sk]
+                                                                  FileSourceScanExecTransformer parquet spark_catalog.default.catalog_returns [cr_returning_customer_sk,cr_returning_addr_sk,cr_return_amt_inc_tax,cr_returned_date_sk]
+                                                                    ColumnarSubqueryBroadcast [d_date_sk] #1
+                                                                      ColumnarBroadcastExchange #6
+                                                                        WholeStageCodegenTransformer (3)
+                                                                          ProjectExecTransformer [d_date_sk]
+                                                                            FilterExecTransformer [d_year,d_date_sk]
+                                                                              FileSourceScanExecTransformer parquet spark_catalog.default.date_dim [d_date_sk,d_year]
+                                                                InputIteratorTransformer
+                                                                  InputAdapter
+                                                                    ReusedExchange [d_date_sk] #6
+                                                  InputIteratorTransformer
+                                                    InputAdapter
+                                                      ColumnarExchange [ca_address_sk,ca_state] #7
+                                                        VeloxResizeBatches
+                                                          WholeStageCodegenTransformer (6)
+                                                            ProjectExecTransformer [ca_address_sk,ca_state]
+                                                              FilterExecTransformer [ca_address_sk,ca_state]
+                                                                FileSourceScanExecTransformer parquet spark_catalog.default.customer_address [ca_address_sk,ca_state]
+          InputIteratorTransformer
+            InputAdapter
+              ColumnarBroadcastExchange #8
+                WholeStageCodegenTransformer (15)
+                  FilterExecTransformer [(avg(ctr_total_return) * 1.2)]
+                    ProjectExecTransformer [avg(ctr_total_return),ctr_state]
+                      RegularHashAggregateExecTransformer [ctr_state,sum,count] [avg(ctr_total_return),sum,count]
+                        InputIteratorTransformer
+                          InputAdapter
+                            ColumnarExchange [ctr_state,sum,count] #9
+                              VeloxResizeBatches
+                                WholeStageCodegenTransformer (14)
+                                  ProjectExecTransformer [ctr_state,sum,count]
+                                    FlushableHashAggregateExecTransformer [ctr_state,ctr_total_return] [sum,count,sum,count]
+                                      ProjectExecTransformer [ca_state,sum(UnscaledValue(cr_return_amt_inc_tax))]
+                                        RegularHashAggregateExecTransformer [cr_returning_customer_sk,ca_state,sum] [sum(UnscaledValue(cr_return_amt_inc_tax)),sum]
+                                          InputIteratorTransformer
+                                            InputAdapter
+                                              ColumnarExchange [cr_returning_customer_sk,ca_state,sum] #10
+                                                VeloxResizeBatches
+                                                  WholeStageCodegenTransformer (13)
+                                                    ProjectExecTransformer [cr_returning_customer_sk,ca_state,sum]
+                                                      FlushableHashAggregateExecTransformer [cr_returning_customer_sk,ca_state,_pre_x] [sum,sum,sum]
+                                                        ProjectExecTransformer [cr_returning_customer_sk,ca_state,cr_return_amt_inc_tax]
+                                                          ShuffledHashJoinExecTransformer [cr_returning_addr_sk,ca_address_sk]
+                                                            InputIteratorTransformer
+                                                              InputAdapter
+                                                                ColumnarExchange [cr_returning_addr_sk,cr_returning_customer_sk,cr_return_amt_inc_tax] #11
+                                                                  VeloxResizeBatches
+                                                                    WholeStageCodegenTransformer (11)
+                                                                      ProjectExecTransformer [cr_returning_addr_sk,cr_returning_customer_sk,cr_return_amt_inc_tax]
+                                                                        BroadcastHashJoinExecTransformer [cr_returned_date_sk,d_date_sk]
+                                                                          FilterExecTransformer [cr_returning_addr_sk]
+                                                                            FileSourceScanExecTransformer parquet spark_catalog.default.catalog_returns [cr_returning_customer_sk,cr_returning_addr_sk,cr_return_amt_inc_tax,cr_returned_date_sk]
+                                                                              ReusedSubquery [d_date_sk] #1
+                                                                          InputIteratorTransformer
+                                                                            InputAdapter
+                                                                              ReusedExchange [d_date_sk] #6
+                                                            InputIteratorTransformer
+                                                              InputAdapter
+                                                                ReusedExchange [ca_address_sk,ca_state] #7
