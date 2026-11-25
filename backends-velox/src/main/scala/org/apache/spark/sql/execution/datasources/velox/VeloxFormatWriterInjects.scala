@@ -18,6 +18,7 @@ package org.apache.spark.sql.execution.datasources.velox
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.columnarbatch.ColumnarBatches
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.datasource.{VeloxDataSourceJniWrapper, VeloxDataSourceUtil}
 import org.apache.gluten.exception.GlutenException
 import org.apache.gluten.execution.BatchCarrierRow
@@ -35,12 +36,16 @@ import org.apache.spark.sql.utils.SparkArrowUtil
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 import org.apache.arrow.c.ArrowSchema
+import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileStatus, Path}
 import org.apache.hadoop.mapreduce.TaskAttemptContext
 
 import java.io.IOException
 
+import scala.collection.JavaConverters._
+
 trait VeloxFormatWriterInjects extends GlutenFormatWriterInjectsBase {
+
   def createOutputWriter(
       filePath: String,
       dataSchema: StructType,
@@ -65,7 +70,10 @@ trait VeloxFormatWriterInjects extends GlutenFormatWriterInjectsBase {
     val allocator = ArrowBufferAllocators.contextInstance()
     try {
       ArrowAbiUtil.exportSchema(allocator, arrowSchema, cSchema)
-      dsHandle = datasourceJniWrapper.init(filePath, cSchema.memoryAddress(), nativeConf)
+      dsHandle = datasourceJniWrapper.init(
+        filePath,
+        cSchema.memoryAddress(),
+        VeloxFormatWriterInjects.withAzureConf(filePath, nativeConf, context.getConfiguration))
     } catch {
       case e: IOException =>
         throw new GlutenException(e)
@@ -103,6 +111,29 @@ trait VeloxFormatWriterInjects extends GlutenFormatWriterInjectsBase {
       options: Map[String, String],
       files: Seq[FileStatus]): Option[StructType] = {
     VeloxDataSourceUtil.readSchema(files)
+  }
+}
+
+object VeloxFormatWriterInjects {
+
+  /**
+   * The native writer opens an ABFS file with only the settings it is given, so add the write's
+   * Azure settings, such as the account key, as the `spark.hadoop.fs.azure.` settings the native
+   * ABFS file system reads. The write's own settings stay as they are.
+   */
+  private[velox] def withAzureConf(
+      filePath: String,
+      nativeConf: java.util.Map[String, String],
+      hadoopConf: Configuration): java.util.Map[String, String] = {
+    if (!filePath.startsWith("abfs")) {
+      return nativeConf
+    }
+    val conf = new java.util.HashMap[String, String](nativeConf)
+    hadoopConf.getPropsWithPrefix(GlutenConfig.ABFS_PREFIX).asScala.foreach {
+      case (key, value) =>
+        conf.putIfAbsent(GlutenConfig.HADOOP_PREFIX + GlutenConfig.ABFS_PREFIX + key, value)
+    }
+    conf
   }
 }
 
