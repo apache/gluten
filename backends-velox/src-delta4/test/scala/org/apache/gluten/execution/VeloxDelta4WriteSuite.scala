@@ -486,6 +486,43 @@ class VeloxDelta4WriteSuite extends DeltaSQLCommandTest {
     }
   }
 
+  for (feature <- Seq(false, true)) {
+    test(s"materialized writes and OPTIMIZE use filesystem fallback: feature=$feature") {
+      withTempDir {
+        dir =>
+          withSQLConf(
+            s"fs.${FakeFileSystem.scheme}.impl" -> classOf[FakeFileSystem].getName,
+            s"fs.${FakeFileSystem.scheme}.impl.disable.cache" -> "true") {
+            val path = s"${FakeFileSystem.scheme}://${dir.getCanonicalPath}"
+            val properties = if (feature) {
+              Seq(
+                "delta.feature.materializePartitionColumns" -> "supported",
+                "delta.writePartitionColumnsToParquet" -> "false")
+            } else {
+              Seq.empty
+            }
+            createTable(path, partitioned = true, properties: _*)
+            writeRows(path)
+            writeRows(path)
+
+            val before = footers(path).map(_._1.path).toSet
+            assertWrittenBy(path, velox = false, Seq("id", "value", "part"))
+            footers(path).foreach { case (file, _) => assertPartitionValues(path, file) }
+
+            sql(s"OPTIMIZE delta.`$path`").collect()
+
+            val files = footers(path)
+            assert(files.nonEmpty && files.size < before.size)
+            assert(files.forall { case (file, _) => !before.contains(file.path) })
+            assertWrittenBy(path, velox = false, Seq("id", "value", "part"))
+            files.foreach { case (file, _) => assertPartitionValues(path, file) }
+            val expected = (0 until 10).flatMap(i => Seq.fill(2)(Row(i.toLong, i.toString, i % 2)))
+            assert(spark.read.format("delta").load(path).orderBy("id").collect().toSeq == expected)
+          }
+      }
+    }
+  }
+
   private def timestampTypeName(path: String, column: String): Seq[PrimitiveTypeName] =
     footers(path).map {
       case (_, footer) =>

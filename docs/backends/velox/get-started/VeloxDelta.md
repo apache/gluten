@@ -198,9 +198,10 @@ still fall back as described above.
 
 Using the native writer for default partitioned tables also exposes existing limitations that
 fallback previously hid: CHECK and `replaceWhere` violations can lose Delta's exception type across
-JNI, and paths unsupported by the native writer can fail at task time. Constraints are still
-enforced and rejected writes commit nothing. See [Error types](#error-types) and
-[Write problems](#write-problems); native write can be disabled for affected workloads.
+JNI. Constraints are still enforced and rejected writes commit nothing. See
+[Error types](#error-types); native write can be disabled for affected workloads.
+On Spark 4.x, unsupported filesystems and connectors unavailable in the native build fall back to
+Delta's writer, including materialized writes and OPTIMIZE.
 
 ### Checking the plan
 
@@ -527,8 +528,8 @@ For errors raised on the JVM, the message of the exception raised in the task st
 Default Delta 4.4 partitioned writes now use the native path when otherwise eligible, so these
 CHECK and `replaceWhere` exception-type differences apply without explicitly enabling a table feature.
 The generic JNI exception-preservation fix is tracked in
-[#13133](https://github.com/apache/gluten/pull/13133); materialization does not bypass constraint
-checks or allow invalid rows to commit.
+[#13561](https://github.com/apache/gluten/pull/13561) for native iterators; the core JNI transport
+is already merged. Materialization does not bypass constraint checks or allow invalid rows to commit.
 
 ## Configuration
 ### Gluten Options
