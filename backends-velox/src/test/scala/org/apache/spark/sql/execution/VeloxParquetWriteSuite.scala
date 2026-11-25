@@ -397,21 +397,21 @@ class VeloxParquetWriteHadoopConfSuite extends VeloxWholeStageTransformerSuite w
 
   private val dictionaryEncodingNames = Set("PLAIN_DICTIONARY", "RLE_DICTIONARY")
 
-  private def parquetColumnChunks[T](dir: File)(f: ColumnChunkMetaData => T): Seq[T] = {
+  private def parquetColumnChunks(dir: File): Seq[ColumnChunkMetaData] = {
     val parquetFiles = dir.list((_, name) => name.contains("parquet"))
     assert(parquetFiles.nonEmpty)
-    parquetFiles.flatMap {
+    parquetFiles.toSeq.flatMap {
       file =>
         val path = new Path(dir.getAbsolutePath, file)
         val in = HadoopInputFile.fromPath(path, spark.sessionState.newHadoopConf())
         Utils.tryWithResource(ParquetFileReader.open(in)) {
-          reader => reader.getFooter.getBlocks.asScala.flatMap(_.getColumns.asScala.map(f))
+          reader => reader.getFooter.getBlocks.asScala.flatMap(_.getColumns.asScala)
         }
-    }.toSeq
+    }
   }
 
   private def parquetColumnEncodings(dir: File): Seq[Set[String]] =
-    parquetColumnChunks(dir)(_.getEncodings.asScala.map(_.name()).toSet)
+    parquetColumnChunks(dir).map(_.getEncodings.asScala.map(_.name()).toSet)
 
   test("native writer should respect parquet dictionary config from spark.hadoop config") {
     spark
@@ -439,7 +439,7 @@ class VeloxParquetWriteHadoopConfSuite extends VeloxWholeStageTransformerSuite w
         dir =>
           checkNativeWrite(
             s"INSERT OVERWRITE DIRECTORY '${dir.getCanonicalPath}' USING PARQUET SELECT 1 AS id")
-          assert(parquetColumnChunks(dir)(_.getCodec).toSet == Set(CompressionCodecName.ZSTD))
+          assert(parquetColumnChunks(dir).map(_.getCodec).toSet == Set(CompressionCodecName.ZSTD))
       }
     }
   }
