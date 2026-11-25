@@ -20,7 +20,7 @@ import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.DataFrame
-import org.apache.spark.sql.execution.{ColumnarBroadcastExchangeExec, ColumnarShuffleExchangeExec, SortExec, SparkPlan}
+import org.apache.spark.sql.execution.{ColumnarBroadcastExchangeExec, ColumnarShuffleExchangeExec, ProjectExec, SortExec, SparkPlan}
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanHelper, AQEShuffleReadExec}
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
 import org.apache.spark.sql.execution.joins.{BroadcastHashJoinExec, BroadcastNestedLoopJoinExec, SortMergeJoinExec}
@@ -679,7 +679,10 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
               case (projectEnabled, query) =>
                 withSQLConf(GlutenConfig.COLUMNAR_PROJECT_ENABLED.key -> projectEnabled) {
                   runQueryAndCompare(query, noFallBack = false) {
-                    df => assert(hasNativeScan(df), df.queryExecution.executedPlan)
+                    df =>
+                      val plan = df.queryExecution.executedPlan
+                      assert(hasNativeScan(df), plan)
+                      assert(find(plan)(_.isInstanceOf[ProjectExec]).nonEmpty, plan)
                   }
                 }
             }
@@ -701,7 +704,21 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
               "(SELECT input_file_name() AS input_file_name, name FROM t)",
             "SELECT concat(input_file_name, '#') AS g FROM " +
               "(SELECT input_file_name() AS input_file_name, name FROM t) " +
-              "WHERE input_file_name LIKE '%.parquet'"
+              "WHERE input_file_name LIKE '%.parquet'",
+            // Both projections call an input file function, another one or the same one.
+            "SELECT concat(input_file_name, input_file_block_length()) AS g FROM " +
+              "(SELECT input_file_name() AS input_file_name FROM t)",
+            "SELECT concat(input_file_name, input_file_name()) AS g FROM " +
+              "(SELECT input_file_name() AS input_file_name FROM t)",
+            "SELECT input_file_name() AS f, name FROM t WHERE input_file_name() LIKE '%.parquet'",
+            "SELECT concat(f, input_file_name()) AS g FROM (SELECT input_file_name() AS f " +
+              "FROM t UNION ALL SELECT input_file_name() AS f FROM t)",
+            "SELECT input_file_name() AS g, f FROM (SELECT input_file_name() AS f FROM t " +
+              "UNION ALL SELECT input_file_name() AS f FROM t) " +
+              "WHERE input_file_name() LIKE '%.parquet'",
+            "SELECT input_file_name() AS g, a.f FROM " +
+              "(SELECT input_file_name() AS f, id FROM t) a " +
+              "JOIN (VALUES (1), (2)) s(id) ON a.id = s.id"
           )
           for {
             // Parquet read through DataSource V1 and V2.
@@ -716,12 +733,74 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
               runQueryAndCompare(query, noFallBack = false) {
                 df =>
                   val plan = df.queryExecution.executedPlan
-                  assert(
-                    find(plan)(_.isInstanceOf[BasicScanExecTransformer]).nonEmpty,
-                    s"$v1Sources/$projectEnabled: $query\n$plan")
+                  val nativeScan = find(plan) {
+                    case _: BatchScanExecTransformerBase => v1Sources.isEmpty
+                    case _: FileSourceScanExecTransformer => v1Sources.nonEmpty
+                    case _ => false
+                  }
+                  assert(nativeScan.nonEmpty, s"$v1Sources/$projectEnabled: $query\n$plan")
                   df.collect().foreach(row => assert(row.getString(0).contains(".parquet")))
               }
             }
+          }
+          // A project over the scan that repeats a column: the native scan reads the column once.
+          // Above a Sort, vanilla Spark returns an empty file name, so only the other columns are
+          // compared.
+          for {
+            v1Sources <- Seq(SQLConf.USE_V1_SOURCE_LIST.defaultValueString, "")
+            projectEnabled <- Seq("true", "false")
+          } {
+            withSQLConf(
+              SQLConf.USE_V1_SOURCE_LIST.key -> v1Sources,
+              GlutenConfig.COLUMNAR_PROJECT_ENABLED.key -> projectEnabled) {
+              spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("t")
+              val df =
+                spark.sql(
+                  "SELECT input_file_name() AS g, a.* FROM (SELECT id, id FROM t SORT BY id) a")
+              val plan = df.queryExecution.executedPlan
+              assert(find(plan)(_.isInstanceOf[BasicScanExecTransformer]).nonEmpty, plan)
+              val rows = df.collect()
+              assert(rows.map(r => (r.getInt(1), r.getInt(2))).sorted.toSeq === Seq((1, 1), (2, 2)))
+            }
+          }
+          // A join in one stage with input_file_name() called on one or both sides. Spark rejects
+          // that over two DSv1 relations, so only DSv2 runs it.
+          val crossJoins = Seq(
+            "SELECT input_file_name() AS h, a.f, b.g FROM " +
+              "(SELECT input_file_name() AS f FROM t) a " +
+              "CROSS JOIN (SELECT input_file_name() AS g FROM t) b",
+            "SELECT input_file_name() AS h, a.f, b.g, b.id FROM " +
+              "(SELECT input_file_name() AS f FROM t) a CROSS JOIN " +
+              "(SELECT input_file_name() AS g, id FROM " +
+              "(SELECT id FROM t UNION ALL SELECT id FROM t)) b",
+            "SELECT input_file_name() AS h, a.id, b.g FROM t a " +
+              "CROSS JOIN (SELECT input_file_name() AS g FROM t2) b"
+          )
+          withTempPath {
+            dir2 =>
+              Seq(("c", 3)).toDF("name", "id").write.parquet(dir2.getCanonicalPath)
+              withTempView("t2") {
+                for {
+                  projectEnabled <- Seq("true", "false")
+                  query <- crossJoins
+                } {
+                  withSQLConf(
+                    SQLConf.USE_V1_SOURCE_LIST.key -> "",
+                    SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
+                    GlutenConfig.COLUMNAR_PROJECT_ENABLED.key -> projectEnabled) {
+                    spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("t")
+                    spark.read.parquet(dir2.getCanonicalPath).createOrReplaceTempView("t2")
+                    runQueryAndCompare(query, noFallBack = false) {
+                      df =>
+                        val plan = df.queryExecution.executedPlan
+                        assert(
+                          find(plan)(_.isInstanceOf[BatchScanExecTransformerBase]).nonEmpty,
+                          plan)
+                        df.collect().foreach(row => assert(row.getString(0).contains(".parquet")))
+                    }
+                  }
+                }
+              }
           }
         }
     }
