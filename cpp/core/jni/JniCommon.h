@@ -27,6 +27,7 @@
 #include "JavaException.h"
 #include "compute/ProtobufUtils.h"
 #include "compute/Runtime.h"
+#include "jni/JniThreadExit.h"
 #include "memory/AllocationListener.h"
 #include "shuffle/ShuffleReader.h"
 #include "shuffle/rss/RssClient.h"
@@ -114,6 +115,11 @@ static inline void attachCurrentThreadAsDaemonOrThrow(JavaVM* vm, JNIEnv** out) 
     if (getEnvStat != JNI_OK) {
       throw gluten::GlutenException("Failed to reattach current thread to JVM.");
     }
+    // Detach when this native thread exits, so the JVM is not left with a JavaThread for a dead pthread.
+    // Only threads attached here are registered: Java-created threads, and native threads that Java
+    // or libhdfs attached first, never return JNI_EDETACHED above, so the JVM and libhdfs keep
+    // managing their detach.
+    gluten::detachCurrentThreadOnExit(vm);
     DLOG(INFO) << "Succeeded attaching current thread.";
     return;
   }
