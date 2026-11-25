@@ -19,9 +19,47 @@ package org.apache.gluten.execution
 import org.apache.gluten.config.VeloxDeltaConfig
 
 import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.delta.DeltaLog
+import org.apache.spark.sql.execution.RDDScanExec
 import org.apache.spark.util.SparkVersionUtil
 
 class VeloxDeltaSuite extends DeltaSuite {
+  test("delta: queries over the transaction log run on Spark") {
+    withTempPath {
+      dir =>
+        val path = dir.getCanonicalPath
+        spark
+          .range(0, 100, 1, 4)
+          .selectExpr("id", "id % 3 as part")
+          .write
+          .format("delta")
+          .partitionBy("part")
+          .save(path)
+
+        // Delta selects files and answers metadata-only aggregates with jobs over the state it
+        // caches from its log. Those jobs stay on Spark.
+        val snapshot = DeltaLog.forTable(spark, path).update()
+        Seq(
+          snapshot.allFiles.toDF().where("size > 0").select("path"),
+          snapshot.withStats.where("stats.numRecords > 0").groupBy().count()
+        ).foreach {
+          df =>
+            df.collect()
+            val plan = df.queryExecution.executedPlan
+            assert(collect(plan) { case scan: RDDScanExec => scan }.nonEmpty, plan)
+            assert(collect(plan) { case node: GlutenPlan => node }.isEmpty, plan)
+        }
+
+        // A query over the table data is still offloaded.
+        val df = spark.read.format("delta").load(path).where("part = 1 and id > 10")
+        checkAnswer(df, spark.range(11, 100).where("id % 3 = 1").selectExpr("id", "id % 3 as part"))
+        assert(
+          collect(df.queryExecution.executedPlan) { case scan: DeltaScanTransformer => scan }
+            .nonEmpty,
+          df.queryExecution.executedPlan)
+    }
+  }
+
   test("delta: change data feed scan offload can be disabled") {
     withTable("delta_cdf_disabled") {
       spark.sql("""
