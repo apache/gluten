@@ -33,6 +33,22 @@ There are a few unknown incompatible cases. If user cannot tolerate the incompat
 spark.gluten.sql.fallbackRegexpExpressions
 ```
 
+#### JSON function fallback
+
+Velox supports `from_json` and `to_json` for some inputs. Spark can still run the expressions when Velox declines to offload them:
+
+- `from_json` falls back with explicit JSON options, with case-sensitive analysis, or when
+  `spark.sql.json.enablePartialResults` is disabled or unavailable. It also falls back if the top-level output struct
+  contains Spark's configured corrupt-record field or has duplicate field names, including names that differ only in case.
+  The duplicate-name check is on the requested schema, not on the JSON input.
+- `to_json` falls back with explicit JSON options. It also falls back when `spark.sql.caseSensitive=false` and an
+  input struct field name contains uppercase letters, so Spark can preserve the name instead of emitting a changed key.
+
+For example, `from_json(json_text, 'name STRING', map('mode', 'PERMISSIVE'))` uses Spark evaluation even though
+`PERMISSIVE` is the default. Check the [JSON function support table](velox-backend-scalar-function-support.md#json-functions)
+for restrictions. Whether the whole projection falls back or part of it stays native depends on the plan;
+see [partial projection](developers/PartialProject.md#adding-partial-projection-for-unsupported-expressions).
+
 #### FileSource format
 Currently, Gluten only fully supports parquet file format and partially support ORC. If other format is used, scan operator falls back to vanilla spark.
 
