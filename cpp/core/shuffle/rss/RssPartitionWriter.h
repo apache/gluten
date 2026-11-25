@@ -63,8 +63,37 @@ class RssPartitionWriter final : public PartitionWriter {
 
   arrow::Status doEvict(uint32_t partitionId, std::unique_ptr<InMemoryPayload> inMemoryPayload, int64_t& evictBytes);
 
+  // Makes sure `pushBuffer_` can hold exactly `size` bytes, growing it when needed.
+  arrow::Status reservePushBuffer(int64_t size);
+
+  // Allocates `buffer` from the unmanaged pool on first use. See `doEvict` for why the scratch
+  // buffers must not come from `payloadPool_`.
+  arrow::Status ensureScratchBuffer(std::shared_ptr<arrow::ResizableBuffer>& buffer);
+
+  // Lower bound for `pushBuffer_`, chosen to stay above the minimum capacity
+  // `arrow::io::BufferOutputStream` would round up to on its own.
+  static constexpr int64_t kMinPushBufferSize = 1024;
+
   std::shared_ptr<RssPartitionWriterOptions> options_;
   std::shared_ptr<RssClient> rssClient_;
+
+  // Staging buffer that every hash-evicted payload is serialized into before being handed to the
+  // RSS client. It is reused across payloads and only ever grows: allocating one buffer per
+  // payload would both cost an allocation per push and tie the allocation size to
+  // `celeborn.client.push.buffer.max.size`, making that (purely client side) knob expensive to
+  // raise.
+  std::shared_ptr<arrow::ResizableBuffer> pushBuffer_{nullptr};
+
+  // Staging buffer that compression writes into, reused across payloads for the same reason as
+  // `pushBuffer_`. Both are scratch space that lives only until the push below returns, both are
+  // taken from the unmanaged pool because `doEvict` is reachable from the memory reclaim callback,
+  // and both only ever grow - so what they cost the executor is one buffer per writer sized to its
+  // largest payload, not an allocation per push. See `doEvict`.
+  std::shared_ptr<arrow::ResizableBuffer> compressBuffer_{nullptr};
+
+  // Part of `compressTime_` that was measured inside the `spillTime_` timer and therefore has to
+  // be subtracted from it. Only the sort path does that.
+  int64_t compressTimeInSpill_{0};
 
   std::vector<int64_t> bytesEvicted_;
   std::vector<int64_t> rawPartitionLengths_;
