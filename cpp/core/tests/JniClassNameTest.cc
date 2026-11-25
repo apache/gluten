@@ -47,6 +47,8 @@ TEST(JniClassNameTest, commonStateUsesBinaryClassNames) {
   state.ensureInitialized(jni.env());
   EXPECT_FALSE(jni.foundClassNames.empty());
   EXPECT_EQ(descriptorNames(jni.foundClassNames), std::vector<std::string>{});
+  state.close();
+  EXPECT_EQ(jni.deletedGlobalRefs, jni.createdGlobalRefs);
 }
 
 TEST(JniClassNameTest, errorStateUsesBinaryClassNames) {
@@ -55,6 +57,8 @@ TEST(JniClassNameTest, errorStateUsesBinaryClassNames) {
   state.ensureInitialized(jni.env());
   EXPECT_FALSE(jni.foundClassNames.empty());
   EXPECT_EQ(descriptorNames(jni.foundClassNames), std::vector<std::string>{});
+  state.close();
+  EXPECT_EQ(jni.deletedGlobalRefs, jni.createdGlobalRefs);
 }
 
 } // namespace gluten
