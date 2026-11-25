@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+#include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -126,6 +128,59 @@ TEST_F(SparkFunctionTest, roundWithDecimal) {
   runRoundWithDecimalTest<int8_t>(testRoundWithDecIntegralData<int8_t>());
 }
 
+TEST_F(SparkFunctionTest, decimalRoundScaleValidation) {
+  const auto validate = [&](std::optional<int32_t> scale, bool castInput) {
+    ::substrait::Expression expression;
+    auto* function = expression.mutable_scalar_function();
+    function->set_function_reference(1);
+    auto* value = function->add_arguments()->mutable_value();
+    if (castInput) {
+      auto* cast = value->mutable_cast();
+      auto* type = cast->mutable_type()->mutable_decimal();
+      type->set_precision(38);
+      type->set_scale(0);
+      type->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+      value = cast->mutable_input();
+    }
+    value->mutable_selection()->mutable_direct_reference()->mutable_struct_field()->set_field(0);
+    auto* literal = function->add_arguments()->mutable_value()->mutable_literal();
+    if (scale.has_value()) {
+      literal->set_i32(scale.value());
+    } else {
+      literal->mutable_null()->mutable_i32()->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+    }
+    auto* output = function->mutable_output_type()->mutable_decimal();
+    output->set_precision(38);
+    output->set_scale(0);
+    output->set_nullability(::substrait::Type_Nullability_NULLABILITY_NULLABLE);
+    gluten::SubstraitToVeloxPlanValidator validator(pool());
+    return validator.validate(
+        expression, ROW({"value"}, {castInput ? VARCHAR() : DECIMAL(38, 0)}), {{1, "round:opt_dec<38,0>_i32"}});
+  };
+  for (const auto scale :
+       {std::numeric_limits<int32_t>::min() + 2,
+        -401,
+        -400,
+        -39,
+        -38,
+        -1,
+        0,
+        38,
+        400,
+        401,
+        std::numeric_limits<int32_t>::max()}) {
+    SCOPED_TRACE(scale);
+    EXPECT_TRUE(validate(scale, false));
+  }
+  EXPECT_TRUE(validate(std::nullopt, false));
+  EXPECT_TRUE(validate(-1, true));
+  EXPECT_TRUE(validate(std::nullopt, true));
+  for (const auto scale : {std::numeric_limits<int32_t>::min(), std::numeric_limits<int32_t>::min() + 1}) {
+    SCOPED_TRACE(scale);
+    EXPECT_FALSE(validate(scale, false));
+  }
+}
+
 TEST_F(SparkFunctionTest, integralRoundUsesSessionAnsi) {
   const auto input = makeRowVector({makeNullableFlatVector<int8_t>({127, -128, 25, -25, std::nullopt})});
   for (const auto ansi : {false, true}) {
@@ -152,7 +207,7 @@ TEST_F(SparkFunctionTest, integralRoundNullScaleSkipsChild) {
 }
 
 TEST_F(SparkFunctionTest, integralRoundScaleValidation) {
-  const auto validate = [&](std::optional<int32_t> scale, bool castInput, const char* expectedReason = nullptr) {
+  const auto validate = [&](std::optional<int32_t> scale, bool castInput) {
     ::substrait::Expression expression;
     auto* function = expression.mutable_scalar_function();
     function->set_function_reference(1);
@@ -176,16 +231,10 @@ TEST_F(SparkFunctionTest, integralRoundScaleValidation) {
       inputType = VARCHAR();
     }
     const auto supported = validator.validate(expression, ROW({"value"}, {inputType}), {{1, "round:opt_i8_i32"}});
-    if (expectedReason != nullptr) {
-      EXPECT_FALSE(validator.getValidateLog().empty());
-      if (!validator.getValidateLog().empty()) {
-        EXPECT_NE(validator.getValidateLog().back().find(expectedReason), std::string::npos);
-      }
-    }
     return supported;
   };
 
-  for (const auto scale : {0, 1, 400}) {
+  for (const auto scale : {0, 1, 400, 401, std::numeric_limits<int32_t>::max()}) {
     SCOPED_TRACE(scale);
     EXPECT_TRUE(validate(scale, false));
   }
@@ -195,8 +244,6 @@ TEST_F(SparkFunctionTest, integralRoundScaleValidation) {
     SCOPED_TRACE(scale);
     EXPECT_FALSE(validate(scale, false));
   }
-  EXPECT_FALSE(validate(401, false, "Integral ROUND scale must be in [0, 400]"));
-  EXPECT_FALSE(validate(std::numeric_limits<int32_t>::max(), false));
 
   {
     ::substrait::Expression expression;

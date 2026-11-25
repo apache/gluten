@@ -73,7 +73,7 @@ class GlutenIntegralRoundSuite extends GlutenSQLTestsTrait {
     withInput {
       for (ansi <- Seq("false", "true")) {
         withSQLConf(SQLConf.ANSI_ENABLED.key -> ansi) {
-          for (scale <- Seq(0, 2, 400)) {
+          for (scale <- Seq(0, 2, 400, 401, Int.MaxValue)) {
             val columns = Seq("b", "s", "i", "l")
             val query = columns.map(c => s"round($c, $scale)").mkString(
               "SELECT ",

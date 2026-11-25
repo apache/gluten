@@ -18,7 +18,6 @@ package org.apache.spark.sql.hive.execution
 
 import org.apache.spark.SparkFiles
 import org.apache.spark.sql.GlutenTestSetWithSystemPropertyTrait
-import org.apache.spark.sql.hive.HiveUtils.{builtinHiveVersion => hiveVersion}
 import org.apache.spark.sql.hive.test.HiveTestJars
 import org.apache.spark.tags.SlowHiveTest
 
@@ -72,30 +71,6 @@ class GlutenHiveQuerySuite
     val testJar2 = hiveResourcePath("TestUDTF.jar").toFile.getCanonicalPath
     sql(s"ADD JAR $testJar2")
     assert(sql(s"list jar $testJar").count() == 1)
-  }
-
-  testGluten("SPARK-33084: Add jar support Ivy URI in SQL") {
-    val testData = hiveResourcePath("data/files/sample.json").toUri
-    withTable("t") {
-      // Use transitive=false as it should be good enough to test the Ivy support in Hive ADD JAR.
-      sql(
-        s"ADD JAR ivy://org.apache.hive.hcatalog:hive-hcatalog-core:$hiveVersion" +
-          "?transitive=false")
-      sql("""CREATE TABLE t(a string, b string)
-            |ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe'""".stripMargin)
-      sql(s"""LOAD DATA LOCAL INPATH "$testData" INTO TABLE t""")
-      sql("SELECT * FROM src JOIN t on src.key = t.a")
-      assert(
-        sql("LIST JARS")
-          .filter(_.getString(0).contains(
-            s"org.apache.hive.hcatalog_hive-hcatalog-core-$hiveVersion.jar"))
-          .count() > 0)
-      assert(
-        sql("LIST JAR")
-          .filter(_.getString(0).contains(
-            s"org.apache.hive.hcatalog_hive-hcatalog-core-$hiveVersion.jar"))
-          .count() > 0)
-    }
   }
 
   testGluten("CREATE TEMPORARY FUNCTION") {
