@@ -130,6 +130,10 @@ void veloxThreadManagerReleaser(ThreadManager* threadManager) {
   delete threadManager;
 }
 
+void registerVeloxExceptionUnwrapper() {
+  static const JniExceptionUnwrapperRegistration registration(unwrapVeloxException);
+}
+
 bool hasCudaDevice() {
 #ifdef GLUTEN_ENABLE_GPU
   int count = 0;
@@ -163,12 +167,12 @@ void VeloxBackend::init(
 
   globalMemoryManager_ = std::make_unique<VeloxMemoryManager>(kVeloxBackendKind, std::move(listener), *backendConf_);
 
-  // Register factories.
+  // Register backend factories and JNI hooks.
   MemoryManager::registerFactory(kVeloxBackendKind, veloxMemoryManagerFactory, veloxMemoryManagerReleaser);
   ThreadManager::registerFactory(kVeloxBackendKind, veloxThreadManagerFactory, veloxThreadManagerReleaser);
   Runtime::registerFactory(kVeloxBackendKind, veloxRuntimeFactory, veloxRuntimeReleaser);
   registerJniInputIteratorFactory(kVeloxBackendKind, createVeloxJniInputIterator);
-  static const JniExceptionUnwrapperRegistration exceptionUnwrapper(unwrapVeloxException);
+  registerVeloxExceptionUnwrapper();
 
   if (backendConf_->get<bool>(kDebugModeEnabled, false)) {
     LOG(INFO) << "VeloxBackend config:" << printConfig(backendConf_->rawConfigs());
