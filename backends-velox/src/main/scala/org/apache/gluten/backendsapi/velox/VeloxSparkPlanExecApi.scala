@@ -1313,15 +1313,30 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
         ExpressionNames.TO_JSON,
         ToJsonRestrictions.NOT_SUPPORT_WITH_OPTIONS)
     }
+    val needsFieldRename = VeloxToJsonInputTransformer.hasFieldName(child.dataType) {
+      name => name != null && ConverterUtils.normalizeColName(name) != name
+    }
     if (
-      !SQLConf.get.caseSensitiveAnalysis &&
-      ExpressionUtils.hasUppercaseStructFieldName(child.dataType)
+      VeloxToJsonInputTransformer.hasFieldName(child.dataType) {
+        name => name == null || name.exists(c => c == '"' || c == '\\' || c < ' ')
+      }
+    ) {
+      // Velox currently writes struct field names without JSON-escaping them.
+      GlutenExceptionUtil.throwsNotFullySupported(
+        ExpressionNames.TO_JSON,
+        ToJsonRestrictions.NOT_SUPPORT_ESCAPED_FIELD_NAMES)
+    }
+    if (
+      needsFieldRename && SQLConf.get.getConfString(
+        "spark.gluten.sql.columnar.backend.velox.cast_match_struct_by_name",
+        "false").toBoolean
     ) {
       GlutenExceptionUtil.throwsNotFullySupported(
         ExpressionNames.TO_JSON,
-        ToJsonRestrictions.NOT_SUPPORT_UPPERCASE_STRUCT)
+        ToJsonRestrictions.NOT_SUPPORT_RENAME_WITH_NAME_BASED_CAST)
     }
-    ToJsonTransformer(substraitExprName, child, expr)
+    val input = if (needsFieldRename) VeloxToJsonInputTransformer(child) else child
+    ToJsonTransformer(substraitExprName, input, expr)
   }
 
   override def genUnbase64Transformer(
