@@ -149,6 +149,9 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
       Pattern.compile(
           "\\((-?\\d+) vs\\. -?\\d+\\) The value of 'pos' argument must "
               + "(be greater than or equal to zero|not exceed the number of bits in 'x' - 1)\\.");
+  // Velox's message when assert_not_null finds a null in a non-nullable field.
+  private static final Pattern NOT_NULL_ASSERT_VIOLATED =
+      Pattern.compile("^Reason: Null value appeared in non-nullable field$", Pattern.MULTILINE);
 
   /**
    * Translates a Velox type conversion error into a SchemaColumnConvertNotSupportedException.
@@ -198,6 +201,22 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
         matcher.group(2).startsWith("be") ? "is less than zero" : "exceeds the bit upper limit";
     return new IllegalArgumentException(
         "Invalid bit position: " + matcher.group(1) + " " + reason, e);
+   * Translates a Velox assert_not_null failure into the exception Spark throws for a null in a
+   * non-nullable field. Returns null if the message does not indicate one.
+   */
+  private static RuntimeException translateToNotNullAssertViolation(String msg, Exception e) {
+    // Spark 3.x throws a NullPointerException whose message names the field instead.
+    if (!SparkVersionUtil.gteSpark40() || !NOT_NULL_ASSERT_VIOLATED.matcher(msg).find()) {
+      return null;
+    }
+    // Builds the exception QueryExecutionErrors.notNullAssertViolation builds. Velox's message
+    // does not name the field, so the path is "\n\n", the value Spark uses when it has none.
+    return new SparkRuntimeException(
+        "NOT_NULL_ASSERT_VIOLATION",
+        new Map.Map1<>("walkedTypePath", "\n\n"),
+        e,
+        new QueryContext[0],
+        "");
   }
 
   @Override
@@ -216,6 +235,9 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
       RuntimeException bitPositionEx = translateToInvalidBitPositionException(msg, e);
       if (bitPositionEx != null) {
         return bitPositionEx;
+      RuntimeException notNullEx = translateToNotNullAssertViolation(msg, e);
+      if (notNullEx != null) {
+        return notNullEx;
       }
     }
     // A GlutenException raised by native/nested code is already translated; return it

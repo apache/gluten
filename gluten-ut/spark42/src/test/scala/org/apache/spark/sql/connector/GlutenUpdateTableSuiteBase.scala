@@ -16,19 +16,18 @@
  */
 package org.apache.spark.sql.connector
 
-import org.apache.spark.SparkException
 import org.apache.spark.sql.GlutenSQLTestsBaseTrait
 import org.apache.spark.sql.connector.catalog.Aborted
 
 /**
  * Gluten versions of [[UpdateTableSuiteBase]] tests that expect Spark's
- * `SparkRuntimeException(NOT_NULL_ASSERT_VIOLATION)`. Velox `assert_not_null` throws a
- * `VeloxUserError` instead, which fails the query with a `SparkException`.
+ * `SparkRuntimeException(NOT_NULL_ASSERT_VIOLATION)`. Velox `assert_not_null` does not report the
+ * field path, and a nested native pipeline wraps the exception in a `GlutenException`.
  */
 trait GlutenUpdateTableSuiteBase extends UpdateTableSuiteBase with GlutenSQLTestsBaseTrait {
 
   protected def assertNotNullViolation(f: => Unit): Unit = {
-    val exception = intercept[SparkException](f)
+    val exception = intercept[Exception](f)
     val messages = Iterator
       .iterate[Throwable](exception)(_.getCause)
       .takeWhile(_ != null)

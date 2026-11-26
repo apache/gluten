@@ -21,6 +21,7 @@
 
 #include <exception>
 #include <memory>
+#include <optional>
 
 namespace gluten {
 
@@ -58,5 +59,17 @@ class JavaException final : public std::exception {
   struct State;
   std::shared_ptr<State> state_;
 };
+
+using ExceptionUnwrapper = std::exception_ptr (*)(const std::exception&) noexcept;
+
+struct JavaExceptionCause {
+  JavaException exception;
+  // A failed JNI Throw uses the Java diagnostic only when a backend-specific cause was recovered.
+  bool viaBackend;
+};
+
+std::optional<JavaExceptionCause> findJavaExceptionCause(
+    const std::exception& error,
+    ExceptionUnwrapper unwrap) noexcept;
 
 } // namespace gluten

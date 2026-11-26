@@ -82,13 +82,10 @@ class CHTransformerApi extends TransformerApi with Logging {
         // Generate FilePartition for Parquet
         CHPartitionsUtil(
           relation,
-          requiredSchema,
           selectedPartitions,
-          output,
           bucketedScan,
           optionalBucketSet,
-          optionalNumCoalescedBuckets,
-          disableBucketedScan).genPartitionSeq()
+          optionalNumCoalescedBuckets).genPartitionSeq()
     }
   }
 

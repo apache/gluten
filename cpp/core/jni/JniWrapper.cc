@@ -174,26 +174,26 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
   byteArrayClass = createGlobalClassReferenceOrError(env, "[B");
 
   jniUnsafeByteBufferClass =
-      createGlobalClassReferenceOrError(env, "Lorg/apache/spark/sql/execution/unsafe/JniUnsafeByteBuffer;");
+      createGlobalClassReferenceOrError(env, "org/apache/spark/sql/execution/unsafe/JniUnsafeByteBuffer");
   jniUnsafeByteBufferAllocate = env->GetStaticMethodID(
       jniUnsafeByteBufferClass, "allocate", "(J)Lorg/apache/spark/sql/execution/unsafe/JniUnsafeByteBuffer;");
   jniUnsafeByteBufferAddress = env->GetMethodID(jniUnsafeByteBufferClass, "address", "()J");
   jniUnsafeByteBufferSize = env->GetMethodID(jniUnsafeByteBufferClass, "size", "()J");
 
-  splitResultClass = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/GlutenSplitResult;");
+  splitResultClass = createGlobalClassReferenceOrError(env, "org/apache/gluten/vectorized/GlutenSplitResult");
   splitResultConstructor = getMethodIdOrError(env, splitResultClass, "<init>", "(JJJJJJJJJJDJ[J[J[J)V");
 
-  metricsBuilderClass = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/metrics/Metrics;");
+  metricsBuilderClass = createGlobalClassReferenceOrError(env, "org/apache/gluten/metrics/Metrics");
 
   metricsBuilderConstructor =
       getMethodIdOrError(env, metricsBuilderClass, "<init>", "(Ljava/lang/String;ILjava/lang/String;)V");
 
   nativeColumnarToRowInfoClass =
-      createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/NativeColumnarToRowInfo;");
+      createGlobalClassReferenceOrError(env, "org/apache/gluten/vectorized/NativeColumnarToRowInfo");
   nativeColumnarToRowInfoConstructor = getMethodIdOrError(env, nativeColumnarToRowInfoClass, "<init>", "([I[IJ)V");
 
   shuffleReaderMetricsClass =
-      createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/ShuffleReaderMetrics;");
+      createGlobalClassReferenceOrError(env, "org/apache/gluten/vectorized/ShuffleReaderMetrics");
   shuffleReaderMetricsSetDecompressTime =
       getMethodIdOrError(env, shuffleReaderMetricsClass, "setDecompressTime", "(J)V");
   shuffleReaderMetricsSetDeserializeTime =
@@ -553,7 +553,7 @@ JNIEXPORT jboolean JNICALL Java_org_apache_gluten_vectorized_ColumnarBatchOutIte
     if (iter == nullptr) {
       inputIterators.push_back(nullptr);
     } else {
-      auto arrayIter = std::make_unique<JniColumnarBatchIterator>(env, iter, ctx, idx);
+      auto arrayIter = createJniInputIterator(env, iter, ctx, idx);
       auto resultIter = std::make_shared<ResultIterator>(std::move(arrayIter));
       inputIterators.push_back(std::move(resultIter));
     }

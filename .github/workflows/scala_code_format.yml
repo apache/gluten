@@ -26,6 +26,7 @@ on:
       - 'gluten-arrow/**'
       - 'gluten-delta/**'
       - 'gluten-iceberg/**'
+      - 'gluten-lance/**'
       - 'gluten-hudi/**'
       - 'gluten-paimon/**'
       - 'gluten-ut/**'

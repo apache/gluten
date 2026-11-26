@@ -24,11 +24,17 @@ import io.github.zhztheplayer.velox4j.memory.AllocationListener;
 import io.github.zhztheplayer.velox4j.memory.MemoryManager;
 import io.github.zhztheplayer.velox4j.session.Session;
 
+import org.apache.flink.table.data.ArrayData;
+import org.apache.flink.table.data.GenericArrayData;
+import org.apache.flink.table.data.GenericMapData;
 import org.apache.flink.table.data.GenericRowData;
+import org.apache.flink.table.data.MapData;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.data.StringData;
+import org.apache.flink.table.types.logical.ArrayType;
 import org.apache.flink.table.types.logical.IntType;
 import org.apache.flink.table.types.logical.LogicalType;
+import org.apache.flink.table.types.logical.MapType;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.table.types.logical.VarCharType;
 import org.apache.flink.types.RowKind;
@@ -47,7 +53,9 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -168,6 +176,79 @@ public class FlinkRowToVLVectorConvertorTest {
       } finally {
         rv.close();
       }
+    }
+  }
+
+  @Test
+  public void testRoundTripArrayWithNullRowElement() {
+    RowType elementType =
+        RowType.of(
+            new LogicalType[] {new IntType(), new VarCharType(VarCharType.MAX_LENGTH)},
+            new String[] {"x", "y"});
+    io.github.zhztheplayer.velox4j.type.RowType type =
+        (io.github.zhztheplayer.velox4j.type.RowType)
+            org.apache.gluten.util.LogicalTypeConverter.toVLType(
+                RowType.of(
+                    new LogicalType[] {new IntType(), new ArrayType(elementType)},
+                    new String[] {"id", "items"}));
+    Object[] elements = {
+      GenericRowData.of(1, StringData.fromString("a")),
+      null,
+      GenericRowData.of(2, StringData.fromString("b")),
+      GenericRowData.of(3, StringData.fromString("c"))
+    };
+    RowData input = GenericRowData.of(7, new GenericArrayData(elements));
+    RowVector rv = FlinkRowToVLVectorConvertor.fromRowData(input, allocator, session, type);
+    try {
+      List<RowData> rows = FlinkRowToVLVectorConvertor.toRowData(rv, allocator, type);
+      assertThat(rows).hasSize(1);
+      ArrayData items = rows.get(0).getArray(1);
+      assertThat(items.size()).isEqualTo(4);
+      assertThat(items.isNullAt(1)).isTrue();
+      for (int i : new int[] {0, 2, 3}) {
+        RowData item = items.getRow(i, 2);
+        assertThat(item.getInt(0)).isEqualTo(((RowData) elements[i]).getInt(0));
+        assertThat(item.getString(1)).isEqualTo(((RowData) elements[i]).getString(1));
+      }
+    } finally {
+      rv.close();
+    }
+  }
+
+  @Test
+  public void testRoundTripMapWithNullRowValue() {
+    RowType valueType =
+        RowType.of(
+            new LogicalType[] {new IntType(), new VarCharType(VarCharType.MAX_LENGTH)},
+            new String[] {"x", "y"});
+    io.github.zhztheplayer.velox4j.type.RowType type =
+        (io.github.zhztheplayer.velox4j.type.RowType)
+            org.apache.gluten.util.LogicalTypeConverter.toVLType(
+                RowType.of(
+                    new LogicalType[] {new IntType(), new MapType(new IntType(), valueType)},
+                    new String[] {"id", "entries"}));
+    Map<Object, Object> entries = new LinkedHashMap<>();
+    entries.put(1, GenericRowData.of(1, StringData.fromString("a")));
+    entries.put(2, null);
+    entries.put(3, GenericRowData.of(3, StringData.fromString("c")));
+    RowData input = GenericRowData.of(7, new GenericMapData(entries));
+    RowVector rv = FlinkRowToVLVectorConvertor.fromRowData(input, allocator, session, type);
+    try {
+      List<RowData> rows = FlinkRowToVLVectorConvertor.toRowData(rv, allocator, type);
+      assertThat(rows).hasSize(1);
+      MapData map = rows.get(0).getMap(1);
+      assertThat(map.size()).isEqualTo(3);
+      ArrayData keys = map.keyArray();
+      ArrayData values = map.valueArray();
+      assertThat(values.isNullAt(1)).isTrue();
+      for (int i : new int[] {0, 2}) {
+        RowData expected = (RowData) entries.get(keys.getInt(i));
+        RowData value = values.getRow(i, 2);
+        assertThat(value.getInt(0)).isEqualTo(expected.getInt(0));
+        assertThat(value.getString(1)).isEqualTo(expected.getString(1));
+      }
+    } finally {
+      rv.close();
     }
   }
 }

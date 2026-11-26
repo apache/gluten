@@ -343,12 +343,12 @@ and leaves every conversion to the planner. Its files:
 
 | File | Role |
 |---|---|
-| `backends-velox/src-lance/main/scala/.../execution/LanceScanTransformer.scala` | The operator and its RDD |
-| `backends-velox/src-lance/main/scala/.../extension/OffloadLanceScan.scala` | The rule that replaces `BatchScanExec` |
+| `gluten-lance/src/main/scala/.../execution/LanceScanTransformer.scala` | The operator and its RDD |
+| `gluten-lance/src/main/scala/.../extension/OffloadLanceScan.scala` | The rule that replaces `BatchScanExec` |
 | `backends-velox/src-lance/main/scala/.../component/VeloxLanceComponent.scala` | Registers the rule when lance-spark is on the classpath |
 | `backends-velox/src-lance/main/resources/META-INF/gluten-components/...VeloxLanceComponent` | Makes the component discoverable |
 | `backends-velox/src-lance/test/scala/.../VeloxLanceSuite.scala` | Plan shape, results and fallback tests |
-| `pom.xml`, `backends-velox/pom.xml` | `lance` / `lance-test` profiles that add `src-lance` |
+| `pom.xml`, `gluten-lance/pom.xml`, `backends-velox/pom.xml` | `lance` / `lance-test` profiles that build the `gluten-lance` module and add `src-lance` |
 
 ### Step 1: Declare the convention
 

@@ -50,7 +50,10 @@
 #ifdef ENABLE_S3
 #include "filesystem/GlutenS3FileSystem.h"
 #endif
+#include "jni/JniError.h"
 #include "jni/JniFileSystem.h"
+#include "jni/VeloxInputIterator.h"
+#include "jni/VeloxJavaException.h"
 #include "memory/GlutenBufferedInputBuilder.h"
 #include "operators/functions/SparkExprToSubfieldFilterParser.h"
 #include "operators/plannodes/RowVectorStream.h"
@@ -127,6 +130,10 @@ void veloxThreadManagerReleaser(ThreadManager* threadManager) {
   delete threadManager;
 }
 
+void registerVeloxExceptionUnwrapper() {
+  static const JniExceptionUnwrapperRegistration registration(unwrapVeloxException);
+}
+
 bool hasCudaDevice() {
 #ifdef GLUTEN_ENABLE_GPU
   int count = 0;
@@ -160,10 +167,12 @@ void VeloxBackend::init(
 
   globalMemoryManager_ = std::make_unique<VeloxMemoryManager>(kVeloxBackendKind, std::move(listener), *backendConf_);
 
-  // Register factories.
+  // Register backend factories and JNI hooks.
   MemoryManager::registerFactory(kVeloxBackendKind, veloxMemoryManagerFactory, veloxMemoryManagerReleaser);
   ThreadManager::registerFactory(kVeloxBackendKind, veloxThreadManagerFactory, veloxThreadManagerReleaser);
   Runtime::registerFactory(kVeloxBackendKind, veloxRuntimeFactory, veloxRuntimeReleaser);
+  registerJniInputIteratorFactory(kVeloxBackendKind, createVeloxJniInputIterator);
+  registerVeloxExceptionUnwrapper();
 
   if (backendConf_->get<bool>(kDebugModeEnabled, false)) {
     LOG(INFO) << "VeloxBackend config:" << printConfig(backendConf_->rawConfigs());
@@ -512,10 +521,13 @@ void VeloxBackend::tearDown() {
   // dump cache stats on exit if enabled
   if (dynamic_cast<facebook::velox::cache::AsyncDataCache*>(asyncDataCache_.get())) {
     LOG(INFO) << asyncDataCache_->toString();
-    for (const auto& entry : std::filesystem::directory_iterator(cachePathPrefix_)) {
-      if (entry.path().filename().string().find(cacheFilePrefix_) != std::string::npos) {
-        LOG(INFO) << "Removing cache file " << entry.path().filename().string();
-        std::filesystem::remove(cachePathPrefix_ + "/" + entry.path().filename().string());
+    // cachePathPrefix_ is only set when the SSD cache is enabled.
+    if (!cachePathPrefix_.empty()) {
+      for (const auto& entry : std::filesystem::directory_iterator(cachePathPrefix_)) {
+        if (entry.path().filename().string().find(cacheFilePrefix_) != std::string::npos) {
+          LOG(INFO) << "Removing cache file " << entry.path().filename().string();
+          std::filesystem::remove(cachePathPrefix_ + "/" + entry.path().filename().string());
+        }
       }
     }
     asyncDataCache_->shutdown();
