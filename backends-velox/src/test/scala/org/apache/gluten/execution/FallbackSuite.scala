@@ -691,6 +691,13 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
     }
   }
 
+  // The project that gives the scan's repeated columns their values follows project offload.
+  private def assertNoNativeProjectIfDisabled(plan: SparkPlan, projectEnabled: String): Unit = {
+    if (projectEnabled == "false") {
+      assert(find(plan)(_.isInstanceOf[ProjectExecTransformer]).isEmpty, plan)
+    }
+  }
+
   test("input_file_name() used through a column of an earlier projection") {
     withTempPath {
       dir =>
@@ -739,6 +746,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
                     case _ => false
                   }
                   assert(nativeScan.nonEmpty, s"$v1Sources/$projectEnabled: $query\n$plan")
+                  assertNoNativeProjectIfDisabled(plan, projectEnabled)
                   df.collect().foreach(row => assert(row.getString(0).contains(".parquet")))
               }
             }
@@ -759,6 +767,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
                   "SELECT input_file_name() AS g, a.* FROM (SELECT id, id FROM t SORT BY id) a")
               val plan = df.queryExecution.executedPlan
               assert(find(plan)(_.isInstanceOf[BasicScanExecTransformer]).nonEmpty, plan)
+              assertNoNativeProjectIfDisabled(plan, projectEnabled)
               val rows = df.collect()
               assert(rows.map(r => (r.getInt(1), r.getInt(2))).sorted.toSeq === Seq((1, 1), (2, 2)))
             }
@@ -796,6 +805,7 @@ class FallbackSuite extends VeloxWholeStageTransformerSuite with AdaptiveSparkPl
                         assert(
                           find(plan)(_.isInstanceOf[BatchScanExecTransformerBase]).nonEmpty,
                           plan)
+                        assertNoNativeProjectIfDisabled(plan, projectEnabled)
                         df.collect().foreach(row => assert(row.getString(0).contains(".parquet")))
                     }
                   }

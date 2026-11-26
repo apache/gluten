@@ -17,6 +17,7 @@
 package org.apache.gluten.extension.columnar
 
 import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.{BatchScanExecTransformerBase, FileSourceScanExecTransformer, ProjectExecTransformer}
 import org.apache.gluten.expression.ConverterUtils
 
@@ -279,7 +280,8 @@ object PushDownInputFileExpression {
      * Folds `project` into the scan that `withOutput` makes with the given output. The scan reads
      * each column once, and each input file function once even when PreOffload added it for calls
      * at different levels, since the native scan maps a non-partition column to one output only. A
-     * project over the scan gives the repeats their values.
+     * project over the scan gives the repeats their values. It is a Spark project when project
+     * offload is disabled.
      */
     private def foldIntoScan(
         project: ProjectExec,
@@ -304,13 +306,18 @@ object PushDownInputFileExpression {
         scan
       } else {
         val scanAttrs = scan.output.map(a => a.exprId -> a).toMap
-        BackendsApiManager.getSparkPlanExecApiInstance.genProjectExecTransformer(
-          columns.map {
-            case Left(attr) => scanAttrs(attr.exprId)
-            case Right(attr: Attribute) => scanAttrs(attr.exprId)
-            case Right(alias) => alias
-          },
-          scan)
+        val projectList = columns.map {
+          case Left(attr) => scanAttrs(attr.exprId)
+          case Right(attr: Attribute) => scanAttrs(attr.exprId)
+          case Right(alias) => alias
+        }
+        if (GlutenConfig.get.enableColumnarProject) {
+          BackendsApiManager.getSparkPlanExecApiInstance.genProjectExecTransformer(
+            projectList,
+            scan)
+        } else {
+          ProjectExec(projectList, scan)
+        }
       }
     }
 
