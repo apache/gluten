@@ -49,6 +49,7 @@ import org.apache.spark.sql.sources.{GlutenBucketedReadWithoutHiveSupportSuite, 
 class VeloxTestSettings extends BackendTestSettings {
   import SuiteSettings._
   enableSuite[GlutenStringFunctionsSuite]
+  enableSuite[GlutenDecimalRoundSuite]
   enableSuite[GlutenBloomFilterAggregateQuerySuite]
   enableSuite[GlutenDataSourceV2DataFrameSessionCatalogSuite]
   enableSuite[GlutenDataSourceV2DataFrameSuite]
@@ -624,14 +625,6 @@ class VeloxTestSettings extends BackendTestSettings {
     // The case expects a SparkException; Gluten surfaces the raw
     // FileAlreadyExistsException instead.
     .exclude("Stop task set if FileAlreadyExistsException was thrown")
-    // Rewrite: Additional support for file scan with default values has been added in Spark-3.4.
-    // It appends the default value in record if it is not present while scanning.
-    // Velox supports default values for new records but it does not backfill the
-    // existing records and provides null for the existing ones.
-    .exclude("INSERT rows, ALTER TABLE ADD COLUMNS with DEFAULTs, then SELECT them")
-    .exclude("SPARK-39557 INSERT INTO statements with tables with array defaults")
-    .exclude("SPARK-39557 INSERT INTO statements with tables with struct defaults")
-    .exclude("SPARK-39557 INSERT INTO statements with tables with map defaults")
   enableSuite[GlutenPartitionedWriteSuite]
   enableSuite[GlutenPathOptionSuite]
   enableSuite[GlutenPrunedScanSuite]
@@ -649,45 +642,11 @@ class VeloxTestSettings extends BackendTestSettings {
     // Rewrite for different cache size.
     .exclude("SPARK-36120: Support cache/uncache table with TimestampNTZ type")
   enableSuite[GlutenFileSourceCharVarcharTestSuite]
-    .exclude("length check for input string values: nested in array")
-    .exclude("length check for input string values: nested in array")
-    .exclude("length check for input string values: nested in map key")
-    .exclude("length check for input string values: nested in map value")
-    .exclude("length check for input string values: nested in both map key and value")
-    .exclude("length check for input string values: nested in array of struct")
-    .exclude("length check for input string values: nested in array of array")
-    // Following tests are excluded as these are overridden in Gluten test suite..
-    // The overridden tests assert against Velox-specific error messages for char/varchar
-    // length validation, which differ from the original vanilla Spark tests.
-    .exclude("length check for input string values: top-level columns")
+    // Spark expects the length error of these partitioned inserts wrapped in TASK_WRITE_FAILED,
+    // but Gluten throws it unwrapped. Rewritten in GlutenCharVarcharTestSuite.
     .exclude("length check for input string values: partitioned columns")
-    .exclude("length check for input string values: nested in struct of array")
-    .exclude("length check for input string values: with implicit cast")
     .exclude("char/varchar type values length check: partitioned columns of other types")
-
   enableSuite[GlutenDSV2CharVarcharTestSuite]
-    // Following tests are excluded as these are overridden in Gluten test suite..
-    // The overridden tests assert against Velox-specific error messages for char/varchar
-    // length validation, which differ from the original vanilla Spark tests.
-    .exclude("SPARK-42611: check char/varchar length in reordered structs within arrays")
-    .exclude("char/varchar type values length check: partitioned columns of other types")
-    .exclude("length check for input string values: top-level columns")
-    .exclude("length check for input string values: nested in array")
-    .exclude("length check for input string values: nested in struct of array")
-    .exclude("length check for input string values: nested in array of struct")
-    .exclude("length check for input string values: nested in array of array")
-    .exclude("length check for input string values: with implicit cast")
-    // Overridden.
-    .exclude("length check for input string values: nested in map key")
-    // Overridden.
-    .exclude("length check for input string values: nested in map value")
-    // Overridden.
-    .exclude("length check for input string values: nested in both map key and value")
-    // Overridden.
-    .exclude("SPARK-42611: check char/varchar length in reordered structs within map keys")
-    // Overridden.
-    .exclude("SPARK-42611: check char/varchar length in reordered structs within map values")
-
   enableSuite[GlutenColumnExpressionSuite]
     // Velox raise_error('errMsg') throws a velox_user_error exception with the message 'errMsg'.
     // The final caught Spark exception's getCause().getMessage() contains 'errMsg' but does not

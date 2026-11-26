@@ -151,17 +151,16 @@ jmethodID gluten::JniCommonState::shuffleStreamReaderNextStream() {
 }
 
 void gluten::JniCommonState::initialize(JNIEnv* env) {
-  runtimeAwareClass_ = createGlobalClassReference(env, "Lorg/apache/gluten/runtime/RuntimeAware;");
+  runtimeAwareClass_ = createGlobalClassReference(env, "org/apache/gluten/runtime/RuntimeAware");
   runtimeAwareCtxHandle_ = getMethodIdOrError(env, runtimeAwareClass_, "rtHandle", "()J");
 
-  jniByteInputStreamClass_ =
-      createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/JniByteInputStream;");
+  jniByteInputStreamClass_ = createGlobalClassReferenceOrError(env, "org/apache/gluten/vectorized/JniByteInputStream");
   jniByteInputStreamRead_ = getMethodIdOrError(env, jniByteInputStreamClass_, "read", "(JJ)J");
   jniByteInputStreamTell_ = getMethodIdOrError(env, jniByteInputStreamClass_, "tell", "()J");
   jniByteInputStreamClose_ = getMethodIdOrError(env, jniByteInputStreamClass_, "close", "()V");
 
   shuffleStreamReaderClass_ =
-      createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/ShuffleStreamReader;");
+      createGlobalClassReferenceOrError(env, "org/apache/gluten/vectorized/ShuffleStreamReader");
   shuffleStreamReaderNextStream_ = getMethodIdOrError(
       env, shuffleStreamReaderClass_, "nextStream", "()Lorg/apache/gluten/vectorized/JniByteInputStream;");
 
@@ -263,7 +262,7 @@ gluten::JniColumnarBatchIterator::JniColumnarBatchIterator(
     throw gluten::GlutenException(errorMessage);
   }
   serializedColumnarBatchIteratorClass_ =
-      createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/ColumnarBatchInIterator;");
+      createGlobalClassReferenceOrError(env, "org/apache/gluten/vectorized/ColumnarBatchInIterator");
   serializedColumnarBatchIteratorHasNext_ =
       getMethodIdOrError(env, serializedColumnarBatchIteratorClass_, "hasNext", "()Z");
   serializedColumnarBatchIteratorNext_ = getMethodIdOrError(env, serializedColumnarBatchIteratorClass_, "next", "()J");
