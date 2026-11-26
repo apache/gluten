@@ -463,10 +463,8 @@ class SparkAllocationListener final : public gluten::AllocationListener {
 
  private:
   jclass javaReservationListenerClass(JNIEnv* env) {
-    static jclass javaReservationListenerClass = createGlobalClassReference(
-        env,
-        "Lorg/apache/gluten/memory/listener/"
-        "ReservationListener;");
+    static jclass javaReservationListenerClass =
+        createGlobalClassReference(env, "org/apache/gluten/memory/listener/ReservationListener");
     return javaReservationListenerClass;
   }
 
@@ -650,7 +648,7 @@ class SparkThreadInitializer final : public gluten::ThreadInitializer {
 
   jclass nativeThreadInitializerClass(JNIEnv* env) {
     static jclass javaInitializerClass =
-        createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/threads/NativeThreadInitializer;");
+        createGlobalClassReferenceOrError(env, "org/apache/gluten/threads/NativeThreadInitializer");
     return javaInitializerClass;
   }
 

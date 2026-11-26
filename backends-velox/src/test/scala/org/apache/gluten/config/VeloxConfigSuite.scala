@@ -32,6 +32,17 @@ class VeloxConfigSuite extends AnyFunSuite {
   private val buildOncePerExecutor =
     VeloxConfig.VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR.key
 
+  test("spark.shuffle.manager aliases resolve to SortShuffleManager") {
+    def supportsColumnarShuffle(manager: String): Boolean = {
+      val conf = new SQLConf
+      conf.setConfString("spark.shuffle.manager", manager)
+      new GlutenConfig(conf).shuffleManagerSupportsColumnarShuffle
+    }
+    Seq("sort", "tungsten-sort", "SORT").foreach(alias => assert(!supportsColumnarShuffle(alias)))
+    assert(supportsColumnarShuffle("org.apache.spark.shuffle.sort.ColumnarShuffleManager"))
+    intercept[ClassNotFoundException](supportsColumnarShuffle("unknown"))
+  }
+
   test("build hash table once per executor is enabled by default") {
     val conf = veloxConfig()
     assert(!conf.benchmarkDumpRequested)

@@ -29,8 +29,6 @@ import org.apache.spark.sql.execution.datasources.v2.clickhouse.metadata.AddMerg
 
 import org.scalatest.DoNotDiscover
 
-import java.io.File
-
 import scala.concurrent.duration.DurationInt
 
 @DoNotDiscover
@@ -501,20 +499,41 @@ class GlutenClickHouseMergeTreeWriteOnS3Suite extends CreateMergeTreeSuite {
     withSQLConf(
       "spark.databricks.delta.optimize.minFileSize" -> "200000000",
       RuntimeSettings.INSERT_WITHOUT_LOCAL_STORAGE.key -> "true",
-      RuntimeSettings.MERGE_AFTER_INSERT.key -> "true"
+      RuntimeSettings.MERGE_AFTER_INSERT.key -> "true",
+      RuntimeSettings.MIN_INSERT_BLOCK_SIZE_ROWS.key -> "10000"
     ) {
       withTable(tableName) {
         spark.sql(s"""
                      |CREATE TABLE $tableName
                      |USING clickhouse
                      |LOCATION '$dataPath'
+                     |TBLPROPERTIES (storage_policy='__s3_main')
                      | as select * from lineitem
                      |""".stripMargin)
 
-        val ret = spark.sql(s"select count(*) from $tableName").collect()
-        assertResult(600572)(ret.apply(0).get(0))
-        assert(
-          !new File(s"$CH_DEFAULT_STORAGE_DIR/lineitem_mergetree_insert_optimize_basic").exists())
+        // Read the parts back from S3, not from the part metadata the write left on local disk.
+        minioHelper.resetMeta()
+        customCheckQuery(q1(tableName)) {
+          df =>
+            val scanExec = collect(df.queryExecution.executedPlan) {
+              case f: FileSourceScanExecTransformer => f
+            }
+            assertResult(1)(scanExec.size)
+            val fileIndex = scanExec.head.relation.location.asInstanceOf[TahoeFileIndex]
+            val parts =
+              fileIndex.matchingFiles(Nil, Nil).map(f => f.asInstanceOf[AddMergeTreeParts])
+            assertResult(600572)(parts.map(_.rows).sum)
+            // With MIN_INSERT_BLOCK_SIZE_ROWS at 10000 the insert writes several parts, which the
+            // merge combines into one, as in the HDFS suite.
+            assertResult(1)(parts.size)
+        }
+
+        // The merge deletes the parts it combined from S3. What remains is the log's commit
+        // and the three files of the merged part, and on Spark 3.5 the _commits directory.
+        eventually(timeout(60.seconds), interval(2.seconds)) {
+          val objectNames = minioHelper.listObjects(BUCKET_NAME, tableName)
+          assertResult(if (isSparkVersionGE("3.5")) 5 else 4)(countObjects(objectNames.toSeq))
+        }
       }
     }
   }
