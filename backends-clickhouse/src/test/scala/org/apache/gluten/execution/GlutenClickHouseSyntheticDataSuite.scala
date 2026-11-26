@@ -168,35 +168,36 @@ class GlutenClickHouseSyntheticDataSuite
   }
 
   test("test data function in https://github.com/Kyligence/ClickHouse/issues/88") {
-    var sqlStr: String = null
-    var expected: Seq[Row] = null
+    withTable("test_table") {
+      var sqlStr: String = null
+      var expected: Seq[Row] = null
 
-    val x = spark
-    import x.implicits._
+      val x = spark
+      import x.implicits._
 
-    withSQLConf(vanillaSparkConfs(): _*) {
-      spark.sql("drop table if exists test_table")
-      spark.sql("create table if not exists test_table(c_date date) using parquet")
-      Seq(LocalDate.of(2020, 1, 1), LocalDate.of(1970, 1, 1))
-        .toDF("c_date")
-        .createOrReplaceTempView("test_table_temp")
-      spark.sql("insert into test_table select * from test_table_temp")
+      withSQLConf(vanillaSparkConfs(): _*) {
+        spark.sql("create table test_table(c_date date) using parquet")
+        Seq(LocalDate.of(2020, 1, 1), LocalDate.of(1970, 1, 1))
+          .toDF("c_date")
+          .createOrReplaceTempView("test_table_temp")
+        spark.sql("insert into test_table select * from test_table_temp")
 
-      sqlStr = s"""
-                  |select cast(c_date as date) as a, cast ('1998-04-08' as date) as b
-                  |   from test_table
-                  |   where c_date between (cast ('1998-04-08' as date) - interval '30' day)
-                  |                    and (cast ('1998-04-08' as date) + interval '30' day)
-                  |order by a desc
-                  |""".stripMargin
+        sqlStr = s"""
+                    |select cast(c_date as date) as a, cast ('1998-04-08' as date) as b
+                    |   from test_table
+                    |   where c_date between (cast ('1998-04-08' as date) - interval '30' day)
+                    |                    and (cast ('1998-04-08' as date) + interval '30' day)
+                    |order by a desc
+                    |""".stripMargin
 
+        val df = spark.sql(sqlStr)
+        expected = df.collect()
+      }
       val df = spark.sql(sqlStr)
-      expected = df.collect()
+      df.collect()
+      GlutenQueryComparisonTest.checkFallBack(df)
+      checkAnswer(df, expected)
     }
-    val df = spark.sql(sqlStr)
-    df.collect()
-    GlutenQueryComparisonTest.checkFallBack(df)
-    checkAnswer(df, expected)
   }
 
   test("sql on Seq based(row based) DataFrame") {

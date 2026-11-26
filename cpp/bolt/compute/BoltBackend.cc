@@ -500,10 +500,13 @@ void BoltBackend::tearDown() {
   // dump cache stats on exit if enabled
   if (dynamic_cast<bytedance::bolt::cache::AsyncDataCache*>(asyncDataCache_.get())) {
     LOG(INFO) << asyncDataCache_->toString();
-    for (const auto& entry : std::filesystem::directory_iterator(cachePathPrefix_)) {
-      if (entry.path().filename().string().find(cacheFilePrefix_) != std::string::npos) {
-        LOG(INFO) << "Removing cache file " << entry.path().filename().string();
-        std::filesystem::remove(cachePathPrefix_ + "/" + entry.path().filename().string());
+    // cachePathPrefix_ is only set when the SSD cache is enabled.
+    if (!cachePathPrefix_.empty()) {
+      for (const auto& entry : std::filesystem::directory_iterator(cachePathPrefix_)) {
+        if (entry.path().filename().string().find(cacheFilePrefix_) != std::string::npos) {
+          LOG(INFO) << "Removing cache file " << entry.path().filename().string();
+          std::filesystem::remove(cachePathPrefix_ + "/" + entry.path().filename().string());
+        }
       }
     }
     asyncDataCache_->shutdown();

@@ -74,4 +74,12 @@ INSTANTIATE_TEST_SUITE_P(
         BroadcastBuildThreadsTestParam{0, 4, 4},
         BroadcastBuildThreadsTestParam{8, 4, 4}));
 
+TEST(VeloxBackendCacheTest, tearDownWithMemoryOnlyCache) {
+  // ssdCacheSize 0 enables the memory-only AsyncDataCache, which leaves no SSD cache directory to clean up.
+  std::unordered_map<std::string, std::string> conf{
+      {kVeloxCacheEnabled, "true"}, {kVeloxMemCacheSize, std::to_string(64 << 20)}, {kVeloxSsdCacheSize, "0"}};
+  VeloxBackend::create(AllocationListener::noop(), conf);
+  EXPECT_NO_THROW(VeloxBackend::get()->tearDown());
+}
+
 } // namespace gluten
