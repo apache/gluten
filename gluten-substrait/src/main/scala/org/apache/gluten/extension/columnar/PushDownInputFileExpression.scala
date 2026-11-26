@@ -28,7 +28,6 @@ import org.apache.spark.sql.catalyst.trees.TreeNodeTag
 import org.apache.spark.sql.execution.{DeserializeToObjectExec, FileSourceScanExec, FilterExec, LeafExecNode, ProjectExec, SerializeFromObjectExec, SparkPlan, UnionExec}
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.hive.HiveTableScanExecTransformer
-import org.apache.spark.sql.internal.SQLConf
 
 import scala.collection.mutable
 
@@ -60,28 +59,10 @@ object PushDownInputFileExpression {
   val INPUT_FILE_NAME_COLLISION_TAG: TreeNodeTag[Boolean] =
     TreeNodeTag[Boolean]("org.apache.gluten.InputFileNameCollisionTag")
 
-  private val INPUT_FILE_ATTR_NAMES =
-    Set("input_file_name", "input_file_block_start", "input_file_block_length")
-
-  /**
-   * Whether `name` is the name of an attribute injected for an input file function, following
-   * Spark's configured (case-sensitive or case-insensitive) resolution.
-   */
-  def isInputFileAttrName(name: String): Boolean =
-    INPUT_FILE_ATTR_NAMES.exists(SQLConf.get.resolver(name, _))
-
   def containsInputFileFunctionExpr(expr: Expression): Boolean = {
     expr match {
       case _: InputFileName | _: InputFileBlockStart | _: InputFileBlockLength => true
       case _ => expr.children.exists(containsInputFileFunctionExpr)
-    }
-  }
-
-  def containsInputFileRelatedExpr(expr: Expression): Boolean = {
-    expr match {
-      case _: InputFileName | _: InputFileBlockStart | _: InputFileBlockLength => true
-      case a: AttributeReference => isInputFileAttrName(a.name)
-      case _ => expr.children.exists(containsInputFileRelatedExpr)
     }
   }
 
@@ -225,10 +206,10 @@ object PushDownInputFileExpression {
       // as the one PreOffload added: the scan, with a project over it for repeats, can produce its
       // output.
       case p @ ProjectExec(projectList, child: FileSourceScanExecTransformer)
-          if projectList.exists(containsInputFileRelatedExpr) && canCollapseProject(p) =>
+          if projectList.exists(containsInputFileFunctionExpr) && canCollapseProject(p) =>
         foldIntoScan(p, output => child.copy(output = output))
       case p @ ProjectExec(projectList, child: HiveTableScanExecTransformer)
-          if projectList.exists(containsInputFileRelatedExpr) && canCollapseProject(p) =>
+          if projectList.exists(containsInputFileFunctionExpr) && canCollapseProject(p) =>
         foldIntoScan(
           p,
           output =>
