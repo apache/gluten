@@ -16,6 +16,7 @@
  */
 #include <algorithm>
 #include <filesystem>
+#include <string_view>
 
 #include "VeloxBackend.h"
 
@@ -50,6 +51,7 @@
 #ifdef ENABLE_S3
 #include "filesystem/GlutenS3FileSystem.h"
 #endif
+#include "jni/JniError.h"
 #include "jni/JniFileSystem.h"
 #include "memory/GlutenBufferedInputBuilder.h"
 #include "operators/functions/SparkExprToSubfieldFilterParser.h"
@@ -127,6 +129,23 @@ void veloxThreadManagerReleaser(ThreadManager* threadManager) {
   delete threadManager;
 }
 
+// Velox sets "SPARK:<condition>", e.g. "SPARK:DIVIDE_BY_ZERO", as the error code of an error that
+// matches a Spark error condition. Returns the condition, e.g. "DIVIDE_BY_ZERO", or an empty string
+// for any other error, including errors with error codes of other engines.
+std::string sparkErrorCondition(const std::exception& error) {
+  constexpr std::string_view kSparkErrorCodePrefix = "SPARK:";
+  const auto* veloxError = dynamic_cast<const facebook::velox::VeloxException*>(&error);
+  if (veloxError == nullptr) {
+    return {};
+  }
+  std::string_view errorCode = veloxError->errorCode();
+  if (!errorCode.starts_with(kSparkErrorCodePrefix)) {
+    return {};
+  }
+  errorCode.remove_prefix(kSparkErrorCodePrefix.size());
+  return std::string(errorCode);
+}
+
 bool hasCudaDevice() {
 #ifdef GLUTEN_ENABLE_GPU
   int count = 0;
@@ -164,6 +183,9 @@ void VeloxBackend::init(
   MemoryManager::registerFactory(kVeloxBackendKind, veloxMemoryManagerFactory, veloxMemoryManagerReleaser);
   ThreadManager::registerFactory(kVeloxBackendKind, veloxThreadManagerFactory, veloxThreadManagerReleaser);
   Runtime::registerFactory(kVeloxBackendKind, veloxRuntimeFactory, veloxRuntimeReleaser);
+
+  // Pass the Spark error condition of a Velox error, e.g. "DIVIDE_BY_ZERO", to Java with the error.
+  setErrorCodeGetter(sparkErrorCondition);
 
   if (backendConf_->get<bool>(kDebugModeEnabled, false)) {
     LOG(INFO) << "VeloxBackend config:" << printConfig(backendConf_->rawConfigs());

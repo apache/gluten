@@ -23,6 +23,31 @@
 #include "jni/JniError.h"
 
 namespace {
+constexpr auto kFailingErrorCodeGetter = "<failing getter>";
+
+class ErrorWithCode : public std::runtime_error {
+ public:
+  ErrorWithCode(const std::string& message, std::string code) : std::runtime_error(message), code_(std::move(code)) {}
+
+  const std::string& code() const {
+    return code_;
+  }
+
+ private:
+  std::string code_;
+};
+
+std::string errorCodeOf(const std::exception& error) {
+  const auto* withCode = dynamic_cast<const ErrorWithCode*>(&error);
+  if (withCode == nullptr) {
+    return {};
+  }
+  if (withCode->code() == kFailingErrorCodeGetter) {
+    throw std::runtime_error("Unable to get error code");
+  }
+  return withCode->code();
+}
+
 class ScopedThrowFailure : public JNINativeInterface_ {
  public:
   ScopedThrowFailure(JNIEnv* env, jthrowable failure) noexcept
@@ -225,6 +250,16 @@ Java_org_apache_gluten_jni_JavaExceptionJniTest_throwNativeException(JNIEnv* env
   gluten::getJniErrorState()->ensureInitialized(env);
   checkException(env);
   throw std::runtime_error("native-only failure");
+  JNI_METHOD_END()
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_apache_gluten_jni_JavaExceptionJniTest_throwNativeExceptionWithErrorCode(JNIEnv* env, jclass, jstring code) {
+  JNI_METHOD_START
+  gluten::getJniErrorState()->ensureInitialized(env);
+  checkException(env);
+  gluten::setErrorCodeGetter(errorCodeOf);
+  throw ErrorWithCode("native failure with error code", jStringToCString(env, code));
   JNI_METHOD_END()
 }
 

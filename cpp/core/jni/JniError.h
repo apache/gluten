@@ -46,9 +46,8 @@
     if (!env->ExceptionCheck()) {                                                                \
       gluten::JavaException::throwNestedToJava(env, e);                                          \
     }                                                                                            \
-    if (!env->ExceptionCheck() &&                                                                \
-        env->ThrowNew(gluten::getJniErrorState()->glutenExceptionClass(), e.what()) != JNI_OK) { \
-      LOG(ERROR) << "Unable to throw GlutenException at JNI boundary";                           \
+    if (!env->ExceptionCheck()) {                                                                \
+      gluten::throwGlutenException(env, e);                                                      \
     }                                                                                            \
     return fallback_expr;                                                                        \
   }
@@ -56,6 +55,17 @@
 #endif
 
 namespace gluten {
+
+// Returns the error code of a native exception, for example "DIVIDE_BY_ZERO", or an empty
+// string if it has none.
+using ErrorCodeGetter = std::string (*)(const std::exception& error);
+
+// Sets how to get the error code of a native exception. The backend sets it once at initialization.
+void setErrorCodeGetter(ErrorCodeGetter getter);
+
+// Throws a GlutenException with the message of 'error' to Java. The exception also holds the error
+// code of 'error', if any.
+void throwGlutenException(JNIEnv* env, const std::exception& error);
 
 class JniErrorState {
  public:
@@ -73,6 +83,9 @@ class JniErrorState {
 
   jclass glutenExceptionClass();
 
+  // GlutenException(String message, String errorCode).
+  jmethodID glutenExceptionWithErrorCodeCtor();
+
  private:
   void initialize(JNIEnv* env);
 
@@ -82,6 +95,7 @@ class JniErrorState {
   jclass illegalAccessExceptionClass_ = nullptr;
   jclass illegalArgumentExceptionClass_ = nullptr;
   jclass glutenExceptionClass_ = nullptr;
+  jmethodID glutenExceptionWithErrorCodeCtor_ = nullptr;
   JavaVM* vm_;
   bool initialized_{false};
   bool closed_{false};

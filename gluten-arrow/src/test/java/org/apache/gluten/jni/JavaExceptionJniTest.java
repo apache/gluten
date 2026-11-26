@@ -62,6 +62,8 @@ public final class JavaExceptionJniTest {
 
   private static native void throwNativeException();
 
+  private static native void throwNativeExceptionWithErrorCode(String errorCode);
+
   private static native void close();
 
   private static native boolean entryActive();
@@ -295,7 +297,25 @@ public final class JavaExceptionJniTest {
       Assert.assertSame(GlutenException.class, actual.getClass());
       Assert.assertNull(actual.getCause());
       Assert.assertEquals("native-only failure", actual.getMessage());
+      Assert.assertNull(actual.getErrorCode());
     }
+  }
+
+  @Test
+  public void nativeErrorCode() {
+    Assert.assertEquals("TEST_CONDITION", nativeErrorCode("TEST_CONDITION"));
+    Assert.assertNull(nativeErrorCode(""));
+    Assert.assertNull(nativeErrorCode("<failing getter>"));
+  }
+
+  private static String nativeErrorCode(String errorCode) {
+    GlutenException actual =
+        Assert.assertThrows(
+            GlutenException.class, () -> throwNativeExceptionWithErrorCode(errorCode));
+    Assert.assertSame(GlutenException.class, actual.getClass());
+    Assert.assertNull(actual.getCause());
+    Assert.assertEquals("native failure with error code", actual.getMessage());
+    return actual.getErrorCode();
   }
 
   @Test

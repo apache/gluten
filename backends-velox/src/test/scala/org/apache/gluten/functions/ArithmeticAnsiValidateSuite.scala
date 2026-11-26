@@ -19,9 +19,9 @@ package org.apache.gluten.functions
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.ProjectExecTransformer
 
-import org.apache.spark.SparkConf
-import org.apache.spark.SparkException
+import org.apache.spark.{SparkConf, SparkException, SparkThrowable}
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.util.SparkVersionUtil
 
 class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
 
@@ -35,6 +35,19 @@ class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
 
   private val maxDecimal = "CAST(%s AS DECIMAL(38,0))".format("9" * 38)
   private val minDecimal = "CAST(-%s AS DECIMAL(38,0))".format("9" * 38)
+
+  // Spark 4.0+ passes a user-facing Spark error from a task to the caller as it is, while earlier
+  // versions wrap it in a SparkException, so look for the error in the cause chain.
+  private def divideByZeroError(e: Throwable): ArithmeticException with SparkThrowable = {
+    val sparkError = Iterator
+      .iterate[Throwable](e)(_.getCause)
+      .takeWhile(_ != null)
+      .collectFirst { case t: ArithmeticException with SparkThrowable => t }
+    assert(sparkError.isDefined, e)
+    assert(sparkError.get.getMessage.startsWith("[DIVIDE_BY_ZERO]"), e)
+    assert(sparkError.get.getSqlState == "22012")
+    sparkError.get
+  }
 
   // Reads `columns` from a table and evaluates `expr` on them, so the arithmetic runs in Velox.
   // With ANSI mode on, the overflow throws Velox's `error`. With ANSI mode off, the result
@@ -86,8 +99,38 @@ class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
       checkGlutenPlan[ProjectExecTransformer]
     }
     // Spark 3.4+ throws exception for division by zero in ANSI mode
-    intercept[SparkException] {
-      sql("SELECT 1 / 0").collect()
+    divideByZeroError(intercept[Exception](sql("SELECT 1 / 0").collect()))
+  }
+
+  test("divide by zero throws Spark DIVIDE_BY_ZERO error") {
+    withTempPath {
+      path =>
+        sql("SELECT 1 AS a, 0 AS b").write.parquet(path.getCanonicalPath)
+        withTempView("div_tab") {
+          spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("div_tab")
+          val df = sql("SELECT a / b FROM div_tab")
+          checkGlutenPlan[ProjectExecTransformer](df)
+          val sparkError = divideByZeroError(intercept[Exception](df.collect()))
+          // The native error is kept as the cause.
+          assert(sparkError.getCause.getMessage.contains("division by zero"))
+        }
+    }
+  }
+
+  test("divide by zero before a shuffle throws Spark DIVIDE_BY_ZERO error") {
+    withTempPath {
+      path =>
+        sql("SELECT 1 AS a, 0 AS b").write.parquet(path.getCanonicalPath)
+        withTempView("div_tab") {
+          spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("div_tab")
+          // The shuffle reads the translated error from a nested native iterator.
+          val e =
+            intercept[Exception](sql("SELECT a / b AS c FROM div_tab DISTRIBUTE BY c").collect())
+          if (SparkVersionUtil.gteSpark40) {
+            assert(e.isInstanceOf[ArithmeticException with SparkThrowable], e)
+          }
+          divideByZeroError(e)
+        }
     }
   }
 
@@ -201,8 +244,7 @@ class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
             function =>
               val df = sql(s"SELECT $function(CAST(a / z AS INT), 1) FROM try_tab")
               checkGlutenPlan[ProjectExecTransformer](df)
-              val e = intercept[SparkException](df.collect())
-              assert(e.getMessage.contains("division by zero"), e.getMessage)
+              divideByZeroError(intercept[Exception](df.collect()))
           }
         }
     }
