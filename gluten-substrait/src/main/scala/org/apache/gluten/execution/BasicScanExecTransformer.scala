@@ -31,6 +31,7 @@ import org.apache.spark.sql.catalyst.FileSourceOptions
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.execution.adaptive.InputStats
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.StructType
 
 import com.google.protobuf.StringValue
 import io.substrait.proto.NamedStruct
@@ -122,6 +123,24 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
   def getReadOptions: Map[String, String] = Map.empty
 
   def getInputStats: Option[InputStats] = Option.empty
+
+  protected def validateExistenceDefaults(readSchema: StructType): ValidationResult = {
+    if (!GlutenConfig.get.scanFallbackOnExistenceDefaultsEnabled) {
+      return ValidationResult.succeeded
+    }
+
+    val columns = readSchema.fields
+      .zip(ResolveDefaultColumns.getExistenceDefaultValues(readSchema))
+      .collect { case (field, value) if value != null => field.name }
+    if (columns.nonEmpty) {
+      // Missing fields need their original default, while explicitly stored nulls must stay null.
+      ValidationResult.failed(
+        "Native file scans do not support non-null existence defaults (EXISTS_DEFAULT) " +
+          s"on columns: ${columns.mkString(", ")}.")
+    } else {
+      ValidationResult.succeeded
+    }
+  }
 
   protected def neededInputFileRelatedMetadataKeys: Seq[String] = {
     val inputFileRelatedMetadataKeys = Seq(
