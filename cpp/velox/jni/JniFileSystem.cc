@@ -409,9 +409,9 @@ void gluten::initVeloxJniFileSystem(JNIEnv* env) {
   }
 
   // classes
-  jniFileSystemClass = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/fs/JniFilesystem;");
-  jniReadFileClass = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/fs/JniFilesystem$ReadFile;");
-  jniWriteFileClass = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/fs/JniFilesystem$WriteFile;");
+  jniFileSystemClass = createGlobalClassReferenceOrError(env, "org/apache/gluten/fs/JniFilesystem");
+  jniReadFileClass = createGlobalClassReferenceOrError(env, "org/apache/gluten/fs/JniFilesystem$ReadFile");
+  jniWriteFileClass = createGlobalClassReferenceOrError(env, "org/apache/gluten/fs/JniFilesystem$WriteFile");
 
   // methods in JniFilesystem
   jniGetFileSystem =

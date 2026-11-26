@@ -96,9 +96,11 @@ trait NativeWriteChecker
       checkNative: Boolean = true): Unit = nativeWrite {
     format =>
       val (table_name, table_create_sql, insert_sql) = f(format)
-      withDestinationTable(table_name, Option(table_create_sql)) {
-        checkInsertQuery(insert_sql, checkNative)
-        Option(extraCheck).foreach(_(table_name, format))
+      withTable(table_name) {
+        withDestinationTable(table_name, Option(table_create_sql)) {
+          checkInsertQuery(insert_sql, checkNative)
+          Option(extraCheck).foreach(_(table_name, format))
+        }
       }
   }
 
