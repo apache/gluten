@@ -60,11 +60,11 @@ Validate patched Scala sources with Delta's `spark/testScalastyle` task as well
 as targeted `spark/testOnly` runs. `spark/test` invokes this style gate, but
 `testOnly` does not.
 
-`data-skipping-stats-file-layout.patch` gives the `data skipping flags` and
-`data skipping stats before and after optimize` fixtures two explicit groups of
-IDs instead of relying on round-robin shuffle order. Only the fixture inputs
-change: the per-file statistics, file-pruning, and post-OPTIMIZE assertions
-still run with Gluten enabled.
+`data-skipping-stats-file-layout.patch` uses `spark.range(0, 10, 1, numPartitions = 2)`
+in the `data skipping flags` and `data skipping stats before and after optimize`
+tests. Without a shuffle, each file has five IDs: 0–4 or 5–9. The expected
+per-file statistics reflect those ranges. The checks for files read with and
+without skipping and for statistics after `OPTIMIZE` are unchanged.
 
 The `dv-2b-row-fail-fast.patch` keeps the two memory-hog DV tests failing
 immediately rather than skipping them. Their known-failure entries remain

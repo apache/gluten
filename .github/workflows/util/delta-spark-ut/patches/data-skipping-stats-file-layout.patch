@@ -3,8 +3,9 @@ Subject: [PATCH] Give data-skipping statistics fixtures a deterministic file lay
 The flags and before/after OPTIMIZE tests assert per-file statistics, but
 repartition(2) does not specify which IDs go in each file. Spark and the
 Gluten columnar shuffle can produce different valid round-robin layouts.
-Give one explicit group of IDs to each input partition instead. This keeps
-the original data, native execution, and all statistics and pruning checks.
+Create the range with two partitions and no shuffle. The two files now
+contain IDs 0-4 and 5-9; update their expected counts and bounds. The file
+pruning and post-OPTIMIZE checks stay unchanged.
 
 Remove this patch when the pinned Delta tests no longer rely on an
 incidental round-robin layout.
@@ -12,35 +13,39 @@ incidental round-robin layout.
 diff --git a/spark/src/test/scala/org/apache/spark/sql/delta/stats/DataSkippingDeltaTests.scala b/spark/src/test/scala/org/apache/spark/sql/delta/stats/DataSkippingDeltaTests.scala
 --- a/spark/src/test/scala/org/apache/spark/sql/delta/stats/DataSkippingDeltaTests.scala
 +++ b/spark/src/test/scala/org/apache/spark/sql/delta/stats/DataSkippingDeltaTests.scala
-@@ -248,6 +248,12 @@ trait DataSkippingDeltaTests extends DataSkippingDeltaTestsBase
- {
-   import testImplicits._
-
-+  // Each partition becomes one file with the exact count and bounds asserted by the tests.
-+  protected def twoFileStatsFixture: DataFrame = {
-+    val idsByFile = Seq(Seq(0L, 4L, 5L, 8L), Seq(1L, 2L, 3L, 6L, 7L, 9L))
-+    spark.sparkContext.parallelize(idsByFile, idsByFile.size).flatMap(ids => ids).toDF("id")
-+  }
-+
-   testSkipping(
-     "top level, single 1",
-     """{"a": 1}""",
-@@ -1064,8 +1070,7 @@ trait DataSkippingDeltaTests extends DataSkippingDeltaTestsBase
+@@ -1064,15 +1064,14 @@ trait DataSkippingDeltaTests extends DataSkippingDeltaTestsBase
          "OPTIMIZE is blocked on catalog-managed tables")
        val t = "ds_stats_before_after_optimize"
        withTable(t) {
 -        val (numTuples, numFiles) = (10, 2)
 -        val data = spark.range(0, numTuples, 1, 2).repartition(numFiles)
-+        val data = twoFileStatsFixture
++        val data = spark.range(0, 10, 1, numPartitions = 2)
          data.write.format("delta").saveAsTable(t)
          var r = checkpointAndCreateNewLogIfNecessary(
            DeltaLog.forTable(spark, TableIdentifier(t)))
-@@ -2385,7 +2390,7 @@ trait DataSkippingDeltaV1Tests
+         def rStats: DataFrame =
+           getStatsDf(r, $"numRecords", $"minValues.id".as("id_min"), $"maxValues.id".as("id_max"))
+
+-        checkAnswer(rStats, Seq(Row(4, 0, 8), Row(6, 1, 9)))
++        checkAnswer(rStats, Seq(Row(5, 0, 4), Row(5, 5, 9)))
+         val optimizeDf = sql(s"OPTIMIZE $t")
+         checkAnswer(rStats, Seq(Row(10, 0, 9)))
+       }
+@@ -2385,7 +2384,7 @@ trait DataSkippingDeltaV1Tests
        def rStats: DataFrame =
          getStatsDf(r, $"numRecords", $"minValues.id".as("id_min"), $"maxValues.id".as("id_max"))
 
 -      val data = spark.range(10).repartition(2)
-+      val data = twoFileStatsFixture
++      val data = spark.range(0, 10, 1, numPartitions = 2)
 
        Given("appending data without collecting stats")
        withSQLConf(
+@@ -2399,7 +2398,7 @@ trait DataSkippingDeltaV1Tests
+       withSQLConf(DeltaSQLConf.DELTA_COLLECT_STATS.key -> "true") {
+         data.write.format("delta").mode("append").saveAsTable(t)
+         checkAnswer(rStats,
+-          Seq(Row(null, null, null), Row(null, null, null), Row(4, 0, 8), Row(6, 1, 9)))
++          Seq(Row(null, null, null), Row(null, null, null), Row(5, 0, 4), Row(5, 5, 9)))
+       }
+
+       Given("querying reservoir without using stats")
