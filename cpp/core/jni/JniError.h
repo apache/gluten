@@ -56,7 +56,7 @@
 
 namespace gluten {
 
-// Returns the error code of a native exception, for example "SPARK:DIVIDE_BY_ZERO", or an empty
+// Returns the error code of a native exception, for example "DIVIDE_BY_ZERO", or an empty
 // string if it has none.
 using ErrorCodeGetter = std::string (*)(const std::exception& error);
 

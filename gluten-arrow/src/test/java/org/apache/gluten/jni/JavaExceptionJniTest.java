@@ -303,7 +303,7 @@ public final class JavaExceptionJniTest {
 
   @Test
   public void nativeErrorCode() {
-    Assert.assertEquals("SPARK:TEST_CONDITION", nativeErrorCode("SPARK:TEST_CONDITION"));
+    Assert.assertEquals("TEST_CONDITION", nativeErrorCode("TEST_CONDITION"));
     Assert.assertNull(nativeErrorCode(""));
     Assert.assertNull(nativeErrorCode("<failing getter>"));
   }

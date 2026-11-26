@@ -19,8 +19,9 @@ package org.apache.gluten.functions
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.ProjectExecTransformer
 
-import org.apache.spark.{SparkConf, SparkException, SparkThrowable}
+import org.apache.spark.{SparkArithmeticException, SparkConf, SparkException, SparkThrowable}
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.util.SparkVersionUtil
 
 class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
 
@@ -112,6 +113,23 @@ class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
           val sparkError = divideByZeroError(intercept[Exception](df.collect()))
           // The native error is kept as the cause.
           assert(sparkError.getCause.getMessage.contains("division by zero"))
+        }
+    }
+  }
+
+  test("divide by zero before a shuffle throws Spark DIVIDE_BY_ZERO error") {
+    withTempPath {
+      path =>
+        sql("SELECT 1 AS a, 0 AS b").write.parquet(path.getCanonicalPath)
+        withTempView("div_tab") {
+          spark.read.parquet(path.getCanonicalPath).createOrReplaceTempView("div_tab")
+          // The shuffle reads the translated error from a nested native iterator.
+          val e =
+            intercept[Exception](sql("SELECT a / b AS c FROM div_tab DISTRIBUTE BY c").collect())
+          if (SparkVersionUtil.gteSpark40) {
+            assert(e.isInstanceOf[SparkArithmeticException], e)
+          }
+          divideByZeroError(e)
         }
     }
   }

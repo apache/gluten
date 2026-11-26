@@ -18,7 +18,7 @@ package org.apache.gluten.exception;
 
 public class GlutenException extends RuntimeException {
 
-  // Native error code, for example "SPARK:DIVIDE_BY_ZERO". Null if not set.
+  // Spark error condition of a native error, for example "DIVIDE_BY_ZERO". Null if not set.
   private final String errorCode;
 
   public GlutenException() {

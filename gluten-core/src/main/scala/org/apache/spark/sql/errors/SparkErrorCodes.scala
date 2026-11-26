@@ -17,12 +17,11 @@
 package org.apache.spark.sql.errors
 
 /**
- * Error codes that native code sets on errors that match a Spark error condition. Each code is
- * "SPARK:" followed by the Spark error condition.
+ * Spark error conditions that native code can attach to an error, as defined in Spark's
+ * common/utils/src/main/resources/error/error-conditions.json. Native code passes the condition as
+ * the error code of the GlutenException it raises, for example "DIVIDE_BY_ZERO".
  */
-object NativeErrorCodes {
+object SparkErrorCodes {
 
-  val SparkErrorCodePrefix = "SPARK:"
-
-  val DivideByZero: String = SparkErrorCodePrefix + "DIVIDE_BY_ZERO"
+  val DivideByZero = "DIVIDE_BY_ZERO"
 }

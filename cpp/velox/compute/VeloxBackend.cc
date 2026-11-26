@@ -16,6 +16,7 @@
  */
 #include <algorithm>
 #include <filesystem>
+#include <string_view>
 
 #include "VeloxBackend.h"
 
@@ -128,9 +129,21 @@ void veloxThreadManagerReleaser(ThreadManager* threadManager) {
   delete threadManager;
 }
 
-std::string veloxErrorCode(const std::exception& error) {
+// Velox sets "SPARK:<condition>", e.g. "SPARK:DIVIDE_BY_ZERO", as the error code of an error that
+// matches a Spark error condition. Returns the condition, e.g. "DIVIDE_BY_ZERO", or an empty string
+// for any other error, including errors with error codes of other engines.
+std::string sparkErrorCondition(const std::exception& error) {
+  constexpr std::string_view kSparkErrorCodePrefix = "SPARK:";
   const auto* veloxError = dynamic_cast<const facebook::velox::VeloxException*>(&error);
-  return veloxError == nullptr ? std::string() : veloxError->errorCode();
+  if (veloxError == nullptr) {
+    return {};
+  }
+  std::string_view errorCode = veloxError->errorCode();
+  if (!errorCode.starts_with(kSparkErrorCodePrefix)) {
+    return {};
+  }
+  errorCode.remove_prefix(kSparkErrorCodePrefix.size());
+  return std::string(errorCode);
 }
 
 bool hasCudaDevice() {
@@ -171,8 +184,8 @@ void VeloxBackend::init(
   ThreadManager::registerFactory(kVeloxBackendKind, veloxThreadManagerFactory, veloxThreadManagerReleaser);
   Runtime::registerFactory(kVeloxBackendKind, veloxRuntimeFactory, veloxRuntimeReleaser);
 
-  // Pass the Velox error code, e.g. "SPARK:DIVIDE_BY_ZERO", to Java with the native error.
-  setErrorCodeGetter(veloxErrorCode);
+  // Pass the Spark error condition of a Velox error, e.g. "DIVIDE_BY_ZERO", to Java with the error.
+  setErrorCodeGetter(sparkErrorCondition);
 
   if (backendConf_->get<bool>(kDebugModeEnabled, false)) {
     LOG(INFO) << "VeloxBackend config:" << printConfig(backendConf_->rawConfigs());
