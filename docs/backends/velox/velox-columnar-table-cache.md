@@ -7,15 +7,18 @@ nav_order: 11
 # Velox Columnar Table Cache
 
 This document describes how the Velox backend implements Spark's in-memory table cache
-(`df.cache()`, `df.persist()`, `CACHE TABLE`) and the `InMemoryTableScanExec` that reads it, the
+(`df.cache()`, `df.persist()`, `CACHE TABLE`) and the `InMemoryTableScanExecTransformer` that reads it, the
 formats the cached batches are stored in, and how the implementation compares with the Arrow-based
 cache serializer in Apache Spark.
 
 ## 1. Overview
 
-Gluten does not replace `InMemoryTableScanExec` with an operator of its own. It plugs a columnar
-serializer into Spark's pluggable `CachedBatchSerializer` API, and the planner treats the vanilla
-scan node as a Velox columnar operator.
+Gluten plugs a columnar serializer into Spark's pluggable `CachedBatchSerializer` API, and the
+planner treats the cache scan as a Velox columnar operator. The scan runs as
+`InMemoryTableScanExecTransformer`, a subclass of Spark's `InMemoryTableScanExec` that adds read
+metrics (see [Scan metrics](#scan-metrics)). Because it is a subclass, Spark code that matches the
+concrete `InMemoryTableScanExec`, such as AQE table cache stages and the SQL UI plan graph, keeps
+working.
 
 ### Enabling
 
@@ -39,6 +42,7 @@ Every `df.cache()` then takes Spark's normal path, `CacheManager` → `InMemoryR
 | `VeloxBackend.batchTypeOf` | Tags an `InMemoryTableScanExec` whose `supportsColumnar` is true and whose serializer is `ColumnarCachedBatchSerializer` as `VeloxBatchType`, so Velox operators read its output without a transition |
 | `PlanUtil.isGlutenTableCache` | Identifies such scans, including when AQE wraps them in a `TableCacheQueryStage` |
 | `MiscColumnarRules.RemoveGlutenTableCacheColumnarToRow` | Removes a `ColumnarToRow` placed above the cache scan, because the scan converts to rows itself (see [Read path](#4-read-path)) |
+| `VeloxTableCacheScanRule` | Replaces an `InMemoryTableScanExec` over a Gluten cache with `InMemoryTableScanExecTransformer`. Registered as a query stage preparation rule, which runs before AQE wraps the scan in a table cache stage, and as a final columnar rule for plans run without AQE |
 | `ExpandFallbackPolicy` | Counts a Gluten table cache under a fallen-back operator as a transition cost, which biases the policy against falling back a stage that reads the cache |
 
 ### Write path
@@ -128,9 +132,26 @@ the Arrow-exported cache schema). For each cached batch:
 
 When a query that reads a Gluten cache falls back to vanilla Spark, `RemoveGlutenTableCacheColumnarToRow`
 removes the explicit `ColumnarToRow`, and the vanilla operators call the scan's row path. The
-columnar-to-row conversion of the whole cache then happens inside the `Scan In-memory table` node.
-No separate node or metric shows it in the plan; its time is reported by the parent operator,
-for example as `time in aggregation build` of a `HashAggregate` in the same whole-stage codegen.
+columnar-to-row conversion of the whole cache then happens inside the
+`InMemoryTableScanExecTransformer` node. No separate node shows it in the plan; the node reports it
+as `time of columnar to row`. The same time is also included in the parent operator's own timing,
+for example `time in aggregation build` of a `HashAggregate` in the same whole-stage codegen.
+
+### Scan metrics
+
+`InMemoryTableScanExecTransformer` reports:
+
+| Metric | Description |
+|---|---|
+| `number of output rows` | Rows returned by the scan |
+| `number of cached batches` | Cached batches before partition-statistics pruning |
+| `number of cached batches read after pruning` | Cached batches left after pruning and read |
+| `cached bytes read` | Serialized size of the cached batches read |
+| `time to read cached batches` | Time spent decoding cached batches into Velox batches |
+| `number of columnar to row batches` | Batches converted to rows for a vanilla Spark consumer |
+| `time of columnar to row` | Time of that conversion, in milliseconds |
+
+The columnar-to-row metrics stay at zero when Velox operators read the cache.
 
 ## 5. Partition statistics and pruning
 
