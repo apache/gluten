@@ -32,10 +32,6 @@ org.apache.spark.sql.delta.CloneTableScalaDeletionVectorSuite#shallow clone acro
 org.apache.spark.sql.delta.CloneTableScalaSuite#shallow clone across file systems
 org.apache.spark.sql.delta.ConvertToDeltaSQLSuite#CONVERT keeps NaN rows for finite-threshold predicate (NaN-excluding writer)
 org.apache.spark.sql.delta.ConvertToDeltaScalaSuite#CONVERT keeps NaN rows for finite-threshold predicate (NaN-excluding writer)
-org.apache.spark.sql.delta.DeltaInsertIntoDataFrameByPathSuite#insertInto: timestamp partition values with different precisions
-org.apache.spark.sql.delta.DeltaInsertIntoDataFrameSuite#insertInto: timestamp partition values with different precisions
-org.apache.spark.sql.delta.DeltaInsertIntoSQLByPathSuite#insertInto: timestamp partition values with different precisions
-org.apache.spark.sql.delta.DeltaInsertIntoSQLSuite#insertInto: timestamp partition values with different precisions
 org.apache.spark.sql.delta.DeltaLiteVacuumSuite#vacuum for cdc - delete tombstones
 org.apache.spark.sql.delta.DeltaLiteVacuumSuite#vacuum for cdc - update/merge
 org.apache.spark.sql.delta.DeltaParquetFileFormatWithPredicatePushdownSuite#read DV metadata columns: with rowIndexFilterType=IF_CONTAINED, with vectorized Parquet reader=false, with readColumnarBatchAsRows=true
