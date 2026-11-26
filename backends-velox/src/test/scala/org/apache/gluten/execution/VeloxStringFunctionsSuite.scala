@@ -23,12 +23,15 @@ import org.apache.spark.sql.classic.ClassicColumn
 import org.apache.spark.sql.execution.GlutenImplicits._
 import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.types.StringType
+import org.apache.spark.utils.GlutenSuiteUtils
 
 class VeloxStringFunctionsSuite extends VeloxWholeStageTransformerSuite {
 
   protected val rootPath: String = getClass.getResource("/").getPath
   override protected val resourcePath: String = "/tpch-data-parquet"
   override protected val fileFormat: String = "parquet"
+
+  import testImplicits._
 
   final val NULL_STR_COL: String = "nullStringColumn"
   final val LINEITEM_TABLE: String = "lineitem_nullStringColumn"
@@ -699,5 +702,83 @@ class VeloxStringFunctionsSuite extends VeloxWholeStageTransformerSuite {
     runQueryAndCompare(
       s"select l_orderkey, unbase64(base64(l_comment)) " +
         s"from $LINEITEM_TABLE limit $LENGTH")(checkGlutenPlan[ProjectExecTransformer])
+  }
+
+  // Regression test: Java \\uXXXX Unicode escapes must be translated to RE2 \\x{XXXX} syntax so
+  // that patterns using them run natively on Velox instead of falling back to the JVM.
+  test("rlike with Java Unicode escape runs natively") {
+    // SQL literal parsing consumes one level of backslashes (spark.sql.parser.escapedStringLiterals
+    // is false by default) and would turn a single-backslash escape into the character itself
+    // before Gluten sees it, so double them to hand the translator a real escape.
+    val pattern = "[\\\\u0041-\\\\u005A]+"
+    runQueryAndCompare(
+      s"select l_orderkey, rlike(l_comment, '$pattern') " +
+        s"from $LINEITEM_TABLE limit $LENGTH")(checkGlutenPlan[ProjectExecTransformer])
+  }
+
+  // Java surrogate pair escapes (backslash-u high + low) must be combined into one RE2 code point.
+  test("rlike with Java surrogate pair escape runs natively") {
+    // Back the input with parquet: a LocalRelation is folded by the optimizer
+    // (ConvertToLocalRelation) before the projection ever reaches Gluten.
+    withTempPath {
+      dir =>
+        // scalastyle:off nonascii
+        val data = Seq("a\uD83D\uDE00b", "plain", "\uD83D\uDE4F")
+        // scalastyle:on nonascii
+        data.toDF("s").write.parquet(dir.getCanonicalPath)
+        withTempView("emoji_t") {
+          spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("emoji_t")
+          // SQL literal parsing consumes one level of backslashes, so double them.
+          val pattern = "[\\\\uD83D\\\\uDE00-\\\\uD83D\\\\uDE4F]"
+          runQueryAndCompare(s"select s, rlike(s, '$pattern') from emoji_t")(
+            checkGlutenPlan[ProjectExecTransformer])
+        }
+    }
+  }
+
+  // An escaped backslash followed by u0041 is literal text, not a unicode escape.
+  test("rlike with escaped backslash before u is not translated") {
+    withTempPath {
+      dir =>
+        Seq("\\u0041", "A").toDF("s").write.parquet(dir.getCanonicalPath)
+        withTempView("bs_t") {
+          spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("bs_t")
+          runQueryAndCompare("select s, rlike(s, '\\\\\\\\u0041') from bs_t")(
+            checkGlutenPlan[ProjectExecTransformer])
+        }
+    }
+  }
+
+  // Regression test: a quoted section is literal text in Java and RE2, so a Java unicode escape
+  // inside it must not be translated: it keeps matching the text backslash-u0041, not "A".
+  test("rlike with unicode escape inside a quoted section is not translated") {
+    withTempPath {
+      dir =>
+        Seq("\\u0041", "A", "\\x{0041}").toDF("s").write.parquet(dir.getCanonicalPath)
+        withTempView("quoted_t") {
+          spark.read.parquet(dir.getCanonicalPath).createOrReplaceTempView("quoted_t")
+          runQueryAndCompare("select s, rlike(s, '\\\\Q\\\\u0041\\\\E') from quoted_t")(
+            checkGlutenPlan[ProjectExecTransformer])
+        }
+    }
+  }
+
+  // Regression test: lookbehind patterns have no RE2 equivalent and must still fall back
+  // gracefully to the Spark JVM engine rather than crashing or producing wrong results.
+  test("rlike with lookbehind falls back to JVM") {
+    GlutenSuiteUtils.withFallbackEventListener(spark.sparkContext) {
+      events =>
+        runQueryAndCompare(
+          s"""select rlike(l_comment, "(?<=x)y") from $LINEITEM_TABLE limit 5""",
+          compareResult = true,
+          noFallBack = false)(_ => {})
+        GlutenSuiteUtils.waitUntilEmpty(spark.sparkContext)
+        // The fallback must come from rewriteRegexPattern rejecting the pattern; a query that
+        // ran natively would emit no such reason.
+        val reasons = events.flatMap(_.fallbackNodeToReason.values)
+        assert(
+          reasons.exists(_.contains("lookahead/lookbehind")),
+          s"Expected a lookahead/lookbehind fallback reason but got: $reasons")
+    }
   }
 }
