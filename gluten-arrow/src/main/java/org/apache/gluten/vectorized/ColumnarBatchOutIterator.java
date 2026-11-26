@@ -149,6 +149,7 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
       Pattern.compile(
           "\\((-?\\d+) vs\\. -?\\d+\\) The value of 'pos' argument must "
               + "(be greater than or equal to zero|not exceed the number of bits in 'x' - 1)\\.");
+
   // Velox's message when assert_not_null finds a null in a non-nullable field.
   private static final Pattern NOT_NULL_ASSERT_VIOLATED =
       Pattern.compile("^Reason: Null value appeared in non-nullable field$", Pattern.MULTILINE);
@@ -201,6 +202,9 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
         matcher.group(2).startsWith("be") ? "is less than zero" : "exceeds the bit upper limit";
     return new IllegalArgumentException(
         "Invalid bit position: " + matcher.group(1) + " " + reason, e);
+  }
+
+  /**
    * Translates a Velox assert_not_null failure into the exception Spark throws for a null in a
    * non-nullable field. Returns null if the message does not indicate one.
    */
@@ -235,6 +239,7 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
       RuntimeException bitPositionEx = translateToInvalidBitPositionException(msg, e);
       if (bitPositionEx != null) {
         return bitPositionEx;
+      }
       RuntimeException notNullEx = translateToNotNullAssertViolation(msg, e);
       if (notNullEx != null) {
         return notNullEx;
