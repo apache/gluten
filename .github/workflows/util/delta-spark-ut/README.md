@@ -44,13 +44,13 @@ starts failing** (a regression).
 | `java-test-args.sh` | Shared Gluten Spark defaults and JVM flags (`--add-opens` + Netty property). Sourced by `run-delta-tests.sh` and by local runs. |
 | `setup-delta.sh` | Clones Delta, drops in the Gluten bundle, and applies temporary compatibility patches. Takes `<delta_ref> <delta_dir> <gluten_bundle_jar>`. |
 | `apply-delta-test-patches.sh` | Cherry-picks upstream scan fixes, applies the ordered local patch list, and verifies the resulting test sources. Called by `setup-delta.sh` with `<delta_ref> <delta_dir>`. |
-| `patches/*.patch` | Separate patches for CDF plan assertions, mock-S3 fixture writes, Parquet row-group and MERGE file-count fixtures, and 2B-row DV fail-fast behavior. Each patch documents its rationale and removal condition. |
+| `patches/*.patch` | Separate patches for CDF plan assertions, mock-S3 fixture writes, and Parquet row-group and MERGE file-count fixtures. Each patch documents its rationale and removal condition. |
 
 ## Temporary Delta test patches
 
 Local workarounds live in `patches/`, one file per purpose. The patcher applies
 an explicit ordered list with `git apply` after the upstream cherry-picks,
-then verifies the expected fixture scopes and fail-fast counts.
+then verifies the expected fixture scopes.
 Patch paths are resolved relative to the script, independent of the caller's
 working directory. Missing patches, incompatible source context, or unexpected
 counts fail setup explicitly. Run through `setup-delta.sh` to reset the Delta
@@ -59,10 +59,6 @@ checkout before applying the patches again.
 Validate patched Scala sources with Delta's `spark/testScalastyle` task as well
 as targeted `spark/testOnly` runs. `spark/test` invokes this style gate, but
 `testOnly` does not.
-
-The `dv-2b-row-fail-fast.patch` keeps the two memory-hog DV tests failing
-immediately rather than skipping them. Their known-failure entries remain
-enforced until the underlying native-memory issue is fixed.
 
 ## Temporary MERGE file-count fixture workaround
 
@@ -151,7 +147,13 @@ Each test shard:
 1. Runs `sbt spark/test` with ScalaTest's JUnit XML reporter enabled
    (`-u target/test-reports`), so every suite writes per-test results. (Delta
    itself only configures the console reporter, so the workflow injects this.)
-2. Runs `compare-test-results.py --mode enforce`, which classifies every test:
+2. Rejects an incomplete run before enforcing **or seeding** the baseline. A
+   watchdog kill, an sbt `ForkMain` failure with a nonzero exit code, or an
+   increase in the shard's cgroup v2 `oom_kill` counter fails the shard even if
+   other suites wrote valid XML. The counter is sampled around `sbt spark/test`
+   when available; earlier OOM kills do not count. An ordinary nonzero **sbt**
+   exit is not enough to fail the shard, since baselined assertions also cause it.
+3. Runs `compare-test-results.py --mode enforce`, which classifies every test:
    - **regression** — failed, but not in the baseline → **fails the shard**.
    - **expected** — failed and in the baseline → ignored.
    - **now-passing** — in the baseline but passed this run → fails the shard

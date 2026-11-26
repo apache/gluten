@@ -30,6 +30,7 @@
 #   DELTA_SCALA_VERSION, NUM_SHARDS, TEST_PARALLELISM_COUNT, DELTA_TESTING
 #                     - test env (see the workflow step's `env:` block)
 #   GITHUB_WORKSPACE  - repo root (holds the Delta clone + util scripts)
+#   CGROUP_DIR        - optional path to this shard's cgroup v2 directory
 #
 # JAVA_TOOL_OPTIONS is set by sourcing java-test-args.sh (below), not the caller.
 
@@ -84,10 +85,19 @@ chmod +x build/sbt
 #
 # We deliberately do NOT let an sbt non-zero exit (which fires on the
 # MANY expected Delta-on-Gluten failures) fail this step directly.
-# Instead the known-failures gate below decides pass/fail: the build
-# is green when the only failures are ones already recorded in the
-# baseline, and red on a genuine regression.
+# Only a complete run can be judged against the known-failures baseline.
 set +e
+if [ -z "${CGROUP_DIR:-}" ]; then
+  # In the CI container's private cgroup namespace the path is normally "/".
+  cgroup_path=$(sed -n 's/^0:://p' /proc/self/cgroup)
+  CGROUP_DIR="/sys/fs/cgroup${cgroup_path%/}"
+fi
+oom_kill_count() {
+  if [ -r "$CGROUP_DIR/memory.events" ]; then
+    awk '$1 == "oom_kill" && $2 ~ /^[0-9]+$/ {print $2; exit}' "$CGROUP_DIR/memory.events"
+  fi
+}
+
 # --- hang watchdog ---------------------------------------------------
 # Shard 2 (and occasionally others) hangs indefinitely after a suite's
 # last test with no further output. ScalaTest's failAfter only wraps
@@ -158,7 +168,7 @@ rm -f "$SBT_DONE_MARKER" "$WATCHDOG_KILL_MARKER"
     # NATIVE-driven, so log which JVM (sbt launcher vs fork) actually grows
     # toward it -- the last lines before a hang reveal the real hog to cut.
     # Read /proc directly (no `ps` dependency in the minimal container).
-    memnow=$(awk '{printf "%.2fG",$1/1073741824}' /sys/fs/cgroup/memory.current 2>/dev/null)
+    memnow=$(awk '{printf "%.2fG",$1/1073741824}' "$CGROUP_DIR/memory.current" 2>/dev/null)
     jvmrss=""
     for mp in $(all_java_pids 2>/dev/null | sort -un); do
       r=$(awk '/^VmRSS:/{print $2}' "/proc/$mp/status" 2>/dev/null)
@@ -229,6 +239,7 @@ rm -f "$SBT_DONE_MARKER" "$WATCHDOG_KILL_MARKER"
 ) &
 WATCHDOG_PID=$!
 
+OOM_KILLS_BEFORE=$(oom_kill_count)
 ./build/sbt \
   -DsparkVersion=${SPARK_VERSION} \
   -v \
@@ -241,7 +252,9 @@ WATCHDOG_PID=$!
   'set spark / Test / javaOptions ++= Seq("-Xmx2G", "-XX:+HeapDumpOnOutOfMemoryError", "-XX:HeapDumpPath=/tmp/")' \
   'set spark / Test / testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-u", "target/test-reports")' \
   "spark/test" 2>&1 | tee "$SBT_LOG"
-SBT_EXIT=${PIPESTATUS[0]}
+TEST_STATUS=("${PIPESTATUS[@]}")
+SBT_EXIT=${TEST_STATUS[0]}
+OOM_KILLS_AFTER=$(oom_kill_count)
 touch "$SBT_DONE_MARKER"
 kill "$WATCHDOG_PID" 2>/dev/null || true
 set -e
@@ -252,8 +265,7 @@ echo "sbt spark/test exited with ${SBT_EXIT}"
 # heap exceeding the ~16G runner). Surface the cgroup peak + oom_kill
 # count so we can confirm/measure it (cgroup v2 paths; best-effort).
 ( echo "=== cgroup memory forensics (exit ${SBT_EXIT}) ==="
-  for f in /sys/fs/cgroup/memory.peak /sys/fs/cgroup/memory.max \
-           /sys/fs/cgroup/memory.current /sys/fs/cgroup/memory.events; do
+  for f in "$CGROUP_DIR"/memory.{peak,max,current,events}; do
     [ -r "$f" ] && { echo "--- $f ---"; cat "$f"; }
   done ) || true
 
@@ -264,6 +276,25 @@ echo "sbt spark/test exited with ${SBT_EXIT}"
 # watchdog kill is an abnormal run, so fail the shard outright (re-run to retry).
 if [ -f "$WATCHDOG_KILL_MARKER" ]; then
   echo "::error::hang watchdog killed a wedged test fork on shard ${SHARD_ID}; suites queued behind it never ran, so results are incomplete. Failing the shard."
+  exit 1
+fi
+
+# Other forks can leave valid XML even when one dies before writing its report.
+if [ -z "$OOM_KILLS_BEFORE" ] || [ -z "$OOM_KILLS_AFTER" ]; then
+  echo "::warning::cgroup oom_kill counter unavailable for shard ${SHARD_ID}; checking sbt's fork diagnostics."
+elif [ "$OOM_KILLS_AFTER" -gt "$OOM_KILLS_BEFORE" ]; then
+  echo "::error::Shard ${SHARD_ID}: cgroup oom_kill increased from $OOM_KILLS_BEFORE to $OOM_KILLS_AFTER during sbt spark/test; test reports may be incomplete."
+  exit 1
+fi
+if [ "${TEST_STATUS[1]}" -ne 0 ]; then
+  echo "::error::Could not capture sbt output for shard ${SHARD_ID}; cannot check for fork failures."
+  exit 1
+fi
+FORK_FAILURE=$(LC_ALL=C awk 'match($0, /sbt\.ForkMain [0-9]+ failed with exit code [1-9][0-9]*/) {
+  print substr($0, RSTART, RLENGTH); exit
+}' "$SBT_LOG")
+if [ -n "$FORK_FAILURE" ]; then
+  echo "::error::Shard ${SHARD_ID}: $FORK_FAILURE; test reports may be incomplete."
   exit 1
 fi
 
