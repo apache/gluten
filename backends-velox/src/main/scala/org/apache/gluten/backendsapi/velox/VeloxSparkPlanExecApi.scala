@@ -64,6 +64,7 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.task.TaskResources
+import org.apache.spark.unsafe.types.CalendarInterval
 
 import io.substrait.proto.JoinRel
 import org.apache.commons.lang3.ClassUtils
@@ -1457,6 +1458,16 @@ class VeloxSparkPlanExecApi extends SparkPlanExecApi with Logging {
             ExpressionConverter.replaceWithExpressionTransformer(rf.child, attributeSeq),
             rf,
             rf.scale))
+      // Only a months-only constant interval (days == 0, microseconds == 0) is rewritten to
+      // add_months; everything else falls back.
+      case d: DateAddInterval =>
+        d.interval match {
+          case Literal(interval: CalendarInterval, CalendarIntervalType)
+              if interval.days == 0 && interval.microseconds == 0 =>
+            val addMonths = AddMonths(d.start, Literal(interval.months))
+            Some(ExpressionConverter.replaceWithExpressionTransformer(addMonths, attributeSeq))
+          case _ => None
+        }
       case _ => None
     }
   }

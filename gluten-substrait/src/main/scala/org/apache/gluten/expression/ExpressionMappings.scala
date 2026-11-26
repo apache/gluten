@@ -186,6 +186,7 @@ object ExpressionMappings {
     Sig[ToUnixTimestamp](TO_UNIX_TIMESTAMP),
     Sig[UnixTimestamp](UNIX_TIMESTAMP),
     Sig[AddMonths](ADD_MONTHS),
+    Sig[DateAddInterval](DATE_ADD_INTERVAL),
     Sig[DateFormatClass](DATE_FORMAT),
     Sig[TruncDate](TRUNC),
     Sig[TruncTimestamp](DATE_TRUNC),
