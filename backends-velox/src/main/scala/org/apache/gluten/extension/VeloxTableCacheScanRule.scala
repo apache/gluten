@@ -20,11 +20,11 @@ import org.apache.gluten.utils.PlanUtil
 
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.SparkPlan
-import org.apache.spark.sql.execution.columnar.{InMemoryTableScanExec, VeloxInMemoryTableScanExec}
+import org.apache.spark.sql.execution.columnar.{InMemoryTableScanExec, InMemoryTableScanTransformer}
 
 /**
  * Replaces an [[InMemoryTableScanExec]] that reads a Velox columnar table cache with
- * [[VeloxInMemoryTableScanExec]], which reports cache read metrics.
+ * [[InMemoryTableScanTransformer]], which reports cache read metrics.
  *
  * Under AQE, the scan is wrapped in a `TableCacheQueryStageExec` before Gluten's columnar rules
  * run, and those rules are not applied inside the stage. The rule is therefore registered both as a
@@ -34,7 +34,7 @@ import org.apache.spark.sql.execution.columnar.{InMemoryTableScanExec, VeloxInMe
 case class VeloxTableCacheScanRule() extends Rule[SparkPlan] {
   override def apply(plan: SparkPlan): SparkPlan = plan.transformUp {
     case scan: InMemoryTableScanExec
-        if !scan.isInstanceOf[VeloxInMemoryTableScanExec] && PlanUtil.isGlutenTableCache(scan) =>
-      VeloxInMemoryTableScanExec(scan)
+        if !scan.isInstanceOf[InMemoryTableScanTransformer] && PlanUtil.isGlutenTableCache(scan) =>
+      InMemoryTableScanTransformer(scan)
   }
 }

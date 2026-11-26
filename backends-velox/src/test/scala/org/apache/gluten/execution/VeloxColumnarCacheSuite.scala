@@ -23,7 +23,7 @@ import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.execution.{ColumnarToRowExec, SparkPlan}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
-import org.apache.spark.sql.execution.columnar.{InMemoryTableScanExec, SparkCacheUtil, VeloxInMemoryTableScanExec}
+import org.apache.spark.sql.execution.columnar.{InMemoryTableScanExec, InMemoryTableScanTransformer, SparkCacheUtil}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{LongType, Metadata, MetadataBuilder, StructType}
 import org.apache.spark.storage.StorageLevel
@@ -246,7 +246,7 @@ class VeloxColumnarCacheSuite extends VeloxWholeStageTransformerSuite with Adapt
     }
   }
   private def tableCacheScanMetrics(plan: SparkPlan): Map[String, Long] = {
-    val scans = collect(plan) { case s: VeloxInMemoryTableScanExec => s }
+    val scans = collect(plan) { case s: InMemoryTableScanTransformer => s }
     assert(scans.size == 1, plan)
     scans.head.metrics.map { case (name, metric) => name -> metric.value }
   }
