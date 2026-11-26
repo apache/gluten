@@ -177,10 +177,10 @@
         <executions>
           <execution>
             <id>unpack-spark-streaming-test-resources</id>
-            <phase>process-test-resources</phase>
             <goals>
               <goal>unpack</goal>
             </goals>
+            <phase>process-test-resources</phase>
             <configuration>
               <!-- Unpack Structured Streaming test fixtures before the test JVMs start. -->
               <artifactItems>
