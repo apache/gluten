@@ -60,6 +60,9 @@ object VeloxRuleApi {
     injector.injectOptimizerRule(RewriteUnboundedWindow.apply)
     injector.injectOptimizerRule(PushAggregateThroughJoinBatch.apply)
     injector.injectPlannerStrategy(ImplementJoinAggregate.apply)
+    // Under AQE the table cache scan is wrapped in a query stage before Gluten's columnar rules
+    // run, so it is replaced here, before stage creation.
+    injector.injectQueryStagePrepRule(_ => VeloxTableCacheScanRule())
 
     if (!BackendsApiManager.getSettings.enableJoinKeysRewrite()) {
       injector.injectPlannerStrategy(_ => org.apache.gluten.extension.GlutenJoinKeysCapture())
@@ -148,6 +151,7 @@ object VeloxRuleApi {
     injector.injectPost(c => GlutenNoopWriterRule(c.session))
 
     // Gluten columnar: Final rules.
+    injector.injectFinal(_ => VeloxTableCacheScanRule())
     injector.injectFinal(c => RemoveGlutenTableCacheColumnarToRow(c.session))
     injector.injectFinal(
       c => PreventBatchTypeMismatchInTableCache(c.caller.isCache(), Set(VeloxBatchType)))
