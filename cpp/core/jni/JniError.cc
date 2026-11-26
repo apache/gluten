@@ -47,12 +47,12 @@ jclass gluten::JniErrorState::glutenExceptionClass() {
 }
 
 void gluten::JniErrorState::initialize(JNIEnv* env) {
-  glutenExceptionClass_ = createGlobalClassReference(env, "Lorg/apache/gluten/exception/GlutenException;");
-  ioExceptionClass_ = createGlobalClassReference(env, "Ljava/io/IOException;");
-  runtimeExceptionClass_ = createGlobalClassReference(env, "Ljava/lang/RuntimeException;");
-  unsupportedOperationExceptionClass_ = createGlobalClassReference(env, "Ljava/lang/UnsupportedOperationException;");
-  illegalAccessExceptionClass_ = createGlobalClassReference(env, "Ljava/lang/IllegalAccessException;");
-  illegalArgumentExceptionClass_ = createGlobalClassReference(env, "Ljava/lang/IllegalArgumentException;");
+  glutenExceptionClass_ = createGlobalClassReference(env, "org/apache/gluten/exception/GlutenException");
+  ioExceptionClass_ = createGlobalClassReference(env, "java/io/IOException");
+  runtimeExceptionClass_ = createGlobalClassReference(env, "java/lang/RuntimeException");
+  unsupportedOperationExceptionClass_ = createGlobalClassReference(env, "java/lang/UnsupportedOperationException");
+  illegalAccessExceptionClass_ = createGlobalClassReference(env, "java/lang/IllegalAccessException");
+  illegalArgumentExceptionClass_ = createGlobalClassReference(env, "java/lang/IllegalArgumentException");
   JavaVM* vm;
   if (env->GetJavaVM(&vm) != JNI_OK) {
     throw gluten::GlutenException("Unable to get JavaVM instance");

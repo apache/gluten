@@ -21,6 +21,7 @@ import org.apache.gluten.shuffle.SupportsColumnarShuffle
 
 import org.apache.spark.network.util.{ByteUnit, JavaUtils}
 import org.apache.spark.sql.internal.{GlutenConfigUtil, SQLConf}
+import org.apache.spark.util.SparkVersionUtil
 
 import org.apache.hadoop.security.UserGroupInformation
 
@@ -176,6 +177,9 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   def scanFileSchemeValidationEnabled: Boolean =
     getConf(VELOX_SCAN_FILE_SCHEME_VALIDATION_ENABLED)
 
+  def scanFallbackOnExistenceDefaultsEnabled: Boolean =
+    getConf(SCAN_FALLBACK_ON_EXISTENCE_DEFAULTS_ENABLED)
+
   // Whether to use GlutenShuffleManager (experimental).
   def isUseGlutenShuffleManager: Boolean =
     conf
@@ -205,8 +209,14 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   // scalastyle:off classforname
   def shuffleManagerSupportsColumnarShuffle: Boolean = {
-    classOf[SupportsColumnarShuffle].isAssignableFrom(Class.forName(conf
-      .getConfString("spark.shuffle.manager", "org.apache.spark.shuffle.sort.SortShuffleManager")))
+    val sortShuffleManager = "org.apache.spark.shuffle.sort.SortShuffleManager"
+    val configured = conf.getConfString("spark.shuffle.manager", sortShuffleManager)
+    // Spark also accepts the aliases "sort" and "tungsten-sort", case-insensitively.
+    val className = configured.toLowerCase(Locale.ROOT) match {
+      case "sort" | "tungsten-sort" => sortShuffleManager
+      case _ => configured
+    }
+    classOf[SupportsColumnarShuffle].isAssignableFrom(Class.forName(className))
   }
   // scalastyle:on classforname
 
@@ -500,6 +510,11 @@ object GlutenConfig extends ConfigRegistry {
   val SPARK_SHUFFLE_SPILL_COMPRESS_DEFAULT: Boolean = true
   val SPARK_IO_COMPRESSION_CODEC = "spark.io.compression.codec"
   val SPARK_MAX_BROADCAST_TABLE_SIZE = "spark.sql.maxBroadcastTableSize"
+  // Added in Spark 4.1 with default false (SPARK-53535). Earlier versions behave as if it is true.
+  val SPARK_LEGACY_PARQUET_RETURN_NULL_STRUCT_IF_ALL_FIELDS_MISSING =
+    "spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing"
+  val SPARK_LEGACY_PARQUET_RETURN_NULL_STRUCT_IF_ALL_FIELDS_MISSING_DEFAULT: Boolean =
+    !SparkVersionUtil.gteSpark41
 
   def get: GlutenConfig = {
     new GlutenConfig(GlutenCoreConfig.activeSQLConf)
@@ -524,7 +539,7 @@ object GlutenConfig extends ConfigRegistry {
     SQLConf.RUNTIME_BLOOM_FILTER_MAX_NUM_BITS.key,
     SQLConf.RUNTIME_BLOOM_FILTER_MAX_NUM_ITEMS.key,
     "spark.sql.decimalOperations.allowPrecisionLoss",
-    "spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing",
+    SPARK_LEGACY_PARQUET_RETURN_NULL_STRUCT_IF_ALL_FIELDS_MISSING,
     // s3 config
     SPARK_S3_ACCESS_KEY,
     SPARK_S3_SECRET_KEY,
@@ -592,7 +607,10 @@ object GlutenConfig extends ConfigRegistry {
         GLUTEN_COLUMNAR_TO_ROW_MEM_THRESHOLD.defaultValue.get.toString),
       (SPARK_SHUFFLE_SPILL_COMPRESS, SPARK_SHUFFLE_SPILL_COMPRESS_DEFAULT.toString),
       (SQLConf.SESSION_LOCAL_TIMEZONE.key, SQLConf.SESSION_LOCAL_TIMEZONE.defaultValueString),
-      (SQLConf.ANSI_ENABLED.key, SQLConf.ANSI_ENABLED.defaultValueString)
+      (SQLConf.ANSI_ENABLED.key, SQLConf.ANSI_ENABLED.defaultValueString),
+      (
+        SPARK_LEGACY_PARQUET_RETURN_NULL_STRUCT_IF_ALL_FIELDS_MISSING,
+        SPARK_LEGACY_PARQUET_RETURN_NULL_STRUCT_IF_ALL_FIELDS_MISSING_DEFAULT.toString)
     ).foreach { case (k, defaultValue) => nativeConfMap.put(k, conf.getOrElse(k, defaultValue)) }
 
     Seq(
@@ -710,7 +728,8 @@ object GlutenConfig extends ConfigRegistry {
       SPARK_REDACTION_REGEX,
       SQLConf.LEGACY_TIME_PARSER_POLICY.key,
       SQLConf.LEGACY_STATISTICAL_AGGREGATE.key,
-      COLUMNAR_CUDF_ENABLED.key
+      COLUMNAR_CUDF_ENABLED.key,
+      MEMORY_MANAGER_CAPACITY_RATIO.key
     )
 
     nativeConfMap ++= conf.filter {
@@ -885,7 +904,8 @@ object GlutenConfig extends ConfigRegistry {
       .doc(
         "This is tmp config to specify whether to enable the native validation based on " +
           "Substrait plan. After the validations in all backends are correctly implemented, " +
-          "this config should be removed.")
+          "this config should be removed. Disabling native validation is intended for debugging " +
+          "and may cause unsupported operations to fail at runtime instead of falling back.")
       .booleanConf
       .createWithDefault(true)
 
@@ -1661,6 +1681,17 @@ object GlutenConfig extends ConfigRegistry {
         "When true, enable file path scheme validation for scan. Validation will fail if" +
           " file scheme is not supported by registered file systems, which will cause scan " +
           " operator fall back.")
+      .booleanConf
+      .createWithDefault(true)
+
+  val SCAN_FALLBACK_ON_EXISTENCE_DEFAULTS_ENABLED =
+    buildConf("spark.gluten.sql.scan.fallbackOnExistenceDefaults.enabled")
+      .doc(
+        "When true, V1/V2 file scans reading non-null EXISTS_DEFAULT columns fall back to Spark, " +
+          "including Parquet/ORC and Delta. Metadata persists after file rewrites, so fully " +
+          "populated files also fall back. Set false only if all read files contain the columns " +
+          "or incorrect results for missing fields are acceptable. Native readers do not " +
+          "materialize these defaults; other fallback checks still apply.")
       .booleanConf
       .createWithDefault(true)
 

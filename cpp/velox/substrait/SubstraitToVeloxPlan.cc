@@ -24,7 +24,7 @@
 #include "compute/iceberg/IcebergPlanConverter.h"
 #include "jni/JniHashTable.h"
 #include "operators/functions/IncrementMetricFunction.h"
-#include "operators/hashjoin/HashTableBuilder.h"
+#include "operators/hashjoin/BroadcastHashTable.h"
 #include "operators/plannodes/RowVectorStream.h"
 #ifdef ENABLE_KAFKA
 #include "kafka.pb.h"
@@ -470,18 +470,19 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   } else if (
       sJoin.has_advanced_extension() &&
       SubstraitParser::configSetInOptimization(sJoin.advanced_extension(), "isBHJ=")) {
-    const std::string hashTableId = sJoin.hashtableid();
+    std::string cacheKey;
     bool useHashTableCache = false;
-    if (!hashTableId.empty()) {
+    if (!sJoin.hashtableid().empty()) {
       try {
-        const auto handle = getJoin(hashTableId);
+        cacheKey = getJoinCacheKey(sJoin.hashtableid());
+        const auto handle = getJoin(cacheKey);
         if (handle != 0) {
-          auto hashTableBuilder = ObjectStore::retrieve<gluten::HashTableBuilder>(handle);
-          useHashTableCache = (hashTableBuilder != nullptr);
+          auto hashTable = ObjectStore::retrieve<gluten::BroadcastHashTable>(handle);
+          useHashTableCache = (hashTable != nullptr);
         }
       } catch (const std::exception& e) {
-        LOG(WARNING) << "Failed to retrieve pre-built HashTableBuilder for cache key: " << hashTableId
-                     << ", error: " << e.what() << ". Disable hash table cache and build a new table.";
+        LOG(WARNING) << "Failed to retrieve pre-built hash table for cache key: " << cacheKey << ", error: " << e.what()
+                     << ". Disable hash table cache and build a new table.";
       }
     }
 
@@ -511,7 +512,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         getJoinOutputType(leftNode, rightNode, joinType),
         useHashTableCache,
         false,
-        sJoin.hashtableid());
+        cacheKey);
   } else {
     // Create HashJoinNode node
     return std::make_shared<core::HashJoinNode>(

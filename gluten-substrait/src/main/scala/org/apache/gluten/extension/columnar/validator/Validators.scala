@@ -26,7 +26,7 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.analysis.PartitionSpec
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Cast, ConvertTimezone, Expression, GetStructField, Hour, IsNotNull, IsNull, MakeTimestamp, Minute, Second, TimestampAdd, WindowFrame, WindowSpecDefinition}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Cast, ConvertTimezone, Expression, GetStructField, Hour, IsNotNull, IsNull, MakeTimestamp, Minute, Second, TimestampAdd, ToUnixTimestamp, UnixTimestamp, WindowFrame, WindowSpecDefinition}
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
 import org.apache.spark.sql.execution.datasources.WriteFilesExec
@@ -308,6 +308,8 @@ object Validators {
                   case Second(child, _) => containsNTZ(child.dataType)
                   case TimestampAdd(_, _, child, _) => containsNTZ(child.dataType)
                   case ConvertTimezone(_, _, child) => containsNTZ(child.dataType)
+                  case u: UnixTimestamp => containsNTZ(u.timeExp.dataType)
+                  case t: ToUnixTimestamp => containsNTZ(t.timeExp.dataType)
                   case m: MakeTimestamp if isNTZ(m.dataType) => true
                   case c: Cast if isNTZ(c.dataType) || isNTZ(c.child.dataType) => true
                   case IsNull(child) => containsNTZ(child.dataType)
