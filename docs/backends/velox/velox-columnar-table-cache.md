@@ -83,7 +83,9 @@ kind from `spark.gluten.sql.columnar.backend.velox.columnarBatchSerializerCompre
 
 ## 3. Cached batch formats
 
-There are three formats. The writer tries V3 first and falls back to V2, then to V1.
+There are three formats. The writer uses V3. If a V3 write fails, the batch is written as V2 when
+partition statistics are enabled, and as V1 otherwise; with the default configuration (statistics
+disabled) a V3 failure goes straight to V1. V2 is never written unless statistics are enabled.
 
 | | V1 (legacy) | V2 | V3 (default) |
 |---|---|---|---|
@@ -133,8 +135,9 @@ for example as `time in aggregation build` of a `HashAggregate` in the same whol
 ## 5. Partition statistics and pruning
 
 With `spark.gluten.sql.columnar.tableCache.partitionStats.enabled=true` (default `false`), the
-native writer computes per-column lower bound, upper bound, null count, row count and size for each
-batch. The JVM stores them in the 5-slots-per-column layout of `SimpleMetricsCachedBatch.stats`, and
+native writer computes per-column lower bound, upper bound, null count and row count for each
+batch. The per-column size slot is written as a `0` placeholder; it is not a measured column size.
+`CachedColumnarBatch.sizeInBytes`, used for the relation size, is the serialized payload length. The JVM stores them in the 5-slots-per-column layout of `SimpleMetricsCachedBatch.stats`, and
 Spark's `SimpleMetricsCachedBatchSerializer.buildFilter` prunes cached batches with them.
 
 Statistics are kept for integral types, date, year-month and day-time intervals, timestamp and
@@ -178,7 +181,7 @@ stored and how it is read.
 | Compression | Arrow buffer compression `none` / `zstd` / `lz4` (`spark.sql.execution.arrow.compression.codec`) | V1/V2: Presto page compression. V3: none |
 | Batch sizing | Row input split by `spark.sql.execution.arrow.maxRecordsPerBatch` and `maxBytesPerBatch`; columnar input kept as is | Input batches kept as is; row input converted with `RowToVeloxColumnarExec` |
 | Columnar input | Zero-copy only when all columns are `ArrowColumnVector`s of a matching shape; other columnar input, including Spark's Parquet vectors, is converted through rows | Always native: `ensureVeloxBatch`, then serialize |
-| Column pruning on read | Eager: `VectorLoader.load` decodes and decompresses all cached columns, then the selected ones are kept | Lazy (V3): only requested columns are built, each decoded on first access |
+| Column pruning on read | Eager, selected columns only: `readProjectedRecordBatch` copies, decompresses and loads only the selected columns' buffers ([SPARK-58918](https://issues.apache.org/jira/browse/SPARK-58918)) | Lazy (V3): only requested columns are built, each decoded on first access |
 | Columnar output | `ColumnarBatch` of `ArrowColumnVector`, readable by vanilla Spark operators | Velox batch for Velox operators |
 | Row output | Typed readers into `UnsafeRowWriter`; complex types go through `ColumnarBatch` and `UnsafeProjection` | Native decode, then `VeloxColumnarToRowExec` |
 | Prefetch | Optional background decoding of the next batch (`spark.sql.execution.arrow.cache.prefetch.enabled`, default `false`) | None |
@@ -188,9 +191,10 @@ stored and how it is read.
 
 The main design differences:
 
-1. **Projection.** Spark's Arrow cache stores a batch as one IPC message and loads every buffer on
-   read. Gluten's V3 layout decodes only the requested columns, so it does less work for wide
-   cached tables read through narrow projections.
+1. **Projection.** Both skip unselected columns. Spark reads the selected columns' buffers out of
+   the IPC message and loads them eagerly when the batch is read. Gluten's V3 builds the selected
+   columns as `LazyVector`s and decodes each one only when an operator first accesses it, so a
+   column that a filter or join never reaches for a batch is never decoded.
 2. **Size.** Spark compresses each Arrow buffer. Gluten's V3 stores columns uncompressed and
    flattened, which can make the cache larger.
 3. **Input conversion.** Spark's zero-copy path applies only when the cached plan already produces
@@ -205,5 +209,5 @@ The main design differences:
 |---|---|---|
 | `spark.gluten.sql.columnar.tableCache` | `true` | Static. Use the Velox columnar table cache serializer |
 | `spark.gluten.sql.columnar.tableCache.partitionStats.enabled` | `false` | Compute and store per-batch column statistics for partition pruning |
-| `spark.gluten.sql.columnar.backend.velox.columnarBatchSerializerCompression` | `none` | Internal. Compression for V1/V2 pages and broadcast batches. V3 is always uncompressed |
+| `spark.gluten.sql.columnar.backend.velox.columnarBatchSerializerCompression` | `none` | Internal. Compression for V1/V2 pages and broadcast batches. V3 requires `none`: with any other codec every V3 write fails and the cache is written as V2 or V1, losing lazy column reads |
 | `spark.sql.inMemoryColumnarStorage.enableVectorizedReader` | `true` | Spark configuration. Columnar output from the cache scan requires it |
