@@ -1044,14 +1044,6 @@ class ClickHouseTestSettings extends BackendTestSettings {
     // the native write staing dir is differnt with vanilla Spark for coustom partition paths
     .exclude("SPARK-35106: Throw exception when rename custom partition paths returns false")
     .exclude("Stop task set if FileAlreadyExistsException was thrown")
-    // Rewrite: Additional support for file scan with default values has been added in Spark-3.4.
-    // It appends the default value in record if it is not present while scanning.
-    // Velox supports default values for new records but it does not backfill the
-    // existing records and provides null for the existing ones.
-    .exclude("INSERT rows, ALTER TABLE ADD COLUMNS with DEFAULTs, then SELECT them")
-    .exclude("SPARK-39557 INSERT INTO statements with tables with array defaults")
-    .exclude("SPARK-39557 INSERT INTO statements with tables with struct defaults")
-    .exclude("SPARK-39557 INSERT INTO statements with tables with map defaults")
     .excludeCH("Gluten - insert partition table")
     .excludeCH("Gluten - remove v1writes sort and project")
     .excludeCH("Gluten - remove v1writes sort")
@@ -1061,7 +1053,6 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .excludeCH(
       "Gluten - Do not fallback write files if output columns contain Spark internal metadata")
     .excludeCH("Gluten - Add metadata white list to allow native write files")
-    .excludeCH("Gluten - INSERT rows, ALTER TABLE ADD COLUMNS with DEFAULTs, then SELECT them")
   enableSuite[GlutenIntervalExpressionsSuite]
   enableSuite[GlutenIntervalFunctionsSuite]
   enableSuite[GlutenJoinSuite]

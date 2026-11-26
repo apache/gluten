@@ -26,6 +26,7 @@ import org.apache.spark.util.Utils
 
 import org.apache.hadoop.fs.Path
 import org.apache.parquet.hadoop.ParquetFileReader
+import org.apache.parquet.hadoop.metadata.{ColumnChunkMetaData, CompressionCodecName}
 import org.apache.parquet.hadoop.util.HadoopInputFile
 import org.apache.parquet.schema.PrimitiveType
 
@@ -63,6 +64,31 @@ class VeloxParquetWriteSuite extends VeloxWholeStageTransformerSuite with WriteU
 
   override protected def sparkConf: SparkConf = {
     super.sparkConf.set(GlutenConfig.NATIVE_WRITER_ENABLED.key, "true")
+  }
+
+  test("native Parquet write of filtered dictionary containing only empty strings") {
+    import testImplicits._
+
+    withTempPath {
+      dir =>
+        val inputPath = s"${dir.getCanonicalPath}/input"
+        val outputPath = s"${dir.getCanonicalPath}/output"
+        val values = Seq((0, ""), (1, "unreferenced-a"), (2, "unreferenced-b"))
+        withSQLConf(GlutenConfig.NATIVE_WRITER_ENABLED.key -> "false") {
+          Seq.fill(128)(values).flatten.toDF("id", "value").coalesce(1).write
+            .option("parquet.enable.dictionary", "true")
+            .parquet(inputPath)
+        }
+
+        // Keep unused, non-empty values in the source dictionary while selecting only empty
+        // strings. Dictionary statistics may then shrink Arrow Take's value buffer to zero.
+        checkNativeWrite(
+          s"""INSERT OVERWRITE DIRECTORY '$outputPath'
+             |USING PARQUET OPTIONS ('parquet.enable.dictionary' 'true')
+             |SELECT value FROM parquet.`$inputPath` WHERE id % 3 = 0
+             |""".stripMargin)
+        checkAnswer(spark.read.parquet(outputPath), Seq.fill(128)(Row("")))
+    }
   }
 
   test("test Array(Struct) fallback") {
@@ -366,25 +392,26 @@ class VeloxParquetWriteHadoopConfSuite extends VeloxWholeStageTransformerSuite w
     super.sparkConf
       .set(GlutenConfig.NATIVE_WRITER_ENABLED.key, "true")
       .set(s"spark.hadoop.parquet.enable.dictionary", "false")
+      .set("spark.hadoop.parquet.compression", "gzip")
   }
 
   private val dictionaryEncodingNames = Set("PLAIN_DICTIONARY", "RLE_DICTIONARY")
 
-  private def parquetColumnEncodings(dir: File): Seq[Set[String]] = {
+  private def parquetColumnChunks(dir: File): Seq[ColumnChunkMetaData] = {
     val parquetFiles = dir.list((_, name) => name.contains("parquet"))
     assert(parquetFiles.nonEmpty)
-    parquetFiles.flatMap {
+    parquetFiles.toSeq.flatMap {
       file =>
         val path = new Path(dir.getAbsolutePath, file)
         val in = HadoopInputFile.fromPath(path, spark.sessionState.newHadoopConf())
         Utils.tryWithResource(ParquetFileReader.open(in)) {
-          reader =>
-            reader.getFooter.getBlocks.asScala.flatMap {
-              block => block.getColumns.asScala.map(_.getEncodings.asScala.map(_.name()).toSet)
-            }
+          reader => reader.getFooter.getBlocks.asScala.flatMap(_.getColumns.asScala)
         }
-    }.toSeq
+    }
   }
+
+  private def parquetColumnEncodings(dir: File): Seq[Set[String]] =
+    parquetColumnChunks(dir).map(_.getEncodings.asScala.map(_.name()).toSet)
 
   test("native writer should respect parquet dictionary config from spark.hadoop config") {
     spark
@@ -403,6 +430,17 @@ class VeloxParquetWriteHadoopConfSuite extends VeloxWholeStageTransformerSuite w
         val columnEncodings = parquetColumnEncodings(hadoopConfDir)
         assert(columnEncodings.nonEmpty)
         assert(!columnEncodings.exists(_.exists(dictionaryEncodingNames.contains)))
+    }
+  }
+
+  test("native writer should prefer Spark SQL codec over spark.hadoop.parquet.compression") {
+    withSQLConf(SQLConf.PARQUET_COMPRESSION.key -> "zstd") {
+      withTempPath {
+        dir =>
+          checkNativeWrite(
+            s"INSERT OVERWRITE DIRECTORY '${dir.getCanonicalPath}' USING PARQUET SELECT 1 AS id")
+          assert(parquetColumnChunks(dir).map(_.getCodec).toSet == Set(CompressionCodecName.ZSTD))
+      }
     }
   }
 }

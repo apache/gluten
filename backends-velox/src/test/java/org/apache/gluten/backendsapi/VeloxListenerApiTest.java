@@ -17,13 +17,22 @@
 package org.apache.gluten.backendsapi;
 
 import org.apache.gluten.backendsapi.velox.VeloxListenerApi;
+import org.apache.gluten.exception.GlutenException;
 
 import org.apache.spark.SparkConf;
 import org.junit.Test;
 
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Arrays;
+
+import scala.collection.JavaConverters;
 import scala.collection.immutable.Map;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 
 public class VeloxListenerApiTest {
 
@@ -37,5 +46,45 @@ public class VeloxListenerApiTest {
     assertEquals(
         "52428800",
         parsed.get("spark.gluten.sql.columnar.backend.velox.filePreloadThreshold").get());
+  }
+
+  // Library file names are platform specific (.so on Linux, .dylib on macOS).
+  private static final String CORE = System.mapLibraryName("gluten");
+  private static final String BACKEND = System.mapLibraryName("velox");
+
+  private static String inDir(String name) {
+    return new File("/opt/gluten", name).getPath();
+  }
+
+  @Test
+  public void testLibPathLoadsCoreLibraryFirst() {
+    assertEquals(
+        Arrays.asList(inDir(CORE), inDir(BACKEND)),
+        JavaConverters.seqAsJavaList(VeloxListenerApi.libPathsToLoad(inDir(BACKEND), "gluten")));
+  }
+
+  @Test
+  public void testLibPathPointingAtCoreLibraryLoadsItOnce() {
+    assertEquals(
+        Arrays.asList(inDir(CORE)),
+        JavaConverters.seqAsJavaList(VeloxListenerApi.libPathsToLoad(inDir(CORE), "gluten")));
+  }
+
+  @Test
+  public void testRelativeLibPathLoadsCoreLibraryFromSameDirectory() {
+    assertEquals(
+        Arrays.asList(CORE, BACKEND),
+        JavaConverters.seqAsJavaList(VeloxListenerApi.libPathsToLoad(BACKEND, "gluten")));
+  }
+
+  @Test
+  public void testMissingCoreLibraryNamesLibnameConf() throws Exception {
+    Path dir = Files.createTempDirectory("gluten-libpath");
+    File backend = Files.createFile(dir.resolve(BACKEND)).toFile();
+    GlutenException e =
+        assertThrows(
+            GlutenException.class,
+            () -> VeloxListenerApi.checkedLibPathsToLoad(backend.getPath(), "gluten"));
+    assertTrue(e.getMessage(), e.getMessage().contains("spark.gluten.sql.columnar.libname"));
   }
 }
