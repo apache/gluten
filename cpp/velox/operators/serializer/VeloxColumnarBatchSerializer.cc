@@ -870,6 +870,8 @@ std::vector<uint8_t> VeloxColumnarBatchSerializer::framedSerializeV3Impl(
   // Serialize each column straight into the frame, then fill in its length prefix.
   AppendToVectorBuf frameBuf(framed);
   std::ostream frameStream(&frameBuf);
+  // By default std::ostream catches a std::bad_alloc from growing the frame and only sets badbit; rethrow it.
+  frameStream.exceptions(std::ios::badbit);
   for (uint32_t col = 0; col < numCols; ++col) {
     const size_t lenPos = framed.size();
     pushU32LE(framed, 0);
