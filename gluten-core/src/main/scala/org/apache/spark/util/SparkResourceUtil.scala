@@ -39,6 +39,9 @@ object SparkResourceUtil extends Logging {
         Math.max(
           sqlConf.getConfString("spark.cores.max", "1").toInt,
           sqlConf.getConfString("spark.default.parallelism", "1").toInt)
+      case _ =>
+        // Other cluster managers, e.g. mesos:// or one plugged in through ExternalClusterManager.
+        sqlConf.getConfString("spark.default.parallelism", "1").toInt
     }
   }
 

@@ -19,8 +19,10 @@
 
 #include <jni.h>
 
+#include <string>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 namespace gluten {
 
@@ -96,13 +98,17 @@ class TestJniEnvironment {
       ++from(env).poppedFrames;
       return result;
     };
-    functions_.FindClass = [](JNIEnv* env, const char*) -> jclass {
+    functions_.FindClass = [](JNIEnv* env, const char* name) -> jclass {
       auto& self = from(env);
+      self.foundClassNames.emplace_back(name);
       if (self.failDescription) {
         self.pending = &self.secondary;
         return nullptr;
       }
       return &self.describer_;
+    };
+    functions_.GetMethodID = [](JNIEnv* env, jclass, const char*, const char*) {
+      return reinterpret_cast<jmethodID>(&from(env).describer_);
     };
     functions_.GetStaticMethodID = [](JNIEnv* env, jclass, const char*, const char*) {
       return reinterpret_cast<jmethodID>(&from(env).describer_);
@@ -151,6 +157,7 @@ class TestJniEnvironment {
   _jthrowable secondary;
   jthrowable pending{nullptr};
   std::unordered_map<jobject, jthrowable> globalRefs;
+  std::vector<std::string> foundClassNames;
   int createdGlobalRefs{0};
   int deletedGlobalRefs{0};
   int deletedLocalRefs{0};
