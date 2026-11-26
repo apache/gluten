@@ -18,24 +18,30 @@ package org.apache.gluten.expression
 
 import org.apache.gluten.config.VeloxConfig
 
-import org.apache.spark.sql.expression.UDFResolver
+import org.apache.spark.sql.expression.{UDFResolver, UserDefinedAggregateFunction}
 
 import org.scalatest.BeforeAndAfterEach
 import org.scalatest.funsuite.AnyFunSuite
 
 class UDFResolverSuite extends AnyFunSuite with BeforeAndAfterEach {
 
-  // UDFNames is JVM-global and populated once per JVM, so it is restored rather than cleared.
-  private var savedNames: Set[String] = Set.empty
+  // These are JVM-global and populated once per JVM, so they are restored rather than cleared.
+  // Both of them: a description is now derived from UDAFNames as well as UDFNames.
+  private val nameSets = Seq(UDFResolver.UDFNames, UDFResolver.UDAFNames)
+
+  private var savedNames: Seq[Set[String]] = Seq.empty
 
   override protected def beforeEach(): Unit = {
-    savedNames = UDFResolver.UDFNames.toSet
-    UDFResolver.UDFNames.clear()
+    savedNames = nameSets.map(_.toSet)
+    nameSets.foreach(_.clear())
   }
 
   override protected def afterEach(): Unit = {
-    UDFResolver.UDFNames.clear()
-    UDFResolver.UDFNames ++= savedNames
+    nameSets.zip(savedNames).foreach {
+      case (names, saved) =>
+        names.clear()
+        names ++= saved
+    }
   }
 
   private def describedNames(): Seq[String] =
@@ -73,5 +79,37 @@ class UDFResolverSuite extends AnyFunSuite with BeforeAndAfterEach {
   test("names are described in sorted order") {
     UDFResolver.UDFNames ++= Seq("b_udf", "a_udf")
     assert(describedNames() == Seq("a_udf", "b_udf"))
+  }
+
+  test("a plain-named udaf is described, as an aggregate") {
+    UDFResolver.UDAFNames += "myudaf_avg"
+    val described = UDFResolver.getFunctionDescriptions
+    assert(described.map(_._1.funcName) == Seq("myudaf_avg"))
+    // What DESCRIBE FUNCTION reports, and the only thing distinguishing the two builders here.
+    assert(described.head._2.getClassName == classOf[UserDefinedAggregateFunction].getName)
+  }
+
+  test("a dotted udaf name is skipped, it is a hive udaf class name") {
+    UDFResolver.UDAFNames += "test.org.apache.spark.sql.MyDoubleAvg"
+    assert(describedNames().isEmpty)
+  }
+
+  // Velox keeps scalar and aggregate registries separately, so one name can be both. A Spark
+  // function name cannot, and a call site gives nothing to disambiguate with.
+  test("a name loaded as both a udf and a udaf is skipped") {
+    UDFResolver.UDFNames += "ambiguous_kind"
+    UDFResolver.UDAFNames += "ambiguous_kind"
+    UDFResolver.UDFNames += "myudf_increment"
+    assert(describedNames() == Seq("myudf_increment"))
+  }
+
+  // The two names are distinct strings, so they survive as separate candidates and it is the
+  // case-insensitivity check rather than the both-kinds one that drops them. Either way neither
+  // is injected.
+  test("a udf and a udaf differing only in case are both skipped") {
+    UDFResolver.UDFNames += "Ambiguous_Kind"
+    UDFResolver.UDAFNames += "ambiguous_kind"
+    UDFResolver.UDFNames += "myudf_increment"
+    assert(describedNames() == Seq("myudf_increment"))
   }
 }
