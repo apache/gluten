@@ -47,7 +47,7 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
  * and equality is handled explicitly by `canEqual` and `equals` below.
  */
 @SuppressWarnings(Array("io.github.zhztheplayer.scalawarts.InheritFromCaseClass"))
-class InMemoryTableScanTransformer(
+class InMemoryTableScanExecTransformer(
     attrs: Seq[Attribute],
     preds: Seq[Expression],
     @transient rel: InMemoryRelation)
@@ -68,10 +68,10 @@ class InMemoryTableScanTransformer(
   // Case-class equality would make this node equal to the vanilla InMemoryTableScanExec it
   // replaces, and TreeNode.transform keeps the original node when the rule's result is equal to
   // it. Make the two classes unequal.
-  override def canEqual(other: Any): Boolean = other.isInstanceOf[InMemoryTableScanTransformer]
+  override def canEqual(other: Any): Boolean = other.isInstanceOf[InMemoryTableScanExecTransformer]
 
   override def equals(other: Any): Boolean = other match {
-    case o: InMemoryTableScanTransformer => super.equals(o)
+    case o: InMemoryTableScanExecTransformer => super.equals(o)
     case _ => false
   }
 
@@ -181,7 +181,7 @@ class InMemoryTableScanTransformer(
   override protected def doExecuteColumnar(): RDD[ColumnarBatch] = columnarInputRDDWithMetrics
 }
 
-object InMemoryTableScanTransformer {
-  def apply(scan: InMemoryTableScanExec): InMemoryTableScanTransformer =
-    new InMemoryTableScanTransformer(scan.attributes, scan.predicates, scan.relation)
+object InMemoryTableScanExecTransformer {
+  def apply(scan: InMemoryTableScanExec): InMemoryTableScanExecTransformer =
+    new InMemoryTableScanExecTransformer(scan.attributes, scan.predicates, scan.relation)
 }
