@@ -159,8 +159,7 @@ case class BroadcastHashJoinExecTransformer(
           case a: Attribute if buildOutputSet.contains(a) =>
             ConverterUtils.genColumnNameWithExprId(a)
         }.toArray
-        val propagates = SparkShimLoader.getSparkShims.isNullIntolerant(expr)
-        (cols, propagates)
+        (cols, BroadcastHashJoinFilter.isNullOnNullBuildColumn(expr, buildOutputSet))
       case None =>
         (Array.empty[String], false)
     }
@@ -251,6 +250,27 @@ case class BroadcastHashJoinExecTransformer(
   }
 }
 
+object BroadcastHashJoinFilter {
+
+  /**
+   * Whether `condition` is null when any build-side column it references is null. The native hash
+   * table build of an anti join then leaves out the build rows that are null in these columns,
+   * since they can't match.
+   */
+  def isNullOnNullBuildColumn(condition: Expression, buildOutput: AttributeSet): Boolean = {
+    val buildColumns = condition.references.filter(buildOutput.contains)
+    buildColumns.nonEmpty && buildColumns.subsetOf(nullPropagatingColumns(condition))
+  }
+
+  // The columns whose null makes `expr` null.
+  private def nullPropagatingColumns(expr: Expression): AttributeSet = expr match {
+    case a: Attribute => AttributeSet(a)
+    case e if SparkShimLoader.getSparkShims.isNullIntolerant(e) =>
+      AttributeSet(e.children.flatMap(nullPropagatingColumns(_)))
+    case _ => AttributeSet.empty
+  }
+}
+
 case class BroadcastHashJoinContext(
     buildSideJoinKeys: Seq[Expression],
     substraitJoinType: JoinRel.JoinType,
@@ -282,7 +302,7 @@ case class BroadcastHashJoinContext(
    */
   def hashTableBuildKey: HashTableBuildKey = {
     // An anti join with a null-intolerant filter leaves out the build rows that are null in the
-    // filter's build columns (HashTableBuilder::removeInputRowsForAntiJoinFilter). The columns
+    // filter's build columns (Velox HashBuild::removeInputRowsForAntiJoinFilter). The columns
     // are given by position: a reused exchange gives them other expression IDs.
     val nullFilteredColumns =
       if (

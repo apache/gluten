@@ -17,10 +17,18 @@
 package org.apache.spark.util
 
 import org.apache.spark.SparkConf
+import org.apache.spark.sql.internal.SQLConf
 
 import org.scalatest.funsuite.AnyFunSuite
 
 class SparkResourceUtilSuite extends AnyFunSuite {
+
+  test("getTotalCores falls back to default parallelism for other cluster managers") {
+    val conf = new SQLConf
+    conf.setConfString("spark.master", "mesos://host:5050")
+    conf.setConfString("spark.default.parallelism", "7")
+    assert(SparkResourceUtil.getTotalCores(conf) == 7)
+  }
 
   test("getTaskSlots floors at one when task cpus exceed executor cores") {
     // spark.task.cpus > executor cores is an invalid config that Spark rejects later, but Gluten
