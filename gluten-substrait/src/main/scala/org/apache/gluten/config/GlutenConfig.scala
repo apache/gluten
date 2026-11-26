@@ -887,7 +887,10 @@ object GlutenConfig extends ConfigRegistry {
 
   val GLUTEN_LIB_PATH =
     buildConf("spark.gluten.sql.columnar.libpath")
-      .doc("The gluten library path.")
+      .doc(
+        "The gluten library path. For the Velox backend, point it at the backend library; the " +
+          "core library named by spark.gluten.sql.columnar.libname is loaded first from the " +
+          "same directory.")
       .stringConf
       .createWithDefault("")
 
