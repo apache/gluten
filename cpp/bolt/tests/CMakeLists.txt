@@ -55,8 +55,13 @@ set(BOLT_TEST_COMMON_SRCS JsonToProtoConverter.cc FilePathGenerator.cc)
 
 # TODO: ORC is not well supported. add_bolt_test(orc_test SOURCES OrcTest.cc)
 add_bolt_test(
-  bolt_operators_test SOURCES BoltColumnarToRowTest.cc BoltRowToColumnarTest.cc
-  BoltColumnarBatchTest.cc BoltBatchResizerTest.cc)
+  bolt_operators_test
+  SOURCES
+  BoltColumnarToRowTest.cc
+  BoltRowToColumnarTest.cc
+  BoltColumnarBatchTest.cc
+  BoltBatchResizerTest.cc
+  BoltShuffleReaderTest.cc)
 add_bolt_test(
   bolt_plan_conversion_test
   SOURCES
