@@ -256,6 +256,7 @@ public class VeloxUniffleColumnarShuffleWriter<K, V> extends RssShuffleWriter<K,
       columnarDep.metrics().get("sortTime").get().add(splitResult.getSortTime());
       columnarDep.metrics().get("c2rTime").get().add(splitResult.getC2RTime());
     }
+    columnarDep.metrics().get("compressTime").get().add(splitResult.getTotalCompressTime());
 
     // bytesWritten is calculated in uniffle side: WriteBufferManager.createShuffleBlock
     // shuffleWriteMetrics.incBytesWritten(splitResult.getTotalBytesWritten());
