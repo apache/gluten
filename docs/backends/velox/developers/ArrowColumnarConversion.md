@@ -8,9 +8,9 @@ parent: /developer-overview/
 # Arrow Columnar Conversion in Gluten
 
 This document describes how Gluten converts data between rows, Spark columnar batches, Java Arrow
-batches, native Arrow batches and Velox batches today, and how to add a new operator that consumes
-or produces Arrow batches, using the Lance scan offload
-([#12958](https://github.com/apache/gluten/pull/12958)) as the example.
+batches, native Arrow batches and Velox batches today, how to add a new operator that consumes or
+produces Arrow batches, and how Gluten takes the Arrow batches of a vanilla Spark operator, as it
+does for the Lance scan.
 
 ## 1. Conventions
 
@@ -104,7 +104,7 @@ Composite paths that the planner builds from these edges:
 | Transition | Implementation | What happens to the data |
 |---|---|---|
 | `LoadArrowDataExec` (native → Java Arrow) | `ColumnarBatches.load` | The native batch exports Arrow C structs (`ColumnarBatchJniWrapper.exportToArrow`). For a Velox batch, `VeloxColumnarBatch::exportArrowArray` first flattens dictionary and constant vectors (`ensureFlattened`), then calls `velox::exportToArrow`. Java imports the arrays and wraps them as `RefCountedArrowColumnVector`s (`ArrowAbiUtil.importToSparkColumnarBatch` → `ArrowColumnVectors.toBatch`) |
-| `OffloadArrowDataExec` (Java Arrow → native) | `ColumnarBatches.offload` | Java exports the vectors as Arrow C structs (`ArrowAbiUtil.exportFromSparkColumnarBatch`), and native wraps them as an `ArrowCStructColumnarBatch` (`createWithArrowArray`). No copy. A batch of plain Spark `ArrowColumnVector`s (not reference-counted, e.g. from a Spark Arrow operator) is first adopted into a new Gluten batch (`ArrowColumnVectors.adopt`), and the input is left to its producer |
+| `OffloadArrowDataExec` (Java Arrow → native) | `ColumnarBatches.offload` | Java exports the vectors as Arrow C structs (`ArrowAbiUtil.exportFromSparkColumnarBatch`), and native wraps them as an `ArrowCStructColumnarBatch` (`createWithArrowArray`). No copy. A batch of plain Spark `ArrowColumnVector`s (not reference-counted, e.g. from a Spark Arrow operator) is first adopted into a new Gluten batch (`ArrowColumnVectors.adopt`), and the input is left to its producer. That new batch belongs to `OffloadArrowDataExec`, which closes it when the next batch is requested or at the end of the task |
 | `ArrowColumnarToVeloxColumnarExec` (native Arrow → Velox) | `VeloxColumnarBatches.toVeloxBatch` → `VeloxColumnarBatch::from` | `velox::importFromArrowAsOwner` builds a Velox `RowVector` that owns the Arrow buffers |
 | `RowToVeloxColumnarExec` / `VeloxColumnarToRowExec` | `backends-velox` | Converts between rows and Velox vectors (always copies) |
 | `ColumnarToRowExec` over Java Arrow | Spark | Reads rows through Spark's `ArrowColumnVector` getters |
@@ -330,7 +330,7 @@ end note
 | `ColumnarPartialProjectExec`, `ColumnarPartialGenerateExec` | Velox → Velox | Load to Java Arrow inside the operator, evaluate the Spark expressions row by row (`MutableProjection` / the generator), and write the results with Spark's `ArrowWriter` (`ArrowColumnVectors.fromRows`) |
 | `ColumnarRangeExec` | – → Java Arrow | Fills a `BigIntVector` from `ArrowColumnVectors.allocateRoot` and wraps it with `toBatch` |
 | `VeloxRDDScanTransformer`, `VeloxLocalTableScanTransformer` | – → Velox | Convert rows to Velox inside the operator, through the same JNI path as `RowToVeloxColumnarExec` (`toColumnarBatchIterator`) |
-| `LanceScanTransformer` (`-Plance`) | – → Java Arrow | Imports an Arrow C stream from lance-spark and wraps the vectors with `ArrowColumnVectors.wrap` |
+| Lance `BatchScanExec` (`-Plance`) | – → Java Arrow | A vanilla Spark scan whose lance-spark reader emits Spark `ArrowColumnVector`s; `VeloxLanceComponent.convFuncOverride` declares its batches as Java Arrow, and `offload` adopts them |
 
 Any other Spark operator that wants Arrow, such as `MapInArrowExec` or `FlatMapGroupsInArrowExec`,
 is a vanilla row-based plan to Gluten, so Gluten plans `VeloxColumnarToRow → Spark operator →
@@ -338,14 +338,23 @@ RowToVeloxColumnar` around it.
 
 ## 6. Adding an Arrow-based columnar operator
 
-The Lance scan offload ([#12958](https://github.com/apache/gluten/pull/12958)) is a complete example: a leaf operator that produces Java Arrow batches from an external Arrow C stream,
-and leaves every conversion to the planner. Its files:
+There are two ways for Arrow batches to reach Velox:
+
+- **A Gluten operator** that produces or consumes Java Arrow batches, such as `ColumnarRangeExec`.
+  Steps 1 to 6 below describe it.
+- **A vanilla Spark operator** whose batches are already Spark `ArrowColumnVector`s, such as a
+  DSv2 scan with an Arrow columnar reader. A component declares the operator's batch type as
+  `ArrowJavaBatchType` in `convFuncOverride`, and Gluten plans the same transitions around it,
+  with no Gluten operator. `ColumnarBatches.offload` adopts the vectors, which copies them when
+  they come from another allocator root. Check at planning time that Velox imports every column
+  type, and leave the operator as `VanillaBatchType` otherwise.
+
+The Lance scan is an example of the second kind. Its files:
 
 | File | Role |
 |---|---|
-| `gluten-lance/src/main/scala/.../execution/LanceScanTransformer.scala` | The operator and its RDD |
-| `gluten-lance/src/main/scala/.../extension/OffloadLanceScan.scala` | The rule that replaces `BatchScanExec` |
-| `backends-velox/src-lance/main/scala/.../component/VeloxLanceComponent.scala` | Registers the rule when lance-spark is on the classpath |
+| `backends-velox/src-lance/main/scala/.../extension/LanceArrowBatchScan.scala` | The rule that switches a Lance scan to Arrow batches (`LanceScan.withArrowBatches`), and the check that Velox imports their column types |
+| `backends-velox/src-lance/main/scala/.../component/VeloxLanceComponent.scala` | Registers the rule, and declares the scan's batches as `ArrowJavaBatchType` in `convFuncOverride`, when lance-spark is on the classpath |
 | `backends-velox/src-lance/main/resources/META-INF/gluten-components/...VeloxLanceComponent` | Makes the component discoverable |
 | `backends-velox/src-lance/test/scala/.../VeloxLanceSuite.scala` | Plan shape, results and fallback tests |
 | `pom.xml`, `gluten-lance/pom.xml`, `backends-velox/pom.xml` | `lance` / `lance-test` profiles that build the `gluten-lance` module and add `src-lance` |
@@ -390,18 +399,18 @@ own its data:
 - **Allocate from `ArrowBufferAllocators.contextInstance()`.** This keeps the memory accounted by
   Spark, and keeps the vectors in the allocator tree that `offload` expects.
 - **Don't emit vectors that a reader reuses.** An `ArrowReader` (e.g. from `Data.importArrayStream`)
-  loads every batch into the same `VectorSchemaRoot`. Lance transfers each vector out of the root
-  before wrapping it (`getTransferPair(allocator).transfer()`), which moves the buffers without a
-  copy and lets the batch outlive the reader.
-- **Close what you emit.** Lance wraps its iterator with
+  loads every batch into the same `VectorSchemaRoot`. Transfer each vector out of the root before
+  wrapping it (`getTransferPair(allocator).transfer()`), which moves the buffers without a copy and
+  lets the batch outlive the reader.
+- **Close what you emit.** Wrap your iterator with
   `Iterators.wrap(...).recyclePayload(_.close())`, like `ColumnarRangeExec`.
 - **Release native resources early and on task end.** Close a reader as soon as it's exhausted,
   and add a `TaskContext` completion listener as a safety net for `LIMIT` and failures. Make
   `close()` idempotent.
 - **Cross library boundaries with C structs only.** If the source has its own Arrow Java build,
   pass the address of the `ArrowArrayStream` / `ArrowArray` and wrap it with Gluten's Arrow
-  (`ArrowArrayStream.wrap(address)`). Lance does this so that lance-spark and Gluten can use
-  different Arrow versions.
+  (`ArrowArrayStream.wrap(address)`), so that the library and Gluten can use different Arrow
+  versions.
 
 For an operator with a child (e.g. a UDF operator), the input batch is valid only until the next
 call on the child iterator. If you keep it longer, for example until a result comes back, call
@@ -410,9 +419,10 @@ call on the child iterator. If you keep it longer, for example until a result co
 ### Step 3: Validate and fall back
 
 Only offload what the operator can run. Check unsupported cases at planning time, not at run time:
-once a node is offloaded, an exception fails the query instead of falling back. Lance keeps a scan
-on vanilla Spark when it has a pushed aggregation or a full-text query
-(`LanceScanTransformer.isExportable`). Put further checks in `doValidateInternal()`.
+once a node is offloaded, an exception fails the query instead of falling back. A Lance scan stays
+on vanilla Spark when lance-spark can't emit Arrow batches for it, as with a pushed aggregation, or
+Velox doesn't import one of its column types (`LanceArrowBatchScan.importsToVelox`). Put further
+checks in `doValidateInternal()`.
 
 ### Step 4: Write the offload rule
 
@@ -485,11 +495,8 @@ These change parts of the above once merged:
 - Gluten's task allocator is its own `RootAllocator`, so `adopt` copies vectors that Spark
   allocated (from `ArrowUtils.rootAllocator`). Allocating Gluten's task buffers as a child of
   Spark's root allocator would turn that copy into a move.
-- A DSv2 scan whose columnar reader emits Spark `ArrowColumnVector`s, such as an Arrow output mode
-  in lance-spark ([discussion](https://github.com/apache/gluten/pull/12958#issuecomment-6304202853))
-  or Spark's native data sources ([apache/spark#59313](https://github.com/apache/spark/pull/59313)),
-  can then be offloaded without a Gluten scan operator: a rule marks its `BatchScanExec` as
-  `ArrowJavaBatchType`, and `offload` adopts the batches.
+- Spark's native data sources ([apache/spark#59313](https://github.com/apache/spark/pull/59313))
+  emit Spark `ArrowColumnVector`s too, so they can be offloaded the way the Lance scan is.
 - SPARK-57468 ([apache/spark#59154](https://github.com/apache/spark/pull/59154)) adds conventions to
   Spark itself, with an `ArrowBatchType`. With the prototype bridge in
   [#13140](https://github.com/apache/gluten/issues/13140), `ArrowJavaBatchType` is bound to Spark's
