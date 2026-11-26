@@ -16,7 +16,6 @@
  */
 
 #include "RowVectorStream.h"
-#include "jni/VeloxJavaException.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "velox/exec/Driver.h"
 #include "velox/exec/Operator.h"
@@ -71,7 +70,7 @@ bool RowVectorStream::hasNext() {
         "ExternalStreamDataSource::next() is not called "
         "from a driver thread");
     SuspendedSection ss(driverThreadCtx->driverCtx()->driver);
-    hasNext = wrapJavaException([&]() { return iterator_->hasNext(); });
+    hasNext = iterator_->hasNext();
   }
   if (!hasNext) {
     finished_ = true;
@@ -93,7 +92,7 @@ std::shared_ptr<ColumnarBatch> RowVectorStream::nextInternal() {
         "ExternalStreamDataSource::next() is not called "
         "from a driver thread");
     SuspendedSection ss(driverThreadCtx->driverCtx()->driver);
-    cb = wrapJavaException([&]() { return iterator_->next(); });
+    cb = iterator_->next();
   }
   return cb;
 }
