@@ -32,6 +32,8 @@ import org.apache.gluten.extension.injector.GlutenInjector.LegacyInjector
 import org.apache.gluten.extension.joinagg.{ImplementJoinAggregate, PushAggregateThroughJoinBatch}
 import org.apache.gluten.sql.shims.SparkShimLoader
 
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.datasources.noop.GlutenNoopWriterRule
 import org.apache.spark.sql.expression.UDFResolver
@@ -46,6 +48,26 @@ class VeloxRuleApi extends RuleApi {
 }
 
 object VeloxRuleApi {
+  private val offloads =
+    Seq(OffloadOthers(), OffloadExchange(), OffloadJoin()).map(_.toStrcitRule())
+  private val validatorBuilder: GlutenConfig => Validator = conf =>
+    Validators.newValidator(conf, offloads)
+  private val rewrites =
+    Seq(
+      RewriteMultiChildrenCount,
+      RewriteJoin,
+      PullOutPreProject,
+      PullOutPostProject,
+      ProjectColumnPruning)
+  private val transformBuilder: GlutenConfig => Rule[SparkPlan] = conf =>
+    HeuristicTransform.WithRewrites(validatorBuilder(conf), rewrites, offloads)
+
+  // The pre-transform rules that tag fallbacks, followed by the transform.
+  private[gluten] def offloadDryRun(session: SparkSession): SparkPlan => SparkPlan = plan =>
+    Seq(
+      FallbackOnANSIMode(session),
+      FallbackMultiCodegens(session),
+      transformBuilder(GlutenConfig.get)).foldLeft(plan)((p, rule) => rule(p))
 
   /**
    * Registers Spark rules or extensions, except for Gluten's columnar rules that are supposed to be
@@ -98,26 +120,13 @@ object VeloxRuleApi {
     injector.injectPreTransform(c => FallbackOnANSIMode.apply(c.session))
     injector.injectPreTransform(c => FallbackMultiCodegens.apply(c.session))
     injector.injectPreTransform(c => MergeTwoPhasesHashBaseAggregate(c.session))
+    injector.injectPreTransform(
+      c => RewriteTypedAggregatorStages(offloadDryRun(c.session), c.caller.isAqe()))
     injector.injectPreTransform(_ => RewriteSubqueryBroadcast())
     injector.injectPreTransform(_ => EliminateRedundantGetTimestamp)
 
     // Legacy: The legacy transform rule.
-    val offloads = Seq(OffloadOthers(), OffloadExchange(), OffloadJoin()).map(_.toStrcitRule())
-    val validatorBuilder: GlutenConfig => Validator = conf =>
-      Validators.newValidator(conf, offloads)
-    val rewrites =
-      Seq(
-        RewriteMultiChildrenCount,
-        RewriteJoin,
-        PullOutPreProject,
-        PullOutPostProject,
-        ProjectColumnPruning)
-    injector.injectTransform(
-      c =>
-        HeuristicTransform.WithRewrites(
-          validatorBuilder(new GlutenConfig(c.sqlConf)),
-          rewrites,
-          offloads))
+    injector.injectTransform(c => transformBuilder(new GlutenConfig(c.sqlConf)))
 
     // Legacy: Post-transform rules.
     injector.injectPostTransform(c => AppendBatchResizeForShuffleInputAndOutput(c.caller.isAqe()))
