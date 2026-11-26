@@ -285,7 +285,8 @@ class VeloxColumnarCacheSuite extends VeloxWholeStageTransformerSuite with Adapt
         assert(m("numOutputRows") == 60175, m)
         assert(m("numCachedBatchesRead") > 0, m)
         assert(m("numInputBatches") == m("numCachedBatchesRead"), m)
-        assert(m("convertTime") > 0, m)
+        // convertTime is in milliseconds and may round to 0 on this small table.
+        assert(m("convertTime") >= 0, m)
       } finally {
         cached.unpersist()
       }

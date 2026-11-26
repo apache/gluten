@@ -61,7 +61,8 @@ class VeloxInMemoryTableScanExec(
     "cachedBytesRead" -> SQLMetrics.createSizeMetric(sparkContext, "cached bytes read"),
     "readTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "time to read cached batches"),
     "numInputBatches" -> SQLMetrics.createMetric(sparkContext, "number of columnar to row batches"),
-    "convertTime" -> SQLMetrics.createNanoTimingMetric(sparkContext, "time of columnar to row")
+    // VeloxColumnarToRowExec.toRowIterator adds milliseconds to convertTime.
+    "convertTime" -> SQLMetrics.createTimingMetric(sparkContext, "time of columnar to row")
   )
 
   // Case-class equality would make this node equal to the vanilla InMemoryTableScanExec it
