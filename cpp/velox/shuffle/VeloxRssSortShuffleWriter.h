@@ -69,9 +69,6 @@ class VeloxRssSortShuffleWriter final : public VeloxShuffleWriter {
   // Only for test.
   uint32_t getInputColumnBytes() const;
 
-  // Public for test.
-  void resetBatches();
-
  private:
   VeloxRssSortShuffleWriter(
       uint32_t numPartitions,
@@ -98,6 +95,8 @@ class VeloxRssSortShuffleWriter final : public VeloxShuffleWriter {
   void calculateBatchesSize(const facebook::velox::RowVectorPtr& vector);
 
   void deduplicateStrBuffer(const facebook::velox::VectorPtr& vector);
+
+  void resetBatches();
 
   int32_t splitBufferSize_;
   int64_t sortBufferMaxSize_;
