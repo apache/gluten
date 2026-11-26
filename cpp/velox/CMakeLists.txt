@@ -170,6 +170,7 @@ set(VELOX_SRCS
     jni/JniFileSystem.cc
     jni/JniUdf.cc
     jni/JniHashTable.cc
+    jni/VeloxInputIterator.cc
     memory/BufferOutputStream.cc
     memory/VeloxColumnarBatch.cc
     memory/VeloxMemoryManager.cc
