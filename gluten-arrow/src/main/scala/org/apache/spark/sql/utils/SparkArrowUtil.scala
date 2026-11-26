@@ -93,14 +93,35 @@ object SparkArrowUtil {
   }
 
   /** Maps field from Spark to Arrow. NOTE: timeZoneId required for TimestampType */
-  def toArrowField(name: String, dt: DataType, nullable: Boolean, timeZoneId: String): Field = {
+  def toArrowField(name: String, dt: DataType, nullable: Boolean, timeZoneId: String): Field =
+    toArrowField(name, dt, nullable, timeZoneId, normalizeFieldNames = true)
+
+  /**
+   * Maps field from Spark to Arrow. NOTE: timeZoneId required for TimestampType
+   *
+   * When `normalizeFieldNames` is true, the names of nested struct fields are normalized the way
+   * the Substrait plan normalizes them: lower case unless the analysis is case sensitive. A writer
+   * passes false, because the names it gets become the field names of the file it writes.
+   */
+  def toArrowField(
+      name: String,
+      dt: DataType,
+      nullable: Boolean,
+      timeZoneId: String,
+      normalizeFieldNames: Boolean): Field = {
     dt match {
       case ArrayType(elementType, containsNull) =>
         val fieldType = new FieldType(nullable, ArrowType.List.INSTANCE, null)
         new Field(
           name,
           fieldType,
-          Seq(toArrowField("element", elementType, containsNull, timeZoneId)).asJava)
+          Seq(
+            toArrowField(
+              "element",
+              elementType,
+              containsNull,
+              timeZoneId,
+              normalizeFieldNames)).asJava)
       case StructType(fields) =>
         val fieldType = new FieldType(nullable, ArrowType.Struct.INSTANCE, null)
         new Field(
@@ -110,10 +131,11 @@ object SparkArrowUtil {
             .map(
               field =>
                 toArrowField(
-                  normalizeColName(field.name),
+                  if (normalizeFieldNames) normalizeColName(field.name) else field.name,
                   field.dataType,
                   field.nullable,
-                  timeZoneId))
+                  timeZoneId,
+                  normalizeFieldNames))
             .toSeq
             .asJava
         )
@@ -130,7 +152,8 @@ object SparkArrowUtil {
                 .add(MapVector.KEY_NAME, keyType, nullable = false)
                 .add(MapVector.VALUE_NAME, valueType, nullable = valueContainsNull),
               nullable = false,
-              timeZoneId
+              timeZoneId,
+              normalizeFieldNames
             )).asJava
         )
       case dataType =>
@@ -162,9 +185,22 @@ object SparkArrowUtil {
   }
 
   /** Maps schema from Spark to Arrow. NOTE: timeZoneId required for TimestampType in StructType */
-  def toArrowSchema(schema: StructType, timeZoneId: String): Schema = {
+  def toArrowSchema(schema: StructType, timeZoneId: String): Schema =
+    toArrowSchema(schema, timeZoneId, normalizeFieldNames = true)
+
+  /**
+   * Maps schema from Spark to Arrow. NOTE: timeZoneId required for TimestampType in StructType
+   *
+   * Top-level field names are kept as they are. See [[toArrowField]] for `normalizeFieldNames`,
+   * which applies to the names of nested struct fields.
+   */
+  def toArrowSchema(
+      schema: StructType,
+      timeZoneId: String,
+      normalizeFieldNames: Boolean): Schema = {
     new Schema(schema.map {
-      field => toArrowField(field.name, field.dataType, field.nullable, timeZoneId)
+      field =>
+        toArrowField(field.name, field.dataType, field.nullable, timeZoneId, normalizeFieldNames)
     }.asJava)
   }
 
