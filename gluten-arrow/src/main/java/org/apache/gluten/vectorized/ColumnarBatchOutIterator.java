@@ -23,6 +23,7 @@ import org.apache.gluten.runtime.Runtime;
 import org.apache.gluten.runtime.RuntimeAware;
 
 import org.apache.spark.QueryContext;
+import org.apache.spark.SparkArrayIndexOutOfBoundsException;
 import org.apache.spark.SparkRuntimeException;
 import org.apache.spark.sql.execution.datasources.SchemaColumnConvertNotSupportedException;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
@@ -143,6 +144,14 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
   private static final Pattern CHAR_VARCHAR_LENGTH_EXCEEDED =
       Pattern.compile("Exceeds allowed length limitation: (\\d+)");
 
+  // Velox's bitmap_construct_agg uses a fixed 4096-byte bitmap, same as Spark's implementation.
+  private static final long BITMAP_NUM_BYTES = 4096;
+
+  // Velox's check failure message for an invalid bitmap_construct_agg position, e.g.
+  // "(-1 vs. 0) Bitmap position out of bounds". The first operand is the failing position.
+  private static final Pattern BITMAP_POSITION_OUT_OF_BOUNDS =
+      Pattern.compile("\\((-?\\d+) vs\\. -?\\d+\\)[^\\n]*Bitmap position out of bounds");
+
   /**
    * Translates a Velox type conversion error into a SchemaColumnConvertNotSupportedException.
    * Returns null if the message does not indicate a type conversion error.
@@ -174,6 +183,30 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
         "EXCEED_LIMIT_LENGTH", new Map.Map1<>("limit", limit), e, new QueryContext[0], "");
   }
 
+  /**
+   * Translates a Velox invalid bitmap position error from bitmap_construct_agg into Spark's
+   * INVALID_BITMAP_POSITION exception. Returns null if the message does not indicate an invalid
+   * bitmap position.
+   */
+  private static RuntimeException translateToInvalidBitmapPositionException(String msg) {
+    Matcher matcher = BITMAP_POSITION_OUT_OF_BOUNDS.matcher(msg);
+    if (!matcher.find()) {
+      return null;
+    }
+    // Builds the exception QueryExecutionErrors.invalidBitmapPositionError builds.
+    return new SparkArrayIndexOutOfBoundsException(
+        "INVALID_BITMAP_POSITION",
+        new Map.Map3<>(
+            "bitPosition",
+            matcher.group(1),
+            "bitmapNumBytes",
+            String.valueOf(BITMAP_NUM_BYTES),
+            "bitmapNumBits",
+            String.valueOf(BITMAP_NUM_BYTES * 8)),
+        new QueryContext[0],
+        "");
+  }
+
   @Override
   protected RuntimeException translateException(Exception e) {
     String msg = findFirstNonNullMessage(e);
@@ -186,6 +219,11 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
       RuntimeException lengthEx = translateToCharVarcharLengthException(msg, e);
       if (lengthEx != null) {
         return lengthEx;
+      }
+      RuntimeException bitmapEx = translateToInvalidBitmapPositionException(msg);
+      if (bitmapEx != null) {
+        bitmapEx.initCause(e);
+        return bitmapEx;
       }
     }
     // A GlutenException raised by native/nested code is already translated; return it
