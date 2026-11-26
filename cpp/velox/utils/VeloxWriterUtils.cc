@@ -36,7 +36,26 @@ using namespace facebook::velox::common;
 namespace {
 const int32_t kGzipWindowBits4k = 12;
 const int32_t kZSTDDefaultCompressionLevel = 3;
+
+// Marks the serde parameters of a write planned by Gluten. Other writes through the factory, such as Iceberg
+// writes, must keep Velox's defaults.
+const std::string kGlutenParquetWrite = "gluten.parquet.write";
 } // namespace
+
+std::unique_ptr<dwio::common::Writer> GlutenParquetWriterFactory::createWriter(
+    std::unique_ptr<dwio::common::FileSink> sink,
+    const std::shared_ptr<dwio::common::WriterOptions>& options) {
+  if (options->serdeParameters.count(kGlutenParquetWrite) > 0) {
+    auto sparkOptions = makeParquetWriteOption(
+        std::unordered_map<std::string, std::string>(options->serdeParameters.begin(), options->serdeParameters.end()));
+    if (options->formatSpecificOptions != nullptr) {
+      sparkOptions->formatSpecificOptions->merge(*options->formatSpecificOptions);
+    }
+    options->formatSpecificOptions = std::move(sparkOptions->formatSpecificOptions);
+    options->flushPolicyFactory = std::move(sparkOptions->flushPolicyFactory);
+  }
+  return ParquetWriterFactory::createWriter(std::move(sink), options);
+}
 
 std::shared_ptr<dwio::common::FormatSpecificOptions> GlutenParquetWriterFactory::createFormatOptions(
     const config::ConfigBase& connectorConfig,
@@ -154,6 +173,13 @@ std::shared_ptr<facebook::velox::dwio::common::WriterOptions> makeParquetWriteOp
   parquetOptions->sizeStatisticsLevel = parquet::arrow::SizeStatisticsLevel::kNone;
   writeOption->formatSpecificOptions = std::move(parquetOptions);
   return writeOption;
+}
+
+std::unordered_map<std::string, std::string> makeParquetWriteSerdeParameters(
+    const std::unordered_map<std::string, std::string>& sparkConfs) {
+  auto serdeParameters = sparkConfs;
+  serdeParameters[kGlutenParquetWrite] = "true";
+  return serdeParameters;
 }
 
 } // namespace gluten
