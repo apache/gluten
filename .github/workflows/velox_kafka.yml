@@ -161,7 +161,7 @@ jobs:
           retention-days: 1
 
   spark35:
-    needs: build-native
+    needs: [merge-upstream, build-native]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -241,13 +241,15 @@ jobs:
   spark35-stress:
     if: github.event_name == 'workflow_dispatch' && inputs.run_stress
     # Collect stress results even when the separate correctness job fails.
-    needs: build-native
+    needs: [merge-upstream, build-native]
     runs-on: ubuntu-22.04
     timeout-minutes: 120
     env:
       SPARK_LOCAL_IP: 127.0.0.1
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.merge-upstream.outputs.revision }}
       - name: Setup java
         run: |
           sudo apt-get update

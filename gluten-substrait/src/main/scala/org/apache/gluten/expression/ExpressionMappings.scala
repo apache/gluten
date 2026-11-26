@@ -367,19 +367,35 @@ object ExpressionMappings {
   ) ++ SparkShimLoader.getSparkShims.runtimeReplaceableExpressionMappings
 
   def blacklistExpressionMap: Map[Class[_], String] = {
-    partitionExpressionMapByBlacklist._1
+    partitionExpressionMapByBlacklist.blacklisted
   }
 
   def expressionsMap: Map[Class[_], String] = {
-    partitionExpressionMapByBlacklist._2
+    partitionExpressionMapByBlacklist.filtered
   }
 
-  private def partitionExpressionMapByBlacklist: (Map[Class[_], String], Map[Class[_], String]) = {
+  private case class BlacklistPartition(
+      blacklist: Set[String],
+      extraSigs: Seq[Sig],
+      blacklisted: Map[Class[_], String],
+      filtered: Map[Class[_], String])
+
+  // Reused while the blacklist and the backend's extra mappings stay the same.
+  @volatile private var lastPartition: BlacklistPartition = _
+
+  private def partitionExpressionMapByBlacklist: BlacklistPartition = {
     val blacklist = GlutenConfig.get.expressionBlacklist
-    val (blacklistedExpr, filteredExpr) = (defaultExpressionsMap ++ toMap(
-      BackendsApiManager.getSparkPlanExecApiInstance.extraExpressionMappings)).partition(
-      kv => blacklist.contains(kv._2))
-    (blacklistedExpr, filteredExpr)
+    val extraSigs = BackendsApiManager.getSparkPlanExecApiInstance.extraExpressionMappings
+    val last = lastPartition
+    if (last != null && last.blacklist == blacklist && last.extraSigs == extraSigs) {
+      last
+    } else {
+      val (blacklistedExpr, filteredExpr) =
+        (defaultExpressionsMap ++ toMap(extraSigs)).partition(kv => blacklist.contains(kv._2))
+      val partition = BlacklistPartition(blacklist, extraSigs, blacklistedExpr, filteredExpr)
+      lastPartition = partition
+      partition
+    }
   }
 
   // This is needed when generating function support status documentation for Spark built-in

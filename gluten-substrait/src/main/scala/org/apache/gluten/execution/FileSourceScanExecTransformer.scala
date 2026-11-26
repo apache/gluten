@@ -183,6 +183,11 @@ abstract class FileSourceScanExecTransformerBase(
   }
 
   override protected def doValidateInternal(): ValidationResult = {
+    val defaultsValidation = validateExistenceDefaults(requiredSchema)
+    if (!defaultsValidation.ok()) {
+      return defaultsValidation
+    }
+
     if (
       !metadataColumns.isEmpty && !BackendsApiManager.getSettings.supportNativeMetadataColumns()
     ) {
