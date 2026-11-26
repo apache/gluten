@@ -340,6 +340,7 @@ int64_t WholeStageResultIterator::spillFixedSize(int64_t size) {
   }
   if (spillStrategy_ == "auto") {
     int64_t remaining = size - shrunken;
+    VELOX_CHECK_GT(remaining, 0);
     LOG(INFO) << fmt::format("{} trying to request spill for {}.", logPrefix, velox::succinctBytes(remaining));
     auto mm = memoryManager_->getMemoryManager();
     uint64_t spilledOut = mm->arbitrator()->shrinkCapacity(remaining); // this conducts spill
