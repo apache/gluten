@@ -1046,6 +1046,7 @@ class ClickHouseTestSettings extends BackendTestSettings {
     .exclude("Stop task set if FileAlreadyExistsException was thrown")
     .excludeCH("Gluten - insert partition table")
     .excludeCH("Gluten - remove v1writes sort and project")
+    .excludeCH("Gluten - offload empty2null when v1writes fallback")
     .excludeCH("Gluten - remove v1writes sort")
     .excludeCH("Gluten - do not remove non-v1writes sort and project")
     .excludeCH(
