@@ -19,7 +19,7 @@ package org.apache.gluten.functions
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.ProjectExecTransformer
 
-import org.apache.spark.{SparkArithmeticException, SparkConf, SparkException, SparkThrowable}
+import org.apache.spark.{SparkConf, SparkException, SparkThrowable}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.util.SparkVersionUtil
 
@@ -127,7 +127,7 @@ class ArithmeticAnsiValidateSuite extends FunctionsValidateSuite {
           val e =
             intercept[Exception](sql("SELECT a / b AS c FROM div_tab DISTRIBUTE BY c").collect())
           if (SparkVersionUtil.gteSpark40) {
-            assert(e.isInstanceOf[SparkArithmeticException], e)
+            assert(e.isInstanceOf[ArithmeticException with SparkThrowable], e)
           }
           divideByZeroError(e)
         }
