@@ -17,6 +17,7 @@
 package org.apache.gluten.config
 
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.util.SparkVersionUtil
 
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -30,6 +31,17 @@ class VeloxConfigSuite extends AnyFunSuite {
 
   private val buildOncePerExecutor =
     VeloxConfig.VELOX_BROADCAST_BUILD_HASHTABLE_ONCE_PER_EXECUTOR.key
+
+  test("spark.shuffle.manager aliases resolve to SortShuffleManager") {
+    def supportsColumnarShuffle(manager: String): Boolean = {
+      val conf = new SQLConf
+      conf.setConfString("spark.shuffle.manager", manager)
+      new GlutenConfig(conf).shuffleManagerSupportsColumnarShuffle
+    }
+    Seq("sort", "tungsten-sort", "SORT").foreach(alias => assert(!supportsColumnarShuffle(alias)))
+    assert(supportsColumnarShuffle("org.apache.spark.shuffle.sort.ColumnarShuffleManager"))
+    intercept[ClassNotFoundException](supportsColumnarShuffle("unknown"))
+  }
 
   test("build hash table once per executor is enabled by default") {
     val conf = veloxConfig()
@@ -53,5 +65,30 @@ class VeloxConfigSuite extends AnyFunSuite {
 
   test("build hash table once per executor can still be disabled explicitly") {
     assert(!veloxConfig(buildOncePerExecutor -> "false").enableBroadcastBuildOncePerExecutor)
+  }
+
+  private val nullStructKey = "spark.sql.legacy.parquet.returnNullStructIfAllFieldsMissing"
+
+  test("native session conf passes Spark's default for returnNullStructIfAllFieldsMissing") {
+    // Spark 4.1 added the conf with default false (SPARK-53535). Earlier versions behave as if it
+    // is true.
+    val native = GlutenConfig.getNativeSessionConf("velox", Map.empty)
+    assert(native.get(nullStructKey).contains((!SparkVersionUtil.gteSpark41).toString))
+  }
+
+  test("returnNullStructIfAllFieldsMissing set in the session overrides the default") {
+    Seq("true", "false").foreach {
+      value =>
+        val native = GlutenConfig.getNativeSessionConf("velox", Map(nullStructKey -> value))
+        assert(native.get(nullStructKey).contains(value))
+    }
+  }
+
+  test("memory manager capacity ratio is passed to the native backend") {
+    val key = GlutenConfig.MEMORY_MANAGER_CAPACITY_RATIO.key
+    val conf = GlutenConfig.getNativeBackendConf("velox", Map(key -> "0.5"))
+    assert(conf.get(key) == "0.5")
+    // Not passed when unset, so the native default applies.
+    assert(!GlutenConfig.getNativeBackendConf("velox", Map.empty).containsKey(key))
   }
 }

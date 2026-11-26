@@ -27,7 +27,7 @@ import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Expression}
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.connector.read.streaming.SparkDataStream
-import org.apache.spark.sql.delta.{DeltaParquetFileFormat, NameMapping, NoMapping}
+import org.apache.spark.sql.delta.{DeltaParquetFileFormat, IdMapping, NameMapping, NoMapping}
 import org.apache.spark.sql.delta.files.{CdcAddFileIndex, TahoeFileIndex, TahoeRemoveFileIndex}
 import org.apache.spark.sql.delta.stats.PreparedDeltaFileIndex
 import org.apache.spark.sql.execution.FileSourceScanExec
@@ -94,6 +94,13 @@ case class DeltaScanTransformer(
   // files carry DVs. Normal (non-CDF) DV scans are unaffected: those apply the DV natively through
   // the per-file split-info handoff and never reach this guard.
   override protected def doValidateInternal(): ValidationResult = {
+    // Delta adds Parquet field IDs during the post-transform schema rewrite, after validation.
+    // Check the mapping mode here rather than relying on the generic scan's hasFieldIds check.
+    relation.fileFormat match {
+      case format: DeltaParquetFileFormat if format.columnMappingMode == IdMapping =>
+        return ValidationResult.failed(DeltaScanTransformer.ID_MAPPING_UNSUPPORTED)
+      case _ =>
+    }
     if (cdfFilesHaveDeletionVectors) {
       return ValidationResult.failed(DeltaScanTransformer.DELETION_VECTOR_UNSUPPORTED)
     }
@@ -282,6 +289,7 @@ case class DeltaScanTransformer(
 object DeltaScanTransformer {
 
   val DELETION_VECTOR_UNSUPPORTED = "Deletion vector is not supported in native."
+  val ID_MAPPING_UNSUPPORTED = "Delta column mapping mode 'id' is not supported in native scans."
 
   def apply(scanExec: FileSourceScanExec): DeltaScanTransformer = {
     new DeltaScanTransformer(

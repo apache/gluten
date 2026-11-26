@@ -27,6 +27,7 @@
 #include "JavaException.h"
 #include "compute/ProtobufUtils.h"
 #include "compute/Runtime.h"
+#include "jni/JniThreadExit.h"
 #include "memory/AllocationListener.h"
 #include "shuffle/ShuffleReader.h"
 #include "shuffle/rss/RssClient.h"
@@ -114,6 +115,11 @@ static inline void attachCurrentThreadAsDaemonOrThrow(JavaVM* vm, JNIEnv** out) 
     if (getEnvStat != JNI_OK) {
       throw gluten::GlutenException("Failed to reattach current thread to JVM.");
     }
+    // Detach when this native thread exits, so the JVM is not left with a JavaThread for a dead pthread.
+    // Only threads attached here are registered: Java-created threads, and native threads that Java
+    // or libhdfs attached first, never return JNI_EDETACHED above, so the JVM and libhdfs keep
+    // managing their detach.
+    gluten::detachCurrentThreadOnExit(vm);
     DLOG(INFO) << "Succeeded attaching current thread.";
     return;
   }
@@ -457,10 +463,8 @@ class SparkAllocationListener final : public gluten::AllocationListener {
 
  private:
   jclass javaReservationListenerClass(JNIEnv* env) {
-    static jclass javaReservationListenerClass = createGlobalClassReference(
-        env,
-        "Lorg/apache/gluten/memory/listener/"
-        "ReservationListener;");
+    static jclass javaReservationListenerClass =
+        createGlobalClassReference(env, "org/apache/gluten/memory/listener/ReservationListener");
     return javaReservationListenerClass;
   }
 
@@ -644,7 +648,7 @@ class SparkThreadInitializer final : public gluten::ThreadInitializer {
 
   jclass nativeThreadInitializerClass(JNIEnv* env) {
     static jclass javaInitializerClass =
-        createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/threads/NativeThreadInitializer;");
+        createGlobalClassReferenceOrError(env, "org/apache/gluten/threads/NativeThreadInitializer");
     return javaInitializerClass;
   }
 

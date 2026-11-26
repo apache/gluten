@@ -37,6 +37,9 @@ spark.executor.extraJavaOptions=-Dio.netty.tryReflectionSetAccessible=true
 
 Gluten requires Maven  3.6.3 or above.
 
+`./build/mvn` uses the Maven version pinned in `pom.xml`, downloading it if needed
+and retrying transient download failures.
+
 ### GCC
 
 Gluten requires GCC 11 or above.
