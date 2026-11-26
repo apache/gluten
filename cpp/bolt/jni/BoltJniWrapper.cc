@@ -91,21 +91,20 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
   initBoltJniUDF(env);
   gluten::OnHeapMemUsedHookSetter::init(vm);
 
-  infoCls = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/validate/NativePlanValidationInfo;");
+  infoCls = createGlobalClassReferenceOrError(env, "org/apache/gluten/validate/NativePlanValidationInfo");
   infoClsInitMethod = getMethodIdOrError(env, infoCls, "<init>", "(ILjava/lang/String;)V");
 
-  blockStripesClass =
-      createGlobalClassReferenceOrError(env, "Lorg/apache/spark/sql/execution/datasources/BlockStripes;");
+  blockStripesClass = createGlobalClassReferenceOrError(env, "org/apache/spark/sql/execution/datasources/BlockStripes");
   blockStripesConstructor = getMethodIdOrError(env, blockStripesClass, "<init>", "(J[J[II[[B)V");
 
   shuffleReaderMetricsClass =
-      createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/shuffle/BoltShuffleReaderMetrics;");
+      createGlobalClassReferenceOrError(env, "org/apache/gluten/shuffle/BoltShuffleReaderMetrics");
   shuffleReaderMetricsSetDecompressTime =
       getMethodIdOrError(env, shuffleReaderMetricsClass, "setDecompressTime", "(J)V");
   shuffleReaderMetricsSetDeserializeTime =
       getMethodIdOrError(env, shuffleReaderMetricsClass, "setDeserializeTime", "(J)V");
 
-  splitResultClass = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/shuffle/BoltSplitResult;");
+  splitResultClass = createGlobalClassReferenceOrError(env, "org/apache/gluten/shuffle/BoltSplitResult");
   splitResultConstructor = getMethodIdOrError(env, splitResultClass, "<init>", "(JJJJJJJJJJJJJJJJJ[J[J)V");
 
   DLOG(INFO) << "Loaded Bolt backend.";
@@ -770,7 +769,7 @@ Java_org_apache_gluten_vectorized_CelebornPartitionWriterJniWrapper_createPartit
   const auto ctx = getRuntime(env, wrapper);
 
   jclass celebornPartitionPusherClass =
-      createGlobalClassReferenceOrError(env, "Lorg/apache/spark/shuffle/CelebornPartitionPusher;");
+      createGlobalClassReferenceOrError(env, "org/apache/spark/shuffle/CelebornPartitionPusher");
   jmethodID celebornPushPartitionDataMethod =
       getMethodIdOrError(env, celebornPartitionPusherClass, "pushPartitionData", "(I[BI)I");
   std::shared_ptr<JavaRssClient> celebornClient =
@@ -814,7 +813,7 @@ Java_org_apache_gluten_vectorized_UnifflePartitionWriterJniWrapper_createPartiti
   const auto ctx = getRuntime(env, wrapper);
 
   jclass unifflePartitionPusherClass =
-      createGlobalClassReferenceOrError(env, "Lorg/apache/spark/shuffle/writer/PartitionPusher;");
+      createGlobalClassReferenceOrError(env, "org/apache/spark/shuffle/writer/PartitionPusher");
   jmethodID unifflePushPartitionDataMethod =
       getMethodIdOrError(env, unifflePartitionPusherClass, "pushPartitionData", "(I[BI)I");
   std::shared_ptr<JavaRssClient> uniffleClient =
@@ -1086,7 +1085,7 @@ JNIEXPORT void JNICALL Java_org_apache_gluten_shuffle_BoltShuffleWriterJniWrappe
     // Celeborn client use Celeborn Java API, so we need to pass the client to the C++ side.
     GLUTEN_CHECK(celebornPusher != nullptr, "Celeborn pusher cannot be null");
     jclass celebornPartitionPusherClass =
-        createGlobalClassReferenceOrError(env, "Lorg/apache/spark/shuffle/CelebornPartitionPusher;");
+        createGlobalClassReferenceOrError(env, "org/apache/spark/shuffle/CelebornPartitionPusher");
     jmethodID celebornPushPartitionDataMethod =
         getMethodIdOrError(env, celebornPartitionPusherClass, "pushPartitionData", "(I[BI)I");
     JavaVM* vm;

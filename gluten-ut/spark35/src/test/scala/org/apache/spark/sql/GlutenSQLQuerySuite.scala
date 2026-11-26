@@ -24,6 +24,8 @@ import org.apache.spark.SparkException
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
 import org.apache.spark.sql.internal.SQLConf
 
+import scala.concurrent.duration._
+
 class GlutenSQLQuerySuite extends SQLQuerySuite with GlutenSQLTestsTrait {
   import testImplicits._
 
@@ -178,6 +180,33 @@ class GlutenSQLQuerySuite extends SQLQuerySuite with GlutenSQLTestsTrait {
       assert(
         e.getMessage.contains(
           "Escape character must be followed by '%', '_' or the escape character itself"))
+    }
+  }
+
+  testGluten("rate source writes to console in append mode and reports sink rows") {
+    withTempDir {
+      checkpoint =>
+        val query = spark.readStream
+          .format("rate")
+          .option("rowsPerSecond", 10)
+          .load()
+          .writeStream
+          .format("console")
+          .outputMode("append")
+          .option("checkpointLocation", checkpoint.getCanonicalPath)
+          .start()
+        try {
+          val deadline = 30.seconds.fromNow
+          while (!query.recentProgress.exists(_.sink.numOutputRows > 0) && deadline.hasTimeLeft()) {
+            assert(!query.awaitTermination(100), "Rate query terminated before producing rows")
+          }
+          val progress = query.recentProgress.filter(_.durationMs.containsKey("addBatch"))
+          assert(progress.exists(_.sink.numOutputRows > 0), "Console sink reported no rows")
+          assert(progress.forall(_.sink.numOutputRows >= 0))
+          assert(query.exception.isEmpty)
+        } finally {
+          query.stop()
+        }
     }
   }
 

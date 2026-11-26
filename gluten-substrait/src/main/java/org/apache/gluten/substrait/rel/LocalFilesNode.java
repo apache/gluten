@@ -201,6 +201,9 @@ public class LocalFilesNode implements SplitInfo {
     if (paths.size() != starts.size() || paths.size() != lengths.size()) {
       throw new RuntimeException("Invalid parameters.");
     }
+    // Every file in the split has the same schema, so build it once.
+    final NamedStruct fileNamedStruct =
+        fileSchema != null && !paths.isEmpty() ? buildNamedStruct() : null;
     for (int i = 0; i < paths.size(); i++) {
       ReadRel.LocalFiles.FileOrFiles.Builder fileBuilder =
           ReadRel.LocalFiles.FileOrFiles.newBuilder();
@@ -249,9 +252,8 @@ public class LocalFilesNode implements SplitInfo {
         fileBuilder.addMetadataColumns(mcBuilder.build());
       }
 
-      if (fileSchema != null) {
-        NamedStruct namedStruct = buildNamedStruct();
-        fileBuilder.setSchema(namedStruct);
+      if (fileNamedStruct != null) {
+        fileBuilder.setSchema(fileNamedStruct);
       }
 
       if (!otherMetadataColumns.isEmpty()) {

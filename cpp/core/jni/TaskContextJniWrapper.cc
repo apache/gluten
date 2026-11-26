@@ -26,7 +26,7 @@ int64_t getCurrentSparkTaskAttemptId() {
   attachCurrentThreadAsDaemonOrThrow(vm, &env);
 
   static jclass taskContextJniWrapperClass =
-      createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/task/TaskContextJniWrapper;");
+      createGlobalClassReferenceOrError(env, "org/apache/gluten/task/TaskContextJniWrapper");
   static jmethodID currentTaskAttemptIdMethod =
       getStaticMethodIdOrError(env, taskContextJniWrapperClass, "currentTaskAttemptId", "()J");
 
