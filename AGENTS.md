@@ -109,7 +109,7 @@ Do not commit code that fails CI checks.
 ## Testing
 
 If ClickHouse CI returns HTTP 403 to an unauthenticated request, follow the
-login instructions linked from [ClickHouse Backend CI](CONTRIBUTING.md#clickhouse-backend-ci)
+login instructions in [New CI System](docs/backends/clickhouse/get-started/ClickHouse.md#new-ci-system)
 and retry the request before reporting that access is unavailable. Do not copy
 credentials into logs, replies, or other instructions.
 
