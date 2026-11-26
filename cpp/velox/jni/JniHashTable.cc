@@ -34,8 +34,8 @@ namespace gluten {
 
 void JniHashTableContext::initialize(JNIEnv* env, JavaVM* javaVm) {
   vm_ = javaVm;
-  const char* classSig = "Lorg/apache/gluten/execution/VeloxBroadcastBuildSideCache;";
-  jniVeloxBroadcastBuildSideCache_ = createGlobalClassReferenceOrError(env, classSig);
+  const char* className = "org/apache/gluten/execution/VeloxBroadcastBuildSideCache";
+  jniVeloxBroadcastBuildSideCache_ = createGlobalClassReferenceOrError(env, className);
   jniGet_ = getStaticMethodId(env, jniVeloxBroadcastBuildSideCache_, "get", "(Ljava/lang/String;)J");
   jniTaskCacheKey_ = getStaticMethodId(
       env, jniVeloxBroadcastBuildSideCache_, "taskCacheKey", "(Ljava/lang/String;)Ljava/lang/String;");

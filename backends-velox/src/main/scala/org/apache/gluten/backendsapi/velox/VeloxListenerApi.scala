@@ -20,6 +20,7 @@ import org.apache.gluten.backendsapi.ListenerApi
 import org.apache.gluten.backendsapi.arrow.ArrowBatchTypes.{ArrowJavaBatchType, ArrowNativeBatchType}
 import org.apache.gluten.config.{GlutenConfig, GlutenCoreConfig, VeloxConfig}
 import org.apache.gluten.config.VeloxConfig._
+import org.apache.gluten.exception.GlutenException
 import org.apache.gluten.execution.VeloxBroadcastBuildSideCache
 import org.apache.gluten.execution.datasource.GlutenFormatFactory
 import org.apache.gluten.expression.UDFMappings
@@ -51,6 +52,7 @@ import org.apache.spark.util.{SparkDirectoryUtil, SparkResourceUtil, SparkShutdo
 
 import org.apache.commons.lang3.StringUtils
 
+import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -227,7 +229,8 @@ class VeloxListenerApi extends ListenerApi with Logging {
       loader.load(s"$platformLibDir/${System.mapLibraryName(VeloxBackend.BACKEND_NAME)}")
     } else {
       // Path based load. Ignore all other loaderes.
-      JniLibLoader.loadFromPath(libPath)
+      checkedLibPathsToLoad(libPath, conf.get(GlutenConfig.GLUTEN_LIB_NAME))
+        .foreach(JniLibLoader.loadFromPath)
     }
 
     // Initial native backend with configurations.
@@ -277,6 +280,31 @@ object VeloxListenerApi {
     }
     val arch = System.getProperty("os.arch")
     s"$osName/$arch"
+  }
+
+  /**
+   * Libraries to load when `spark.gluten.sql.columnar.libpath` points at the backend library. The
+   * backend library links against the core library, but the JVM runs `JNI_OnLoad` only for
+   * libraries passed to `System.load`, so the core library in the same directory is loaded first.
+   */
+  def libPathsToLoad(libPath: String, baseLibName: String): Seq[String] = {
+    val backendLib = new File(libPath)
+    val coreLib = new File(backendLib.getParentFile, System.mapLibraryName(baseLibName))
+    if (coreLib.getName == backendLib.getName) {
+      Seq(libPath)
+    } else {
+      Seq(coreLib.getPath, libPath)
+    }
+  }
+
+  def checkedLibPathsToLoad(libPath: String, baseLibName: String): Seq[String] = {
+    val paths = libPathsToLoad(libPath, baseLibName)
+    if (!new File(paths.head).isFile) {
+      throw new GlutenException(
+        s"${GlutenConfig.GLUTEN_LIB_PATH.key} is $libPath, so the core library ${paths.head} " +
+          s"(from ${GlutenConfig.GLUTEN_LIB_NAME.key}) must be in the same directory")
+    }
+    paths
   }
 
   private def inLocalMode(conf: SparkConf): Boolean = {

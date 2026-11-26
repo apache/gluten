@@ -16,6 +16,73 @@
  */
 #include "JniError.h"
 
+#include <algorithm>
+#include <vector>
+
+namespace gluten {
+namespace {
+struct UnwrapperRegistry {
+  std::mutex mutex;
+  std::vector<ExceptionUnwrapper> unwrappers;
+};
+
+UnwrapperRegistry& unwrapperRegistry() {
+  static UnwrapperRegistry registry;
+  return registry;
+}
+
+std::exception_ptr unwrapBackendException(const std::exception& error) noexcept {
+  auto& registry = unwrapperRegistry();
+  // Unregistering a backend must wait until its callback has returned.
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  for (auto unwrap : registry.unwrappers) {
+    if (auto cause = unwrap(error)) {
+      return cause;
+    }
+  }
+  return nullptr;
+}
+} // namespace
+
+JniExceptionUnwrapperRegistration::JniExceptionUnwrapperRegistration(ExceptionUnwrapper unwrap) : unwrap_(unwrap) {
+  GLUTEN_CHECK(unwrap != nullptr, "JNI exception unwrapper must not be null");
+  auto& registry = unwrapperRegistry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  auto& entries = registry.unwrappers;
+  GLUTEN_CHECK(
+      std::find(entries.begin(), entries.end(), unwrap) == entries.end(), "JNI exception unwrapper already registered");
+  entries.push_back(unwrap);
+}
+
+JniExceptionUnwrapperRegistration::~JniExceptionUnwrapperRegistration() {
+  auto& registry = unwrapperRegistry();
+  std::lock_guard<std::mutex> lock(registry.mutex);
+  auto& entries = registry.unwrappers;
+  const auto it = std::find(entries.begin(), entries.end(), unwrap_);
+  if (it == entries.end()) {
+    LOG(ERROR) << "Cannot unregister JNI exception unwrapper: no matching registration";
+    return;
+  }
+  entries.erase(it);
+}
+
+void handleJniException(JNIEnv* env, const std::exception& error) {
+  if (env->ExceptionCheck()) {
+    return;
+  }
+  const auto cause = findJavaExceptionCause(error, unwrapBackendException);
+  if (cause) {
+    cause->exception.throwToJava(env);
+  }
+  if (!env->ExceptionCheck()) {
+    const char* message = cause && cause->viaBackend ? cause->exception.what() : error.what();
+    if (env->ThrowNew(getJniErrorState()->glutenExceptionClass(), message) != JNI_OK) {
+      LOG(ERROR) << "Unable to throw GlutenException at JNI boundary";
+    }
+  }
+}
+} // namespace gluten
+
 void gluten::JniErrorState::ensureInitialized(JNIEnv* env) {
   std::lock_guard<std::mutex> lockGuard(mtx_);
   if (initialized_) {
@@ -47,12 +114,12 @@ jclass gluten::JniErrorState::glutenExceptionClass() {
 }
 
 void gluten::JniErrorState::initialize(JNIEnv* env) {
-  glutenExceptionClass_ = createGlobalClassReference(env, "Lorg/apache/gluten/exception/GlutenException;");
-  ioExceptionClass_ = createGlobalClassReference(env, "Ljava/io/IOException;");
-  runtimeExceptionClass_ = createGlobalClassReference(env, "Ljava/lang/RuntimeException;");
-  unsupportedOperationExceptionClass_ = createGlobalClassReference(env, "Ljava/lang/UnsupportedOperationException;");
-  illegalAccessExceptionClass_ = createGlobalClassReference(env, "Ljava/lang/IllegalAccessException;");
-  illegalArgumentExceptionClass_ = createGlobalClassReference(env, "Ljava/lang/IllegalArgumentException;");
+  glutenExceptionClass_ = createGlobalClassReference(env, "org/apache/gluten/exception/GlutenException");
+  ioExceptionClass_ = createGlobalClassReference(env, "java/io/IOException");
+  runtimeExceptionClass_ = createGlobalClassReference(env, "java/lang/RuntimeException");
+  unsupportedOperationExceptionClass_ = createGlobalClassReference(env, "java/lang/UnsupportedOperationException");
+  illegalAccessExceptionClass_ = createGlobalClassReference(env, "java/lang/IllegalAccessException");
+  illegalArgumentExceptionClass_ = createGlobalClassReference(env, "java/lang/IllegalArgumentException");
   JavaVM* vm;
   if (env->GetJavaVM(&vm) != JNI_OK) {
     throw gluten::GlutenException("Unable to get JavaVM instance");

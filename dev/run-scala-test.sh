@@ -177,6 +177,7 @@ declare -A MODULE_MAP=(
   # Data lake modules
   ["gluten-delta"]="gluten-delta:scala"
   ["gluten-iceberg"]="gluten-iceberg:scala"
+  ["gluten-lance"]="gluten-lance:scala"
   ["gluten-hudi"]="gluten-hudi:scala"
   ["gluten-paimon"]="gluten-paimon:scala"
 

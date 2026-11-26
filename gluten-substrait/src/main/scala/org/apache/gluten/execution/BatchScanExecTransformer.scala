@@ -172,6 +172,15 @@ abstract class BatchScanExecTransformerBase(
       return ValidationResult.failed(s"Unsupported scan $scan")
     }
 
+    scan match {
+      case fileScan: FileScan =>
+        val defaultsValidation = validateExistenceDefaults(fileScan.readDataSchema)
+        if (!defaultsValidation.ok()) {
+          return defaultsValidation
+        }
+      case _ =>
+    }
+
     if (pushedAggregate.nonEmpty) {
       return ValidationResult.failed(s"Unsupported aggregation push down for $scan.")
     }

@@ -143,6 +143,10 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
   private static final Pattern CHAR_VARCHAR_LENGTH_EXCEEDED =
       Pattern.compile("Exceeds allowed length limitation: (\\d+)");
 
+  // Velox's message when assert_not_null finds a null in a non-nullable field.
+  private static final Pattern NOT_NULL_ASSERT_VIOLATED =
+      Pattern.compile("^Reason: Null value appeared in non-nullable field$", Pattern.MULTILINE);
+
   /**
    * Translates a Velox type conversion error into a SchemaColumnConvertNotSupportedException.
    * Returns null if the message does not indicate a type conversion error.
@@ -174,6 +178,25 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
         "EXCEED_LIMIT_LENGTH", new Map.Map1<>("limit", limit), e, new QueryContext[0], "");
   }
 
+  /**
+   * Translates a Velox assert_not_null failure into the exception Spark throws for a null in a
+   * non-nullable field. Returns null if the message does not indicate one.
+   */
+  private static RuntimeException translateToNotNullAssertViolation(String msg, Exception e) {
+    // Spark 3.x throws a NullPointerException whose message names the field instead.
+    if (!SparkVersionUtil.gteSpark40() || !NOT_NULL_ASSERT_VIOLATED.matcher(msg).find()) {
+      return null;
+    }
+    // Builds the exception QueryExecutionErrors.notNullAssertViolation builds. Velox's message
+    // does not name the field, so the path is "\n\n", the value Spark uses when it has none.
+    return new SparkRuntimeException(
+        "NOT_NULL_ASSERT_VIOLATION",
+        new Map.Map1<>("walkedTypePath", "\n\n"),
+        e,
+        new QueryContext[0],
+        "");
+  }
+
   @Override
   protected RuntimeException translateException(Exception e) {
     String msg = findFirstNonNullMessage(e);
@@ -186,6 +209,10 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
       RuntimeException lengthEx = translateToCharVarcharLengthException(msg, e);
       if (lengthEx != null) {
         return lengthEx;
+      }
+      RuntimeException notNullEx = translateToNotNullAssertViolation(msg, e);
+      if (notNullEx != null) {
+        return notNullEx;
       }
     }
     // A GlutenException raised by native/nested code is already translated; return it

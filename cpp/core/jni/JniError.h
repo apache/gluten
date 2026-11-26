@@ -30,32 +30,30 @@
 #endif
 
 #ifndef JNI_METHOD_END
-#define JNI_METHOD_END(fallback_expr)                                                            \
-  }                                                                                              \
-  catch (const gluten::JavaException& e) {                                                       \
-    if (!env->ExceptionCheck()) {                                                                \
-      e.throwToJava(env);                                                                        \
-    }                                                                                            \
-    if (!env->ExceptionCheck() &&                                                                \
-        env->ThrowNew(gluten::getJniErrorState()->glutenExceptionClass(), e.what()) != JNI_OK) { \
-      LOG(ERROR) << "Unable to throw GlutenException at JNI boundary";                           \
-    }                                                                                            \
-    return fallback_expr;                                                                        \
-  }                                                                                              \
-  catch (const std::exception& e) {                                                              \
-    if (!env->ExceptionCheck()) {                                                                \
-      gluten::JavaException::throwNestedToJava(env, e);                                          \
-    }                                                                                            \
-    if (!env->ExceptionCheck() &&                                                                \
-        env->ThrowNew(gluten::getJniErrorState()->glutenExceptionClass(), e.what()) != JNI_OK) { \
-      LOG(ERROR) << "Unable to throw GlutenException at JNI boundary";                           \
-    }                                                                                            \
-    return fallback_expr;                                                                        \
+#define JNI_METHOD_END(fallback_expr)   \
+  }                                     \
+  catch (const std::exception& e) {     \
+    gluten::handleJniException(env, e); \
+    return fallback_expr;               \
   }
-// macro ended
 #endif
 
 namespace gluten {
+
+// Register for the lifetime of the backend library. Called under the registry lock, the
+// callback must only inspect its own wrapper and return its immediate cause (otherwise nullptr).
+class JniExceptionUnwrapperRegistration final {
+ public:
+  explicit JniExceptionUnwrapperRegistration(ExceptionUnwrapper unwrap);
+  ~JniExceptionUnwrapperRegistration();
+  JniExceptionUnwrapperRegistration(const JniExceptionUnwrapperRegistration&) = delete;
+  JniExceptionUnwrapperRegistration& operator=(const JniExceptionUnwrapperRegistration&) = delete;
+
+ private:
+  ExceptionUnwrapper unwrap_;
+};
+
+void handleJniException(JNIEnv* env, const std::exception& error);
 
 class JniErrorState {
  public:
