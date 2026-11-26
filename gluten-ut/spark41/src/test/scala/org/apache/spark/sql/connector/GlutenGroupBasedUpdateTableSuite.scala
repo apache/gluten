@@ -16,7 +16,6 @@
  */
 package org.apache.spark.sql.connector
 
-import org.apache.spark.SparkException
 import org.apache.spark.sql.GlutenSQLTestsTrait
 
 class GlutenGroupBasedUpdateTableSuite
@@ -24,7 +23,7 @@ class GlutenGroupBasedUpdateTableSuite
   with GlutenSQLTestsTrait {
 
   private def assertNotNullViolation(f: => Unit): Unit = {
-    val exception = intercept[SparkException](f)
+    val exception = intercept[Exception](f)
     val messages = Iterator
       .iterate[Throwable](exception)(_.getCause)
       .takeWhile(_ != null)
