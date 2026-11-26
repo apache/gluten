@@ -4,6 +4,10 @@ Entry point for AI coding agents and new contributors. Detailed build, test
 and contribution docs are linked below — this file only captures the rules
 that are easy to get wrong.
 
+At the start of every repository session, read [CONTRIBUTING.md](CONTRIBUTING.md)
+and follow its task-relevant linked guidance before making changes or
+investigating CI failures. This file supplements, not replaces, that guide.
+
 ## Developer Documentation
 
 - [New to Gluten](docs/developers/NewToGluten.md)
@@ -103,6 +107,11 @@ You MUST run the following checks and fix any issues before committing.
 Do not commit code that fails CI checks.
 
 ## Testing
+
+If ClickHouse CI returns HTTP 403 to an unauthenticated request, follow the
+login instructions in [New CI System](docs/backends/clickhouse/get-started/ClickHouse.md#new-ci-system)
+and retry the request before reporting that access is unavailable. Do not copy
+credentials into logs, replies, or other instructions.
 
 Add at least one unit test (under `gluten-ut/`) for any fix or feature not
 covered by existing Spark UTs.
