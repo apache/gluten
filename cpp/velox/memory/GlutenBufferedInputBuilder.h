@@ -46,7 +46,11 @@ class GlutenBufferedInputBuilder : public facebook::velox::connector::BufferedIn
           std::move(ioStats),
           executor,
           readerOpts,
-          fileReadOps);
+          facebook::velox::FileIoContext{
+              .fileOpts = fileReadOps,
+              .cacheable = readerOpts.cacheable(),
+              .pool = &readerOpts.memoryPool(),
+          });
     }
     return std::make_unique<GlutenDirectBufferedInput>(
         fileHandle.file,
@@ -58,7 +62,10 @@ class GlutenBufferedInputBuilder : public facebook::velox::connector::BufferedIn
         std::move(ioStats),
         executor,
         readerOpts,
-        fileReadOps);
+        facebook::velox::FileIoContext{
+            .fileOpts = fileReadOps,
+            .pool = &readerOpts.memoryPool(),
+        });
   }
 };
 
