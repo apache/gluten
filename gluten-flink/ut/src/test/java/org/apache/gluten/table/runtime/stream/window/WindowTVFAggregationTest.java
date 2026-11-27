@@ -268,17 +268,27 @@ class WindowTVFAggregationTest extends GlutenStreamingTestBase {
   }
 
   @Test
-  void testSessionRejectedAtTranslation() {
-    createBoundedSource("srcSession", SCHEMA, Arrays.asList(Row.of(1, 10L, "2026-01-01 00:00:01")));
-    String sessionQuery =
+  void testEventTimeSessionMerge() {
+    createBoundedSource(
+        "srcSession",
+        SCHEMA,
+        Arrays.asList(
+            Row.of(1, 10L, "2026-01-01 00:00:01"),
+            Row.of(1, 20L, "2026-01-01 00:00:01.5"),
+            Row.of(1, 30L, "2026-01-01 00:00:06")));
+    String query =
         "SELECT k, window_start, window_end, COUNT(*), SUM(price) FROM "
             + "TABLE(SESSION(TABLE srcSession PARTITION BY k, DESCRIPTOR(ts), "
-            + "INTERVAL '5' SECOND)) "
+            + "INTERVAL '2' SECOND)) "
             + "GROUP BY k, window_start, window_end";
-    TableException e = assertThrows(TableException.class, () -> runQuery(sessionQuery));
-    assertTrue(
-        e.getMessage().contains("SESSION"),
-        "expected the explicit SESSION rejection, got: " + e.getMessage());
+    // Rows 1.5s apart merge into one session [1, 3.5); the 6s row is 2.5s later -> own session
+    // [6, 8), fired by the end-of-input watermark.
+    assertThat(runQuerySorted(query))
+        .isEqualTo(
+            sorted(
+                Arrays.asList(
+                    "+I[1, 2026-01-01T00:00:01.000, 2026-01-01T00:00:03.500, 2, 30]",
+                    "+I[1, 2026-01-01T00:00:06.000, 2026-01-01T00:00:08.000, 1, 30]")));
   }
 
   @Test

@@ -179,17 +179,19 @@ public class StreamExecWindowAggregate extends StreamExecWindowAggregateBase {
       throw new TableException(
           "GFV window TVF aggregation does not support update-stream input yet (needRetraction=true, L2)");
     }
-    // Window-type split (review follow-up): TUMBLE is native in this PR;
-    // HOP / SESSION / CUMULATE land in follow-up PRs. Reject at
+    // Window-type split (review follow-up): TUMBLE / SESSION are native
+    // in this PR stack (the native SESSION operator merges per-row
+    // [ts, ts+gap) covers through the persistent mapping, Flink
+    // MergingWindowSet); HOP / CUMULATE land in follow-up PRs. Reject at
     // translation time so the unsupported window types fall back loudly
-    // instead of silently running the TUMBLE math.
+    // instead of silently running the wrong window math.
     {
       int windowType = WindowUtils.extractWindowParameters(windowing).f4;
-      if (windowType != 1 /* TUMBLE, velox WindowType enum */) {
+      if (windowType != 1 /* TUMBLE */ && windowType != 2 /* SESSION */) {
         throw new TableException(
-            "GFV window TVF aggregation supports TUMBLE windows in this PR; "
-                + "HOP / SESSION / CUMULATE and the two-stage local-global split are "
-                + "planned follow-up PRs");
+            "GFV window TVF aggregation supports TUMBLE / SESSION windows in "
+                + "this PR stack; HOP / CUMULATE and the two-stage local-global split "
+                + "are planned follow-up PRs");
       }
     }
     final ExecEdge inputEdge = getInputEdges().get(0);
