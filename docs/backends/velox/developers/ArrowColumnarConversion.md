@@ -132,6 +132,14 @@ Composite paths that the planner builds from these edges:
   default, `false`.
 - Java Arrow memory comes from `ArrowBufferAllocators.contextInstance()`, Gluten's per-task
   allocator, whose listener reports to Spark's memory manager.
+- Operators that load a batch only to read it and close it themselves (`ColumnarPartialProjectExec`,
+  `ColumnarPartialGenerateExec`, `VeloxColumnarWriteFilesExec`) load it into
+  `ArrowBufferAllocators.contextUntrackedInstance()` instead: a separate per-task root allocator
+  whose listener doesn't reserve Spark memory, because the imported buffers stay reserved by the
+  native batch (see the release note below). It's a separate root rather than a child of the task
+  allocator, because Arrow repays a buffer through the listener of the allocator that owns it
+  last. So these batches can't be mixed with vectors of the task allocator, and `LoadArrowDataExec`,
+  whose batches leave the operator, still loads into the task allocator.
 
 ## 4. Example: a Velox column through an Arrow UDF
 
