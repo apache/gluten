@@ -825,4 +825,60 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
       assert(ex.getErrorClass == "_LEGACY_ERROR_TEMP_2249")
     }
   }
+
+  test("joins that reuse a broadcast but filter nulls differently get their own hash table") {
+    withTempView("probe", "build") {
+      withTempPath {
+        dir =>
+          Seq((1, 5), (2, 1), (3, 7), (4, 2), (5, 9), (6, 0), (7, 4))
+            .toDF("k", "x")
+            .write
+            .parquet(s"$dir/probe")
+          Seq[(Int, Option[Int])](
+            (1, Some(3)),
+            (1, None),
+            (2, None),
+            (3, Some(8)),
+            (4, Some(1)),
+            (5, None),
+            (8, Some(2)))
+            .toDF("k", "y")
+            .write
+            .parquet(s"$dir/build")
+          spark.read.parquet(s"$dir/probe").createOrReplaceTempView("probe")
+          spark.read.parquet(s"$dir/build").createOrReplaceTempView("build")
+          // This anti join's filter is null-intolerant, so its hash table leaves out the build
+          // rows whose y is null. The other join's filter is true for them, so it needs them.
+          val nullDropping =
+            "SELECT 'a' t, k, x FROM probe WHERE NOT EXISTS " +
+              "(SELECT 1 FROM build WHERE probe.k = build.k AND probe.x > build.y)"
+          val nullDroppingRows = Seq((2, 1), (3, 7), (5, 9), (6, 0), (7, 4))
+          Seq(
+            "NOT EXISTS" -> Seq((3, 7), (6, 0), (7, 4)),
+            "EXISTS" -> Seq((1, 5), (2, 1), (4, 2), (5, 9))
+          ).foreach {
+            case (predicate, rows) =>
+              val nullKeeping =
+                s"SELECT 'b' t, k, x FROM probe WHERE $predicate (SELECT 1 FROM build " +
+                  "WHERE probe.k = build.k AND (probe.x > build.y OR build.y IS NULL))"
+              val expected = nullDroppingRows.map { case (k, x) => Row("a", k, x) } ++
+                rows.map { case (k, x) => Row("b", k, x) }
+              // Which join builds the shared hash table first depends on the order they run.
+              Seq(s"$nullDropping UNION ALL $nullKeeping", s"$nullKeeping UNION ALL $nullDropping")
+                .foreach {
+                  query =>
+                    val df = spark.sql(query)
+                    checkAnswer(df, expected)
+                    val plan = df.queryExecution.executedPlan
+                    assert(
+                      collect(plan) { case j: BroadcastHashJoinExecTransformer => j }.size == 2,
+                      plan)
+                    assert(
+                      collectWithSubqueries(plan) { case r: ReusedExchangeExec => r }.nonEmpty,
+                      s"Expected the joins to share one broadcast: $query")
+                }
+          }
+      }
+    }
+  }
 }
