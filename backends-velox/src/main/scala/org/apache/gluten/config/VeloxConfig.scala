@@ -508,6 +508,14 @@ object VeloxConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(false)
 
+  val COLUMNAR_VELOX_MALLOC_CONTIGUOUS_ENABLED =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.mallocContiguousEnabled")
+      .doc(
+        "Whether Velox uses malloc instead of mmap for contiguous memory allocations. " +
+          "When enabled, freed memory may be reused by the underlying malloc implementation.")
+      .booleanConf
+      .createWithDefault(false)
+
   val COLUMNAR_VELOX_ENABLE_SYSTEM_EXCEPTION_STACKTRACE =
     buildConf("spark.gluten.sql.columnar.backend.velox.enableSystemExceptionStacktrace")
       .internal()
