@@ -147,15 +147,17 @@ bool SubstraitToVeloxPlanValidator::validateRound(
   if (arguments.size() < 2) {
     return false;
   }
-
-  if (!arguments[1].value().has_literal()) {
-    LOG_VALIDATION_MSG("Round scale is expected.");
+  if (params.empty() || !params[0]) {
+    LOG_VALIDATION_MSG("Round value expression is unavailable.");
     return false;
   }
-
+  if (!arguments[1].value().has_literal()) {
+    LOG_VALIDATION_MSG("Round scale must be a literal integer for native execution.");
+    return false;
+  }
   const auto& valueType = params[0]->type();
+  const auto& scale = arguments[1].value().literal();
   if (valueType->isDecimal()) {
-    const auto& scale = arguments[1].value().literal();
     if (scale.has_null() && scale.null().has_i32()) {
       return true;
     }
@@ -166,28 +168,25 @@ bool SubstraitToVeloxPlanValidator::validateRound(
     LOG_VALIDATION_MSG("Decimal ROUND does not support INTEGER scales INT_MIN and INT_MIN + 1.");
     return false;
   }
-
-  // Velox has different result with Spark on negative scale.
-  auto typeCase = arguments[1].value().literal().literal_type_case();
-  switch (typeCase) {
-    case ::substrait::Expression_Literal::LiteralTypeCase::kI32: {
-      int32_t scale = arguments[1].value().literal().i32();
-      if (scale < 0) {
-        LOG_VALIDATION_MSG("Round scale validation failed: scale " + std::to_string(scale) + " is negative.");
+  if (scale.has_null() && scale.null().has_i32() && isIntegerType(valueType)) {
+    return true;
+  }
+  switch (scale.literal_type_case()) {
+    case ::substrait::Expression_Literal::LiteralTypeCase::kI32:
+      if (scale.i32() < 0) {
+        LOG_VALIDATION_MSG("Round scale validation failed: scale " + std::to_string(scale.i32()) + " is negative.");
         return false;
       }
       return true;
-    }
-    case ::substrait::Expression_Literal::LiteralTypeCase::kI64: {
-      int64_t scale = arguments[1].value().literal().i64();
-      if (scale < 0) {
-        LOG_VALIDATION_MSG("Round scale validation failed: scale " + std::to_string(scale) + " is negative.");
+    case ::substrait::Expression_Literal::LiteralTypeCase::kI64:
+      if (scale.i64() < 0) {
+        LOG_VALIDATION_MSG("Round scale validation failed: scale " + std::to_string(scale.i64()) + " is negative.");
         return false;
       }
       return true;
-    }
     default:
-      LOG_VALIDATION_MSG("Round scale validation is not supported for type case " + std::to_string(typeCase));
+      LOG_VALIDATION_MSG(
+          "Round scale validation is not supported for type case " + std::to_string(scale.literal_type_case()));
       return false;
   }
 }

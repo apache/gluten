@@ -25,14 +25,11 @@ using namespace facebook;
 namespace gluten {
 namespace {
 
-// Spark's round differs from Velox's in the handling of negative decimals and
-// floating point rounding semantics.
+// Leave upstream integral registrations intact; SQL eligibility is controlled by validation.
+// Retain only the floating-point overlay here.
 void registerRoundFunction() {
-  velox::functions::registerUnaryNumeric<RoundFunction>({"round"});
-  velox::registerFunction<RoundFunction, int8_t, int8_t, int32_t>({"round"});
-  velox::registerFunction<RoundFunction, int16_t, int16_t, int32_t>({"round"});
-  velox::registerFunction<RoundFunction, int32_t, int32_t, int32_t>({"round"});
-  velox::registerFunction<RoundFunction, int64_t, int64_t, int32_t>({"round"});
+  velox::registerFunction<RoundFunction, double, double>({"round"});
+  velox::registerFunction<RoundFunction, float, float>({"round"});
   velox::registerFunction<RoundFunction, double, double, int32_t>({"round"});
   velox::registerFunction<RoundFunction, float, float, int32_t>({"round"});
 }
