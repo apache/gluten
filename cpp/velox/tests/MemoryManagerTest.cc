@@ -16,9 +16,11 @@
  */
 
 #include "compute/VeloxBackend.h"
+#include "compute/WholeStageResultIterator.h"
 #include "config/VeloxConfig.h"
 #include "memory/VeloxMemoryManager.h"
 #include "velox/common/base/tests/GTestUtils.h"
+#include "velox/common/testutil/TempDirectoryPath.h"
 
 namespace gluten {
 
@@ -329,6 +331,39 @@ void assertCapacitiesMatch(MockSparkTaskMemoryManager& tmm, std::vector<std::uni
   }
 }
 } // namespace
+
+TEST_F(MemoryManagerTest, spillOnlyWhenShrinkIsInsufficient) {
+  auto pool = vmm_->getLeafMemoryPool();
+  std::vector<void*> buffers{nullptr};
+  pool->setReclaimer(std::make_unique<MockMemoryReclaimer>(buffers, kMB));
+
+  auto spillDir = common::testutil::TempDirectoryPath::create();
+  auto plan = std::make_shared<core::ValuesNode>("values", std::vector<RowVectorPtr>{});
+  auto conf = std::make_shared<config::ConfigBase>(
+      std::unordered_map<std::string, std::string>{{kSessionTimezone, "UTC"}, {kSpillStrategy, "auto"}});
+  WholeStageResultIterator iterator(vmm_.get(), plan, {}, {}, {}, nullptr, nullptr, {}, spillDir->getPath(), conf, {});
+
+  // Request less than, exactly, and more than the available free capacity.
+  for (int64_t adjustment : {-1, 0, 1}) {
+    SCOPED_TRACE(adjustment);
+    vmm_->shrink(0);
+    buffers[0] = pool->allocate(kMB);
+    auto cleanup = folly::makeGuard([&]() {
+      if (buffers[0] != nullptr) {
+        pool->free(buffers[0], kMB);
+        buffers[0] = nullptr;
+      }
+    });
+
+    const int64_t freeBytes = vmm_->getAggregateMemoryPool()->freeBytes();
+    ASSERT_GT(freeBytes, 1);
+
+    const int64_t requestedBytes = freeBytes + adjustment;
+    EXPECT_GE(iterator.spillFixedSize(requestedBytes), requestedBytes);
+    // Trigger spill only when reqeusted bytes is more than the free capacity.
+    EXPECT_EQ(buffers[0] == nullptr, adjustment > 0);
+  }
+}
 
 class MultiMemoryManagerTest : public ::testing::Test {
  protected:

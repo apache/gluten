@@ -81,6 +81,7 @@ DATA_LAKE:
   - changed-files:
       - any-glob-to-any-file:
           - 'gluten-iceberg/**/*'
+          - 'gluten-lance/**/*'
           - 'gluten-delta/**/*'
           - 'gluten-hudi/**/*'
 
