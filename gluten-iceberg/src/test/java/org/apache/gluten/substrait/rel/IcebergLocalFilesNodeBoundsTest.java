@@ -64,7 +64,8 @@ public class IcebergLocalFilesNodeBoundsTest {
             Collections.emptyMap());
 
     ReadRel.LocalFiles.FileOrFiles.Builder fileBuilder =
-        ReadRel.LocalFiles.FileOrFiles.newBuilder();
+        ReadRel.LocalFiles.FileOrFiles.newBuilder()
+            .setParquet(ReadRel.LocalFiles.FileOrFiles.ParquetReadOptions.getDefaultInstance());
 
     node.processFileBuilder(fileBuilder, 0);
 

@@ -29,6 +29,7 @@
 #include "config/VeloxConfig.h"
 #include "operators/functions/IncrementMetricFunction.h"
 #include "utils/ConfigExtractor.h"
+#include "velox/connectors/common/FileConfig.h"
 #include "velox/connectors/hive/HiveConfig.h"
 #include "velox/connectors/hive/HiveConnectorSplit.h"
 #ifdef ENABLE_KAFKA
@@ -188,6 +189,12 @@ WholeStageResultIterator::WholeStageResultIterator(
         // Set Iceberg split.
         std::unordered_map<std::string, std::string> customSplitInfo{{"table_format", "hive-iceberg"}};
         auto deleteFiles = icebergSplitInfo->deleteFilesVec[idx];
+        const auto& identityKeys = icebergSplitInfo->identityPartitionKeys.at(idx);
+        for (size_t i = 0; i < icebergSplitInfo->fieldIds.size(); ++i) {
+          if (auto it = identityKeys.find(icebergSplitInfo->fieldIds[i].fieldId); it != identityKeys.end()) {
+            partitionKeys[icebergSplitInfo->tableSchema->nameOf(i)] = it->second;
+          }
+        }
         split = std::make_shared<velox::connector::hive::iceberg::HiveIcebergSplit>(
             connectorIds_.iceberg,
             paths[idx],
@@ -202,8 +209,8 @@ WholeStageResultIterator::WholeStageResultIterator(
             deleteFiles,
             metadataColumn,
             properties[idx],
-            /*dataSequenceNumber=*/0,
-            /*identityPartitionKeys=*/std::unordered_map<int32_t, std::optional<std::string>>{},
+            icebergSplitInfo->dataSequenceNumbers.at(idx),
+            icebergSplitInfo->identityPartitionKeys.at(idx),
             scanInfo->columnMappingMode);
       } else if (isDeltaScan) {
         std::unordered_map<std::string, std::string> customSplitInfo{{"table_format", kDeltaTableFormat}};
@@ -278,7 +285,10 @@ std::shared_ptr<velox::core::QueryCtx> WholeStageResultIterator::createNewVeloxQ
   std::unordered_map<std::string, std::shared_ptr<velox::config::ConfigBase>> connectorConfigs;
   auto hiveSessionConfig = createHiveConnectorSessionConfig(veloxCfg_);
   connectorConfigs[connectorIds_.hive] = hiveSessionConfig;
-  connectorConfigs[connectorIds_.iceberg] = hiveSessionConfig;
+  auto icebergSessionConfigs = hiveSessionConfig->rawConfigsCopy();
+  icebergSessionConfigs[velox::connector::FileConfig::kUseColumnNamesSession] = "true";
+  connectorConfigs[connectorIds_.iceberg] =
+      std::make_shared<velox::config::ConfigBase>(std::move(icebergSessionConfigs));
   connectorConfigs[connectorIds_.delta] = hiveSessionConfig;
   connectorConfigs[connectorIds_.iterator] = hiveSessionConfig;
 #ifdef ENABLE_KAFKA
