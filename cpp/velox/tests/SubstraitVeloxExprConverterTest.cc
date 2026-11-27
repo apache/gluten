@@ -31,6 +31,23 @@ namespace gluten {
 
 class SubstraitVeloxExprConverterExecutionTest : public exec::test::OperatorTestBase {};
 
+TEST(SubstraitVeloxExprConverterTest, emptyStructLiteral) {
+  memory::MemoryManager::testingSetInstance({});
+  auto pool = memory::memoryManager()->addLeafPool();
+  const std::unordered_map<uint64_t, std::string> functionMap;
+  SubstraitVeloxExprConverter converter(pool.get(), functionMap);
+  ::substrait::Expression expression;
+  expression.mutable_literal()->mutable_struct_();
+
+  auto result =
+      std::dynamic_pointer_cast<const core::ConstantTypedExpr>(converter.toVeloxExpr(expression, ROW({}, {})));
+  ASSERT_NE(result, nullptr);
+  EXPECT_TRUE(result->type()->equivalent(*ROW({}, {})));
+  ASSERT_TRUE(result->hasValueVector());
+  ASSERT_EQ(result->valueVector()->size(), 1);
+  EXPECT_FALSE(result->isNull());
+}
+
 TEST_F(SubstraitVeloxExprConverterExecutionTest, timestampLiterals) {
   const std::unordered_map<uint64_t, std::string> functionMap;
   SubstraitVeloxExprConverter converter(pool(), functionMap);
