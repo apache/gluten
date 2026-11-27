@@ -288,17 +288,22 @@ case class BroadcastHashJoinContext(
     deserializeHashTableTimeMetric: Option[SQLMetric] = None,
     serializedHashTableSizeMetric: Option[SQLMetric] = None,
     hashTableMemorySizeMetric: Option[SQLMetric] = None) {
+
+  /**
+   * Whether the native hash table keeps only one row per key, as Velox HashBuild::canDropDuplicates
+   * decides: a semi or anti join with no filter, or with a filter that reads no build column and is
+   * not null-aware. Spark does not allow nondeterministic join conditions, so the filter's
+   * determinism, which Velox also checks, does not matter here.
+   */
   def droppedDuplicates: Boolean = {
-    !hasMixedFiltCondition && (
-      substraitJoinType == JoinRel.JoinType.JOIN_TYPE_LEFT_SEMI ||
-        substraitJoinType == JoinRel.JoinType.JOIN_TYPE_LEFT_ANTI
-    )
+    (substraitJoinType == JoinRel.JoinType.JOIN_TYPE_LEFT_SEMI ||
+      substraitJoinType == JoinRel.JoinType.JOIN_TYPE_LEFT_ANTI) &&
+    (!hasMixedFiltCondition || (filterBuildColumns.isEmpty && !isNullAwareAntiJoin))
   }
 
   /**
    * Identifies the native hash table this join needs from a broadcast relation, which every join
-   * reusing the broadcast exchange shares. Joins with the same key can share a hash table. For an
-   * anti join, `droppedDuplicates` also tells whether it has a filter.
+   * reusing the broadcast exchange shares. Joins with the same key can share a hash table.
    */
   def hashTableBuildKey: HashTableBuildKey = {
     // An anti join with a null-intolerant filter leaves out the build rows that are null in the

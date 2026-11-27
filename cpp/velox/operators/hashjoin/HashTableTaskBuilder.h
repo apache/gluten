@@ -37,8 +37,10 @@ struct HashTableTaskBuildSpec {
   facebook::velox::core::JoinType joinType;
   bool nullAware{false};
   /// HashBuild never evaluates the join filter. It only checks whether there is
-  /// one and, for an anti join, drops build rows with a null in the build
-  /// columns of a null-intolerant filter. So these properties are all it needs.
+  /// one, whether it reads build columns (if not, a semi or anti join keeps one
+  /// build row per key) and, for an anti join, drops build rows with a null in
+  /// the build columns of a null-intolerant filter. So these properties are all
+  /// it needs.
   bool withFilter{false};
   std::vector<std::string> filterBuildColumns;
   bool filterPropagatesNulls{false};
