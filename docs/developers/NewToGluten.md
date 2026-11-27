@@ -144,27 +144,12 @@ mechanism does not classify or translate native cast failures.
 Preserving the throwable does not merge Java and C++ frames into a hybrid stack
 trace (see [#9642](https://github.com/apache/gluten/issues/9642)).
 
-Java memory reservation callbacks use the same pattern. Velox supplies the JNI
-allocation listener for task and global memory managers, so a failed `reserve`
-or `unreserve` keeps its Java throwable through the driver. If returning
-reclaimed capacity also fails after a failed reservation, the reservation
-failure is kept and the second error is logged. The listener never calls Java
-while an exception is pending. Such an exception fails a reservation; an
-unreserve first returns the memory and then restores the exception. A guarded
-JNI entry leaves it pending for Java, while a native pool thread throws it as a
-native exception instead of keeping it. If JNI cannot restore it and leaves no
-exception pending, the operation fails rather than reporting a successful shrink.
-Arrow tracks freed buffers separately from Java reservations. If `unreserve`
-throws, it may have repaid all, some, or none of the charge. Arrow does not
-reuse or repay that disputed credit. Frees can still drain the pool. Growth
-resumes with a fresh reservation only when the pool is empty, the listener's
-native estimate consists solely of the disputed bytes, and Java reports zero
-bytes held. Otherwise growth fails; a positive balance may belong to another
-consumer. A confirmed repayment needs no recovery, even if an earlier exception
-still has to propagate.
-
-If native memory runs out after a callback throwable has been captured, the
-memory listener nests that throwable in a preallocated Velox system-error wrapper.
+Velox also wraps Java `reserve` and `unreserve` failures at the JNI allocation
+listener for task and global memory managers. If returning reclaimed capacity
+also throws, the original Java reservation failure takes precedence. A
+preallocated system-error wrapper retains an already-captured throwable if
+allocating its usual wrapper fails. This does not change block sizing, when
+Java is charged, or how native usage is recorded after a failed callback.
 
 `gluten-arrow/src/test/java/org/apache/gluten/jni/JavaExceptionJniTest.java` runs
 these cases through JUnit and Maven Surefire without starting Spark or a backend.

@@ -17,10 +17,18 @@
 
 #pragma once
 
-#include "jni/JniCommon.h"
+#include <jni.h>
+
+#include <cstdint>
+#include <exception>
+#include <memory>
 
 namespace gluten {
 
+class AllocationListener;
+
 std::unique_ptr<AllocationListener> createVeloxJniAllocationListener(JavaVM* vm, jobject listener);
+
+void rollbackVeloxReservation(AllocationListener& listener, int64_t reclaimedBytes, const std::exception& error);
 
 } // namespace gluten

@@ -197,6 +197,9 @@ inline JniCommonState* getJniCommonState() {
   return &jniCommonState;
 }
 
+// Returns null on a native worker without a Java return boundary.
+JNIEnv* envForCurrentJniEntry();
+
 Runtime* getRuntime(JNIEnv* env, jobject runtimeAware);
 
 using JniInputIteratorFactory = std::function<
@@ -207,11 +210,9 @@ void registerJniInputIteratorFactory(const std::string& runtimeKind, JniInputIte
 std::unique_ptr<ColumnarBatchIterator>
 createJniInputIterator(JNIEnv* env, jobject iterator, Runtime* runtime, int32_t iteratorIndex);
 
-using JniAllocationListenerFactory = std::function<std::unique_ptr<AllocationListener>(JavaVM* vm, jobject listener)>;
+using JniAllocationListenerFactory = std::function<std::unique_ptr<AllocationListener>(JavaVM*, jobject)>;
 
 void registerJniAllocationListenerFactory(const std::string& backend, JniAllocationListenerFactory factory);
-
-// Creates the listener for a Java ReservationListener.
 std::unique_ptr<AllocationListener>
 createJniAllocationListener(const std::string& backend, JavaVM* vm, jobject listener);
 
@@ -415,9 +416,8 @@ class SparkAllocationListener : public gluten::AllocationListener {
     jListenerGlobalRef_ = env->NewGlobalRef(jListenerLocalRef);
     GLUTEN_CHECK(jListenerGlobalRef_ != nullptr, "Failed to create global reference for reservation listener.");
     // Resolve JNI symbols on the creator thread to avoid first-touch initialization from IO threads.
-    reserveMethod_ = reserveMemoryMethod(env);
-    unreserveMethod_ = unreserveMemoryMethod(env);
-    balanceMethod_ = getMethodIdOrError(env, javaReservationListenerClass(env), "getUsedBytes", "()J");
+    (void)reserveMemoryMethod(env);
+    (void)unreserveMemoryMethod(env);
   }
 
   SparkAllocationListener(const SparkAllocationListener&) = delete;
@@ -435,44 +435,36 @@ class SparkAllocationListener : public gluten::AllocationListener {
     env->DeleteGlobalRef(jListenerGlobalRef_);
   }
 
-  void allocationChanged(int64_t size) final {
-    Change change{size};
-    applyChange(change);
+  void allocationChanged(int64_t size) override {
+    if (size != 0) {
+      notifyJava(attachedEnv(), size);
+    }
   }
 
-  void applyChange(Change& change) override {
-    const auto size = change.diff;
-    if (size == 0) {
-      change.committed = true;
-      return;
-    }
+  int64_t currentBytes() override {
+    return usedBytes_;
+  }
+
+  int64_t peakBytes() override {
+    return peakBytes_;
+  }
+
+ protected:
+  JNIEnv* attachedEnv() const {
     JNIEnv* env;
     attachCurrentThreadAsDaemonOrThrow(vm_, &env);
-    // Java must not run while an exception is pending, for example one left when memory was short.
-    if (env->ExceptionCheck()) {
-      if (size < 0) {
-        repayWithPendingException(env, change);
-        return;
-      }
-      checkException(env); // The pending exception fails the reservation.
-    }
+    return env;
+  }
+
+  void notifyJava(JNIEnv* env, int64_t size) {
     if (size < 0) {
-      env->CallLongMethod(jListenerGlobalRef_, unreserveMethod_, -size);
-    } else {
-      env->CallLongMethod(jListenerGlobalRef_, reserveMethod_, size);
-    }
-    try {
+      env->CallLongMethod(jListenerGlobalRef_, unreserveMemoryMethod(env), -size);
       checkException(env);
-    } catch (...) {
-      // The rollback started with JNI clear. A failure to capture *its* throwable must
-      // not leave a pending exception that masks the original reservation error.
-      if (change.afterFailedReservation) {
-        env->ExceptionClear();
-      }
-      throw;
+    } else {
+      env->CallLongMethod(jListenerGlobalRef_, reserveMemoryMethod(env), size);
+      checkException(env);
     }
     usedBytes_ += size;
-    change.committed = true;
     while (true) {
       int64_t savedPeakBytes = peakBytes_;
       int64_t savedUsedBytes = usedBytes_;
@@ -486,19 +478,7 @@ class SparkAllocationListener : public gluten::AllocationListener {
     }
   }
 
-  int64_t currentBytes() override {
-    return usedBytes_;
-  }
-
-  int64_t peakBytes() override {
-    return peakBytes_;
-  }
-
-  bool reconcileUnreserve(int64_t bytes) override;
-
  private:
-  void repayWithPendingException(JNIEnv* env, Change& change);
-
   jclass javaReservationListenerClass(JNIEnv* env) {
     static jclass javaReservationListenerClass =
         createGlobalClassReference(env, "org/apache/gluten/memory/listener/ReservationListener");
@@ -519,9 +499,6 @@ class SparkAllocationListener : public gluten::AllocationListener {
 
   JavaVM* vm_;
   jobject jListenerGlobalRef_;
-  jmethodID reserveMethod_;
-  jmethodID unreserveMethod_;
-  jmethodID balanceMethod_;
   std::atomic_int64_t usedBytes_{0L};
   std::atomic_int64_t peakBytes_{0L};
 };
@@ -534,15 +511,6 @@ class BacktraceAllocationListener final : public gluten::AllocationListener {
   void allocationChanged(int64_t bytes) override {
     allocationBacktrace(bytes);
     delegator_->allocationChanged(bytes);
-  }
-
-  void applyChange(Change& change) override {
-    allocationBacktrace(change.diff);
-    delegator_->applyChange(change);
-  }
-
-  bool reconcileUnreserve(int64_t bytes) override {
-    return delegator_->reconcileUnreserve(bytes);
   }
 
  private:

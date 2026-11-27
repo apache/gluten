@@ -16,6 +16,11 @@
  */
 
 #include "jni/VeloxAllocationListener.h"
+
+#include <glog/logging.h>
+#include <glog/raw_logging.h>
+
+#include "jni/JniCommon.h"
 #include "jni/VeloxJavaException.h"
 
 namespace gluten {
@@ -26,12 +31,16 @@ class VeloxJniAllocationListener final : public SparkAllocationListener {
   VeloxJniAllocationListener(JavaVM* vm, jobject listener, const facebook::velox::VeloxException& fallback)
       : SparkAllocationListener(vm, listener), fallback_(fallback) {}
 
-  void applyChange(Change& change) override {
-    wrapJavaException([&] { SparkAllocationListener::applyChange(change); }, &fallback_);
-  }
-
-  bool reconcileUnreserve(int64_t bytes) override {
-    return wrapJavaException([&] { return SparkAllocationListener::reconcileUnreserve(bytes); }, &fallback_);
+  void allocationChanged(int64_t diff) override {
+    if (diff != 0) {
+      wrapJavaException(
+          [&] {
+            auto* env = attachedEnv();
+            checkException(env);
+            notifyJava(env, diff);
+          },
+          &fallback_);
+    }
   }
 
  private:
@@ -44,6 +53,42 @@ std::unique_ptr<AllocationListener> createVeloxJniAllocationListener(JavaVM* vm,
   // Allocate before any reservation callback. Copies share immutable state; the cause is nested per throw.
   static const auto fallback = makeVeloxJavaException(nullptr, "Java memory reservation callback failed");
   return std::make_unique<VeloxJniAllocationListener>(vm, listener, fallback);
+}
+
+void rollbackVeloxReservation(AllocationListener& listener, int64_t reclaimedBytes, const std::exception& error) {
+  if (reclaimedBytes == 0) {
+    listener.allocationChanged(0);
+    return;
+  }
+  RAW_VLOG(2, "Returning %lld reclaimed bytes after a failed reservation", static_cast<long long>(reclaimedBytes));
+  // Failed carrier capture may leave a Java error pending for the guarded JNI return.
+  auto* env = envForCurrentJniEntry();
+  const auto pending = env ? env->ExceptionOccurred() : nullptr;
+  if (!pending && !findJavaExceptionCause(error, unwrapVeloxException)) {
+    listener.allocationChanged(-reclaimedBytes); // Preserve normal native rollback behavior.
+    return;
+  }
+  if (pending) {
+    env->ExceptionClear();
+  }
+  try {
+    listener.allocationChanged(-reclaimedBytes);
+  } catch (const std::exception& rollbackError) {
+    RAW_LOG(WARNING, "Unreserve failed after a Java reservation error: %s", rollbackError.what());
+  } catch (...) {
+    RAW_LOG(WARNING, "Unreserve threw a non-standard exception after a Java reservation error");
+  }
+  if (env && env->ExceptionCheck()) {
+    env->ExceptionClear(); // A failure to capture the secondary throwable is secondary too.
+  }
+  if (pending) {
+    const auto status = env->Throw(pending);
+    env->DeleteLocalRef(pending);
+    if (status != JNI_OK) {
+      // The caller still rethrows the original native capture failure.
+      RAW_LOG(ERROR, "Unable to restore the pending Java error after reservation rollback");
+    }
+  }
 }
 
 } // namespace gluten

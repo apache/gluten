@@ -108,12 +108,6 @@ int64_t ListenableMemoryAllocator::peakBytes() const {
 }
 
 void ListenableMemoryAllocator::updateUsage(int64_t size) {
-  if (size < 0) {
-    // The buffer is already freed or shrunk, even if notifying the listener throws.
-    usedBytes_ += size;
-    listener_->allocationChanged(size);
-    return;
-  }
   listener_->allocationChanged(size);
   usedBytes_ += size;
   while (true) {

@@ -20,8 +20,6 @@
 #include <jemalloc/jemalloc.h>
 #endif
 
-#include <glog/raw_logging.h>
-
 #include "compute/VeloxBackend.h"
 
 #include "velox/common/memory/MallocAllocator.h"
@@ -29,6 +27,7 @@
 #include "velox/exec/MemoryReclaimer.h"
 
 #include "config/VeloxConfig.h"
+#include "jni/VeloxAllocationListener.h"
 #include "memory/ArrowMemoryPool.h"
 #include "utils/Exception.h"
 
@@ -170,21 +169,8 @@ class ListenableArbitrator : public velox::memory::MemoryArbitrator {
     auto neededBytes = velox::bits::roundUp(bytes - reclaimedFreeBytes, memoryPoolTransferCapacity_);
     try {
       listener_->allocationChanged(neededBytes);
-    } catch (const std::exception&) {
-      // Do not allocate a stack trace before repaying memory on this path.
-      RAW_VLOG(2, "ListenableArbitrator failed to grow by %llu bytes", static_cast<unsigned long long>(neededBytes));
-      try {
-        AllocationListener::Change repayment{
-            -static_cast<int64_t>(reclaimedFreeBytes), /*afterFailedReservation=*/true};
-        listener_->applyChange(repayment);
-      } catch (const std::exception& e) {
-        // Keep the reservation failure that caused this rollback.
-        RAW_LOG(
-            WARNING,
-            "Failed to return %llu reclaimed bytes after a failed reservation: %s",
-            static_cast<unsigned long long>(reclaimedFreeBytes),
-            e.what());
-      }
+    } catch (const std::exception& error) {
+      rollbackVeloxReservation(*listener_, reclaimedFreeBytes, error);
       throw;
     }
     auto ret = growPool(pool, reclaimedFreeBytes + neededBytes, bytes);

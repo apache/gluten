@@ -20,7 +20,6 @@
 #include <algorithm>
 #include <memory>
 #include <mutex>
-#include <stdexcept>
 
 namespace gluten {
 
@@ -41,24 +40,6 @@ class AllocationListener {
     return 0;
   }
 
-  struct Change {
-    const int64_t diff;
-    const bool afterFailedReservation{false};
-    // A confirmed change, even if an error still needs to propagate. False is not proof of rejection.
-    bool committed{false};
-  };
-
-  virtual void applyChange(Change& change) {
-    allocationChanged(change.diff);
-    change.committed = true;
-  }
-
-  // Retire disputed debits only if the owner can confirm none of this charge remains.
-  // Do not change the account when returning false or throwing.
-  virtual bool reconcileUnreserve(int64_t /*bytes*/) {
-    return false;
-  }
-
  protected:
   AllocationListener() = default;
 };
@@ -71,35 +52,19 @@ class BlockAllocationListener final : public AllocationListener {
       : delegated_(delegated), blockSize_(blockSize) {}
 
   void allocationChanged(int64_t diff) override {
-    Change change{diff};
-    applyChange(change);
-  }
-
-  void applyChange(Change& change) override {
-    if (change.diff == 0) {
-      change.committed = true;
+    if (diff == 0) {
       return;
     }
-    Change charge{reserve(change.diff), change.afterFailedReservation};
+    int64_t granted = reserve(diff);
+    if (granted == 0) {
+      return;
+    }
     try {
-      if (charge.diff != 0) {
-        delegated_->applyChange(charge);
-      }
-    } catch (...) {
-      std::lock_guard<std::mutex> lock(mutex_);
-      if (change.diff > 0) {
-        usedBytes_ -= change.diff; // Growth never reached the allocator.
-        if (!charge.committed) {
-          blocksReserved_ -= charge.diff / blockSize_;
-        }
-      } else if (!charge.committed) {
-        // The buffer was freed. A throw is not proof that the owner kept the charge.
-        disputedBytes_ -= charge.diff;
-      }
-      change.committed = change.diff < 0 && charge.committed;
+      delegated_->allocationChanged(granted);
+    } catch (const std::exception&) {
+      reserve(-diff);
       throw;
     }
-    change.committed = true;
   }
 
   int64_t currentBytes() override {
@@ -112,50 +77,24 @@ class BlockAllocationListener final : public AllocationListener {
 
  private:
   inline int64_t reserve(int64_t diff) {
-    std::unique_lock<std::mutex> lock(mutex_);
-    if (diff > 0 && disputedBytes_ != 0) {
-      reconcile(lock);
-    }
+    std::lock_guard<std::mutex> lock(mutex_);
     usedBytes_ += diff;
-    const auto needed = usedBytes_ == 0 ? 0 : (usedBytes_ - 1) / blockSize_ + 1;
-    // A free must not initiate a reservation, or growth a repayment.
-    const auto blocks = diff > 0 ? std::max(needed, blocksReserved_) : std::min(needed, blocksReserved_);
-    const auto granted = (blocks - blocksReserved_) * blockSize_;
-    blocksReserved_ = blocks;
+    int64_t newBlockCount;
+    if (usedBytes_ == 0) {
+      newBlockCount = 0;
+    } else {
+      // ceil to get the required block number
+      newBlockCount = (usedBytes_ - 1) / blockSize_ + 1;
+    }
+    int64_t bytesGranted = (newBlockCount - blocksReserved_) * blockSize_;
+    blocksReserved_ = newBlockCount;
     peakBytes_ = std::max(peakBytes_, usedBytes_);
-    return granted;
-  }
-
-  void reconcile(std::unique_lock<std::mutex>& lock) {
-    if (usedBytes_ != 0 || reconciling_) {
-      throw std::runtime_error("Cannot grow an active memory pool with an unconfirmed repayment");
-    }
-    const auto disputed = disputedBytes_;
-    reconciling_ = true;
-    lock.unlock(); // Never call into Java under the block mutex, including during recovery.
-    bool settled;
-    try {
-      settled = delegated_->reconcileUnreserve(disputed);
-    } catch (...) {
-      lock.lock();
-      reconciling_ = false;
-      throw;
-    }
-    lock.lock();
-    reconciling_ = false;
-    if (settled) {
-      disputedBytes_ -= disputed;
-    }
-    if (disputedBytes_ != 0) {
-      throw std::runtime_error("Cannot reserve memory: the owner has not confirmed the disputed repayment");
-    }
+    return bytesGranted;
   }
 
   AllocationListener* const delegated_;
-  const int64_t blockSize_;
-  int64_t blocksReserved_{0};
-  int64_t disputedBytes_{0};
-  bool reconciling_{false};
+  const uint64_t blockSize_;
+  int64_t blocksReserved_{0L};
   int64_t usedBytes_{0L};
   int64_t peakBytes_{0L};
   int64_t reservationBytes_{0L};
