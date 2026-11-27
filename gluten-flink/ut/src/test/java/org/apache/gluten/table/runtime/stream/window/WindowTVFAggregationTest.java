@@ -369,4 +369,57 @@ class WindowTVFAggregationTest extends GlutenStreamingTestBase {
         e.getMessage() != null && e.getMessage().contains("update-stream"),
         "expected the explicit update-stream rejection, got: " + e.getMessage());
   }
+
+  @Test
+  void testTwoStageTumbleMatchesSingleStage() {
+    createBoundedSource("srcTumble", SCHEMA, TUMBLE_ROWS);
+    tEnv()
+        .getConfig()
+        .getConfiguration()
+        .setString("table.optimizer.agg-phase-strategy", "TWO_PHASE");
+    String plan = explainExecutionPlan(TUMBLE_QUERY);
+    assertTrue(
+        plan.contains("LocalWindowAggregate") && plan.contains("GlobalWindowAggregate"),
+        "TWO_PHASE must plan the local->global stages, plan was: " + plan);
+    assertThat(runQuerySorted(TUMBLE_QUERY))
+        .isEqualTo(
+            sorted(
+                Arrays.asList(
+                    "+I[1, 2026-01-01T00:00:00.000, 2026-01-01T00:00:05.000, 1, 10]",
+                    "+I[2, 2026-01-01T00:00:00.000, 2026-01-01T00:00:05.000, 1, 20]",
+                    "+I[1, 2026-01-01T00:00:05.000, 2026-01-01T00:00:10.000, 2, 80]",
+                    "+I[2, 2026-01-01T00:00:10.000, 2026-01-01T00:00:15.000, 2, 85]")));
+  }
+
+  @Test
+  void testTwoStageHopMatchesSingleStage() {
+    createBoundedSource(
+        "srcHop",
+        SCHEMA,
+        Arrays.asList(
+            Row.of(1, 10L, "2026-01-01 00:00:01"),
+            Row.of(1, 20L, "2026-01-01 00:00:03"),
+            Row.of(1, 30L, "2026-01-01 00:00:05"),
+            Row.of(1, 40L, "2026-01-01 00:00:07"),
+            Row.of(2, 50L, "2026-01-01 00:00:03.5")));
+    tEnv()
+        .getConfig()
+        .getConfiguration()
+        .setString("table.optimizer.agg-phase-strategy", "TWO_PHASE");
+    String plan = explainExecutionPlan(HOP_QUERY);
+    assertTrue(
+        plan.contains("LocalWindowAggregate") && plan.contains("GlobalWindowAggregate"),
+        "TWO_PHASE must plan the local->global stages, plan was: " + plan);
+    assertThat(runQuerySorted(HOP_QUERY))
+        .isEqualTo(
+            sorted(
+                Arrays.asList(
+                    "+I[1, 2025-12-31T23:59:58.000, 2026-01-01T00:00:02.000, 1, 10]",
+                    "+I[1, 2026-01-01T00:00:00.000, 2026-01-01T00:00:04.000, 2, 30]",
+                    "+I[2, 2026-01-01T00:00:00.000, 2026-01-01T00:00:04.000, 1, 50]",
+                    "+I[1, 2026-01-01T00:00:02.000, 2026-01-01T00:00:06.000, 2, 50]",
+                    "+I[2, 2026-01-01T00:00:02.000, 2026-01-01T00:00:06.000, 1, 50]",
+                    "+I[1, 2026-01-01T00:00:04.000, 2026-01-01T00:00:08.000, 2, 70]",
+                    "+I[1, 2026-01-01T00:00:06.000, 2026-01-01T00:00:10.000, 1, 40]")));
+  }
 }

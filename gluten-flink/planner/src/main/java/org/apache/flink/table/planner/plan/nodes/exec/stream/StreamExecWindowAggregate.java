@@ -274,10 +274,12 @@ public class StreamExecWindowAggregate extends StreamExecWindowAggregateBase {
         new StreamWindowAggregationNode(
             PlanNodeIdGenerator.newId(),
             aggregation,
+            /*localAgg=*/ null,
             keySelectorSpec,
             sliceAssignerSpec,
             keyedStateSpec,
             shiftTimeZone.getId(),
+            /*isLocalAgg=*/ false,
             size,
             slide,
             offset,
