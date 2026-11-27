@@ -88,7 +88,7 @@ MapVectorPtr makeEmptyMapVector(memory::MemoryPool* pool, const TypePtr& keyType
 }
 
 RowVectorPtr makeEmptyRowVector(memory::MemoryPool* pool) {
-  return makeRowVector({}, {}, 0, pool);
+  return makeRowVector({}, {}, 1, pool);
 }
 
 RowVectorPtr makeNullRowVector(memory::MemoryPool* pool, const TypePtr& rowType) {
