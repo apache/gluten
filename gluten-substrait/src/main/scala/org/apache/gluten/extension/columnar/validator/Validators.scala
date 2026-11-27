@@ -26,7 +26,8 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.analysis.PartitionSpec
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Cast, ConvertTimezone, Expression, GetStructField, Hour, IsNotNull, IsNull, MakeTimestamp, Minute, Second, TimestampAdd, ToUnixTimestamp, UnixTimestamp, WindowFrame, WindowSpecDefinition}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BinaryComparison, BoundReference, CaseWhen, Cast, Coalesce, ConvertTimezone, DenseRank, Expression, GetStructField, Greatest, Hour, If, In, InSet, IsNotNull, IsNull, Lag, Lead, Least, Literal, MakeTimestamp, Minute, NthValue, PercentRank, RangeFrame, Rank, Second, SortOrder, SpecialFrameBoundary, SpecifiedWindowFrame, TimestampAdd, ToUnixTimestamp, UnixTimestamp, WindowExpression, WindowFrame, WindowSpecDefinition}
+import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, Count, First, Last, Max, Min}
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
 import org.apache.spark.sql.execution.datasources.WriteFilesExec
@@ -36,6 +37,8 @@ import org.apache.spark.sql.execution.joins._
 import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.hive.HiveTableScanExecTransformer
 import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType, TimestampNTZType}
+
+import scala.util.control.NonFatal
 
 object Validators {
   implicit class ValidatorBuilderImplicits(builder: Validator.Builder) {
@@ -317,6 +320,8 @@ object Validators {
                   case _ => false
                 }
             }
+          case p if isNtzPassThroughOperator(p) =>
+            p.expressions.forall(isSupportedNtzExpression) && !hasNtzRangeFrameOffset(p)
           case _ => false
         }
         if (isScan || isSupportedNtz) {
@@ -325,6 +330,75 @@ object Validators {
       }
       fail(s"${plan.nodeName} has TimestampNTZType in input/output schema")
     }
+
+    /**
+     * Operators that move, sort, join or filter TimestampNTZ values without NTZ-specific semantics.
+     * They are allowed when every expression touching NTZ passes [[isSupportedNtzExpression]].
+     * Native validation still checks the functions and signatures they use, e.g. comparisons
+     * between NTZ values.
+     */
+    private def isNtzPassThroughOperator(plan: SparkPlan): Boolean = plan match {
+      case _: SortExec | _: FilterExec | _: TakeOrderedAndProjectExec => true
+      case _: SortMergeJoinExec | _: ShuffledHashJoinExec | _: BroadcastHashJoinExec => true
+      case _: BroadcastNestedLoopJoinExec | _: CartesianProductExec => true
+      case _: BroadcastExchangeExec | _: ExpandExec | _: UnionExec | _: CoalesceExec => true
+      case _: GlobalLimitExec | _: LocalLimitExec | _: CollectLimitExec => true
+      case _: WindowExec => true
+      case p => SparkShimLoader.getSparkShims.isWindowGroupLimitExec(p)
+    }
+
+    private def containsNtzType(dataType: DataType): Boolean = dataType match {
+      case TimestampNTZType => true
+      case st: StructType => st.exists(f => containsNtzType(f.dataType))
+      case at: ArrayType => containsNtzType(at.elementType)
+      case mt: MapType => containsNtzType(mt.keyType) || containsNtzType(mt.valueType)
+      case _ => false
+    }
+
+    private def hasNtzType(expression: Expression): Boolean = expression match {
+      // These metadata nodes have no data type.
+      case _: WindowSpecDefinition | _: WindowFrame | _: PartitionSpec => false
+      case e =>
+        try {
+          containsNtzType(e.dataType)
+        } catch {
+          case NonFatal(_) => false
+        }
+    }
+
+    /**
+     * Returns true if every node of `expression` that produces or consumes TimestampNTZ is one that
+     * only references, compares or conditionally passes NTZ values, or is an NTZ function already
+     * supported natively.
+     */
+    private def isSupportedNtzExpression(expression: Expression): Boolean =
+      expression.find {
+        node => (hasNtzType(node) || node.children.exists(hasNtzType)) && !isSupportedNtzNode(node)
+      }.isEmpty
+
+    private def isSupportedNtzNode(expression: Expression): Boolean = expression match {
+      case _: Attribute | _: BoundReference | _: Alias | _: Literal | _: GetStructField => true
+      case _: SortOrder | _: IsNull | _: IsNotNull | _: BinaryComparison => true
+      case _: In | _: InSet | _: Greatest | _: Least => true
+      case _: If | _: CaseWhen | _: Coalesce => true
+      case _: Cast | _: Hour | _: Minute | _: Second | _: TimestampAdd | _: ConvertTimezone => true
+      case _: MakeTimestamp => true
+      case _: AggregateExpression | _: Min | _: Max | _: First | _: Last | _: Count => true
+      case _: WindowExpression | _: WindowSpecDefinition | _: SpecifiedWindowFrame => true
+      case _: Lag | _: Lead | _: NthValue => true
+      // Their children are the window order keys, which they only compare.
+      case _: Rank | _: DenseRank | _: PercentRank => true
+      case _ => false
+    }
+
+    /** RANGE frames with value offsets over an NTZ order key are not offloaded. */
+    private def hasNtzRangeFrameOffset(plan: SparkPlan): Boolean =
+      plan.expressions.exists(_.exists {
+        case WindowSpecDefinition(_, orderSpec, SpecifiedWindowFrame(RangeFrame, lower, upper)) =>
+          !(lower.isInstanceOf[SpecialFrameBoundary] && upper.isInstanceOf[SpecialFrameBoundary]) &&
+          orderSpec.exists(order => hasNtzType(order.child))
+        case _ => false
+      })
   }
 
   private class FallbackIfScanOnlyWithFilterPushed(scanOnly: Boolean) extends Validator {
