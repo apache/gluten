@@ -44,6 +44,14 @@ object SparkSchemaUtil {
     SparkArrowUtil.toArrowSchema(schema, timeZoneId, enableLargeVarTypes)
   }
 
+  def toArrowSchemaForWrite(schema: StructType): Schema = {
+    SparkArrowUtil.toArrowSchema(
+      schema,
+      getLocalTimezoneID,
+      enableLargeVarTypes,
+      preserveCase = true)
+  }
+
   def isTimeZoneIDEquivalentToUTC(zoneId: String): Boolean = {
     getTimeZoneIDOffset(zoneId) == 0
   }

@@ -1192,11 +1192,14 @@ RowVectorPtr VeloxRssSortShuffleReaderDeserializer::readPage() {
 VeloxShuffleReader::VeloxShuffleReader(
     const std::shared_ptr<arrow::Schema>& schema,
     VeloxMemoryManager* memoryManager,
-    const std::shared_ptr<ShuffleReaderOptions>& options)
-    : schema_(schema), memoryManager_(memoryManager), options_(options) {
+    const std::shared_ptr<ShuffleReaderOptions>& options,
+    facebook::velox::RowTypePtr rowType)
+    : schema_(schema),
+      memoryManager_(memoryManager),
+      options_(options),
+      rowType_(rowType ? std::move(rowType) : facebook::velox::asRowType(gluten::fromArrowSchema(schema))) {
   codec_ = gluten::createCompressionCodec(options->compressionType, options->codecBackend);
   veloxCompressionType_ = arrowCompressionTypeToVelox(options->compressionType);
-  rowType_ = facebook::velox::asRowType(gluten::fromArrowSchema(schema));
   initFromSchema();
 }
 

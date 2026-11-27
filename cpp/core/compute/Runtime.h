@@ -166,6 +166,11 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
     throw GlutenException("Not implemented");
   }
 
+  /// Consumes the Spark C schema, including nested field metadata.
+  virtual std::shared_ptr<ShuffleReader> createShuffleReader(
+      ArrowSchema* schema,
+      const std::shared_ptr<ShuffleReaderOptions>& options);
+
   virtual std::unique_ptr<ColumnarBatchSerializer> createColumnarBatchSerializer(struct ArrowSchema* cSchema) {
     throw GlutenException("Not implemented");
   }

@@ -105,14 +105,29 @@ object SparkArrowUtil {
       dt: DataType,
       nullable: Boolean,
       timeZoneId: String,
-      largeVarTypes: Boolean = false): Field = {
+      largeVarTypes: Boolean = false): Field =
+    toArrowField(name, dt, nullable, timeZoneId, largeVarTypes, SQLConf.get.caseSensitiveAnalysis)
+
+  private def toArrowField(
+      name: String,
+      dt: DataType,
+      nullable: Boolean,
+      timeZoneId: String,
+      largeVarTypes: Boolean,
+      preserveCase: Boolean): Field = {
     dt match {
       case ArrayType(elementType, containsNull) =>
         val fieldType = new FieldType(nullable, ArrowType.List.INSTANCE, null)
         new Field(
           name,
           fieldType,
-          Seq(toArrowField("element", elementType, containsNull, timeZoneId, largeVarTypes)).asJava)
+          Seq(toArrowField(
+            "element",
+            elementType,
+            containsNull,
+            timeZoneId,
+            largeVarTypes,
+            preserveCase)).asJava)
       case StructType(fields) =>
         val fieldType = new FieldType(nullable, ArrowType.Struct.INSTANCE, null)
         new Field(
@@ -122,11 +137,12 @@ object SparkArrowUtil {
             .map(
               field =>
                 toArrowField(
-                  normalizeColName(field.name),
+                  if (preserveCase) field.name else field.name.toLowerCase(Locale.ROOT),
                   field.dataType,
                   field.nullable,
                   timeZoneId,
-                  largeVarTypes))
+                  largeVarTypes,
+                  preserveCase))
             .toSeq
             .asJava
         )
@@ -144,14 +160,21 @@ object SparkArrowUtil {
                 .add(MapVector.VALUE_NAME, valueType, nullable = valueContainsNull),
               nullable = false,
               timeZoneId,
-              largeVarTypes
+              largeVarTypes,
+              preserveCase
             )).asJava
         )
       case udt: UserDefinedType[_] =>
-        toArrowField(name, udt.sqlType, nullable, timeZoneId, largeVarTypes)
+        toArrowField(name, udt.sqlType, nullable, timeZoneId, largeVarTypes, preserveCase)
       case dataType =>
+        // Velox distinguishes NTZ from a timestamp with an omitted timezone using this metadata.
+        val metadata = if (dataType.typeName == "timestamp_ntz") {
+          Map("velox.logical_timestamp" -> "utc").asJava
+        } else {
+          null
+        }
         val fieldType =
-          new FieldType(nullable, toArrowType(dataType, timeZoneId, largeVarTypes), null)
+          new FieldType(nullable, toArrowType(dataType, timeZoneId, largeVarTypes), null, metadata)
         new Field(name, fieldType, Seq.empty[Field].asJava)
     }
   }
@@ -182,9 +205,23 @@ object SparkArrowUtil {
   def toArrowSchema(
       schema: StructType,
       timeZoneId: String,
-      largeVarTypes: Boolean = false): Schema = {
+      largeVarTypes: Boolean = false): Schema =
+    toArrowSchema(schema, timeZoneId, largeVarTypes, SQLConf.get.caseSensitiveAnalysis)
+
+  private[utils] def toArrowSchema(
+      schema: StructType,
+      timeZoneId: String,
+      largeVarTypes: Boolean,
+      preserveCase: Boolean): Schema = {
     new Schema(schema.map {
-      field => toArrowField(field.name, field.dataType, field.nullable, timeZoneId, largeVarTypes)
+      field =>
+        toArrowField(
+          field.name,
+          field.dataType,
+          field.nullable,
+          timeZoneId,
+          largeVarTypes,
+          preserveCase)
     }.asJava)
   }
 
@@ -204,10 +241,5 @@ object SparkArrowUtil {
         val dt = fromArrowField(field)
         StructField(field.getName, dt, field.isNullable)
     })
-  }
-
-  private def normalizeColName(name: String): String = {
-    val caseSensitive = SQLConf.get.caseSensitiveAnalysis
-    if (caseSensitive) name else name.toLowerCase(Locale.ROOT)
   }
 }
