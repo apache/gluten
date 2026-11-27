@@ -23,12 +23,26 @@ import org.apache.arrow.vector.complex.MapVector
 import org.apache.arrow.vector.types.{DateUnit, FloatingPointPrecision, IntervalUnit, TimeUnit}
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType, Schema}
 
-import java.util.Locale
+import java.util.{Collections, Locale}
 
 import scala.collection.JavaConverters._
 
 /** Originated from org.apache.spark.sql.util.ArrowUtils. */
 object SparkArrowUtil {
+
+  /**
+   * Field metadata key and value that make Velox import an Arrow timestamp as TIMESTAMP_UTC instead
+   * of TIMESTAMP. The Substrait plan maps Spark TimestampNTZType to TIMESTAMP_UTC, and the Arrow
+   * type alone can't tell the two apart, so NTZ fields carry this tag to match the plan.
+   */
+  val VeloxTimestampTypeMetadataKey: String = "velox.logical_timestamp"
+  val VeloxTimestampUtcMetadataValue: String = "utc"
+
+  private val timestampUtcMetadata: java.util.Map[String, String] =
+    Collections.singletonMap(VeloxTimestampTypeMetadataKey, VeloxTimestampUtcMetadataValue)
+
+  // TimestampNTZType is package-private before Spark 3.4, so match it by name.
+  private def isTimestampNTZ(dt: DataType): Boolean = dt.typeName == "timestamp_ntz"
 
   /** Maps data type from Spark to Arrow. NOTE: timeZoneId required for TimestampTypes */
   def toArrowType(dt: DataType, timeZoneId: String): ArrowType = dt match {
@@ -50,7 +64,7 @@ object SparkArrowUtil {
       } else {
         new ArrowType.Timestamp(TimeUnit.MICROSECOND, "UTC")
       }
-    case dt if dt.typeName == "timestamp_ntz" =>
+    case dt if isTimestampNTZ(dt) =>
       new ArrowType.Timestamp(TimeUnit.MICROSECOND, null)
     case YearMonthIntervalType.DEFAULT =>
       new ArrowType.Interval(IntervalUnit.YEAR_MONTH)
@@ -134,7 +148,9 @@ object SparkArrowUtil {
             )).asJava
         )
       case dataType =>
-        val fieldType = new FieldType(nullable, toArrowType(dataType, timeZoneId), null)
+        val metadata = if (isTimestampNTZ(dataType)) timestampUtcMetadata else null
+        val fieldType =
+          new FieldType(nullable, toArrowType(dataType, timeZoneId), null, metadata)
         new Field(name, fieldType, Seq.empty[Field].asJava)
     }
   }

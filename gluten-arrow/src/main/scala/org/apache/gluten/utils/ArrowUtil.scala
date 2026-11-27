@@ -23,7 +23,7 @@ import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch, Column
 
 import org.apache.arrow.c.{ArrowSchema, CDataDictionaryProvider, Data}
 import org.apache.arrow.memory.BufferAllocator
-import org.apache.arrow.vector.types.pojo.{ArrowType, Field, Schema}
+import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType, Schema}
 
 import java.util
 
@@ -63,10 +63,39 @@ object ArrowUtil {
     originFields.forEach {
       field =>
         val dt = SparkArrowUtil.fromArrowField(field)
-        fields.add(
-          SparkArrowUtil.toArrowField(field.getName, dt, true, SparkSchemaUtil.getLocalTimezoneID))
+        val rebuilt =
+          SparkArrowUtil.toArrowField(field.getName, dt, true, SparkSchemaUtil.getLocalTimezoneID)
+        fields.add(withMetadataOf(field, rebuilt))
     }
     new Schema(fields)
+  }
+
+  /**
+   * Replaces the metadata of `rebuilt` and its nested fields with the metadata of `origin`.
+   *
+   * Velox tags TIMESTAMP_UTC fields with field metadata and exports TIMESTAMP without a timezone,
+   * so both arrive as a timestamp with no timezone, and `fromArrowField` maps both to
+   * TimestampNTZType. Rebuilding the field from the Spark type would therefore tag a TIMESTAMP
+   * field as TIMESTAMP_UTC, or drop the tag. Copying the exported metadata keeps the type Velox
+   * exported.
+   */
+  private def withMetadataOf(origin: Field, rebuilt: Field): Field = {
+    val originChildren = origin.getChildren
+    val rebuiltChildren = rebuilt.getChildren
+    val children = if (originChildren.size == rebuiltChildren.size) {
+      originChildren.asScala
+        .zip(rebuiltChildren.asScala)
+        .map { case (o, r) => withMetadataOf(o, r) }
+        .asJava
+    } else {
+      rebuiltChildren
+    }
+    val fieldType = new FieldType(
+      rebuilt.isNullable,
+      rebuilt.getType,
+      rebuilt.getDictionary,
+      origin.getMetadata)
+    new Field(rebuilt.getName, fieldType, children)
   }
 
   def toSchema(batch: ColumnarBatch): Schema = {

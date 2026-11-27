@@ -27,6 +27,7 @@ import org.apache.spark.SparkConf
 import org.apache.spark.shuffle.GlutenShuffleUtils
 import org.apache.spark.sql.{DataFrame, GlutenQueryTest, Row}
 import org.apache.spark.sql.catalyst.expressions.Cast
+import org.apache.spark.sql.catalyst.plans.physical.RangePartitioning
 import org.apache.spark.sql.catalyst.trees.TreeNodeTag
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, AdaptiveSparkPlanHelper, AQEShuffleReadExec, ColumnarAQEShuffleReadExec, ShuffleQueryStageExec}
@@ -2644,6 +2645,47 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
           assert(metrics("numOutputBatches").value == expectedNumBatches)
         }
       })
+  }
+
+  test("range shuffle of TimestampNTZ produced by RowToVeloxColumnar") {
+    // The Velox plan declares TimestampNTZ as TIMESTAMP_UTC. Batches converted from rows must use
+    // the same type, otherwise passed-through R2C batches and batches the shuffle-input resizer
+    // rebuilt from the declared type reach the shuffle writer with different row types.
+    withSQLConf(
+      SQLConf.ANSI_ENABLED.key -> "false",
+      SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false",
+      SQLConf.SHUFFLE_PARTITIONS.key -> "4",
+      GlutenConfig.COLUMNAR_RANGE_ENABLED.key -> "false",
+      VeloxConfig.COLUMNAR_VELOX_RESIZE_BATCHES_SHUFFLE_INPUT.key -> "true"
+    ) {
+      val start = java.time.LocalDateTime.of(2024, 1, 1, 0, 0)
+      // A Scala UDF falls back, so its TimestampNTZ output enters native through
+      // RowToVeloxColumnar. asNondeterministic() keeps CollapseProject from merging it into the
+      // native Project above it.
+      val toNtz = udf((i: Long) => start.plusSeconds(i)).asNondeterministic()
+      // Each partition holds 9000 rows, converted into batches of 4096, 4096 and 808 rows. The
+      // resizer passes the full batches through and rebuilds the short tail batch.
+      val df = spark
+        .range(0, 18000, 1, 2)
+        .select(col("id"), toNtz(col("id")).as("ts"))
+        .select(col("ts"), (col("id") * 2).as("k"))
+        .orderBy(col("k"))
+
+      val rows = df.collect()
+      assert(rows.length == 18000)
+      rows.zipWithIndex.foreach {
+        case (row, i) =>
+          assert(row.getLong(1) == i * 2L)
+          assert(row.get(0) == start.plusSeconds(i))
+      }
+      val plan = df.queryExecution.executedPlan
+      assert(find(plan)(_.isInstanceOf[RowToVeloxColumnarExec]).isDefined)
+      assert(find(plan) {
+        case e: ColumnarShuffleExchangeExec =>
+          e.outputPartitioning.isInstanceOf[RangePartitioning]
+        case _ => false
+      }.isDefined)
+    }
   }
 
   testWithMinSparkVersion("Left single join should not result into exception", "4.0") {
