@@ -56,9 +56,10 @@ class JniExceptionUnwrapperRegistration final {
 };
 
 // A Java throwable to raise for a native error. className uses JNI's slash-separated form and is resolved by
-// FindClass with the class loader of the class declaring the native method. The class needs a
-// (byte[] reason, byte[] diagnostic) constructor. The reason and diagnostic should be UTF-8; their bytes,
-// including NULs, are passed unchanged. The strings are owned, so the JNI boundary uses no backend memory.
+// FindClass with the class loader of the class declaring the native method. The class must extend
+// java.lang.Throwable and have a (byte[] reason, byte[] diagnostic) constructor. The reason and diagnostic
+// should be UTF-8; their bytes, including NULs, are passed unchanged. The strings are owned, so the JNI
+// boundary uses no backend memory.
 struct JniExceptionMetadata {
   std::string className;
   std::string reason;
@@ -70,7 +71,8 @@ using ExceptionMetadataProvider = std::optional<JniExceptionMetadata> (*)(const 
 // Register for the lifetime of the backend library. Called under the registry lock only when no Java
 // throwable is pending or carried, the callback must not call JNI and returns metadata for its own
 // errors (otherwise std::nullopt). Raising the throwable is best effort: a Java exception raised while
-// constructing it stays pending, and any other failure keeps the GlutenException fallback.
+// constructing it stays pending. Any other failure keeps the GlutenException fallback, including an
+// exception of any type from the callback or a class that isn't a Throwable, which is never constructed.
 class JniExceptionMetadataRegistration final {
  public:
   explicit JniExceptionMetadataRegistration(ExceptionMetadataProvider describe);

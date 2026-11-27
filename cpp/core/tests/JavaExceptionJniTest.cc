@@ -20,6 +20,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
 
 #include "jni/JniCommon.h"
 #include "jni/JniError.h"
@@ -109,9 +110,9 @@ jint roundTrip(JNIEnv* env, jobject callback, jboolean nested, jthrowable pendin
 }
 
 struct MetadataTestError : std::runtime_error {
-  explicit MetadataTestError(bool failConstruction)
-      : std::runtime_error("native metadata diagnostic"), failConstruction(failConstruction) {}
-  bool failConstruction;
+  explicit MetadataTestError(std::string className)
+      : std::runtime_error("native metadata diagnostic"), className(std::move(className)) {}
+  std::string className;
 };
 
 std::optional<gluten::JniExceptionMetadata> describeMetadataTestError(const std::exception& error) {
@@ -119,17 +120,15 @@ std::optional<gluten::JniExceptionMetadata> describeMetadataTestError(const std:
   if (testError == nullptr) {
     return std::nullopt;
   }
-  const auto* type = testError->failConstruction ? "org/apache/gluten/jni/JavaExceptionJniTest$FailingMetadataException"
-                                                 : "org/apache/gluten/jni/JavaExceptionJniTest$MetadataException";
-  return gluten::JniExceptionMetadata{type, std::string("a\0b", 3), error.what()};
+  return gluten::JniExceptionMetadata{testError->className, std::string("a\0b", 3), error.what()};
 }
 
-void throwMetadataError(JNIEnv* env, bool failConstruction) {
+void throwMetadataError(JNIEnv* env, jstring className) {
   JNI_METHOD_START
   gluten::getJniErrorState()->ensureInitialized(env);
   checkException(env);
   static const gluten::JniExceptionMetadataRegistration registration(describeMetadataTestError);
-  throw MetadataTestError(failConstruction);
+  throw MetadataTestError(jStringToCString(env, className));
   JNI_METHOD_END()
 }
 } // namespace
@@ -258,14 +257,14 @@ Java_org_apache_gluten_jni_JavaExceptionJniTest_throwNativeException(JNIEnv* env
 extern "C" JNIEXPORT void JNICALL Java_org_apache_gluten_jni_JavaExceptionJniTest_throwNativeMetadata(
     JNIEnv* env,
     jclass,
-    jboolean failConstruction,
+    jstring className,
     jboolean failThrow) {
   if (failThrow) {
     // Keep fault injection active through the production boundary's catch handler.
     const ScopedThrowFailure functions(env, nullptr);
-    throwMetadataError(env, failConstruction);
+    throwMetadataError(env, className);
   } else {
-    throwMetadataError(env, failConstruction);
+    throwMetadataError(env, className);
   }
 }
 

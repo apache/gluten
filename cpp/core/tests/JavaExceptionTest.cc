@@ -221,6 +221,21 @@ class JniExceptionMetadataTest : public ::testing::Test {
     ++descriptions;
     throw std::bad_alloc();
   }
+
+  enum class ProviderFailure { kNonStandard };
+
+  // Fails with an exception that isn't a std::exception.
+  static std::optional<JniExceptionMetadata> failWithNonStandardException(const std::exception&) {
+    ++descriptions;
+    throw ProviderFailure::kNonStandard;
+  }
+
+  // Breaks the no-JNI contract: a Java exception becomes pending before the provider fails.
+  static std::optional<JniExceptionMetadata> failWithPendingThrowable(const std::exception&) {
+    ++descriptions;
+    boundaryJni.pending = &boundaryJni.secondary;
+    throw ProviderFailure::kNonStandard;
+  }
 };
 
 TEST_F(JniExceptionMetadataTest, metadataFailureKeepsThePendingThrowableOrOriginalDiagnostic) {
@@ -238,6 +253,24 @@ TEST_F(JniExceptionMetadataTest, metadataFailureKeepsThePendingThrowableOrOrigin
   EXPECT_EQ(jni.pending, &jni.fallback);
   EXPECT_EQ(jni.fallbackMessage, error.what());
   EXPECT_EQ(descriptions, 1);
+  jni.pending = nullptr;
+}
+
+TEST_F(JniExceptionMetadataTest, nonStandardMetadataFailureKeepsThePendingThrowableOrOriginalDiagnostic) {
+  auto& jni = boundaryJni;
+  const std::runtime_error error("original native diagnostic");
+  {
+    const JniExceptionMetadataRegistration registration(failWithNonStandardException);
+    EXPECT_NO_THROW(handleJniException(jni.env(), error));
+    EXPECT_EQ(jni.pending, &jni.fallback);
+    EXPECT_EQ(jni.fallbackMessage, error.what());
+    EXPECT_EQ(descriptions, 1);
+    jni.pending = nullptr;
+  }
+  const JniExceptionMetadataRegistration registration(failWithPendingThrowable);
+  EXPECT_NO_THROW(handleJniException(jni.env(), error));
+  EXPECT_EQ(jni.pending, &jni.secondary);
+  EXPECT_EQ(descriptions, 2);
   jni.pending = nullptr;
 }
 

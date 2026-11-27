@@ -27,6 +27,7 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
@@ -66,6 +67,15 @@ public final class JavaExceptionJniTest {
     }
   }
 
+  /** Has the metadata constructor, but JNI must not construct or throw a non-Throwable. */
+  private static final class NonThrowableMetadata {
+    private static final AtomicInteger CONSTRUCTIONS = new AtomicInteger();
+
+    private NonThrowableMetadata(byte[] reason, byte[] diagnostic) {
+      CONSTRUCTIONS.incrementAndGet();
+    }
+  }
+
   private static native int roundTrip(Callback callback, boolean nested);
 
   private static native void roundTripWithFailedCapture(Callback callback, Throwable failure);
@@ -81,7 +91,12 @@ public final class JavaExceptionJniTest {
 
   private static native void throwNativeException();
 
-  private static native void throwNativeMetadata(boolean failConstruction, boolean failThrow);
+  /** Throws a native error that the test provider describes as an instance of {@code className}. */
+  private static native void throwNativeMetadata(String className, boolean failThrow);
+
+  private static String jniName(Class<?> type) {
+    return type.getName().replace('.', '/');
+  }
 
   private static native void close();
 
@@ -322,7 +337,7 @@ public final class JavaExceptionJniTest {
   @Test
   public void nativeMetadataRetainsEmbeddedNul() {
     try {
-      throwNativeMetadata(false, false);
+      throwNativeMetadata(jniName(MetadataException.class), false);
       Assert.fail("Expected the described native exception");
     } catch (MetadataException actual) {
       Assert.assertEquals("a\0b", actual.reason);
@@ -333,7 +348,7 @@ public final class JavaExceptionJniTest {
   @Test
   public void nativeMetadataConstructorFailureRemainsPending() {
     try {
-      throwNativeMetadata(true, false);
+      throwNativeMetadata(jniName(FailingMetadataException.class), false);
       Assert.fail("Expected the constructor's failure");
     } catch (OutOfMemoryError actual) {
       Assert.assertSame(FailingMetadataException.FAILURE, actual);
@@ -343,12 +358,24 @@ public final class JavaExceptionJniTest {
   @Test
   public void failedNativeMetadataThrowUsesOriginalDiagnostic() {
     try {
-      throwNativeMetadata(false, true);
+      throwNativeMetadata(jniName(MetadataException.class), true);
       Assert.fail("Expected the native fallback");
     } catch (GlutenException actual) {
       Assert.assertSame(GlutenException.class, actual.getClass());
       Assert.assertEquals("native metadata diagnostic", actual.getMessage());
     }
+  }
+
+  @Test
+  public void nonThrowableNativeMetadataUsesOriginalDiagnostic() {
+    try {
+      throwNativeMetadata(jniName(NonThrowableMetadata.class), false);
+      Assert.fail("Expected the native fallback");
+    } catch (GlutenException actual) {
+      Assert.assertSame(GlutenException.class, actual.getClass());
+      Assert.assertEquals("native metadata diagnostic", actual.getMessage());
+    }
+    Assert.assertEquals(0, NonThrowableMetadata.CONSTRUCTIONS.get());
   }
 
   @Test

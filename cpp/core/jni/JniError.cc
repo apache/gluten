@@ -102,13 +102,22 @@ jbyteArray toJavaBytes(JNIEnv* env, const std::string& value) {
 // On success the new throwable is pending. A Java exception raised while creating it, such as
 // OutOfMemoryError, is left pending instead.
 void throwMetadataException(JNIEnv* env, const JniExceptionMetadata& metadata) {
-  // The class, two byte arrays and the throwable. The JNI method returns right after this handler.
-  constexpr jint kMetadataLocalCapacity = 4;
+  // Two classes, two byte arrays and the throwable. The JNI method returns right after this handler.
+  constexpr jint kMetadataLocalCapacity = 5;
   if (env->EnsureLocalCapacity(kMetadataLocalCapacity) != JNI_OK) {
     return;
   }
   const auto type = env->FindClass(metadata.className.c_str());
   if (type == nullptr || env->ExceptionCheck()) {
+    return;
+  }
+  const auto throwableType = env->FindClass("java/lang/Throwable");
+  if (throwableType == nullptr || env->ExceptionCheck()) {
+    return;
+  }
+  // JNI Throw requires a Throwable, so never run another class's constructor.
+  if (!env->IsAssignableFrom(type, throwableType)) {
+    LOG(ERROR) << "Unable to throw " << metadata.className << " at JNI boundary: not a java.lang.Throwable";
     return;
   }
   const auto constructor = env->GetMethodID(type, "<init>", "([B[B)V");
@@ -162,6 +171,8 @@ void handleJniException(JNIEnv* env, const std::exception& error) {
     } catch (const std::exception& failure) {
       // Describing is best effort; keep the original diagnostic or a newer pending throwable.
       LOG(WARNING) << "Unable to describe native exception at JNI boundary: " << failure.what();
+    } catch (...) {
+      LOG(WARNING) << "Unable to describe native exception at JNI boundary: unknown exception type";
     }
   }
   if (!env->ExceptionCheck()) {

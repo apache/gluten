@@ -135,10 +135,12 @@ A backend can register a `JniExceptionMetadataRegistration` to raise a typed Jav
 exception for its own native errors. The boundary asks the registered providers
 only when no Java exception is pending or carried. Providers must not call JNI;
 they return a class name, a reason and a diagnostic as owned strings. After
-releasing the registry lock, the boundary constructs that class through its
+releasing the registry lock, the boundary checks that the class extends
+`java.lang.Throwable`, then constructs it through its
 `(byte[] reason, byte[] diagnostic)` constructor, passing the UTF-8 bytes
 unchanged, including NULs. A Java exception raised while constructing it, such
-as `OutOfMemoryError`, stays pending; any other failure keeps the
+as `OutOfMemoryError`, stays pending. Any other failure, such as a class that
+isn't a `Throwable` or a provider exception of any type, keeps the
 `GlutenException` fallback with the original diagnostic.
 
 The Velox JNI input iterator uses `wrapJavaException` for both initial inputs
