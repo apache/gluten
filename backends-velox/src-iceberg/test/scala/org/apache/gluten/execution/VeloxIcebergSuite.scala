@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.execution
 
-import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
+import org.apache.gluten.config.{GlutenConfig, GlutenIcebergConfig, VeloxConfig}
 import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.utils.VeloxFileSystemValidationJniWrapper
 
@@ -279,6 +279,116 @@ class VeloxIcebergSuite extends IcebergSuite {
         df =>
           checkAnswer(df, Seq(Row(1, "IN"), Row(2, "IN")))
           checkGlutenPlan[IcebergScanTransformer](df)
+      }
+
+      // Without renamed fields, initial defaults must not depend on data-file footer validation.
+      withSQLConf(GlutenIcebergConfig.MAX_FIELD_ID_VALIDATION_FILES.key -> "0") {
+        runQueryAndCompare(
+          "SELECT id, country FROM iceberg_v3_initial_default ORDER BY id") {
+          df =>
+            checkAnswer(df, Seq(Row(1, "IN"), Row(2, "IN")))
+            checkGlutenPlan[IcebergScanTransformer](df)
+        }
+      }
+    }
+  }
+
+  test("iceberg scans resolved alike by name and field ID skip footer validation") {
+    withTable("iceberg_name_read_tb") {
+      withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+        spark.sql("CREATE TABLE iceberg_name_read_tb (id INT, data STRING) USING iceberg")
+        spark.sql("INSERT INTO iceberg_name_read_tb VALUES (1, 'a')")
+        spark.sql("ALTER TABLE iceberg_name_read_tb ADD COLUMN extra INT")
+        spark.sql("INSERT INTO iceberg_name_read_tb VALUES (2, 'b', 20)")
+      }
+
+      // A limit of 0 would fall back for any scan that validates footers.
+      withSQLConf(GlutenIcebergConfig.MAX_FIELD_ID_VALIDATION_FILES.key -> "0") {
+        runQueryAndCompare("SELECT id, data, extra FROM iceberg_name_read_tb ORDER BY id") {
+          df =>
+            checkAnswer(df, Seq(Row(1, "a", null), Row(2, "b", 20)))
+            checkGlutenPlan[IcebergScanTransformer](df)
+        }
+      }
+    }
+  }
+
+  test("iceberg renamed and re-added columns are read by field ID") {
+    withTable("iceberg_field_id_read_tb") {
+      withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+        spark.sql("""
+                    |CREATE TABLE iceberg_field_id_read_tb (
+                    |  id INT,
+                    |  data STRING,
+                    |  s STRUCT<a: INT, b: STRING>)
+                    |USING iceberg
+                    |""".stripMargin)
+        spark.sql(
+          "INSERT INTO iceberg_field_id_read_tb VALUES (1, 'a', named_struct('a', 10, 'b', 'x'))")
+        spark.sql("ALTER TABLE iceberg_field_id_read_tb RENAME COLUMN data TO note")
+        spark.sql("ALTER TABLE iceberg_field_id_read_tb RENAME COLUMN s.a TO c")
+        spark.sql("ALTER TABLE iceberg_field_id_read_tb DROP COLUMN id")
+        spark.sql("ALTER TABLE iceberg_field_id_read_tb ADD COLUMN id INT")
+        spark.sql(
+          "INSERT INTO iceberg_field_id_read_tb VALUES ('b', named_struct('c', 20, 'b', 'y'), 2)")
+      }
+
+      val query = "SELECT id, note, s.c, s.b FROM iceberg_field_id_read_tb ORDER BY note"
+      val expected = Seq(Row(null, "a", 10, "x"), Row(2, "b", 20, "y"))
+      runQueryAndCompare(query) {
+        df =>
+          checkAnswer(df, expected)
+          checkGlutenPlan[IcebergScanTransformer](df)
+      }
+
+      // Reading by field ID validates data-file footers, so it is bounded by the file limit.
+      withSQLConf(GlutenIcebergConfig.MAX_FIELD_ID_VALIDATION_FILES.key -> "0") {
+        val df = spark.sql(query)
+        checkAnswer(df, expected)
+        checkGlutenPlanCount[IcebergScanTransformer](df, 0)
+      }
+    }
+  }
+
+  test("iceberg re-added columns are read by field ID after expired schemas are removed") {
+    val tableName = "iceberg_expired_schema_tb"
+    withTable(tableName) {
+      withSQLConf(GlutenConfig.GLUTEN_ENABLED.key -> "false") {
+        spark.sql(s"CREATE TABLE $tableName (id INT, data STRING) USING iceberg")
+        spark.sql(s"INSERT INTO $tableName VALUES (1, 'a')")
+        spark.sql(s"ALTER TABLE $tableName DROP COLUMN data")
+        spark.sql(s"ALTER TABLE $tableName ADD COLUMN data STRING")
+        spark.sql(s"INSERT INTO $tableName VALUES (2, 'b')")
+        // Expiring all but the current snapshot removes the schema the first data file was
+        // written with, although that file stays live.
+        val table = Spark3Util.loadIcebergTable(spark, tableName)
+        table.refresh()
+        table
+          .expireSnapshots()
+          .expireOlderThan(table.currentSnapshot().timestampMillis())
+          .cleanExpiredMetadata(true)
+          .commit()
+        table.refresh()
+        assert(table.schemas().size() == 1 && !table.schemas().containsKey(0))
+      }
+
+      // Reading the old file by name would return the dropped column's value.
+      runQueryAndCompare(s"SELECT id, data FROM $tableName WHERE id = 1") {
+        df =>
+          checkAnswer(df, Seq(Row(1, null)))
+          checkGlutenPlan[IcebergScanTransformer](df)
+      }
+      runQueryAndCompare(s"SELECT id, data FROM $tableName ORDER BY id") {
+        df =>
+          checkAnswer(df, Seq(Row(1, null), Row(2, "b")))
+          checkGlutenPlan[IcebergScanTransformer](df)
+      }
+
+      // The removed schema history makes the scan validate footers, bounded by the file limit.
+      withSQLConf(GlutenIcebergConfig.MAX_FIELD_ID_VALIDATION_FILES.key -> "0") {
+        val df = spark.sql(s"SELECT id, data FROM $tableName ORDER BY id")
+        checkAnswer(df, Seq(Row(1, null), Row(2, "b")))
+        checkGlutenPlanCount[IcebergScanTransformer](df, 0)
       }
     }
   }

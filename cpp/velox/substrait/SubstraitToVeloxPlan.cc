@@ -1664,6 +1664,25 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   // The logical scan schema includes columns supplied by the connector, not just the file.
   auto baseSchema = ROW(std::move(names), std::move(types));
 
+  const auto icebergSplitInfo = std::dynamic_pointer_cast<IcebergSplitInfo>(splitInfo);
+  const auto findIcebergColumn = [&](const std::string& name) -> const IcebergColumnInfo* {
+    if (!icebergSplitInfo) {
+      return nullptr;
+    }
+    auto columnIt = icebergSplitInfo->columns.find(name);
+    if (columnIt != icebergSplitInfo->columns.end()) {
+      return &columnIt->second;
+    }
+    if (asLowerCase) {
+      for (const auto& [columnName, column] : icebergSplitInfo->columns) {
+        if (foldCase(columnName) == name) {
+          return &column;
+        }
+      }
+    }
+    return nullptr;
+  };
+
   // HiveTableHandle::dataColumns() is used as fileSchema for the reader.
   RowTypePtr dataColumns;
   if (!splitInfo->tableSchema) {
@@ -1690,7 +1709,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         partitionColNames.insert(colNameList[idx]);
       }
     }
-    if (partitionColNames.empty()) {
+    if (icebergSplitInfo || partitionColNames.empty()) {
       dataColumns = tableSchema;
     } else {
       std::vector<std::string> dataColNames;
@@ -1719,10 +1738,28 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 #endif
   }
   common::SubfieldFilters subfieldFilters;
+  std::vector<int32_t> dataColumnFieldIds;
+  if (icebergSplitInfo && !icebergSplitInfo->columns.empty()) {
+    dataColumnFieldIds.reserve(dataColumns->size());
+    for (int idx = 0; idx < dataColumns->size(); idx++) {
+      const auto* column = findIcebergColumn(dataColumns->nameOf(idx));
+      dataColumnFieldIds.push_back(column ? column->field.fieldId : -idx - 1);
+    }
+  }
   if (connectorId == connectorIds_.iceberg) {
     // The Iceberg connector's data source requires an IcebergTableHandle.
     tableHandle = std::make_shared<connector::hive::iceberg::IcebergTableHandle>(
-        connectorId, "hive_table", std::move(subfieldFilters), remainingFilter, dataColumns);
+        connectorId,
+        "hive_table",
+        std::move(subfieldFilters),
+        remainingFilter,
+        dataColumns,
+        std::vector<std::string>{},
+        std::unordered_map<std::string, std::string>{},
+        std::vector<connector::hive::iceberg::IcebergColumnHandlePtr>{},
+        1.0,
+        "",
+        std::move(dataColumnFieldIds));
   } else {
     tableHandle = std::make_shared<connector::hive::HiveTableHandle>(
         connectorId, "hive_table", std::move(subfieldFilters), remainingFilter, dataColumns);
@@ -1778,24 +1815,10 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   std::vector<std::string> outNames;
   outNames.reserve(colNameList.size());
   connector::ColumnHandleMap assignments;
-  const auto icebergSplitInfo = std::dynamic_pointer_cast<IcebergSplitInfo>(splitInfo);
   for (int idx = 0; idx < colNameList.size(); idx++) {
     auto outName = SubstraitParser::makeNodeName(planNodeId_, idx);
     auto columnType = columnTypes[idx];
-    const IcebergColumnInfo* icebergColumn = nullptr;
-    if (icebergSplitInfo) {
-      auto columnIt = icebergSplitInfo->columns.find(colNameList[idx]);
-      if (columnIt != icebergSplitInfo->columns.end()) {
-        icebergColumn = &columnIt->second;
-      } else if (asLowerCase) {
-        for (const auto& [name, column] : icebergSplitInfo->columns) {
-          if (foldCase(name) == colNameList[idx]) {
-            icebergColumn = &column;
-            break;
-          }
-        }
-      }
-    }
+    const auto* icebergColumn = findIcebergColumn(colNameList[idx]);
     // Gluten serializes Iceberg partition dates as ISO strings. Use Iceberg
     // handles only for regular columns so all data columns are mapped by field
     // ID together, while partition columns keep the existing Hive conversion.
@@ -1806,7 +1829,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
           colNameList[idx],
           columnType,
           veloxTypeList[idx],
-          facebook::velox::parquet::ParquetFieldId(icebergColumn->fieldId),
+          IcebergPlanConverter::toParquetFieldId(icebergColumn->field, veloxTypeList[idx], asLowerCase),
           std::vector<common::Subfield>{},
           icebergColumn->initialDefault);
     } else {
