@@ -172,6 +172,33 @@
         <artifactId>maven-resources-plugin</artifactId>
       </plugin>
       <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>unpack-spark-streaming-test-resources</id>
+            <goals>
+              <goal>unpack</goal>
+            </goals>
+            <phase>process-test-resources</phase>
+            <configuration>
+              <!-- Unpack Structured Streaming test fixtures before the test JVMs start. -->
+              <artifactItems>
+                <artifactItem>
+                  <groupId>org.apache.spark</groupId>
+                  <artifactId>spark-sql_${scala.binary.version}</artifactId>
+                  <version>${spark.version}</version>
+                  <classifier>tests</classifier>
+                  <type>jar</type>
+                  <includes>structured-streaming/**</includes>
+                  <outputDirectory>${project.build.testOutputDirectory}</outputDirectory>
+                </artifactItem>
+              </artifactItems>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
         <groupId>net.alchim31.maven</groupId>
         <artifactId>scala-maven-plugin</artifactId>
       </plugin>
