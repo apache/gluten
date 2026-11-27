@@ -151,8 +151,8 @@ initialization. The ordinary `JNI_METHOD_END` handler follows registered and
 standard nested causes without a runtime, including when lazy loading fails.
 It leaves an already-pending Java exception alone. Native callers still see the
 native exception. The runtime/system wrapper prevents TRY expressions from suppressing
-failed Java callbacks. Other native errors keep their existing handling; this
-mechanism does not classify or translate native cast failures.
+failed Java callbacks. Unwrapping a Java cause is separate from describing a
+[native cast failure](#native-velox-cast-failures).
 Preserving the throwable does not merge Java and C++ frames into a hybrid stack
 trace (see [#9642](https://github.com/apache/gluten/issues/9642)).
 
@@ -174,6 +174,27 @@ replaceWhere invariant-violation cause, then verifies that a rejected write leav
 the Delta version, active files, and rows unchanged.
 Successful writes are checked through Parquet footers so JVM fallback cannot make
 the native-path regression pass unnoticed.
+
+### Native Velox cast failures
+
+Native C++ iterators throw the original Velox error, even when a JVM is loaded.
+At the JNI return boundary, an already-pending or transported Java throwable
+takes precedence. Otherwise Velox's registered metadata provider recognizes
+`USER` / `INVALID_ARGUMENT` errors attributed to a built-in `cast` by
+`ExpressionExceptionProperties`. It returns the reason and diagnostic without
+calling Java. The boundary constructs `NativeCastException` on the returning
+thread, outside the registry lock. Byte arrays preserve UTF-8, including NULs.
+If a field contains a NUL, the diagnostic is built from Velox's length-aware
+fields and original captured stack rather than the NUL-terminated `what()` string.
+
+`ColumnarBatchOutIterator` translates recognized numeric overflow, decimal precision,
+and string-to-integral failures using Spark's `QueryExecutionErrors` factories and
+retains the native diagnostic as the cause. Recognition depends on the pinned
+Velox cast-reason grammar, not diagnostic stack traces. Missing attribution,
+unrecognized types/reasons, and ambiguous unescaped string delimiters retain the
+existing error handling. When updating Velox, run the native cast-attribution and
+JVM exception-metadata tests together. Cast evaluation and ANSI, legacy, and TRY
+behavior are unchanged.
 
 ### C++ code development
 

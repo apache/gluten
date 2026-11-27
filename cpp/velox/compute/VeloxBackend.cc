@@ -50,6 +50,7 @@
 #ifdef ENABLE_S3
 #include "filesystem/GlutenS3FileSystem.h"
 #endif
+#include "jni/JniCastException.h"
 #include "jni/JniError.h"
 #include "jni/JniFileSystem.h"
 #include "jni/VeloxInputIterator.h"
@@ -132,6 +133,7 @@ void veloxThreadManagerReleaser(ThreadManager* threadManager) {
 
 void registerVeloxExceptionUnwrapper() {
   static const JniExceptionUnwrapperRegistration registration(unwrapVeloxException);
+  static const JniExceptionMetadataRegistration castMetadata(describeNativeCastException);
 }
 
 bool hasCudaDevice() {
