@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.execution
 
-import org.apache.gluten.config.GlutenIcebergConfig
+import org.apache.gluten.config.{GlutenConfig, GlutenIcebergConfig}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
@@ -893,6 +893,33 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
             checkGlutenPlan[FileSourceScanExecTransformer](parquetDf)
             assert(parquetDf.count() == 5)
           }
+      }
+    }
+  }
+
+  test("iceberg input_file_name with special characters in column name") {
+    withTable("iceberg_input_file_special") {
+      spark.sql("""
+                  |CREATE TABLE iceberg_input_file_special (id INT, `my/data` STRING)
+                  |USING iceberg
+                  |""".stripMargin)
+      spark.sql("INSERT INTO iceberg_input_file_special VALUES (1, 'a'), (2, 'b')")
+      for {
+        projectEnabled <- Seq("true", "false")
+        query <- Seq(
+          "SELECT input_file_name() AS f, `my/data` FROM iceberg_input_file_special",
+          "SELECT `my/data` FROM iceberg_input_file_special " +
+            "WHERE input_file_name() LIKE '%.parquet'",
+          // input_file_name() at two levels: the scan outputs one input_file_name column.
+          "SELECT input_file_name() AS f, `my/data` FROM iceberg_input_file_special " +
+            "WHERE input_file_name() LIKE '%.parquet'",
+          "SELECT concat(f, input_file_name()) AS g, `my/data` FROM " +
+            "(SELECT input_file_name() AS f, `my/data` FROM iceberg_input_file_special)"
+        )
+      } {
+        withSQLConf(GlutenConfig.COLUMNAR_PROJECT_ENABLED.key -> projectEnabled) {
+          checkGlutenPlan[IcebergScanTransformer](runAndCompare(query))
+        }
       }
     }
   }
