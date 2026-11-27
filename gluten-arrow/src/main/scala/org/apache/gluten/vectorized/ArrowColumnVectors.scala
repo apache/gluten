@@ -21,7 +21,7 @@ import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.arrow.ArrowWriter
 import org.apache.spark.sql.types.StructType
-import org.apache.spark.sql.utils.{SparkArrowUtil, SparkSchemaUtil}
+import org.apache.spark.sql.utils.SparkSchemaUtil
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
 
 import org.apache.arrow.memory.BufferAllocator
@@ -37,7 +37,7 @@ object ArrowColumnVectors {
   def allocateRoot(
       schema: StructType,
       allocator: BufferAllocator = ArrowBufferAllocators.contextInstance()): VectorSchemaRoot = {
-    val arrowSchema = SparkArrowUtil.toArrowSchema(schema, SparkSchemaUtil.getLocalTimezoneID)
+    val arrowSchema = SparkSchemaUtil.toArrowSchema(schema)
     VectorSchemaRoot.create(arrowSchema, allocator)
   }
 
@@ -53,7 +53,7 @@ object ArrowColumnVectors {
       root.getRowCount)
   }
 
-  /** Writes `rows` into a new batch with Spark's [[ArrowWriter]]. */
+  /** Writes `rows` into a new batch with Spark's Arrow writer. */
   def fromRows(
       schema: StructType,
       rows: Iterator[InternalRow],
@@ -63,12 +63,12 @@ object ArrowColumnVectors {
       val writer = ArrowWriter.create(root)
       rows.foreach(writer.write)
       writer.finish()
+      toBatch(root)
     } catch {
       case t: Throwable =>
         root.close()
         throw t
     }
-    toBatch(root)
   }
 
   /**
