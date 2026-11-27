@@ -20,6 +20,7 @@ import org.apache.gluten.config.{GlutenConfig, GlutenIcebergConfig}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.catalyst.expressions.{DynamicPruningExpression, Literal}
 import org.apache.spark.sql.execution.QueryExecution
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.util.QueryExecutionListener
@@ -284,6 +285,48 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
               }
               checkLengthAndPlan(df, 7)
             }
+        }
+      }
+    }
+  }
+
+  test("iceberg bucketed join with a runtime filter that removes every partition") {
+    withTable("spj_items", "spj_purchases") {
+      spark.sql("create table spj_items(id int, price double) using iceberg partitioned by (id)")
+      spark.sql("insert into spj_items values (1, 40.0), (1, 41.0), (2, 10.0), (3, 15.5)")
+      spark.sql(
+        "create table spj_purchases(item_id int, price double) using iceberg " +
+          "partitioned by (item_id)")
+      spark.sql("insert into spj_purchases values (1, 42.0), (1, 44.0), (2, 11.0), (3, 19.5)")
+      for {
+        pushDownValues <- Seq("true", "false")
+        partiallyClustered <- Seq("true", "false")
+      } {
+        withSQLConf(
+          "spark.sql.sources.v2.bucketing.enabled" -> "true",
+          "spark.sql.requireAllClusterKeysForCoPartition" -> "false",
+          "spark.sql.adaptive.enabled" -> "false",
+          "spark.sql.iceberg.planning.preserve-data-grouping" -> "true",
+          "spark.sql.autoBroadcastJoinThreshold" -> "-1",
+          "spark.sql.optimizer.dynamicPartitionPruning.enabled" -> "true",
+          "spark.sql.optimizer.dynamicPartitionPruning.reuseBroadcastOnly" -> "false",
+          "spark.sql.optimizer.dynamicPartitionPruning.fallbackFilterRatio" -> "10",
+          "spark.sql.sources.v2.bucketing.pushPartValues.enabled" -> pushDownValues,
+          "spark.sql.sources.v2.bucketing.partiallyClusteredDistribution.enabled" ->
+            partiallyClustered
+        ) {
+          // No item is priced over 50, so dynamic filtering removes every purchases partition.
+          val df = spark.sql(
+            "select p.price from spj_items i, spj_purchases p " +
+              "where i.id = p.item_id and i.price > 50.0")
+          assert(df.collect().isEmpty)
+          // The purchases scan is offloaded, key grouped and dynamically filtered.
+          assert(getExecutedPlan(df).exists {
+            case s: IcebergScanTransformer =>
+              s.getKeyGroupPartitioning.isDefined &&
+              s.runtimeFilters.exists(_ != DynamicPruningExpression(Literal.TrueLiteral))
+            case _ => false
+          })
         }
       }
     }
