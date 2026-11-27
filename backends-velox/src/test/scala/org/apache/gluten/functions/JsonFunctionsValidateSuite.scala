@@ -425,11 +425,34 @@ class JsonFunctionsValidateSuite extends FunctionsValidateSuite {
       }
 
       runQueryAndCompare("select to_json(e) from t") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+
+      runQueryAndCompare("select to_json(array(named_struct('aA', a))) from t") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+
+      runQueryAndCompare(
+        "select to_json(named_struct('outer', named_struct('UserId', a, 'userid', b))) from t") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+
+      runQueryAndCompare("select to_json(map('key', named_struct('UserId', a))) from t") {
+        checkGlutenPlan[ProjectExecTransformer]
+      }
+
+      runQueryAndCompare("select to_json(e, map('ignoreNullFields', 'false')) from t") {
         checkSparkPlan[ProjectExec]
       }
 
-      runQueryAndCompare("select to_json(Array(named_struct('aA', a))) from t") {
+      runQueryAndCompare("""select to_json(named_struct('A"B', a)) from t""") {
         checkSparkPlan[ProjectExec]
+      }
+
+      withSQLConf("spark.gluten.sql.columnar.backend.velox.cast_match_struct_by_name" -> "true") {
+        runQueryAndCompare("select to_json(e) from t") {
+          checkSparkPlan[ProjectExec]
+        }
       }
     }
   }

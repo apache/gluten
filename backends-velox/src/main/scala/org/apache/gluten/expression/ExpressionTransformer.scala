@@ -23,7 +23,7 @@ import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.expression._
 
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.types.{IntegerType, LongType, TimestampNTZType, TimestampType}
+import org.apache.spark.sql.types.{ArrayType, DataType, IntegerType, LongType, MapType, StructType, TimestampNTZType, TimestampType}
 
 import java.lang.{Integer => JInteger}
 import java.util.{ArrayList => JArrayList}
@@ -38,6 +38,30 @@ case class VeloxAliasTransformer(
 
   override def doTransform(context: SubstraitContext): ExpressionNode = {
     child.doTransform(context)
+  }
+}
+
+case class VeloxToJsonInputTransformer(child: ExpressionTransformer)
+  extends UnaryExpressionTransformer {
+  override def substraitExprName: String = "cast"
+  override def original: Expression = child.original
+
+  override def doTransform(context: SubstraitContext): ExpressionNode = {
+    // Spark's struct field names are JSON keys, not case-insensitive column references.
+    // Restore them by position without changing the field types or the rest of the plan.
+    val inputType = ConverterUtils.getTypeNode(dataType, nullable, preserveStructFieldNames = true)
+    ExpressionBuilder.makeCast(inputType, child.doTransform(context), CastNode.CastMode.LEGACY)
+  }
+}
+
+object VeloxToJsonInputTransformer {
+  def hasFieldName(dataType: DataType)(matches: String => Boolean): Boolean = dataType match {
+    case struct: StructType =>
+      struct.exists(field => matches(field.name) || hasFieldName(field.dataType)(matches))
+    case ArrayType(elementType, _) => hasFieldName(elementType)(matches)
+    case MapType(keyType, valueType, _) =>
+      hasFieldName(keyType)(matches) || hasFieldName(valueType)(matches)
+    case _ => false
   }
 }
 
