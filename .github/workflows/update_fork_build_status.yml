@@ -45,7 +45,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          sparse-checkout: .github/workflows/util/update-fork-build-status.js
+          # Only these files are checked out. The script also opens the three workflow
+          # files, to read which changed files each workflow tests (its `paths:` regex).
+          sparse-checkout: |
+            .github/workflows/util/update-fork-build-status.js
+            .github/workflows/velox_backend_x86.yml
+            .github/workflows/velox_backend_arm.yml
+            .github/workflows/velox_kafka.yml
           sparse-checkout-cone-mode: false
       - uses: actions/github-script@v9
         with:
