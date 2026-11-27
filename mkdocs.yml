@@ -63,6 +63,7 @@ nav:
     - Window Functions: backends/velox/velox-backend-window-function-support.md
     - Generator Functions: backends/velox/velox-backend-generator-function-support.md
     - Troubleshooting: backends/velox/velox-backend-troubleshooting.md
+    - Columnar Table Cache: backends/velox/velox-columnar-table-cache.md
   - Developers:
     - Velox UDF and UDAF: backends/velox/developers/VeloxUDF.md
     - Updating the Function Support Docs: backends/velox/developers/UpdateFunctionSupportDocs.md
