@@ -16,9 +16,10 @@
  */
 package org.apache.spark.sql.hive.execution
 
-import org.apache.spark.TestUtils
+import org.apache.spark.{SparkException, TestUtils}
 import org.apache.spark.sql.{GlutenTestSetWithSystemPropertyTrait, Row}
 import org.apache.spark.sql.connector.catalog.CatalogManager.SESSION_CATALOG_NAME
+import org.apache.spark.sql.execution.TestUncaughtExceptionHandler
 import org.apache.spark.tags.SlowHiveTest
 
 import java.sql.Date
@@ -29,17 +30,56 @@ trait GlutenSQLQuerySuiteBase
   with GlutenHiveResourcePathSupport {
 
   override def testNameBlackList: Seq[String] = Seq(
-    // Rewritten with workspace-backed jar paths because TestHive.getHiveFile resolves
-    // these jars from the Spark test jars in gluten-ut.
+    // Rewritten with workspace-backed resource paths because the upstream tests resolve
+    // resources from Spark test jars in gluten-ut.
     "script",
     "describe functions - user defined functions",
     "describe functions - temporary user defined functions",
-    "SPARK-32668: HiveGenericUDTF initialize UDTF should use StructObjectInspector method"
+    "SPARK-32668: HiveGenericUDTF initialize UDTF should use StructObjectInspector method",
+    "SPARK-25158: " +
+      "Executor accidentally exit because ScriptTransformationWriterThread throw Exception"
   )
 
   override def beforeAll(): Unit = {
     super.beforeAll()
     GlutenTestHiveTables.registerHiveQTestUtilsTables(hiveTestResourceDir)
+  }
+
+  testGluten(
+    "SPARK-25158: " +
+      "Executor accidentally exit because ScriptTransformationWriterThread throw Exception") {
+    assume(TestUtils.testCommandAvailable("python3"))
+    withTempView("test") {
+      import spark.implicits._
+
+      val defaultUncaughtExceptionHandler = Thread.getDefaultUncaughtExceptionHandler
+      try {
+        val uncaughtExceptionHandler = new TestUncaughtExceptionHandler
+        Thread.setDefaultUncaughtExceptionHandler(uncaughtExceptionHandler)
+
+        // Use a bad udf to generate failed inputs.
+        val badUDF = org.apache.spark.sql.functions.udf(
+          (x: Int) => {
+            if (x < 1) x
+            else throw new RuntimeException("Failed to produce data.")
+          })
+        spark
+          .range(5)
+          .select(badUDF($"id").as("a"))
+          .createOrReplaceTempView("test")
+        val scriptFilePath = hiveResourcePath("data").toFile.getCanonicalPath
+        val e = intercept[SparkException] {
+          sql(
+            s"""FROM test SELECT TRANSFORM(a)
+               |USING 'python3 $scriptFilePath/scripts/test_transform.py "\t"'
+              """.stripMargin).collect()
+        }
+        assert(e.getMessage.contains("Failed to produce data."))
+        assert(uncaughtExceptionHandler.exception.isEmpty)
+      } finally {
+        Thread.setDefaultUncaughtExceptionHandler(defaultUncaughtExceptionHandler)
+      }
+    }
   }
 
   testGluten("script") {
