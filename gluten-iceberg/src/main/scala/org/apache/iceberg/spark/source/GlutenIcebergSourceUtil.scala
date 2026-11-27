@@ -92,14 +92,8 @@ object GlutenIcebergSourceUtil {
     }
   }
 
-  def deleteExists(p: SparkDataSourceRDDPartition): Boolean = {
-    p.inputPartitions.exists {
-      case ip: SparkInputPartition =>
-        val tasks = ip.taskGroup[ScanTask]().tasks().asScala
-        asFileScanTask(tasks.toList).exists(task => !task.deletes().isEmpty())
-      case _ => throw new UnsupportedOperationException(s"Unsupported InputPartition type")
-    }
-  }
+  def deleteExists(sparkScan: Scan): Boolean =
+    asFileScanTask(getScanTasks(sparkScan).toList).exists(task => !task.deletes().isEmpty())
 
   def genSplitInfo(
       partition: SparkDataSourceRDDPartition,
