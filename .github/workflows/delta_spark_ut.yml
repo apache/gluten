@@ -215,6 +215,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.DELTA_CHECKOUT_REF }}
+      - name: Test Delta shard gate
+        run: python3 -m unittest discover -s gluten-ut/src-delta-spark-ut/test/python
       - name: Get Ccache from Apache Stash
         id: ccache-stash
         uses: apache/infrastructure-actions/stash/restore@69afc125e535c4c41e7f1b7470f583087e0f344b

@@ -151,7 +151,13 @@ Each test shard:
 1. Runs `sbt spark/test` with ScalaTest's JUnit XML reporter enabled
    (`-u target/test-reports`), so every suite writes per-test results. (Delta
    itself only configures the console reporter, so the workflow injects this.)
-2. Runs `compare-test-results.py --mode enforce`, which classifies every test:
+2. Rejects an incomplete run before enforcing **or seeding** the baseline. A
+   watchdog kill, an sbt `ForkMain` failure with a nonzero exit code, or an
+   increase in the shard's cgroup v2 `oom_kill` counter fails the shard even if
+   other suites wrote valid XML. The counter is sampled around `sbt spark/test`
+   when available; earlier OOM kills do not count. An ordinary nonzero **sbt**
+   exit is not enough to fail the shard, since baselined assertions also cause it.
+3. Runs `compare-test-results.py --mode enforce`, which classifies every test:
    - **regression** — failed, but not in the baseline → **fails the shard**.
    - **expected** — failed and in the baseline → ignored.
    - **now-passing** — in the baseline but passed this run → fails the shard
