@@ -240,7 +240,9 @@ case class ColumnarUnionExec(children: Seq[SparkPlan], partitioning: Partitionin
   extends ValidatablePlan {
   require(children.nonEmpty, "ColumnarUnionExec requires at least one child.")
   children.foreach {
-    case w: WholeStageTransformer =>
+    // AQE can copy this union with unresolved attributes during canonicalization.
+    // Only compute its output for backends that require the merged schema.
+    case w: WholeStageTransformer if BackendsApiManager.getSettings.needOutputSchemaForPlan() =>
       // FIXME: Avoid such practice for plan immutability.
       w.setOutputSchemaForPlan(output)
     case _ =>
