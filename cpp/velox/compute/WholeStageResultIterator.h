@@ -136,6 +136,9 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
   /// Whether the plan calls a Delta counter and so needs the query configs set by
   /// setIncrementMetricQueryConfigs().
   const bool usesIncrementMetricFunctions_;
+  /// Whether the probe side of a hash join evaluates a non-deterministic expression, which turns
+  /// off dynamic filter pushdown (see hasNonDeterministicExprBelowHashProbe()).
+  const bool nonDeterministicBelowHashProbe_;
 
   /// Spill.
   std::string spillStrategy_;
