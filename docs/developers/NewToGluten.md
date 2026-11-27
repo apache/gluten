@@ -126,10 +126,22 @@ do not replace it; if creating its global reference fails within a guarded JNI
 entry, the pending Java allocation error is preserved.
 
 `JNI_METHOD_END` also restores carriers inside standard `std::nested_exception`
-wrappers. Other native errors keep their existing `GlutenException` fallback.
+wrappers. Native errors without registered metadata keep their `GlutenException` fallback.
 If carrier restoration leaves no pending Java exception, the boundary attempts
 that same fallback using the caught exception's diagnostic. A newer pending Java
 exception is left untouched; failure to throw the fallback is logged.
+
+A backend can register a `JniExceptionMetadataRegistration` to raise a typed Java
+exception for its own native errors. The boundary asks the registered providers
+only when no Java exception is pending or carried. Providers must not call JNI;
+they return a class name, a reason and a diagnostic as owned strings. After
+releasing the registry lock, the boundary checks that the class extends
+`java.lang.Throwable`, then constructs it through its
+`(byte[] reason, byte[] diagnostic)` constructor, passing the UTF-8 bytes
+unchanged, including NULs. A Java exception raised while constructing it, such
+as `OutOfMemoryError`, stays pending. Any other failure, such as a class that
+isn't a `Throwable` or a provider exception of any type, keeps the
+`GlutenException` fallback with the original diagnostic.
 
 The Velox JNI input iterator uses `wrapJavaException` for both initial inputs
 and inputs added later through `addIteratorSplits`. This preserves the throwable
@@ -139,8 +151,8 @@ initialization. The ordinary `JNI_METHOD_END` handler follows registered and
 standard nested causes without a runtime, including when lazy loading fails.
 It leaves an already-pending Java exception alone. Native callers still see the
 native exception. The runtime/system wrapper prevents TRY expressions from suppressing
-failed Java callbacks. Other native errors keep their existing handling; this
-mechanism does not classify or translate native cast failures.
+failed Java callbacks. Unwrapping a Java cause is separate from describing a
+[native cast failure](#native-velox-cast-failures).
 Preserving the throwable does not merge Java and C++ frames into a hybrid stack
 trace (see [#9642](https://github.com/apache/gluten/issues/9642)).
 
@@ -162,6 +174,34 @@ replaceWhere invariant-violation cause, then verifies that a rejected write leav
 the Delta version, active files, and rows unchanged.
 Successful writes are checked through Parquet footers so JVM fallback cannot make
 the native-path regression pass unnoticed.
+
+### Native Velox cast failures
+
+Native C++ iterators throw the original Velox error, even when a JVM is loaded.
+Velox registers a `JniExceptionMetadataRegistration` provider (see
+[Java exceptions crossing native code](#java-exceptions-crossing-native-code))
+for `USER` / `INVALID_ARGUMENT` errors whose reason starts with `Cannot cast `
+and that `ExpressionExceptionProperties` attribute to a built-in `cast`, so the
+boundary raises them as `NativeCastException`. If a field contains a NUL, the
+diagnostic is built from Velox's length-aware fields and original captured stack
+rather than the NUL-terminated `what()` string.
+
+`ColumnarBatchOutIterator` translates recognized numeric overflow, decimal precision,
+and string-to-integral failures using Spark's `QueryExecutionErrors` factories and
+retains the native diagnostic as the cause. Recognition depends on the pinned
+Velox cast-reason grammar, not diagnostic stack traces. Unrecognized types or
+reasons and ambiguous unescaped string delimiters keep `NativeCastException`.
+For string-to-integral failures, Spark's exact parser checks the reported value
+against the target type. If Spark accepts it, the iterator preserves the native
+failure rather than reporting `CAST_INVALID_INPUT`.
+The message-based translations for other native errors don't apply to it,
+because a cast reason can contain user data. The iterator returns Spark
+exceptions unchanged, including those from nested native iterators, so Spark 4
+reports them instead of "Job aborted". Velox doesn't carry the SQL query
+context, so `CAST_INVALID_INPUT` and `NUMERIC_VALUE_OUT_OF_RANGE` errors have
+none. When updating Velox, run the native cast-attribution and JVM
+exception-metadata tests together. Cast evaluation and ANSI, legacy, and TRY
+behavior are unchanged.
 
 ### C++ code development
 

@@ -16,8 +16,11 @@
  */
 
 #include <exception>
+#include <optional>
 #include <stdexcept>
+#include <string>
 #include <thread>
+#include <utility>
 
 #include "jni/JniCommon.h"
 #include "jni/JniError.h"
@@ -104,6 +107,29 @@ jint roundTrip(JNIEnv* env, jobject callback, jboolean nested, jthrowable pendin
   }
   return 42;
   JNI_METHOD_END(-1)
+}
+
+struct MetadataTestError : std::runtime_error {
+  explicit MetadataTestError(std::string className)
+      : std::runtime_error("native metadata diagnostic"), className(std::move(className)) {}
+  std::string className;
+};
+
+std::optional<gluten::JniExceptionMetadata> describeMetadataTestError(const std::exception& error) {
+  const auto* testError = dynamic_cast<const MetadataTestError*>(&error);
+  if (testError == nullptr) {
+    return std::nullopt;
+  }
+  return gluten::JniExceptionMetadata{testError->className, std::string("a\0b", 3), error.what()};
+}
+
+void throwMetadataError(JNIEnv* env, jstring className) {
+  JNI_METHOD_START
+  gluten::getJniErrorState()->ensureInitialized(env);
+  checkException(env);
+  static const gluten::JniExceptionMetadataRegistration registration(describeMetadataTestError);
+  throw MetadataTestError(jStringToCString(env, className));
+  JNI_METHOD_END()
 }
 } // namespace
 
@@ -226,6 +252,20 @@ Java_org_apache_gluten_jni_JavaExceptionJniTest_throwNativeException(JNIEnv* env
   checkException(env);
   throw std::runtime_error("native-only failure");
   JNI_METHOD_END()
+}
+
+extern "C" JNIEXPORT void JNICALL Java_org_apache_gluten_jni_JavaExceptionJniTest_throwNativeMetadata(
+    JNIEnv* env,
+    jclass,
+    jstring className,
+    jboolean failThrow) {
+  if (failThrow) {
+    // Keep fault injection active through the production boundary's catch handler.
+    const ScopedThrowFailure functions(env, nullptr);
+    throwMetadataError(env, className);
+  } else {
+    throwMetadataError(env, className);
+  }
 }
 
 extern "C" JNIEXPORT void JNICALL Java_org_apache_gluten_jni_JavaExceptionJniTest_close(JNIEnv* env, jclass) {

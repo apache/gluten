@@ -175,6 +175,29 @@ class GlutenJniExceptionSuite extends GlutenQueryTest with SharedSparkSession {
     }
   }
 
+  test("nested native iterators return a Spark throwable unchanged") {
+    val original = new SparkArithmeticException(
+      "CAST_OVERFLOW",
+      Map(
+        "value" -> "128",
+        "sourceType" -> "\"INT\"",
+        "targetType" -> "\"TINYINT\"",
+        "ansiConfig" -> "\"spark.sql.ansi.enabled\""),
+      Array.empty[QueryContext],
+      ""
+    )
+    withNativeIterator(failingInput(original, failInHasNext = true)) {
+      inner =>
+        withNativeIterator(inner) {
+          outer =>
+            val actual = intercept[SparkArithmeticException] {
+              outer.hasNext()
+            }
+            assert(actual eq original)
+        }
+    }
+  }
+
   test("JNI restores Errors as well as Exceptions") {
     val original = new AssertionError("original error")
     withNativeIterator(failingInput(original, failInHasNext = false)) {
