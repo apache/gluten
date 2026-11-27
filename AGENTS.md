@@ -113,8 +113,7 @@ login instructions in [New CI System](docs/backends/clickhouse/get-started/Click
 and retry the request before reporting that access is unavailable. Do not copy
 credentials into logs, replies, or other instructions.
 
-Add at least one unit test (under `gluten-ut/`) for any fix or feature not
-covered by existing Spark UTs.
+Add at least one unit test for any fix or feature not covered by existing UTs.
 
 ```bash
 # gluten-ut — must select backend, Spark and Scala profiles
@@ -126,6 +125,50 @@ covered by existing Spark UTs.
 # ClickHouse backend CI — re-trigger by posting on the PR page:
 # Run Gluten Clickhouse CI
 ```
+
+### Where to put Scala and Java tests
+
+This section covers JVM tests only. C++ tests stay with the native code they
+test, under `cpp/<component>/tests/` (for example `cpp/core/tests/` or
+`cpp/velox/tests/`).
+
+**1. Spark tests and Spark test variants: `gluten-ut/spark<version>/`**
+
+A `Gluten<Name>Suite` there extends Spark's `<Name>Suite` so that Spark's own
+tests run with Gluten. Besides Spark's tests, these suites may only hold Spark
+test variants: copies of Spark tests with small changes to fit Gluten, usually
+written with `testGluten` to replace an excluded Spark test. Do not add new
+Gluten tests to these suites or to traits mixed into them.
+
+When a fix makes an excluded Spark test pass, re-enable it instead of keeping
+a variant: remove its `.exclude(...)` entry from the backend test settings
+(for example `VeloxTestSettings` and `ClickHouseTestSettings`) for each Spark
+version, and delete its Spark test variant if one exists.
+
+**2. New tests that are not specific to a backend: `gluten-ut/test/`**
+
+**3. New tests that are specific to a backend: the backend module**
+
+This includes, for example, assertions on native plans or fallback. Use the
+module's existing test directory for the area: `src/test/` in general, or a
+table-format directory such as `src-delta/test/` or `src-iceberg/test/`. For
+example, `backends-velox/src/test/` or `backends-velox/src-iceberg/test/`.
+
+Backend test directories are shared by all Spark versions. If a test only
+applies to some Spark versions, keep it there and gate it at test time with
+`testWithMinSparkVersion`, `testWithMaxSparkVersion` or
+`testWithSpecifiedSparkVersion` from `GlutenQueryTest`. If it calls an API that
+differs between Spark versions, go through the shim layer
+(`SparkShimLoader.getSparkShims`) rather than moving the test.
+
+**4. New Iceberg tests: only for behavior upstream Iceberg tests do not cover**
+
+CI already runs Iceberg's own Spark tests with Gluten, in the
+`Iceberg Spark UT (Gluten)` workflow (`.github/workflows/iceberg_spark_ut.yml`).
+Before adding a Gluten Iceberg test, check that those tests do not already
+cover the behavior, directly or indirectly. Put new Iceberg tests in the
+backend's `src-iceberg/test/`, or in `gluten-iceberg/src/test/` when they are
+not specific to a backend.
 
 ## PR Title Convention
 
