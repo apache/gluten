@@ -21,6 +21,7 @@
 #include <initializer_list>
 #include <stdexcept>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -82,7 +83,7 @@ class VeloxJniAllocationListenerTest : public ::testing::Test {
       }
       return bytes;
     };
-    jni.env()->functions = &functions;
+    jni.env()->functions = jni.workerEnv()->functions = &functions;
     ASSERT_EQ(jni.env()->GetJavaVM(&vm), JNI_OK);
     getJniCommonState()->ensureInitialized(jni.env());
     getJniErrorState()->ensureInitialized(jni.env());
@@ -93,7 +94,7 @@ class VeloxJniAllocationListenerTest : public ::testing::Test {
     VeloxBackend::get()->tearDown();
     getJniErrorState()->close();
     getJniCommonState()->close();
-    jni.env()->functions = original;
+    jni.env()->functions = jni.workerEnv()->functions = original;
   }
 
   void SetUp() override {
@@ -104,7 +105,7 @@ class VeloxJniAllocationListenerTest : public ::testing::Test {
   void TearDown() override {
     functions.DeleteLocalRef = original->DeleteLocalRef;
     reserveError = unreserveError = failCaptureOf = jni.pending = nullptr;
-    jni.failGlobalRef = test::failNextAllocation = false;
+    jni.workerAttached = jni.failGlobalRef = jni.failThrow = test::failNextAllocation = false;
   }
 
   static std::unique_ptr<AllocationListener> taskListener(const std::string& backend = kVeloxBackendKind) {
@@ -121,19 +122,23 @@ class VeloxJniAllocationListenerTest : public ::testing::Test {
   }
 
   template <typename F>
-  static void expectWrapped(F&& call) {
+  static void expectWrapped(F&& call, bool expectFallback = false) {
     bool systemError = false;
+    bool hasWrappedCause = false;
     const auto returned = atJniBoundary(jni.env(), [&] {
       try {
         call();
       } catch (const VeloxException& error) {
         systemError = error.exceptionType() == VeloxException::Type::kSystem;
+        hasWrappedCause = error.wrappedException() != nullptr;
         throw;
       }
     });
     test::failNextAllocation = false;
     EXPECT_FALSE(returned);
     EXPECT_TRUE(systemError);
+    // The preallocated wrapper has no per-call wrappedException; its Java cause is nested instead.
+    EXPECT_EQ(hasWrappedCause, !expectFallback);
     EXPECT_EQ(jni.pending, &jni.original);
     jni.pending = nullptr;
   }
@@ -191,6 +196,91 @@ TEST_F(VeloxJniAllocationListenerTest, nativeRollbackPrecedenceIsUnchanged) {
   EXPECT_THROW(rollbackVeloxReservation(native, 64, std::runtime_error("native reserve failed")), std::logic_error);
 }
 
+TEST_F(VeloxJniAllocationListenerTest, ordinaryShrinkRepaysWhileACaptureErrorIsPending) {
+  for (bool failUnreserve : {false, true}) {
+    SCOPED_TRACE(failUnreserve);
+    VeloxMemoryManager manager(kVeloxBackendKind, taskListener(), backendConf());
+    allocate(manager, 64);
+    const auto capacity = manager.getAggregateMemoryPool()->capacity();
+    calls.clear();
+    reserveError = failCaptureOf = &jni.original;
+    unreserveError = failUnreserve ? &jni.fallback : nullptr;
+    bool shrinkReturned = false;
+    EXPECT_FALSE(atJniBoundary(jni.env(), [&] {
+      try {
+        manager.getListener()->allocationChanged(64);
+      } catch (const std::runtime_error&) {
+        EXPECT_EQ(jni.pending, &jni.secondary);
+        // Independent cleanup, not the arbitrator's rollback of the failed growth.
+        manager.shrink(0);
+        shrinkReturned = true;
+        throw;
+      }
+    }));
+    EXPECT_EQ(shrinkReturned, !failUnreserve);
+    EXPECT_EQ(jni.pending, &jni.secondary);
+    EXPECT_EQ(calls, (std::vector<jlong>{64, -capacity}));
+    EXPECT_EQ(manager.getAggregateMemoryPool()->capacity(), 0);
+    EXPECT_EQ(javaBytes, 0);
+    jni.pending = nullptr;
+    jni.failGlobalRef = false;
+  }
+}
+
+TEST_F(VeloxJniAllocationListenerTest, failedRestoreAfterFreeDoesNotUndoRepayment) {
+  constexpr int64_t block = kMemoryReservationBlockSizeDefault;
+  auto listener = taskListener();
+  BlockAllocationListener blocks(listener.get(), block);
+  StdMemoryAllocator heap;
+  ListenableMemoryAllocator allocator(&heap, &blocks);
+  void* buffer = nullptr;
+  ASSERT_TRUE(allocator.allocate(block, &buffer));
+  jni.env()->Throw(&jni.original);
+  jni.failThrow = true;
+  // Native free succeeds; the guarded Java caller still gets an exception.
+  EXPECT_TRUE(atJniBoundary(jni.env(), [&] { allocator.free(buffer, block); }));
+  EXPECT_EQ(jni.pending, &jni.fallback);
+  EXPECT_EQ(javaBytes, 0);
+  EXPECT_EQ(allocator.getBytes(), 0);
+  jni.pending = nullptr;
+  jni.failThrow = false;
+  calls.clear();
+  ASSERT_TRUE(allocator.allocate(64, &buffer));
+  EXPECT_EQ(calls, std::vector<jlong>{block});
+  allocator.free(buffer, 64);
+}
+
+TEST_F(VeloxJniAllocationListenerTest, workerRollbackPreservesOnlyACapturedJavaError) {
+  for (bool failCapture : {false, true}) {
+    SCOPED_TRACE(failCapture);
+    VeloxMemoryManager manager(kVeloxBackendKind, taskListener(), backendConf());
+    allocate(manager, 64);
+    const auto capacity = manager.getAggregateMemoryPool()->capacity();
+    reserveError = &jni.original;
+    unreserveError = &jni.secondary;
+    failCaptureOf = failCapture ? &jni.original : nullptr;
+    jni.workerAttached = true;
+    calls.clear();
+    std::exception_ptr error;
+    std::thread worker([&] {
+      EXPECT_FALSE(JniEntryGuard::isActive());
+      try {
+        allocate(manager, capacity + 1);
+      } catch (...) {
+        error = std::current_exception();
+      }
+      EXPECT_FALSE(jni.workerEnv()->ExceptionCheck());
+    });
+    worker.join();
+    ASSERT_EQ(calls.size(), 2u);
+    EXPECT_EQ(calls.back(), -capacity);
+    ASSERT_NE(error, nullptr);
+    EXPECT_FALSE(atJniBoundary(jni.env(), [&] { std::rethrow_exception(error); }));
+    EXPECT_EQ(jni.pending, failCapture ? &jni.secondary : &jni.original);
+    jni.pending = nullptr;
+  }
+}
+
 TEST_F(VeloxJniAllocationListenerTest, wrapperAllocationFailureKeepsTheJavaThrowable) {
   VeloxMemoryManager manager(kVeloxBackendKind, taskListener(), backendConf());
   allocate(manager, 64);
@@ -201,7 +291,7 @@ TEST_F(VeloxJniAllocationListenerTest, wrapperAllocationFailureKeepsTheJavaThrow
       test::failNextAllocation = true; // Fail after capture, while constructing the Velox wrapper.
     }
   };
-  expectWrapped([&] { manager.shrink(0); });
+  expectWrapped([&] { manager.shrink(0); }, /*expectFallback=*/true);
 }
 
 TEST_F(VeloxJniAllocationListenerTest, nextJavaChargeAfterThrowingUnreserveMatchesThePlainListener) {

@@ -145,11 +145,15 @@ Preserving the throwable does not merge Java and C++ frames into a hybrid stack
 trace (see [#9642](https://github.com/apache/gluten/issues/9642)).
 
 Velox also wraps Java `reserve` and `unreserve` failures at the JNI allocation
-listener for task and global memory managers. If returning reclaimed capacity
-also throws, the original Java reservation failure takes precedence. A
-preallocated system-error wrapper retains an already-captured throwable if
-allocating its usual wrapper fails. This does not change block sizing, when
-Java is charged, or how native usage is recorded after a failed callback.
+listener for task and global memory managers. In a guarded JNI entry, an
+earlier pending throwable prevents a new reservation, but not a repayment:
+the listener clears it for `unreserve` and restores it for Java. If rollback
+also fails, the original reservation error takes precedence when it was
+captured or is still pending. On a native worker without a JNI return boundary,
+a failed capture leaves no pending throwable, so a subsequent rollback failure
+can be the error reported.
+A preallocated system-error wrapper retains an already-captured throwable if
+allocating its usual wrapper fails. Shared memory accounting is unchanged.
 
 `gluten-arrow/src/test/java/org/apache/gluten/jni/JavaExceptionJniTest.java` runs
 these cases through JUnit and Maven Surefire without starting Spark or a backend.

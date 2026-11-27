@@ -21,10 +21,46 @@
 #include <glog/raw_logging.h>
 
 #include "jni/JniCommon.h"
+#include "jni/JniError.h"
 #include "jni/VeloxJavaException.h"
 
 namespace gluten {
 namespace {
+
+void restoreAfterRepayment(JNIEnv* env, jthrowable pending) {
+  env->ExceptionClear(); // A failure to capture the secondary error must not replace the first.
+  const auto status = env->Throw(pending);
+  env->DeleteLocalRef(pending);
+  if (status != JNI_OK && !env->ExceptionCheck()) {
+    // Report the restore failure to Java without undoing a successful native repayment.
+    struct RestoreFailure final : std::exception {
+      const char* what() const noexcept override {
+        return "Unable to restore the pending Java exception after memory repayment";
+      }
+    } failure;
+    handleJniException(env, failure);
+    if (!env->ExceptionCheck()) {
+      throw failure;
+    }
+  }
+}
+
+// The local reference stays on this JNI entry's thread; saving it needs no global reference.
+template <typename Repay>
+void repayPreservingPending(JNIEnv* env, jthrowable pending, Repay repay) {
+  if (!pending) {
+    repay();
+    return;
+  }
+  env->ExceptionClear();
+  try {
+    repay();
+  } catch (...) {
+    restoreAfterRepayment(env, pending);
+    throw;
+  }
+  restoreAfterRepayment(env, pending);
+}
 
 class VeloxJniAllocationListener final : public SparkAllocationListener {
  public:
@@ -36,7 +72,13 @@ class VeloxJniAllocationListener final : public SparkAllocationListener {
       wrapJavaException(
           [&] {
             auto* env = attachedEnv();
-            checkException(env);
+            if (env->ExceptionCheck()) {
+              if (diff < 0 && JniEntryGuard::isActive()) {
+                repayPreservingPending(env, env->ExceptionOccurred(), [&] { notifyJava(env, diff); });
+                return;
+              }
+              checkException(env);
+            }
             notifyJava(env, diff);
           },
           &fallback_);
@@ -65,30 +107,22 @@ void rollbackVeloxReservation(AllocationListener& listener, int64_t reclaimedByt
   auto* env = envForCurrentJniEntry();
   const auto pending = env ? env->ExceptionOccurred() : nullptr;
   if (!pending && !findJavaExceptionCause(error, unwrapVeloxException)) {
-    listener.allocationChanged(-reclaimedBytes); // Preserve normal native rollback behavior.
+    // Includes capture failure on a worker: neither a carrier nor a pending throwable survived.
+    listener.allocationChanged(-reclaimedBytes);
     return;
   }
-  if (pending) {
-    env->ExceptionClear();
-  }
-  try {
-    listener.allocationChanged(-reclaimedBytes);
-  } catch (const std::exception& rollbackError) {
-    RAW_LOG(WARNING, "Unreserve failed after a Java reservation error: %s", rollbackError.what());
-  } catch (...) {
-    RAW_LOG(WARNING, "Unreserve threw a non-standard exception after a Java reservation error");
-  }
-  if (env && env->ExceptionCheck()) {
-    env->ExceptionClear(); // A failure to capture the secondary throwable is secondary too.
-  }
-  if (pending) {
-    const auto status = env->Throw(pending);
-    env->DeleteLocalRef(pending);
-    if (status != JNI_OK) {
-      // The caller still rethrows the original native capture failure.
-      RAW_LOG(ERROR, "Unable to restore the pending Java error after reservation rollback");
+  repayPreservingPending(env, pending, [&] {
+    try {
+      listener.allocationChanged(-reclaimedBytes);
+    } catch (const std::exception& rollbackError) {
+      RAW_LOG(WARNING, "Unreserve failed after a Java reservation error: %s", rollbackError.what());
+    } catch (...) {
+      RAW_LOG(WARNING, "Unreserve threw a non-standard exception after a Java reservation error");
     }
-  }
+    if (!pending && env && env->ExceptionCheck()) {
+      env->ExceptionClear(); // The primary is in the reservation's C++ carrier.
+    }
+  });
 }
 
 } // namespace gluten
