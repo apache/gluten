@@ -126,10 +126,26 @@ do not replace it; if creating its global reference fails within a guarded JNI
 entry, the pending Java allocation error is preserved.
 
 `JNI_METHOD_END` also restores carriers inside standard `std::nested_exception`
-wrappers. Other native errors keep their existing `GlutenException` fallback.
+wrappers. Native errors without registered metadata keep their `GlutenException` fallback.
 If carrier restoration leaves no pending Java exception, the boundary attempts
 that same fallback using the caught exception's diagnostic. A newer pending Java
 exception is left untouched; failure to throw the fallback is logged.
+
+A backend can register a `JniExceptionMetadataRegistration` to raise a typed Java
+exception for its own native errors. The boundary asks the registered providers
+only when no Java exception is pending or carried. Providers must not call JNI;
+they return a class name, a reason and a diagnostic as owned strings. If a
+provider throws, the boundary inspects and releases its reference to that
+exception before releasing the registry lock, so destroying a registration
+waits for that. A provider that rethrows an exception it still references, for
+example through a `std::exception_ptr`, remains responsible for that reference.
+After releasing the registry lock, the boundary checks that the class extends
+`java.lang.Throwable`, then constructs it through its
+`(byte[] reason, byte[] diagnostic)` constructor, passing the UTF-8 bytes
+unchanged, including NULs. A Java exception raised while constructing it, such
+as `OutOfMemoryError`, stays pending. Any other failure, such as a class that
+isn't a `Throwable` or a provider exception of any type, keeps the
+`GlutenException` fallback with the original diagnostic.
 
 The Velox JNI input iterator uses `wrapJavaException` for both initial inputs
 and inputs added later through `addIteratorSplits`. This preserves the throwable
