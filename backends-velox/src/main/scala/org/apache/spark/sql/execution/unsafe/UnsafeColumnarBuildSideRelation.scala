@@ -19,7 +19,7 @@ package org.apache.spark.sql.execution.unsafe
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.columnarbatch.ColumnarBatches
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.execution.BroadcastHashJoinContext
+import org.apache.gluten.execution.{BroadcastHashJoinContext, HashTableBuildKey}
 import org.apache.gluten.expression.ConverterUtils
 import org.apache.gluten.expression.ExpressionUtils
 import org.apache.gluten.iterator.Iterators
@@ -35,8 +35,7 @@ import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSeq, BindR
 import org.apache.spark.sql.catalyst.plans.physical.BroadcastMode
 import org.apache.spark.sql.execution.{BroadcastModeUtils, HashExprSafeBroadcastMode, HashSafeBroadcastMode, IdentitySafeBroadcastMode, SafeBroadcastMode}
 import org.apache.spark.sql.execution.joins.{BuildSideRelation, HashedRelationBroadcastMode}
-import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.utils.SparkArrowUtil
+import org.apache.spark.sql.utils.SparkSchemaUtil
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.task.TaskResources
 import org.apache.spark.util.{KnownSizeEstimation, Utils}
@@ -127,14 +126,14 @@ class UnsafeColumnarBuildSideRelation(
     batches
   }
 
-  // The relation can be reused as different hash tables by whether dropping duplicates or not.
-  private val hashTableData = Map.empty[Boolean, Long]
+  // Joins that reuse this relation can need different hash tables, one per build key.
+  private val hashTableData = Map.empty[HashTableBuildKey, Long]
 
   def buildHashTable(broadcastContext: BroadcastHashJoinContext)
-      : (Long, BuildSideRelation, Boolean) =
+      : (Long, BuildSideRelation, HashTableBuildKey) =
     synchronized {
-      val droppedDuplicates = broadcastContext.droppedDuplicates
-      if (!hashTableData.contains(droppedDuplicates)) {
+      val buildKey = broadcastContext.hashTableBuildKey
+      if (!hashTableData.contains(buildKey)) {
         val startTime = System.nanoTime()
         val runtime = Runtimes.contextInstance(
           BackendsApiManager.getBackendName,
@@ -143,9 +142,8 @@ class UnsafeColumnarBuildSideRelation(
         val serializeHandle: Long = {
           val allocator = ArrowBufferAllocators.contextInstance()
           val cSchema = ArrowSchema.allocateNew(allocator)
-          val arrowSchema = SparkArrowUtil.toArrowSchema(
-            ExpressionUtils.structFromAttributes(output),
-            SQLConf.get.sessionLocalTimeZone)
+          val arrowSchema =
+            SparkSchemaUtil.toArrowSchema(ExpressionUtils.structFromAttributes(output))
           ArrowAbiUtil.exportSchema(allocator, arrowSchema, cSchema)
           val handle = jniWrapper
             .init(cSchema.memoryAddress())
@@ -190,7 +188,7 @@ class UnsafeColumnarBuildSideRelation(
 
         try {
           // Build the hash table
-          hashTableData(droppedDuplicates) = hashJoinBuilder
+          hashTableData(buildKey) = hashJoinBuilder
             .nativeBuild(
               broadcastContext.buildHashTableId,
               batchArray.toArray,
@@ -213,14 +211,14 @@ class UnsafeColumnarBuildSideRelation(
         val elapsedTime = System.nanoTime() - startTime
         broadcastContext.buildHashTableTimeMetric.foreach(_ += elapsedTime / 1000000)
 
-        (hashTableData(droppedDuplicates), this, droppedDuplicates)
+        (hashTableData(buildKey), this, buildKey)
       } else {
         (
           HashJoinBuilder.cloneHashTable(
             broadcastContext.buildHashTableId,
-            hashTableData(droppedDuplicates)),
+            hashTableData(buildKey)),
           null,
-          droppedDuplicates)
+          buildKey)
       }
     }
 
@@ -230,18 +228,17 @@ class UnsafeColumnarBuildSideRelation(
    */
   def buildHashTableWithRuntime(
       broadcastContext: BroadcastHashJoinContext,
-      runtime: org.apache.gluten.runtime.Runtime): (Long, BuildSideRelation, Boolean) =
+      runtime: org.apache.gluten.runtime.Runtime): (Long, BuildSideRelation, HashTableBuildKey) =
     synchronized {
-      val droppedDuplicates = broadcastContext.droppedDuplicates
-      if (!hashTableData.contains(droppedDuplicates)) {
+      val buildKey = broadcastContext.hashTableBuildKey
+      if (!hashTableData.contains(buildKey)) {
         val startTime = System.nanoTime()
         val jniWrapper = ColumnarBatchSerializerJniWrapper.create(runtime)
         val serializeHandle: Long = {
           val allocator = ArrowBufferAllocators.globalInstance()
           val cSchema = ArrowSchema.allocateNew(allocator)
-          val arrowSchema = SparkArrowUtil.toArrowSchema(
-            ExpressionUtils.structFromAttributes(output),
-            SQLConf.get.sessionLocalTimeZone)
+          val arrowSchema =
+            SparkSchemaUtil.toArrowSchema(ExpressionUtils.structFromAttributes(output))
           ArrowAbiUtil.exportSchema(allocator, arrowSchema, cSchema)
           val handle = jniWrapper
             .init(cSchema.memoryAddress())
@@ -286,7 +283,7 @@ class UnsafeColumnarBuildSideRelation(
 
         try {
           // Build the hash table
-          hashTableData(droppedDuplicates) = hashJoinBuilder
+          hashTableData(buildKey) = hashJoinBuilder
             .nativeBuild(
               broadcastContext.buildHashTableId,
               batchArray.toArray,
@@ -309,19 +306,19 @@ class UnsafeColumnarBuildSideRelation(
         val elapsedTime = System.nanoTime() - startTime
         broadcastContext.buildHashTableTimeMetric.foreach(_ += elapsedTime / 1000000)
 
-        (hashTableData(droppedDuplicates), this, droppedDuplicates)
+        (hashTableData(buildKey), this, buildKey)
       } else {
         (
           HashJoinBuilder.cloneHashTable(
             broadcastContext.buildHashTableId,
-            hashTableData(droppedDuplicates)),
+            hashTableData(buildKey)),
           null,
-          droppedDuplicates)
+          buildKey)
       }
     }
 
-  def reset(droppedDuplicates: Boolean): Unit = synchronized {
-    hashTableData.remove(droppedDuplicates)
+  def reset(buildKey: HashTableBuildKey): Unit = synchronized {
+    hashTableData.remove(buildKey)
   }
 
   override def writeExternal(out: ObjectOutput): Unit = Utils.tryOrIOException {
@@ -394,9 +391,7 @@ class UnsafeColumnarBuildSideRelation(
     val serializerHandle: Long = {
       val allocator = ArrowBufferAllocators.contextInstance()
       val cSchema = ArrowSchema.allocateNew(allocator)
-      val arrowSchema = SparkArrowUtil.toArrowSchema(
-        ExpressionUtils.structFromAttributes(output),
-        SQLConf.get.sessionLocalTimeZone)
+      val arrowSchema = SparkSchemaUtil.toArrowSchema(ExpressionUtils.structFromAttributes(output))
       ArrowAbiUtil.exportSchema(allocator, arrowSchema, cSchema)
       val handle = jniWrapper
         .init(cSchema.memoryAddress())
@@ -443,9 +438,7 @@ class UnsafeColumnarBuildSideRelation(
     val serializerHandle = {
       val allocator = ArrowBufferAllocators.contextInstance()
       val cSchema = ArrowSchema.allocateNew(allocator)
-      val arrowSchema = SparkArrowUtil.toArrowSchema(
-        ExpressionUtils.structFromAttributes(output),
-        SQLConf.get.sessionLocalTimeZone)
+      val arrowSchema = SparkSchemaUtil.toArrowSchema(ExpressionUtils.structFromAttributes(output))
       ArrowAbiUtil.exportSchema(allocator, arrowSchema, cSchema)
       val handle = serializerJniWrapper.init(cSchema.memoryAddress())
       cSchema.close()

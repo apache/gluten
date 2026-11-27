@@ -20,15 +20,22 @@ import org.apache.gluten.backendsapi.BackendsApiManager;
 import org.apache.gluten.execution.RowToVeloxColumnarExec;
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators;
 import org.apache.gluten.test.VeloxBackendTestBase;
+import org.apache.gluten.utils.ArrowUtil;
 import org.apache.gluten.vectorized.ArrowColumnVectors;
 
+import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
+import org.apache.spark.sql.internal.SQLConf;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.vectorized.ColumnVector;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 import org.apache.spark.task.TaskResources$;
+import org.apache.spark.unsafe.types.UTF8String;
+import org.apache.spark.util.SparkVersionUtil;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -74,6 +81,54 @@ public class ColumnarBatchTest extends VeloxBackendTestBase {
                   .count();
           Assert.assertEquals(numRows, cnt);
           loaded.close();
+          return null;
+        });
+  }
+
+  @Test
+  public void testLoadVeloxBatchWithLargeVarTypes() {
+    TaskResources$.MODULE$.runUnsafe(
+        () -> {
+          final BufferAllocator allocator = ArrowBufferAllocators.contextInstance();
+          final StructType schema = StructType.fromDDL("text string, payload binary");
+          final String[] texts = {"first", "longer second"};
+          final byte[][] payloads = {{1, 2}, {3, 4, 5}};
+          final List<InternalRow> rows = new ArrayList<>();
+          for (int i = 0; i < texts.length; i++) {
+            rows.add(
+                new GenericInternalRow(
+                    new Object[] {UTF8String.fromString(texts[i]), payloads[i]}));
+          }
+
+          final SQLConf conf = new SQLConf();
+          for (boolean enabled : new boolean[] {false, true}) {
+            try (ColumnarBatch batch =
+                RowToVeloxColumnarExec.toColumnarBatchIterator(
+                        JavaConverters.asScalaIterator(rows.iterator()),
+                        schema,
+                        rows.size(),
+                        Long.MAX_VALUE)
+                    .next()) {
+              VeloxColumnarBatches.checkVeloxBatch(batch);
+              conf.setConfString(
+                  "spark.sql.execution.arrow.useLargeVarTypes", Boolean.toString(enabled));
+              final ColumnarBatch loaded =
+                  SQLConf.withExistingConf(conf, () -> ColumnarBatches.load(allocator, batch));
+              final Schema exportedSchema = ArrowUtil.toSchema(loaded);
+              final boolean large = enabled && SparkVersionUtil.gteSpark35();
+              Assert.assertEquals(
+                  large ? ArrowType.LargeUtf8.INSTANCE : ArrowType.Utf8.INSTANCE,
+                  exportedSchema.getFields().get(0).getType());
+              Assert.assertEquals(
+                  large ? ArrowType.LargeBinary.INSTANCE : ArrowType.Binary.INSTANCE,
+                  exportedSchema.getFields().get(1).getType());
+              Assert.assertEquals(rows.size(), loaded.numRows());
+              for (int i = 0; i < rows.size(); i++) {
+                Assert.assertEquals(texts[i], loaded.column(0).getUTF8String(i).toString());
+                Assert.assertArrayEquals(payloads[i], loaded.column(1).getBinary(i));
+              }
+            }
+          }
           return null;
         });
   }

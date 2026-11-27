@@ -199,8 +199,7 @@ arrow::Status VeloxRssSortShuffleWriter::stop() {
   for (auto pid = 0; pid < numPartitions(); ++pid) {
     RETURN_NOT_OK(evictRowVector(pid));
   }
-  batches_.clear();
-  currentInputColumnBytes_ = 0;
+  resetBatches();
   {
     SCOPED_TIMER(cpuWallTimingList_[CpuWallTimingStop]);
     setSortState(RssSortState::kSortStop);
@@ -235,9 +234,8 @@ arrow::Status VeloxRssSortShuffleWriter::reclaimFixedSize(int64_t size, int64_t*
     for (auto pid = 0; pid < numPartitions(); ++pid) {
       RETURN_NOT_OK(evictRowVector(pid));
     }
-    batches_.clear();
     *actual = currentInputColumnBytes_;
-    currentInputColumnBytes_ = 0;
+    resetBatches();
   }
   return arrow::Status::OK();
 }

@@ -27,7 +27,7 @@ import org.apache.gluten.utils.PullOutProjectHelper
 
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.execution.{GenerateExec, ProjectExec, SparkPlan}
-import org.apache.spark.sql.types.{BooleanType, IntegerType}
+import org.apache.spark.sql.types.{BooleanType, IntegerType, LongType}
 
 import com.google.protobuf.StringValue
 
@@ -273,8 +273,11 @@ object PullOutGenerateProjectHelper extends PullOutProjectHelper {
       generate.generator match {
         case PosExplode(_) =>
           val originalOrdinal = generate.generatorOutput.head
+          // Velox Unnest emits a one-based BIGINT ordinality. Give it its own attribute;
+          // the post projection restores Spark's zero-based INT position and exprId.
+          val nativeOrdinal = originalOrdinal.newInstance().withDataType(LongType)
           val ordinal = {
-            val subtract = Subtract(Cast(originalOrdinal, IntegerType), Literal(1))
+            val subtract = Subtract(Cast(nativeOrdinal, IntegerType), Literal(1))
             Alias(subtract, generatePostAliasName)(
               originalOrdinal.exprId,
               originalOrdinal.qualifier)
@@ -295,12 +298,12 @@ object PullOutGenerateProjectHelper extends PullOutProjectHelper {
 
             // Reorder the generatorOutput to match the output from the Unnest operator in Velox.
             val newGenerate = generate.copy(generatorOutput =
-              generate.generatorOutput.tail :+ originalOrdinal :+ isPresent)
+              generate.generatorOutput.tail :+ nativeOrdinal :+ isPresent)
 
             ProjectExec(generate.requiredChildOutput ++ newOutput, newGenerate)
           } else {
             val newGenerate =
-              generate.copy(generatorOutput = generate.generatorOutput.tail :+ originalOrdinal)
+              generate.copy(generatorOutput = generate.generatorOutput.tail :+ nativeOrdinal)
             ProjectExec(
               (generate.requiredChildOutput :+ ordinal) ++ generate.generatorOutput.tail,
               newGenerate)

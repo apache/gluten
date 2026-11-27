@@ -19,6 +19,15 @@
 // the fork's push run of each workflow below as the commit status named next to it.
 // A check run would join the check suite of some other workflow run on the commit, and
 // the pull request page stops listing it once that workflow runs again.
+//
+// When the fork has no run of a workflow, the pull request gets an error only if it
+// changes a file the workflow covers, by the `paths` and `paths-ignore` inputs its
+// merge-upstream job passes to squash-merge-upstream. Other pull requests, such as a
+// Flink-only change, get a passing status saying the workflow is not needed. A run in
+// the fork is always reported by its result.
+
+const fs = require('fs');
+const path = require('path');
 
 const WORKFLOWS = [
   { file: 'velox_backend_x86.yml', context: 'Velox Backend (x86) in fork' },
@@ -33,7 +42,15 @@ const PASSED = ['success', 'skipped', 'neutral'];
 
 const MAX_DESCRIPTION = 140;
 const SETUP_URL = 'https://github.com/apache/gluten/blob/main/CONTRIBUTING.md#velox-backend-ci';
-const NO_RUN = 'No run in your fork for this commit. Enable Actions, allow all actions, rebase on main and push.';
+const NO_RUN =
+  'No run in your fork for this commit, which changes files this workflow tests. Enable Actions, allow all actions, rebase on main and push.';
+// What earlier versions wrote without checking the changed files. Rechecked once. Still
+// written when a workflow's paths can't be read, so that a later pass that can read
+// them rechecks it.
+const LEGACY_NO_RUN = 'No run in your fork for this commit. Enable Actions, allow all actions, rebase on main and push.';
+const NOT_NEEDED = 'Not needed: this pull request changes no file this workflow tests.';
+// The pull request files API lists at most this many files.
+const MAX_PR_FILES = 3000;
 const UNLISTED = 'The run failed. Its failed jobs could not be read yet.';
 // Marks a failure list that can still grow.
 const SO_FAR = ' so far';
@@ -52,6 +69,48 @@ function isTransient(e) {
 }
 
 const runPath = (w) => '.github/workflows/' + w.file;
+
+// The `paths` and `paths-ignore` regexes the workflow passes to squash-merge-upstream,
+// read from its file so that the two cannot drift apart. Only the `with:` block of that
+// step is searched, and a value may be single- or double-quoted and followed by a
+// comment. Returns null, so that the workflow counts as relevant for every pull
+// request, when the inputs can't be read; a warning is logged instead of failing the
+// pass, which would stop the statuses of every pull request.
+function pathFilterOf(w, core) {
+  try {
+    const text = fs.readFileSync(path.join(process.env.GITHUB_WORKSPACE || '.', runPath(w)), 'utf8');
+    const lines = text.split('\n');
+    const start = lines.findIndex((l) => /^\s*(-\s+)?uses:\s*\.\/\.github\/actions\/squash-merge-upstream\s*$/.test(l));
+    if (start < 0) throw new Error('no squash-merge-upstream step');
+    // The step ends at the next step or at a line indented less than its `uses:`.
+    const indent = lines[start].search(/\S/);
+    let end = start + 1;
+    while (end < lines.length && !/^\s*-\s/.test(lines[end]) &&
+           (lines[end].trim() == '' || lines[end].search(/\S/) >= indent)) end++;
+    const step = lines.slice(start + 1, end);
+    // The value of input `name`, or null when the step doesn't set it. Throws when the
+    // step sets it in a form this function can't read, or to an expression, which is
+    // only evaluated when the workflow runs.
+    const input = (name) => {
+      const key = new RegExp(`^\\s*${name}:`);
+      const value = new RegExp(`^\\s*${name}:\\s*(?:'((?:[^']|'')*)'|"((?:[^"\\\\]|\\\\.)*)")\\s*(#.*)?$`);
+      const l = step.find((l) => key.test(l));
+      if (l === undefined) return null;
+      const m = value.exec(l);
+      if (!m) throw new Error(`\`${name}\` is not a quoted one-line value in the squash-merge-upstream step`);
+      const v = m[1] !== undefined ? m[1].replace(/''/g, "'") : JSON.parse(`"${m[2]}"`);
+      if (v.includes('${{')) throw new Error(`\`${name}\` is an expression`);
+      return v;
+    };
+    const paths = input('paths');
+    if (!paths) throw new Error('no `paths` input in the squash-merge-upstream step');
+    // The action's own default when the step sets no `paths-ignore`.
+    return { paths: new RegExp(paths), ignore: new RegExp(input('paths-ignore') ?? '^$') };
+  } catch (e) {
+    core.warning(`${runPath(w)}: ${e.message}. Treating every pull request as relevant to it.`);
+    return null;
+  }
+}
 
 // The fork run attempt a status links to, or null.
 function attemptOf(s) {
@@ -90,6 +149,19 @@ function statusOf(run, jobs) {
 module.exports = async ({ github, context, core }) => {
   const repo = { owner: context.repo.owner, repo: context.repo.repo };
   const contexts = WORKFLOWS.map((w) => w.context);
+  const filters = new Map(WORKFLOWS.map((w) => [w.file, pathFilterOf(w, core)]));
+
+  // Files the pull request changes, including the old name of a renamed file, or null
+  // when the list may be cut off, in which case every workflow counts as relevant.
+  const listPullFiles = async (pr) => {
+    const files = await github.paginate('GET /repos/{owner}/{repo}/pulls/{pull_number}/files', {
+      ...repo,
+      pull_number: pr.number,
+      per_page: 100,
+    });
+    if (files.length >= MAX_PR_FILES) return null;
+    return files.flatMap((f) => (f.previous_filename ? [f.filename, f.previous_filename] : [f.filename]));
+  };
 
   // The latest status of each context on the commit.
   const listStatuses = async (sha) =>
@@ -171,6 +243,19 @@ module.exports = async ({ github, context, core }) => {
     // Only a workflow with nothing reported yet can have a run that hasn't registered.
     const fresh = WORKFLOWS.filter((w) => !statusOfContext(w) && legacyOf(w).length == 0);
     const runs = await listForkRuns(pr, fresh, fresh.length ? 3 : 1);
+    // Read only when a status is about to be written, and at most once per pull request.
+    let files;
+    const isRelevant = async (w) => {
+      if (files === undefined) files = await listPullFiles(pr);
+      const filter = filters.get(w.file);
+      if (files === null || filter === null) return true;
+      const { paths, ignore } = filter;
+      return files.some((f) => !ignore.test(f) && paths.test(f));
+    };
+    const update = (w, current, next) => {
+      const same = current && ['state', 'description', 'target_url'].every((k) => current[k] == next[k]);
+      return same ? null : setStatus(pr, w, next);
+    };
     for (const w of WORKFLOWS) {
       const current = statusOfContext(w);
       const run = runs.filter((r) => r.path == runPath(w)).sort((a, b) => b.id - a.id)[0];
@@ -179,11 +264,19 @@ module.exports = async ({ github, context, core }) => {
         // Two branches can share a head commit; the newer run keeps the status.
         if (at && at.id > run.id) continue;
         if (at && at.id == run.id && at.attempt == run.run_attempt && isFinal(current)) continue;
-        const next = statusOf(run, await jobsOf(pr, run));
-        const same = current && ['state', 'description', 'target_url'].every((k) => current[k] == next[k]);
-        if (!same) await setStatus(pr, w, next);
-      } else if (!current) {
-        await setStatus(pr, w, { state: 'error', target_url: SETUP_URL, description: NO_RUN });
+        // The run decides for itself, after merging onto main, whether to skip its jobs.
+        await update(w, current, statusOf(run, await jobsOf(pr, run)));
+      } else if (!current || current.description == LEGACY_NO_RUN) {
+        // When the workflow's paths can't be read, nothing says whether the pull request
+        // needs a run. Write the old error, or leave it, for a pass that can read them.
+        if (filters.get(w.file) === null) {
+          if (!current) await setStatus(pr, w, { state: 'error', target_url: SETUP_URL, description: LEGACY_NO_RUN });
+          continue;
+        }
+        const next = (await isRelevant(w))
+          ? { state: 'error', target_url: SETUP_URL, description: NO_RUN }
+          : { state: 'success', target_url: SETUP_URL, description: NOT_NEEDED };
+        await update(w, current, next);
       }
     }
     // A legacy check would show next to the status with an older result. The status

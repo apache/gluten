@@ -21,6 +21,7 @@
 #include "operators/functions/RegistrationAllFunctions.h"
 
 #include "velox/common/base/tests/GTestUtils.h"
+#include "velox/exec/tests/utils/AssertQueryBuilder.h"
 #include "velox/exec/tests/utils/OperatorTestBase.h"
 #include "velox/exec/tests/utils/PlanBuilder.h"
 #include "velox/functions/sparksql/aggregates/Register.h"
@@ -91,9 +92,7 @@ class VeloxSubstraitRoundTripTest : public OperatorTestBase {
 
   void assertFailingPlanConversion(const std::shared_ptr<const core::PlanNode>& plan, const std::string& errorMessage) {
     try {
-      CursorParameters params;
-      params.planNode = plan;
-      readCursor(params, [](auto /*task*/) {});
+      AssertQueryBuilder(plan).countResults();
 
       // Convert Velox Plan to Substrait Plan.
       google::protobuf::Arena arena;
@@ -113,8 +112,7 @@ class VeloxSubstraitRoundTripTest : public OperatorTestBase {
       auto samePlan = substraitConverter_->toVeloxPlan(substraitPlan);
 
       // Assert velox again.
-      params.planNode = samePlan;
-      readCursor(params, [](auto /*task*/) {});
+      AssertQueryBuilder(samePlan).countResults();
       FAIL() << "Expected an exception";
     } catch (const VeloxException& e) {
       ASSERT_TRUE(e.message().find(errorMessage) != std::string::npos)
