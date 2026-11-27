@@ -17,6 +17,7 @@
 package org.apache.spark.sql
 
 import org.apache.gluten.backendsapi.BackendsApiManager
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark.SparkException
@@ -276,5 +277,23 @@ class GlutenSQLQuerySuite extends SQLQuerySuite with GlutenSQLTestsTrait {
         |LocalTableScan [x#N, y#N]
         |"""
     )
+  }
+
+  testGluten("rebalance a union that implicitly casts non-nullable map values") {
+    withSQLConf(
+      SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true",
+      SQLConf.ANSI_ENABLED.key -> "false",
+      GlutenConfig.COLUMNAR_UNION_ENABLED.key -> "true",
+      GlutenConfig.COLUMNAR_SHUFFLE_ENABLED.key -> "true"
+    ) {
+      val df = sql(
+        """SELECT /*+ REBALANCE(1) */ *
+          |FROM (
+          |  SELECT map('k', id) AS m FROM range(0, 1, 1, 1)
+          |  UNION ALL
+          |  SELECT map('k', '0')
+          |) u""".stripMargin)
+      checkAnswer(df, Seq.fill(2)(Row(Map("k" -> "0"))))
+    }
   }
 }
