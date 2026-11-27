@@ -115,9 +115,7 @@ REGISTER_COMMON_SCALAR_FUNCTION_PARSER(Lower, lower, lowerUTF8);
 REGISTER_COMMON_SCALAR_FUNCTION_PARSER(Upper, upper, upperUTF8);
 REGISTER_COMMON_SCALAR_FUNCTION_PARSER(Strpos, strpos, positionUTF8);
 REGISTER_COMMON_SCALAR_FUNCTION_PARSER(Replace, replace, replaceAll);
-REGISTER_COMMON_SCALAR_FUNCTION_PARSER(RegexpReplace, regexp_replace, replaceRegexpAll);
-REGISTER_COMMON_SCALAR_FUNCTION_PARSER(RegexpExtractAll, regexp_extract_all, regexpExtractAllSpark);
-REGISTER_COMMON_SCALAR_FUNCTION_PARSER(Rlike, rlike, match);
+// Spark regexp parsers translate Java patterns to RE2; see regexp_extract.cpp.
 REGISTER_COMMON_SCALAR_FUNCTION_PARSER(Ascii, ascii, ascii);
 REGISTER_COMMON_SCALAR_FUNCTION_PARSER(Base64, base64, base64Encode);
 REGISTER_COMMON_SCALAR_FUNCTION_PARSER(Unbase64, unbase64, base64Decode);
