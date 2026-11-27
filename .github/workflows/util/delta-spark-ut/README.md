@@ -44,7 +44,7 @@ starts failing** (a regression).
 | `java-test-args.sh` | Shared Gluten Spark defaults and JVM flags (`--add-opens` + Netty property). Sourced by `run-delta-tests.sh` and by local runs. |
 | `setup-delta.sh` | Clones Delta, drops in the Gluten bundle, and applies temporary compatibility patches. Takes `<delta_ref> <delta_dir> <gluten_bundle_jar>`. |
 | `apply-delta-test-patches.sh` | Cherry-picks upstream scan fixes, applies the ordered local patch list, and verifies the resulting test sources. Called by `setup-delta.sh` with `<delta_ref> <delta_dir>`. |
-| `patches/*.patch` | Separate patches for CDF plan assertions, mock-S3 fixture writes, Parquet row-group and MERGE file-count fixtures, and 2B-row DV fail-fast behavior. Each patch documents its rationale and removal condition. |
+| `patches/*.patch` | Temporary Delta test adaptations. Each patch documents its rationale and removal condition. |
 
 ## Temporary Delta test patches
 
@@ -59,6 +59,13 @@ checkout before applying the patches again.
 Validate patched Scala sources with Delta's `spark/testScalastyle` task as well
 as targeted `spark/testOnly` runs. `spark/test` invokes this style gate, but
 `testOnly` does not.
+
+`data-skipping-stats-file-layout.patch` uses `spark.range(0, 11, 1, numPartitions = 2)`
+in the `data skipping flags` and `data skipping stats before and after optimize`
+tests. Without a shuffle, one file has five IDs (0–4) and the other has six
+(5–10). The unequal counts catch a writer that reports the same count for both
+files. After `OPTIMIZE`, the test expects one file with all 11 IDs. The
+file-pruning checks are unchanged.
 
 The `dv-2b-row-fail-fast.patch` keeps the two memory-hog DV tests failing
 immediately rather than skipping them. Their known-failure entries remain
