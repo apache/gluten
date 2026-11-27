@@ -50,6 +50,7 @@ import org.apache.hadoop.fs.Path
 
 import java.util.Locale
 
+import scala.util.Try
 import scala.util.control.Breaks.breakable
 
 class VeloxBackend extends SubstraitBackend {
@@ -114,6 +115,39 @@ object VeloxBackendSettings extends BackendSettingsApi {
     "timestamp" -> TimestampType,
     "timestamptype" -> IntegerType
   )
+
+  // Only offload consumer settings whose semantics are preserved by KafkaDataSource. In
+  // particular, ignoring Java-only authentication settings can make a working Spark scan fail.
+  private val kafkaConsumerProperties = Set(
+    "bootstrap.servers",
+    "group.id",
+    "client.id",
+    "metadata.max.age.ms",
+    "isolation.level",
+    "security.protocol",
+    "key.deserializer",
+    "value.deserializer",
+    "auto.offset.reset",
+    "enable.auto.commit",
+    "receive.buffer.bytes"
+  )
+
+  private def validateKafkaProperties(properties: Map[String, String]): Option[String] = {
+    val unsupported = properties.keys.toSeq.sorted.find {
+      case "security.protocol" => !properties("security.protocol").equalsIgnoreCase("PLAINTEXT")
+      case "isolation.level" =>
+        !Set("read_uncommitted", "read_committed").contains(properties("isolation.level"))
+      case "metadata.max.age.ms" =>
+        Try(properties("metadata.max.age.ms").toLong).toOption
+          .forall(value => value < 1L || value > 86400000L)
+      // Spark inserts this Java client default. The native reader does not translate custom
+      // receive buffer sizes to librdkafka's socket.receive.buffer.bytes.
+      case "receive.buffer.bytes" => properties("receive.buffer.bytes") != "65536"
+      case key => !kafkaConsumerProperties.contains(key)
+    }
+    // Report the option name only: values may contain credentials or other sensitive data.
+    unsupported.map(key => s"Unsupported Kafka consumer property $key for native Kafka scan.")
+  }
 
   override def primaryBatchType: Convention.BatchType = VeloxBatchType
 
@@ -206,9 +240,11 @@ object VeloxBackendSettings extends BackendSettingsApi {
               .orElse(validateTypes(schemaTypeValidator, dataSchema.fields))
           }
         case KafkaReadFormat =>
-          fields
-            .find(f => !kafkaColumns.get(f.name.toLowerCase(Locale.ROOT)).contains(f.dataType))
-            .map(f => s"Unsupported Kafka column ${f.name}: ${f.dataType.simpleString}.")
+          validateKafkaProperties(properties).orElse {
+            fields
+              .find(f => !kafkaColumns.get(f.name.toLowerCase(Locale.ROOT)).contains(f.dataType))
+              .map(f => s"Unsupported Kafka column ${f.name}: ${f.dataType.simpleString}.")
+          }
         case _ => Some(s"Unsupported file format $format.")
       }
     }

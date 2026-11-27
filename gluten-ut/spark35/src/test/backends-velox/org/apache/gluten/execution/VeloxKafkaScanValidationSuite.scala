@@ -35,13 +35,15 @@ class VeloxKafkaScanValidationSuite extends SparkFunSuite {
     StructField("timestamp", TimestampType),
     StructField("timestampType", IntegerType))
 
-  private def validate(fields: Array[StructField]): ValidationResult = {
+  private def validate(
+      fields: Array[StructField],
+      properties: Map[String, String] = Map.empty): ValidationResult = {
     VeloxBackendSettings.validateScanExec(
       KafkaReadFormat,
       fields,
       StructType(fields),
       Seq.empty,
-      Map.empty,
+      properties,
       new Configuration(false),
       Set(KafkaReadFormat))
   }
@@ -61,6 +63,61 @@ class VeloxKafkaScanValidationSuite extends SparkFunSuite {
         val result = validate(kafkaFields :+ field)
         assert(!result.ok())
         assert(result.reason().contains(s"Unsupported Kafka column ${field.name}"))
+    }
+  }
+
+  test("native Kafka scan accepts supported executor parameters") {
+    val executorParams = Map(
+      "bootstrap.servers" -> "localhost:9092",
+      "group.id" -> "spark-kafka-test-executor",
+      "client.id" -> "spark-kafka-test-client",
+      "isolation.level" -> "read_uncommitted",
+      "security.protocol" -> "PLAINTEXT",
+      "key.deserializer" -> "org.apache.kafka.common.serialization.ByteArrayDeserializer",
+      "value.deserializer" -> "org.apache.kafka.common.serialization.ByteArrayDeserializer",
+      "auto.offset.reset" -> "none",
+      "enable.auto.commit" -> "false",
+      "receive.buffer.bytes" -> "65536"
+    )
+    Seq(
+      Map.empty[String, String],
+      executorParams,
+      executorParams - "security.protocol",
+      executorParams.updated("isolation.level", "read_committed"),
+      executorParams.updated("metadata.max.age.ms", "1"),
+      executorParams.updated("metadata.max.age.ms", "86400000")
+    ).foreach {
+      properties => assert(validate(kafkaFields, properties).ok())
+    }
+  }
+
+  test("native Kafka scan rejects unsupported parameters without exposing their values") {
+    val secret = "kafka-test-secret-must-not-appear"
+    val unsupportedParams = Seq(
+      "security.protocol" -> "SSL",
+      "security.protocol" -> "SASL_PLAINTEXT",
+      "security.protocol" -> "SASL_SSL",
+      "security.protocol" -> secret,
+      "sasl.jaas.config" -> s"""LoginModule required password="$secret";""",
+      "ssl.truststore.location" -> s"/private/$secret",
+      "fetch.max.wait.ms" -> "500",
+      "request.timeout.ms" -> "10000",
+      "default.api.timeout.ms" -> "10000",
+      "custom.kafka.property" -> secret,
+      "metadata.max.age.ms" -> "0",
+      "metadata.max.age.ms" -> "-1",
+      "metadata.max.age.ms" -> "86400001",
+      "metadata.max.age.ms" -> secret,
+      "receive.buffer.bytes" -> "32768",
+      "receive.buffer.bytes" -> "-1"
+    )
+    unsupportedParams.foreach {
+      case (key, value) =>
+        val result = validate(kafkaFields, Map(key -> value))
+        assert(!result.ok(), s"Expected fallback for $key")
+        assert(result.reason().contains(key))
+        assert(!result.reason().contains(value))
+        assert(!result.reason().contains(secret))
     }
   }
 }

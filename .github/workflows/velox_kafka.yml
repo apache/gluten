@@ -228,7 +228,7 @@ jobs:
         run: |
           ./build/mvn -B -ntp test -pl gluten-ut/spark35 -Pbackends-velox -Pspark-3.5 \
             -Pscala-2.12 -Pjava-17 -Pkafka -Pspark-ut -Pfast-build \
-            -Dsuites=org.apache.spark.sql.kafka010.GlutenKafkaMicroBatchV2SourceSuite
+            -Dsuites=org.apache.spark.sql.kafka010.GlutenKafkaMicroBatchV2SourceSuite,org.apache.spark.sql.kafka010.GlutenKafkaHybridSourceSuite
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v7

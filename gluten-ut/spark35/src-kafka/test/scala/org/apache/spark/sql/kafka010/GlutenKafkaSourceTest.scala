@@ -20,6 +20,7 @@ import org.apache.gluten.execution.MicroBatchScanExecTransformer
 
 import org.apache.spark.scheduler.{SparkListener, SparkListenerEvent}
 import org.apache.spark.sql.{Dataset, GlutenSQLTestsTrait}
+import org.apache.spark.sql.connector.read.InputPartition
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.datasources.v2.MicroBatchScanExec
 import org.apache.spark.sql.execution.streaming.{IncrementalExecution, StreamExecution}
@@ -35,6 +36,15 @@ private[kafka010] trait GlutenKafkaSourceTest extends KafkaSourceTest with Glute
 
   private val completedKafkaPlans = new ConcurrentLinkedQueue[SparkPlan]()
   private var kafkaScanListener: Option[SparkListener] = None
+  private val javaConsumerTimeouts = Set("request.timeout.ms", "default.api.timeout.ms")
+
+  private def hasJavaConsumerTimeout(partitions: Seq[InputPartition]): Boolean = {
+    partitions.exists {
+      case partition: KafkaBatchInputPartition =>
+        javaConsumerTimeouts.exists(partition.executorKafkaParams.containsKey)
+      case _ => false
+    }
+  }
 
   override protected def beforeEach(): Unit = {
     super.beforeEach()
@@ -104,11 +114,16 @@ private[kafka010] trait GlutenKafkaSourceTest extends KafkaSourceTest with Glute
         assert(
           !scan.output.exists(_.name == "headers"),
           s"Kafka headers must fall back to Spark, but the scan was native:\n$scan")
+        assert(
+          !hasJavaConsumerTimeout(scan.inputPartitionsShim),
+          s"Java Kafka consumer timeouts must fall back to Spark, but the scan was native:\n$scan")
     }
     sparkScans.foreach {
       scan =>
+        // Inherited Spark tests configure Java-only consumer timeouts. Inspect the partitions
+        // cached by the completed scan so these checks do not plan another batch or contact Kafka.
         assert(
-          scan.output.exists(_.name == "headers"),
+          scan.output.exists(_.name == "headers") || hasJavaConsumerTimeout(scan.inputPartitions),
           "Kafka micro-batch scan fell back to Spark. Build a Kafka-enabled native backend " +
             "and include the Velox Kafka component before running native Kafka tests. " +
             s"The merged upstream integration must also exist in this checkout.\n$scan"
