@@ -184,6 +184,23 @@ class GlutenShuffleManagerSuite extends SharedSparkSession {
         },
         classOf[ShuffleManager1].getName))
   }
+
+  test("shuffle read resolves blocks through the registered manager") {
+    val registry = ShuffleManagerRegistry.get()
+
+    registry.register(
+      new LookupKey {
+        override def accepts[K, V, C](dependency: ShuffleDependency[K, V, C]): Boolean = true
+      },
+      classOf[ShuffleManager1].getName)
+    val result = spark.sparkContext
+      .parallelize(1 to 10, 2)
+      .map(i => (i % 2, i))
+      .reduceByKey(_ + _)
+      .collect()
+    assert(result.toMap == Map(0 -> 30, 1 -> 25))
+    assert(counter1.count("shuffleBlockResolver") > 0)
+  }
 }
 
 object GlutenShuffleManagerSuite {
@@ -233,7 +250,7 @@ object GlutenShuffleManagerSuite {
       delegate.unregisterShuffle(shuffleId)
     }
 
-    override def shuffleBlockResolver: ShuffleBlockResolver = {
+    def shuffleBlockResolver: ShuffleBlockResolver = {
       counter.increment("shuffleBlockResolver")
       delegate.shuffleBlockResolver
     }
@@ -287,7 +304,7 @@ object GlutenShuffleManagerSuite {
       delegate.unregisterShuffle(shuffleId)
     }
 
-    override def shuffleBlockResolver: ShuffleBlockResolver = {
+    def shuffleBlockResolver: ShuffleBlockResolver = {
       counter.increment("shuffleBlockResolver")
       delegate.shuffleBlockResolver
     }
