@@ -16,6 +16,8 @@
  */
 package org.apache.spark.sql.errors
 
+import org.apache.spark.SparkNumberFormatException
+import org.apache.spark.sql.catalyst.util.UTF8StringUtils
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
 
@@ -42,7 +44,8 @@ object GlutenCastErrors {
     ("""Cannot cast (TINYINT|SMALLINT|INTEGER|BIGINT|DECIMAL) """ +
       """'(-?[0-9]{1,38}(?:\.[0-9]{1,38})?)' to DECIMAL\(([0-9]{1,2}), ([0-9]{1,2})\)""").r
   private val stringToIntegral =
-    """(?s)Cannot cast VARCHAR '(.*)' to (TINYINT|SMALLINT|INTEGER|BIGINT)\. .+""".r
+    """(?s)Cannot cast VARCHAR '(.*)' to (TINYINT|SMALLINT|INTEGER|BIGINT)\. (.+)""".r
+  private val castTargetDelimiter = """' to [A-Z][A-Z0-9_ ]*(?:\([^'\r\n]*\)|<[^'\r\n]*>)?\. """.r
 
   private def integralValue(value: String, from: DataType): Option[Any] = {
     val number = BigInt(value)
@@ -72,13 +75,30 @@ object GlutenCastErrors {
     QueryExecutionErrors.castingCauseOverflowError(number, fromType, integralTypes(to))
   }
 
+  private def stringToIntegralError(
+      value: String,
+      to: String): Option[SparkNumberFormatException] = {
+    val input = UTF8String.fromString(value)
+    try {
+      to match {
+        case "TINYINT" => UTF8StringUtils.toByteExact(input, null)
+        case "SMALLINT" => UTF8StringUtils.toShortExact(input, null)
+        case "INTEGER" => UTF8StringUtils.toIntExact(input, null)
+        case "BIGINT" => UTF8StringUtils.toLongExact(input, null)
+      }
+      // Spark accepts some strings Velox rejects. Keep the native failure in that case.
+      None
+    } catch {
+      case e: SparkNumberFormatException => Some(e)
+    }
+  }
+
   /**
    * Only accepts the reason of a native error already attributed to a cast. The native diagnostic
    * (including expression text and stack traces) must never be used for classification.
    */
   def fromNativeReason(reason: String, cause: Throwable): RuntimeException = {
-    // Velox renders string values without escaping. An embedded delimiter is ambiguous.
-    if (reason == null || reason.indexOf("' to ") != reason.lastIndexOf("' to ")) {
+    if (reason == null) {
       return null
     }
 
@@ -113,12 +133,11 @@ object GlutenCastErrors {
           None
         }
 
-      case stringToIntegral(value, to) =>
-        Some(
-          QueryExecutionErrors.invalidInputInCastToNumberError(
-            integralTypes(to),
-            UTF8String.fromString(value),
-            null))
+      // Velox doesn't escape the value. Reject a second complete cast header in it or
+      // a match inside the value of a different cast (whose closing quote is in details).
+      case stringToIntegral(value, to, details)
+          if castTargetDelimiter.findFirstIn(value).isEmpty && !details.contains("' to ") =>
+        stringToIntegralError(value, to)
 
       case _ => None
     }

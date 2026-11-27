@@ -191,6 +191,9 @@ and string-to-integral failures using Spark's `QueryExecutionErrors` factories a
 retains the native diagnostic as the cause. Recognition depends on the pinned
 Velox cast-reason grammar, not diagnostic stack traces. Unrecognized types or
 reasons and ambiguous unescaped string delimiters keep `NativeCastException`.
+For string-to-integral failures, Spark's exact parser checks the reported value
+against the target type. If Spark accepts it, the iterator preserves the native
+failure rather than reporting `CAST_INVALID_INPUT`.
 The message-based translations for other native errors don't apply to it,
 because a cast reason can contain user data. The iterator returns Spark
 exceptions unchanged, including those from nested native iterators, so Spark 4

@@ -143,6 +143,29 @@ class GlutenNativeCastExceptionSuite extends SparkFunSuite {
         null))
   }
 
+  test("an incomplete target delimiter is part of the invalid string") {
+    Seq("bad' to sleep", "bad' to INTEGER", " to BIGINT. text").foreach {
+      value =>
+        val reason = s"""Cannot cast VARCHAR '$value' to INTEGER. Invalid leading character: """""
+        checkError(
+          reason,
+          QueryExecutionErrors.invalidInputInCastToNumberError(
+            IntegerType,
+            UTF8String.fromString(value),
+            null))
+    }
+  }
+
+  test("a native string rejection is not a Spark error if the exact target parser accepts it") {
+    for {
+      target <- Seq("TINYINT", "SMALLINT", "INTEGER", "BIGINT")
+      value <- Seq("\u000042", "42\u0000", "\u007f42", "42\u007f")
+    } {
+      val reason = s"""Cannot cast VARCHAR '$value' to $target. Invalid leading character: """""
+      assert(GlutenCastErrors.fromNativeReason(reason, new RuntimeException(reason)) == null)
+    }
+  }
+
   test("unknown, malformed and ambiguous cast reasons retain the native error") {
     val reasons = Seq(
       "integer overflow",
@@ -158,6 +181,9 @@ class GlutenNativeCastExceptionSuite extends SparkFunSuite {
       "Cannot cast DECIMAL '12.3' to DECIMAL(3, 4)",
       "Cannot cast BIGINT '12.3' to DECIMAL(3, 2)",
       "Cannot cast VARCHAR 'prefix' to INTEGER. suffix' to INTEGER. Invalid leading character",
+      "Cannot cast VARCHAR 'prefix' to TINYINT. suffix' to BIGINT. Invalid leading character",
+      "Cannot cast VARCHAR 'prefix' to INTEGER. suffix' to DATE. Invalid date",
+      "Cannot cast VARCHAR 'prefix' to DATE. suffix' to INTEGER. Invalid leading character",
       "Context: Cannot cast INTEGER '2147483647' to TINYINT. " +
         "Overflow during arithmetic conversion: "
     )

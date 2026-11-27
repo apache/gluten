@@ -237,7 +237,7 @@ class VeloxCastSuite extends VeloxWholeStageTransformerSuite with ExpressionEval
       (Long.MinValue, LongType, ShortType),
       (1000, IntegerType, DecimalType(3, 2)),
       (new java.math.BigDecimal("-12.3"), DecimalType(3, 1), DecimalType(3, 2)),
-      ("abc", StringType, ByteType),
+      ("bad' to sleep", StringType, ByteType),
       ("99999", StringType, ShortType),
       ("", StringType, LongType)
     )

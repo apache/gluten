@@ -72,13 +72,15 @@ class ColumnarBatchOutIteratorExceptionSuite extends SparkFunSuite {
     }
   }
 
-  test("unrecognized native cast metadata is returned without reinterpreting the diagnostic") {
-    val original =
-      new NativeCastException("unknown".getBytes(UTF_8), "Not a valid type for x".getBytes(UTF_8))
-    val error = intercept[NativeCastException] {
-      iterator(original).next()
+  test("untranslated native casts retain their original exception and diagnostic") {
+    val diagnostic = "Not a valid type for x".getBytes(UTF_8)
+    val validForSpark = "Cannot cast VARCHAR '\u000042' to INTEGER. Invalid leading character: \"\""
+    Seq("unknown", validForSpark).foreach {
+      reason =>
+        val original = new NativeCastException(reason.getBytes(UTF_8), diagnostic)
+        val error = intercept[NativeCastException](iterator(original).next())
+        assert(error eq original)
     }
-    assert(error eq original)
   }
 
   test("native string input survives UTF-8 transport and translation") {
