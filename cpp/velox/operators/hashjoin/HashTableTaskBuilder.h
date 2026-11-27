@@ -36,9 +36,9 @@ namespace gluten {
 struct HashTableTaskBuildSpec {
   facebook::velox::core::JoinType joinType;
   bool nullAware{false};
-  /// HashBuild never evaluates the join filter. It only checks whether there is
-  /// one and, for an anti join, drops build rows with a null in the build
-  /// columns of a null-intolerant filter. So these properties are all it needs.
+  /// Filtered broadcast tables must retain duplicates and non-key build columns.
+  /// For anti joins, HashBuild also uses the filter's null propagation to skip
+  /// rows that cannot match.
   bool withFilter{false};
   std::vector<std::string> filterBuildColumns;
   bool filterPropagatesNulls{false};

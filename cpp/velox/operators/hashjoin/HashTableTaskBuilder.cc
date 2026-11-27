@@ -46,8 +46,11 @@ core::TypedExprPtr makePlaceholderFilter(const HashTableTaskBuildSpec& spec) {
     return nullptr;
   }
   if (!spec.filterPropagatesNulls || spec.filterBuildColumns.empty()) {
-    // References no build column, so HashBuild drops no build rows for it.
-    return std::make_shared<core::ConstantTypedExpr>(BOOLEAN(), Variant(true));
+    // A constant looks probe-only to HashBuild, which can then drop duplicates and non-key columns.
+    // Reference a build key without making the filter null-propagating, so the cached table keeps both.
+    const auto& key = spec.joinKeys.at(0);
+    auto field = std::make_shared<core::FieldAccessTypedExpr>(spec.buildType->findChild(key), key);
+    return std::make_shared<core::CallTypedExpr>(BOOLEAN(), std::vector<core::TypedExprPtr>{field}, "isnull");
   }
   // Chains the build columns, cast to VARCHAR to fit any type, with equalto.
   // Both have default null behavior, so the result is null-intolerant in each
