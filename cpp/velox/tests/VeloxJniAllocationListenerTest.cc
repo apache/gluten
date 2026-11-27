@@ -160,10 +160,30 @@ TEST_F(VeloxJniAllocationListenerTest, javaReservationsAreWrappedAtTheCallback) 
   auto other = taskListener("other-backend");
   reserveError = &jni.original;
   EXPECT_THROW(other->allocationChanged(64), JavaException);
-  calls.clear();
-  jni.env()->Throw(&jni.original);
-  expectWrapped([&] { manager.getListener()->allocationChanged(64); });
-  EXPECT_TRUE(calls.empty());
+}
+
+TEST_F(VeloxJniAllocationListenerTest, pendingThrowableSurvivesOptionalAndRequiredGrowth) {
+  for (bool optional : {false, true}) {
+    SCOPED_TRACE(optional);
+    VeloxMemoryManager manager(kVeloxBackendKind, taskListener(), backendConf());
+    auto pool = manager.getLeafMemoryPool();
+    reserveError = failCaptureOf = &jni.original;
+    calls.clear();
+    const bool returned = atJniBoundary(jni.env(), [&] {
+      EXPECT_FALSE(pool->maybeReserve(64));
+      EXPECT_EQ(jni.pending, &jni.secondary);
+      jni.failGlobalRef = false; // Only the first callback failed capture.
+      if (optional) {
+        EXPECT_FALSE(pool->maybeReserve(64));
+      } else {
+        allocate(manager, 64);
+      }
+    });
+    EXPECT_EQ(returned, optional);
+    EXPECT_EQ(calls.size(), 1u); // Neither retry can call Java with the earlier error pending.
+    EXPECT_EQ(jni.pending, &jni.secondary);
+    jni.pending = nullptr;
+  }
 }
 
 TEST_F(VeloxJniAllocationListenerTest, rollbackPreservesCapturedAndPendingJavaFailures) {

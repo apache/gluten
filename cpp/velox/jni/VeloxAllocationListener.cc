@@ -73,7 +73,11 @@ class VeloxJniAllocationListener final : public SparkAllocationListener {
           [&] {
             auto* env = attachedEnv();
             if (env->ExceptionCheck()) {
-              if (diff < 0 && JniEntryGuard::isActive()) {
+              if (JniEntryGuard::isActive()) {
+                if (diff > 0) {
+                  // maybeReserve can swallow the native error. Keep the throwable pending for Java.
+                  throw fallback_;
+                }
                 repayPreservingPending(env, env->ExceptionOccurred(), [&] { notifyJava(env, diff); });
                 return;
               }

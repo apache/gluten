@@ -146,12 +146,13 @@ trace (see [#9642](https://github.com/apache/gluten/issues/9642)).
 
 Velox also wraps Java `reserve` and `unreserve` failures at the JNI allocation
 listener for task and global memory managers. In a guarded JNI entry, an
-earlier pending throwable prevents a new reservation, but not a repayment:
-the listener clears it for `unreserve` and restores it for Java. If rollback
-also fails, the original reservation error takes precedence when it was
-captured or is still pending. On a native worker without a JNI return boundary,
-a failed capture leaves no pending throwable, so a subsequent rollback failure
-can be the error reported.
+earlier pending throwable prevents a new reservation and stays pending even if
+Velox's `maybeReserve` catches the native error and returns `false`. For a
+repayment, the listener clears the pending throwable for `unreserve` and
+restores it for Java. If rollback also fails, the original reservation error
+takes precedence when it was captured or is still pending. On a native worker
+without a JNI return boundary, a failed capture leaves no pending throwable,
+so a subsequent rollback failure can be the error reported.
 A preallocated system-error wrapper retains an already-captured throwable if
 allocating its usual wrapper fails. Shared memory accounting is unchanged.
 
