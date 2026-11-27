@@ -18,6 +18,7 @@
 #include "operators/reader/ParquetReaderIterator.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "utils/Timer.h"
+#include "velox/common/file/FileIoContext.h"
 
 namespace gluten {
 namespace {
@@ -25,7 +26,8 @@ std::unique_ptr<facebook::velox::parquet::ParquetReader> createReader(
     const std::string& path,
     const facebook::velox::dwio::common::ReaderOptions& opts) {
   auto input = std::make_unique<facebook::velox::dwio::common::BufferedInput>(
-      std::make_shared<facebook::velox::LocalReadFile>(path), opts.memoryPool());
+      std::make_shared<facebook::velox::LocalReadFile>(path),
+      facebook::velox::FileIoContext{.pool = &opts.memoryPool()});
   return std::make_unique<facebook::velox::parquet::ParquetReader>(std::move(input), opts);
 }
 
