@@ -242,6 +242,7 @@ class JniExceptionMetadataTest : public ::testing::Test {
 
   static inline std::atomic<bool> providerPaused{false};
   static inline std::atomic<bool> providerReleased{false};
+  static inline std::atomic<bool> unregisterStarted{false};
   static inline std::atomic<bool> unregistered{false};
   static inline std::atomic<bool> unregisteredWhilePaused{false};
 
@@ -326,6 +327,7 @@ TEST_F(JniExceptionMetadataTest, unregistrationWaitsForProviderExceptions) {
     SCOPED_TRACE(provider == failWithInspectedException ? "what()" : "destructor");
     providerPaused = false;
     providerReleased = false;
+    unregisterStarted = false;
     unregistered = false;
     unregisteredWhilePaused = false;
     std::optional<JniExceptionMetadataRegistration> registration;
@@ -333,9 +335,11 @@ TEST_F(JniExceptionMetadataTest, unregistrationWaitsForProviderExceptions) {
     std::thread boundary([&] { handleJniException(jni.env(), error); });
     EXPECT_TRUE(waitFor(providerPaused, std::chrono::seconds(10)));
     std::thread unregister([&] {
+      unregisterStarted = true;
       registration.reset();
       unregistered = true;
     });
+    EXPECT_TRUE(waitFor(unregisterStarted, std::chrono::seconds(10)));
     // The provider's exception is still alive, so unregistering must keep waiting.
     EXPECT_FALSE(waitFor(unregistered, std::chrono::milliseconds(300)));
     providerReleased = true;

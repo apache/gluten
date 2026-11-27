@@ -134,10 +134,12 @@ exception is left untouched; failure to throw the fallback is logged.
 A backend can register a `JniExceptionMetadataRegistration` to raise a typed Java
 exception for its own native errors. The boundary asks the registered providers
 only when no Java exception is pending or carried. Providers must not call JNI;
-they return a class name, a reason and a diagnostic as owned strings. Any
-exception a provider throws is handled before the registry lock is released, so
-destroying a registration also waits for that exception to be destroyed. After
-releasing the registry lock, the boundary checks that the class extends
+they return a class name, a reason and a diagnostic as owned strings. If a
+provider throws, the boundary inspects and releases its reference to that
+exception before releasing the registry lock, so destroying a registration
+waits for that. A provider that rethrows an exception it still references, for
+example through a `std::exception_ptr`, remains responsible for that reference.
+After releasing the registry lock, the boundary checks that the class extends
 `java.lang.Throwable`, then constructs it through its
 `(byte[] reason, byte[] diagnostic)` constructor, passing the UTF-8 bytes
 unchanged, including NULs. A Java exception raised while constructing it, such

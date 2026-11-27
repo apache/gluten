@@ -70,10 +70,12 @@ using ExceptionMetadataProvider = std::optional<JniExceptionMetadata> (*)(const 
 
 // Register for the lifetime of the backend library. Called under the registry lock only when no Java
 // throwable is pending or carried, the callback must not call JNI and returns metadata for its own
-// errors (otherwise std::nullopt). An exception of any type from the callback is also inspected and
-// destroyed under the lock, so unregistering waits for it. Raising the throwable is best effort: a Java
-// exception raised while constructing it stays pending. Any other failure keeps the GlutenException
-// fallback, including a callback exception or a class that isn't a Throwable, which is never constructed.
+// errors (otherwise std::nullopt). If the callback throws, the boundary inspects and releases its
+// reference to that exception before unlocking, so unregistering waits for that. Other references, such
+// as a retained std::exception_ptr that the callback rethrew, remain their owners' responsibility.
+// Raising the throwable is best effort: a Java exception raised while constructing it stays pending.
+// Any other failure keeps the GlutenException fallback, including a callback exception or a class that
+// isn't a Throwable, which is never constructed.
 class JniExceptionMetadataRegistration final {
  public:
   explicit JniExceptionMetadataRegistration(ExceptionMetadataProvider describe);

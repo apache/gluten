@@ -74,8 +74,9 @@ std::exception_ptr unwrapBackendException(const std::exception& error) noexcept 
 
 std::optional<JniExceptionMetadata> describeBackendException(const std::exception& error) {
   auto& registry = metadataRegistry();
-  // Unregistering a backend must wait until its callback has returned and any exception it threw, whose
-  // what() and destructor may be backend code, has been inspected and destroyed.
+  // Unregistering a backend must wait until its callback has returned, and until this boundary has
+  // inspected and released its reference to any exception the callback threw, whose what() and
+  // destructor may be backend code.
   std::lock_guard<std::mutex> lock(registry.mutex);
   for (auto describe : registry.callbacks) {
     try {
