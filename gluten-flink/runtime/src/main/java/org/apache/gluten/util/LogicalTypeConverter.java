@@ -35,6 +35,7 @@ import org.apache.flink.table.types.logical.SymbolType;
 import org.apache.flink.table.types.logical.TimeType;
 import org.apache.flink.table.types.logical.TimestampType;
 import org.apache.flink.table.types.logical.TinyIntType;
+import org.apache.flink.table.types.logical.VarBinaryType;
 import org.apache.flink.table.types.logical.VarCharType;
 import org.apache.flink.table.types.logical.YearMonthIntervalType;
 
@@ -67,6 +68,11 @@ public class LogicalTypeConverter {
               logicalType -> new io.github.zhztheplayer.velox4j.type.VarCharType()),
           Map.entry(
               CharType.class, logicalType -> new io.github.zhztheplayer.velox4j.type.VarCharType()),
+          // BYTES maps to VARBINARY; fixed-length BINARY(n) stays unmapped
+          // because velox cannot preserve its pad/truncate semantics.
+          Map.entry(
+              VarBinaryType.class,
+              logicalType -> new io.github.zhztheplayer.velox4j.type.VarbinaryType()),
           // TODO: may need precision
           Map.entry(
               TimestampType.class,

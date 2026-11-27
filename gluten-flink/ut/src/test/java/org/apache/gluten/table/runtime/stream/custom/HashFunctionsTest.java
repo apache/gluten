@@ -20,9 +20,15 @@ import org.apache.gluten.table.runtime.stream.common.GlutenStreamingTestBase;
 
 import org.apache.flink.table.api.TableResult;
 import org.apache.flink.types.Row;
+import org.apache.flink.util.CloseableIterator;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -89,6 +95,151 @@ class HashFunctionsTest extends GlutenStreamingTestBase {
             "+I[" + SHA1_MULTIBYTE + "]",
             "+I[" + SHA1_LONG + "]",
             "+I[null]"));
+  }
+
+  // BYTES via a column cast (a literal would fold); non-UTF-8 bytes need the
+  // source-column test below.
+  @Test
+  void testMd5Sha1Sha256VarbinaryInput() {
+    List<Row> rows =
+        Arrays.asList(Row.of("", 1), Row.of("ab", 2), Row.of("你好", 3), Row.of(null, 4));
+    createSimpleBoundedValuesTable("tblHashBinary", "s varchar, a int", rows);
+    runAndCheck(
+        "select MD5(CAST(s AS BYTES)), SHA1(CAST(s AS BYTES)), SHA256(CAST(s AS BYTES))"
+            + " from tblHashBinary where a > 0",
+        Arrays.asList(
+            "+I["
+                + MD5_EMPTY
+                + ", "
+                + SHA1_EMPTY
+                + ", e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855]",
+            "+I[187ef4436122d1cc2f40dc2b92f0eba0, "
+                + "da23614e02469a0d7c7bd1bdab5c9c474b1904dc, "
+                + "fb8e20fc2e4c3f248c60c39bd652f3c1347298bb977b8b4d5903b85055620603]",
+            "+I[7eca689f0d3389d9dea66ae112e5cfd7, "
+                + "440ee0853ad1e99f962b63e459ef992d7c211722, "
+                + "670d9743542cae3ea7ebe36af56bd53648b0a1126162e78d81a32934a711302e]",
+            "+I[null, null, null]"));
+  }
+
+  // A genuine raw-file BYTES column crossing the Flink -> velox boundary;
+  // "nonutf8" (a NUL + non-UTF-8 byte) proves the digests come from raw bytes.
+  @Test
+  void testMd5Sha1BinarySourceColumn(@TempDir File dataDir) throws Exception {
+    Files.write(new File(dataDir, "ab").toPath(), new byte[] {0x61, 0x62});
+    Files.write(new File(dataDir, "nonutf8").toPath(), new byte[] {0x00, (byte) 0xFF, 0x10});
+    Files.write(new File(dataDir, "utf8").toPath(), "你好".getBytes(StandardCharsets.UTF_8));
+    tEnv()
+        .executeSql(
+            "CREATE TABLE binSrc (`value` BYTES) WITH ("
+                + "'connector' = 'filesystem',"
+                + "'path' = '"
+                + dataDir.toURI()
+                + "',"
+                + "'format' = 'raw')");
+    // The print sink prefixes rows with the parallel subtask ("3> +I[...]").
+    List<String> rows =
+        runQuery("select MD5(`value`), SHA1(`value`) from binSrc").stream()
+            .map(row -> row.replaceFirst("^\\d+> ", ""))
+            .collect(java.util.stream.Collectors.toList());
+    String md5Ab = "187ef4436122d1cc2f40dc2b92f0eba0";
+    String sha1Ab = "da23614e02469a0d7c7bd1bdab5c9c474b1904dc";
+    String md5Raw = "481e4551ec039aada760901cf52b1917";
+    String sha1Raw = "a14c2fba17201c1ead45b6c4af4409fbfc16ba8a";
+    assertThat(rows)
+        .containsExactlyInAnyOrder(
+            "+I[" + md5Ab + ", " + sha1Ab + "]",
+            "+I[" + md5Raw + ", " + sha1Raw + "]",
+            "+I[" + MD5_MULTIBYTE + ", " + SHA1_MULTIBYTE + "]");
+  }
+
+  // BINARY(n) stays rejected at planning: velox has no fixed-length binary
+  // and would drop Flink's zero-pad semantics.
+  @Test
+  void testMd5CastToBinaryRejectedAtPlanning() {
+    List<Row> rows = Arrays.asList(Row.of("ab"));
+    createSimpleBoundedValuesTable("tblBinaryCast", "s varchar", rows);
+    tEnv().executeSql("CREATE TABLE printT (d VARCHAR) WITH ('connector' = 'print')");
+    try {
+      assertThatThrownBy(
+              () ->
+                  tEnv()
+                      .executeSql(
+                          "insert into printT select MD5(CAST(s AS BINARY(3))) from tblBinaryCast"))
+          .hasStackTraceContaining("Unsupported logical type: BINARY(3)");
+    } finally {
+      tEnv().executeSql("drop table if exists printT");
+    }
+  }
+
+  // CAST(bytes AS STRING) is rejected at planning: velox keeps the raw bytes
+  // while Flink decodes UTF-8 with U+FFFD, so the digests diverge. The
+  // reverse CAST(s AS BYTES) stays offloaded (identical bytes).
+  @Test
+  void testCastBytesToStringRejectedAtPlanning(@TempDir File dataDir) throws Exception {
+    Files.write(new File(dataDir, "nonutf8").toPath(), new byte[] {0x00, (byte) 0xFF, 0x10});
+    tEnv()
+        .executeSql(
+            "CREATE TABLE binCast (`value` BYTES) WITH ("
+                + "'connector' = 'filesystem',"
+                + "'path' = '"
+                + dataDir.toURI()
+                + "',"
+                + "'format' = 'raw')");
+    tEnv().executeSql("CREATE TABLE printT (d VARCHAR) WITH ('connector' = 'print')");
+    try {
+      assertThatThrownBy(
+              () ->
+                  tEnv()
+                      .executeSql(
+                          "insert into printT select MD5(CAST(`value` AS STRING)) from binCast"))
+          .hasStackTraceContaining("casts a binary-typed operand to a string type");
+    } finally {
+      tEnv().executeSql("drop table if exists printT");
+    }
+  }
+
+  // The output path: the raw BYTES column and a folded VARBINARY constant,
+  // through a collect sink (print cannot carry VARBINARY), come back unchanged.
+  @Test
+  void testBinaryProjectionCollectsUnchanged(@TempDir File dataDir) throws Exception {
+    Files.write(new File(dataDir, "ab").toPath(), new byte[] {0x61, 0x62});
+    Files.write(new File(dataDir, "nonutf8").toPath(), new byte[] {0x00, (byte) 0xFF, 0x10});
+    Files.write(new File(dataDir, "utf8").toPath(), "你好".getBytes(StandardCharsets.UTF_8));
+    tEnv()
+        .executeSql(
+            "CREATE TABLE binProj (`value` BYTES) WITH ("
+                + "'connector' = 'filesystem',"
+                + "'path' = '"
+                + dataDir.toURI()
+                + "',"
+                + "'format' = 'raw')");
+    List<byte[]> sourceColumns = new ArrayList<>();
+    try (CloseableIterator<Row> it =
+        tEnv().executeSql("select `value`, CAST('ab' AS BYTES) from binProj").collect()) {
+      while (it.hasNext()) {
+        Row row = it.next();
+        assertThat((byte[]) row.getField(1)).isEqualTo(new byte[] {0x61, 0x62});
+        sourceColumns.add((byte[]) row.getField(0));
+      }
+    }
+    assertThat(sourceColumns)
+        .containsExactlyInAnyOrder(
+            new byte[] {0x61, 0x62},
+            new byte[] {0x00, (byte) 0xFF, 0x10},
+            "你好".getBytes(StandardCharsets.UTF_8));
+  }
+
+  // Binary literals that survive folding (CASE branches over a column
+  // condition) travel as VARBINARY constants and digest the raw bytes.
+  @Test
+  void testMd5BinaryLiteralBranches() {
+    List<Row> rows = Arrays.asList(Row.of(true), Row.of(false));
+    createSimpleBoundedValuesTable("tblBinaryLiteral", "b boolean", rows);
+    runAndCheck(
+        "select MD5(CASE WHEN b THEN X'00FF10' ELSE X'6162' END) from tblBinaryLiteral",
+        Arrays.asList(
+            "+I[481e4551ec039aada760901cf52b1917]", "+I[187ef4436122d1cc2f40dc2b92f0eba0]"));
   }
 
   @Test

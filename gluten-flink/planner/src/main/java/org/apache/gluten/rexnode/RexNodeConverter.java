@@ -50,12 +50,12 @@ import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlKind;
+import org.apache.calcite.sql.type.SqlTypeFamily;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.util.NlsString;
 import org.apache.calcite.util.TimeString;
 
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -179,6 +179,18 @@ public class RexNodeConverter {
         // literals) carries no semantics; velox rejects same-type casts, so pass through.
         if (isSameTypeIgnoringNullability(rexCall.getType(), operand.getType())) {
           return toTypedExpr(operand, context);
+        }
+        // Binary-to-string casts diverge over non-UTF-8 bytes (Flink decodes
+        // UTF-8 with U+FFFD, velox keeps raw bytes); the reverse stays
+        // offloaded because the bytes are identical.
+        if (operand.getType().getSqlTypeName().getFamily() == SqlTypeFamily.BINARY
+            && rexCall.getType().getSqlTypeName().getFamily() == SqlTypeFamily.CHARACTER) {
+          throw new RuntimeException(
+              "Operator '"
+                  + rexCall.getOperator().getName()
+                  + "' casts a binary-typed operand to a string type, which is not"
+                  + " supported. Offending node: "
+                  + rexCall);
         }
       }
       RexCallConverter converter = RexCallConverterFactory.getConverter(rexCall, context);
@@ -311,8 +323,8 @@ public class RexNodeConverter {
         // For CHAR, we convert it to VARCHAR
         return new VarCharValue(literal.getValueAs(String.class));
       case BINARY:
-        return VarBinaryValue.create(
-            literal.getValue().toString().getBytes(StandardCharsets.UTF_8));
+      case VARBINARY:
+        return VarBinaryValue.create(literal.getValueAs(byte[].class));
       case DECIMAL:
         BigDecimal bigDecimal = literal.getValueAs(BigDecimal.class);
         if (bigDecimal.precision() <= 18) {

@@ -19,13 +19,17 @@ package org.apache.gluten.util;
 import io.github.zhztheplayer.velox4j.type.IntegerType;
 import io.github.zhztheplayer.velox4j.type.TimestampType;
 import io.github.zhztheplayer.velox4j.type.Type;
+import io.github.zhztheplayer.velox4j.type.VarbinaryType;
 
+import org.apache.flink.table.types.logical.BinaryType;
 import org.apache.flink.table.types.logical.LocalZonedTimestampType;
 import org.apache.flink.table.types.logical.TimeType;
+import org.apache.flink.table.types.logical.VarBinaryType;
 
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 public class LogicalTypeConverterTest {
 
@@ -55,6 +59,18 @@ public class LogicalTypeConverterTest {
   public void testTimeNineMapsToInteger() {
     Type type = LogicalTypeConverter.toVLType(new TimeType(9));
     assertThat(type).isInstanceOf(IntegerType.class);
+  }
+
+  // L6: BYTES maps to VARBINARY; BINARY(n) stays unmapped — velox cannot
+  // preserve its pad/truncate semantics, so it fails at planning instead.
+  @Test
+  public void testBytesMapsAndBinaryIsRejected() {
+    Type bytes = LogicalTypeConverter.toVLType(new VarBinaryType(VarBinaryType.MAX_LENGTH));
+    assertThat(bytes).isInstanceOf(VarbinaryType.class);
+
+    assertThatThrownBy(() -> LogicalTypeConverter.toVLType(new BinaryType(10)))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining("Unsupported logical type: BINARY(10)");
   }
 
   // L5: the neighboring anchor types keep mapping to Timestamp — TIME is
