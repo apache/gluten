@@ -128,6 +128,12 @@ object VeloxRuleApi {
     injector.injectPostTransform(_ => ScanMapKeyPruning)
     injector.injectPostTransform(_ => PushDownInputFileExpression.PostOffload)
     injector.injectPostTransform(_ => V2WritePostRule())
+    // EliminateLocalSort runs first: removing a local sort can drop an ordering that a node
+    // above relies on, such as a sort merge join over a streaming aggregate. Running
+    // EnsureLocalSortRequirements afterwards adds a sort back where it is still needed.
+    // EliminateLocalSort runs again to remove a local sort made redundant by a sort Ensure
+    // added, such as for a window with a date type range frame.
+    injector.injectPostTransform(_ => EliminateLocalSort)
     injector.injectPostTransform(_ => EnsureLocalSortRequirements)
     injector.injectPostTransform(_ => EliminateLocalSort)
     injector.injectPostTransform(_ => CollapseProjectExecTransformer)

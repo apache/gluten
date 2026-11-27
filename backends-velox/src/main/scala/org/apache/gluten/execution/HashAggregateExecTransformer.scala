@@ -185,6 +185,10 @@ abstract class HashAggregateExecTransformer(
   // to be read.
   protected def allowFlush: Boolean
 
+  // Velox runs a streaming aggregate as StreamingAggregation, which keeps the input order.
+  // Flushable output may be emitted early, so its order is not guaranteed.
+  override protected def canReportOrdering: Boolean = !allowFlush
+
   private def formatExtOptimizationString(isStreaming: Boolean): String = {
     val isStreamingStr = if (isStreaming) "1" else "0"
     val allowFlushStr = if (allowFlush) "1" else "0"

@@ -1069,6 +1069,16 @@ object GlutenConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(true)
 
+  val COLUMNAR_STREAMING_AGGREGATE_REPORT_ORDERING =
+    buildConf("spark.gluten.sql.columnar.streamingAggregate.reportOrdering")
+      .internal()
+      .doc(
+        "When true, a streaming aggregate reports its grouping keys (ascending) as its output " +
+          "ordering, like vanilla Spark's SortAggregateExec. A parent sort merge join or " +
+          "aggregate on the same keys can then skip a sort or run as a streaming aggregate.")
+      .booleanConf
+      .createWithDefault(true)
+
   val COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED =
     buildConf("spark.gluten.sql.columnar.forceShuffledHashJoin").booleanConf
       .createWithDefault(true)
