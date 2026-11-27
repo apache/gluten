@@ -40,6 +40,8 @@ public class GlutenStreamTwoInputWatermarkStatusTest extends GlutenStreamJoinOpe
 
   // The native join operator is not yet migrated to operator-owned keyed state and fails
   // fast when opened; abort these tests until the migration lands. Other errors are rethrown.
+  // TODO: migrate the native join operator to operator-owned keyed state, then remove this
+  // tolerance and let the tests assert watermark propagation again.
   private static void assumeNativeJoinMigrated(VeloxException error) {
     if (error.getMessage() != null
         && error.getMessage().contains(UNMIGRATED_KEYED_OPERATOR_MARKER)) {

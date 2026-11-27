@@ -78,17 +78,15 @@ public class NexmarkTest {
 
   // Message markers of stream features that Velox does not support yet. Queries
   // hitting them are tolerated until the support lands:
-  // - keyed stream operators not yet migrated to operator-owned keyed state
-  // - group aggregation before the operator-owned implementation lands
-  // - group aggregation with DISTINCT aggregates
-  // - aggregate type mismatches between the Velox signature and the handler
-  //   output column (e.g. Flink AVG(BIGINT) is BIGINT, Velox avg(BIGINT) is DOUBLE)
+  // - keyed stream operators not yet migrated to operator-owned keyed state:
+  //   TODO migrate StreamJoin/WindowJoin/WindowAggregator to operator-owned
+  //   keyed state, then drop this marker and let the queries run
+  // - group aggregation with DISTINCT aggregates: TODO support DISTINCT
+  //   aggregates in group aggregation, then drop this marker
   private static final List<String> UNSUPPORTED_FEATURE_MARKERS =
       List.of(
           "not yet migrated to operator-owned keyed state",
-          "GroupAggregation operator is not supported yet",
-          "Distinct aggregates are not supported yet",
-          "but the handler output column declares");
+          "Distinct aggregates are not supported yet");
 
   private static final Map<String, String> NEXMARK_VARIABLES =
       new HashMap<String, String>() {

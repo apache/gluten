@@ -20,7 +20,6 @@ import io.github.zhztheplayer.velox4j.aggregate.Aggregate;
 import io.github.zhztheplayer.velox4j.expression.CallTypedExpr;
 import io.github.zhztheplayer.velox4j.expression.FieldAccessTypedExpr;
 import io.github.zhztheplayer.velox4j.expression.TypedExpr;
-import io.github.zhztheplayer.velox4j.type.DoubleType;
 import io.github.zhztheplayer.velox4j.type.Type;
 import io.github.zhztheplayer.velox4j.window.BoundType;
 import io.github.zhztheplayer.velox4j.window.Frame;
@@ -44,7 +43,14 @@ public class AggregateCallConverter {
       rawTypes.add(inputType.getChildren().get(arg));
     }
     CallTypedExpr call = toCall(aggregateCall, inputType);
-    return new Aggregate(call, rawTypes, null, List.of(), List.of(), aggregateCall.isDistinct());
+    FieldAccessTypedExpr mask = null;
+    if (aggregateCall.hasFilter()) {
+      int filterArg = aggregateCall.filterArg;
+      mask =
+          FieldAccessTypedExpr.create(
+              inputType.getChildren().get(filterArg), inputType.getNames().get(filterArg));
+    }
+    return new Aggregate(call, rawTypes, mask, List.of(), List.of(), aggregateCall.isDistinct());
   }
 
   public static List<Aggregate> toAggregates(
@@ -90,10 +96,6 @@ public class AggregateCallConverter {
   }
 
   private static CallTypedExpr convertAggregation(String name, List<TypedExpr> args, Type outType) {
-    if (name.equals("AVG")) {
-      return new CallTypedExpr(new DoubleType(), args, name.toLowerCase());
-    } else {
-      return new CallTypedExpr(outType, args, name.toLowerCase());
-    }
+    return new CallTypedExpr(outType, args, name.toLowerCase());
   }
 }
