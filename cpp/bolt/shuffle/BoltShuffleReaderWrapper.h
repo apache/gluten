@@ -51,6 +51,8 @@ class BoltShuffleReaderIteratorWrapper : public ColumnarBatchIterator {
       if (nextBatch) {
         return std::make_shared<BoltColumnarBatch>(std::move(nextBatch));
       } else {
+        // Closing the stream releases the Spark fetcher's current block.
+        deserializer_.reset();
         deserializer_ = nextDeserializer_();
       }
     } while (deserializer_ != nullptr);
