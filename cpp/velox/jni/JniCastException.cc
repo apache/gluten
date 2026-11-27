@@ -78,6 +78,11 @@ std::optional<JniExceptionMetadata> describeNativeCastException(const std::excep
   if (!properties || !properties->owner.empty() || properties->functionName != "cast") {
     return std::nullopt;
   }
+  // Velox's cast failures start with this prefix. Other errors raised while the cast runs, such as
+  // lazily loading its input, inherit the cast's properties but keep the default handling.
+  if (!std::string_view(native->message()).starts_with("Cannot cast ")) {
+    return std::nullopt;
+  }
   return JniExceptionMetadata{
       "org/apache/gluten/exception/NativeCastException", native->message(), castDiagnostic(*native)};
 }

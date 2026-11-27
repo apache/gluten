@@ -18,20 +18,25 @@ package org.apache.spark.sql.catalyst.expressions
 
 import org.apache.gluten.config.{GlutenConfig, VeloxConfig}
 import org.apache.gluten.exception.NativeCastException
-import org.apache.gluten.execution.{ProjectExecTransformer, VeloxWholeStageTransformerSuite}
+import org.apache.gluten.execution.{ProjectExecTransformer, VeloxResizeBatchesExec, VeloxWholeStageTransformerSuite}
 
-import org.apache.spark.SparkThrowable
+import org.apache.spark.{SparkArithmeticException, SparkConf, SparkThrowable}
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.catalyst.util.DateTimeTestUtils.UTC_OPT
-import org.apache.spark.sql.errors.QueryExecutionErrors
+import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
-import org.apache.spark.unsafe.types.UTF8String
+import org.apache.spark.util.SparkVersionUtil
 
 import java.sql.Timestamp
 import java.util.TimeZone
 
 class VeloxCastSuite extends VeloxWholeStageTransformerSuite with ExpressionEvalHelper {
+  override protected def sparkConf: SparkConf = {
+    super.sparkConf
+      .set("spark.shuffle.manager", "org.apache.spark.shuffle.sort.ColumnarShuffleManager")
+  }
+
   def cast(v: Any, targetType: DataType, timeZoneId: Option[String] = None): Cast = {
     v match {
       case lit: Expression =>
@@ -97,6 +102,22 @@ class VeloxCastSuite extends VeloxWholeStageTransformerSuite with ExpressionEval
     "cast(dec as decimal(3, 2))"
   )
 
+  // The failing value, its type and the target type of each expression above.
+  private val nativeCastValues = Seq[(Any, DataType, DataType)](
+    (Int.MaxValue, IntegerType, ByteType),
+    (Int.MaxValue, IntegerType, ShortType),
+    (Long.MaxValue, LongType, IntegerType),
+    (1.2345678901234567e19, DoubleType, LongType),
+    (Long.MaxValue, LongType, DecimalType(7, 2)),
+    (Long.MaxValue, LongType, IntegerType),
+    (Long.MaxValue.toString, StringType, IntegerType),
+    (new java.math.BigDecimal("12.3"), DecimalType(3, 1), DecimalType(3, 2))
+  )
+
+  // The exception Spark's own cast raises for the value. Call it with ANSI enabled.
+  private def catalystCastError(value: Any, from: DataType, to: DataType): RuntimeException =
+    intercept[RuntimeException](cast(Literal.create(value, from), to).eval())
+
   private def withNativeCastInput(
       intValue: Int = Int.MaxValue,
       doubleValue: Double = 1.2345678901234567e19,
@@ -149,19 +170,6 @@ class VeloxCastSuite extends VeloxWholeStageTransformerSuite with ExpressionEval
   }
 
   test("native ANSI casts retain Spark exception classes, parameters and native causes") {
-    val expected = Seq(
-      QueryExecutionErrors.castingCauseOverflowError(Int.MaxValue, IntegerType, ByteType),
-      QueryExecutionErrors.castingCauseOverflowError(Int.MaxValue, IntegerType, ShortType),
-      QueryExecutionErrors.castingCauseOverflowError(Long.MaxValue, LongType, IntegerType),
-      QueryExecutionErrors.castingCauseOverflowError(1.2345678901234567e19, DoubleType, LongType),
-      QueryExecutionErrors.cannotChangeDecimalPrecisionError(Decimal(Long.MaxValue), 7, 2, null),
-      QueryExecutionErrors.castingCauseOverflowError(Long.MaxValue, LongType, IntegerType),
-      QueryExecutionErrors.invalidInputInCastToNumberError(
-        IntegerType,
-        UTF8String.fromString(Long.MaxValue.toString),
-        null),
-      QueryExecutionErrors.cannotChangeDecimalPrecisionError(Decimal("12.3"), 3, 2, null)
-    )
     withSQLConf(
       SQLConf.ANSI_ENABLED.key -> "true",
       GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false") {
@@ -170,9 +178,9 @@ class VeloxCastSuite extends VeloxWholeStageTransformerSuite with ExpressionEval
           Seq("LEGACY", "ANSI").foreach {
             policy =>
               withSQLConf(SQLConf.STORE_ASSIGNMENT_POLICY.key -> policy) {
-                nativeCastExpressions.zip(expected).foreach {
-                  case (expression, expectedError) =>
-                    checkNativeCastError(input, expression, expectedError)
+                nativeCastExpressions.zip(nativeCastValues).foreach {
+                  case (expression, (value, from, to)) =>
+                    checkNativeCastError(input, expression, catalystCastError(value, from, to))
                 }
               }
           }
@@ -199,6 +207,86 @@ class VeloxCastSuite extends VeloxWholeStageTransformerSuite with ExpressionEval
           assert(original.getReason.contains(text))
           assert(original.getMessage.contains(s"Reason: ${original.getReason}\n"))
           assert(original.getMessage.contains("\nStack trace:\n#"))
+      }
+    }
+  }
+
+  private def withSingleColumn(value: Any, dataType: DataType)(f: DataFrame => Unit): Unit = {
+    withTempPath {
+      path =>
+        spark
+          .createDataFrame(
+            spark.sparkContext.parallelize(Seq(Row(value)), 1),
+            new StructType().add("c", dataType))
+          .write
+          .parquet(path.getCanonicalPath)
+        f(spark.read.parquet(path.getCanonicalPath))
+    }
+  }
+
+  test("native cast errors match Catalyst for each recognized reason form") {
+    // Forms the tests above don't produce natively: REAL sources, infinities, exponent and
+    // negative values, integral to decimal, and each integral target of a string cast.
+    val cases = Seq[(Any, DataType, DataType)](
+      (1.0e30f, FloatType, IntegerType),
+      (Float.NaN, FloatType, IntegerType),
+      (1.0e21, DoubleType, LongType),
+      (-1.0e10, DoubleType, IntegerType),
+      (Double.PositiveInfinity, DoubleType, IntegerType),
+      (Double.NegativeInfinity, DoubleType, ShortType),
+      (Long.MinValue, LongType, ShortType),
+      (1000, IntegerType, DecimalType(3, 2)),
+      (new java.math.BigDecimal("-12.3"), DecimalType(3, 1), DecimalType(3, 2)),
+      ("abc", StringType, ByteType),
+      ("99999", StringType, ShortType),
+      ("", StringType, LongType)
+    )
+    withSQLConf(
+      SQLConf.ANSI_ENABLED.key -> "true",
+      GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false") {
+      cases.foreach {
+        case (value, from, to) =>
+          withClue(s"cast($value as ${to.sql}) from ${from.sql}: ") {
+            withSingleColumn(value, from) {
+              input =>
+                checkNativeCastError(
+                  input,
+                  s"cast(c as ${to.sql})",
+                  catalystCastError(value, from, to))
+            }
+          }
+      }
+    }
+  }
+
+  test("native cast errors before a shuffle reach the driver as Spark exceptions") {
+    withSQLConf(
+      SQLConf.ANSI_ENABLED.key -> "true",
+      GlutenConfig.GLUTEN_ANSI_FALLBACK_ENABLED.key -> "false",
+      VeloxConfig.COLUMNAR_VELOX_RESIZE_BATCHES_SHUFFLE_INPUT.key -> "true"
+    ) {
+      withNativeCastInput() {
+        input =>
+          Seq("false", "true").foreach {
+            adaptive =>
+              withSQLConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> adaptive) {
+                val query = input.selectExpr("cast(i as tinyint) as c").repartition(col("c"))
+                if (adaptive == "false") {
+                  // The resize operator reads the cast's output through a second native iterator.
+                  val plan = query.queryExecution.executedPlan
+                  assert(plan.exists(_.isInstanceOf[VeloxResizeBatchesExec]), plan.treeString)
+                }
+                val error = intercept[Exception](query.collect())
+                // Spark 4 rethrows a task's user-facing SparkThrowable as is; Spark 3 wraps it.
+                val taskError = if (SparkVersionUtil.gteSpark40) error else error.getCause
+                taskError match {
+                  case e: SparkArithmeticException => assert(e.getErrorClass == "CAST_OVERFLOW")
+                  case _ =>
+                    val actual = error.toString.linesIterator.next()
+                    fail(s"Expected the Spark cast exception (adaptive=$adaptive): $actual", error)
+                }
+              }
+          }
       }
     }
   }

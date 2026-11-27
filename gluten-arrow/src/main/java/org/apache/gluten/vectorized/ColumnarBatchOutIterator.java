@@ -25,6 +25,7 @@ import org.apache.gluten.runtime.RuntimeAware;
 
 import org.apache.spark.QueryContext;
 import org.apache.spark.SparkRuntimeException;
+import org.apache.spark.SparkThrowable;
 import org.apache.spark.sql.errors.GlutenCastErrors;
 import org.apache.spark.sql.execution.datasources.SchemaColumnConvertNotSupportedException;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
@@ -201,7 +202,15 @@ public class ColumnarBatchOutIterator extends ClosableIterator<ColumnarBatch>
 
   @Override
   protected RuntimeException translateException(Exception e) {
+    // Spark 4 shows a task's top-level SparkThrowable to the user and wraps anything else in
+    // "Job aborted". Keep Spark exceptions from nested iterators, such as a cast error raised
+    // before a shuffle, unchanged.
+    if (e instanceof SparkThrowable && e instanceof RuntimeException) {
+      return (RuntimeException) e;
+    }
     if (e instanceof NativeCastException) {
+      // The native side attributed this error to a cast. The message-based translations below
+      // target other errors, and a cast reason can contain user data.
       NativeCastException nativeCast = (NativeCastException) e;
       RuntimeException castEx =
           GlutenCastErrors.fromNativeReason(nativeCast.getReason(), nativeCast);

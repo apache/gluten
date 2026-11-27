@@ -178,22 +178,26 @@ the native-path regression pass unnoticed.
 ### Native Velox cast failures
 
 Native C++ iterators throw the original Velox error, even when a JVM is loaded.
-At the JNI return boundary, an already-pending or transported Java throwable
-takes precedence. Otherwise Velox's registered metadata provider recognizes
-`USER` / `INVALID_ARGUMENT` errors attributed to a built-in `cast` by
-`ExpressionExceptionProperties`. It returns the reason and diagnostic without
-calling Java. The boundary constructs `NativeCastException` on the returning
-thread, outside the registry lock. Byte arrays preserve UTF-8, including NULs.
-If a field contains a NUL, the diagnostic is built from Velox's length-aware
-fields and original captured stack rather than the NUL-terminated `what()` string.
+Velox registers a `JniExceptionMetadataRegistration` provider (see
+[Java exceptions crossing native code](#java-exceptions-crossing-native-code))
+for `USER` / `INVALID_ARGUMENT` errors whose reason starts with `Cannot cast `
+and that `ExpressionExceptionProperties` attribute to a built-in `cast`, so the
+boundary raises them as `NativeCastException`. If a field contains a NUL, the
+diagnostic is built from Velox's length-aware fields and original captured stack
+rather than the NUL-terminated `what()` string.
 
 `ColumnarBatchOutIterator` translates recognized numeric overflow, decimal precision,
 and string-to-integral failures using Spark's `QueryExecutionErrors` factories and
 retains the native diagnostic as the cause. Recognition depends on the pinned
-Velox cast-reason grammar, not diagnostic stack traces. Missing attribution,
-unrecognized types/reasons, and ambiguous unescaped string delimiters retain the
-existing error handling. When updating Velox, run the native cast-attribution and
-JVM exception-metadata tests together. Cast evaluation and ANSI, legacy, and TRY
+Velox cast-reason grammar, not diagnostic stack traces. Unrecognized types or
+reasons and ambiguous unescaped string delimiters keep `NativeCastException`.
+The message-based translations for other native errors don't apply to it,
+because a cast reason can contain user data. The iterator returns Spark
+exceptions unchanged, including those from nested native iterators, so Spark 4
+reports them instead of "Job aborted". Velox doesn't carry the SQL query
+context, so `CAST_INVALID_INPUT` and `NUMERIC_VALUE_OUT_OF_RANGE` errors have
+none. When updating Velox, run the native cast-attribution and JVM
+exception-metadata tests together. Cast evaluation and ANSI, legacy, and TRY
 behavior are unchanged.
 
 ### C++ code development

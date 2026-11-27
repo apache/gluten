@@ -312,6 +312,9 @@ TEST_F(SparkFunctionTest, nativeCastAttributionRejectsUnrelatedErrors) {
   };
   ExceptionContextSetter scopedContext(context);
   EXPECT_TRUE(gluten::describeNativeCastException(error("USER", "INVALID_ARGUMENT")));
+  // For example, a reader error while the cast lazily loads its input.
+  EXPECT_FALSE(gluten::describeNativeCastException(VeloxException(
+      __FILE__, __LINE__, __FUNCTION__, "", "Not a valid type for reader", "USER", "INVALID_ARGUMENT", false)));
   const gluten::JniExceptionUnwrapperRegistration registration(gluten::unwrapVeloxException);
   const gluten::JniExceptionMetadataRegistration castMetadata(gluten::describeNativeCastException);
   gluten::TestJniEnvironment jni;

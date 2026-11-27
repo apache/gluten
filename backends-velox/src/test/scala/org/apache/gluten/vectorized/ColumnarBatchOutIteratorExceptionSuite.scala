@@ -58,6 +58,20 @@ class ColumnarBatchOutIteratorExceptionSuite extends SparkFunSuite {
     assert(error eq original)
   }
 
+  test("a Spark exception from a nested iterator is returned unchanged") {
+    val original =
+      new NativeCastException(overflow.getBytes(UTF_8), "native trace".getBytes(UTF_8))
+    val translated = intercept[ArithmeticException](iterator(original).next())
+    Seq(true, false).foreach {
+      hasNext =>
+        val outer = iterator(translated)
+        val error = intercept[ArithmeticException] {
+          if (hasNext) outer.hasNext() else outer.next()
+        }
+        assert(error eq translated)
+    }
+  }
+
   test("unrecognized native cast metadata is returned without reinterpreting the diagnostic") {
     val original =
       new NativeCastException("unknown".getBytes(UTF_8), "Not a valid type for x".getBytes(UTF_8))
