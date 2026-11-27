@@ -294,4 +294,29 @@ case class BroadcastHashJoinContext(
         substraitJoinType == JoinRel.JoinType.JOIN_TYPE_LEFT_ANTI
     )
   }
+
+  /**
+   * Identifies the native hash table this join needs from a broadcast relation, which every join
+   * reusing the broadcast exchange shares. Joins with the same key can share a hash table. For an
+   * anti join, `droppedDuplicates` also tells whether it has a filter.
+   */
+  def hashTableBuildKey: HashTableBuildKey = {
+    // An anti join with a null-intolerant filter leaves out the build rows that are null in the
+    // filter's build columns (Velox HashBuild::removeInputRowsForAntiJoinFilter). The columns
+    // are given by position: a reused exchange gives them other expression IDs.
+    val nullFilteredColumns =
+      if (
+        substraitJoinType == JoinRel.JoinType.JOIN_TYPE_LEFT_ANTI &&
+        hasMixedFiltCondition && filterPropagatesNulls
+      ) {
+        val buildColumns = buildSideStructure.map(ConverterUtils.genColumnNameWithExprId)
+        filterBuildColumns.map(buildColumns.indexOf(_)).sorted.distinct.toList
+      } else {
+        Nil
+      }
+    HashTableBuildKey(droppedDuplicates, nullFilteredColumns)
+  }
 }
+
+/** See [[BroadcastHashJoinContext.hashTableBuildKey]]. */
+case class HashTableBuildKey(droppedDuplicates: Boolean, nullFilteredColumns: List[Int])
