@@ -19,8 +19,10 @@ package org.apache.spark.sql.execution.datasources.parquet
 import org.apache.spark.sql._
 
 /** A test suite that tests various Parquet queries. */
-class GlutenParquetV1QuerySuite extends ParquetV1QuerySuite with GlutenSQLTestsBaseTrait {
+class GlutenParquetV1QuerySuite extends ParquetV1QuerySuite with GlutenIgnoreCorruptFilesTest {
   import testImplicits._
+
+  ignoreCorruptFilesTest("parquet")
 
   testGluten(
     "SPARK-26677: negated null-safe equality comparison should not filter matched row groups") {
@@ -36,8 +38,10 @@ class GlutenParquetV1QuerySuite extends ParquetV1QuerySuite with GlutenSQLTestsB
   }
 }
 
-class GlutenParquetV2QuerySuite extends ParquetV2QuerySuite with GlutenSQLTestsBaseTrait {
+class GlutenParquetV2QuerySuite extends ParquetV2QuerySuite with GlutenIgnoreCorruptFilesTest {
   import testImplicits._
+
+  ignoreCorruptFilesTest("parquet")
 
   testGluten(
     "SPARK-26677: negated null-safe equality comparison " +
