@@ -156,6 +156,8 @@ trait BackendSettingsApi {
 
   def supportIcebergInitialDefaultRead(): Boolean = false
 
+  def supportIcebergRowLineageRead(): Boolean = false
+
   def reorderColumnsForPartitionWrite(): Boolean = false
 
   def enableEnhancedFeatures(): Boolean = false
