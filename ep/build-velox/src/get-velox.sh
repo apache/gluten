@@ -25,7 +25,7 @@ RUN_SETUP_SCRIPT=ON
 ENABLE_ENHANCED_FEATURES=OFF
 
 # Developer use only for testing Velox PR.
-UPSTREAM_VELOX_PR_ID=""
+UPSTREAM_VELOX_PR_ID="18598"
 
 OS=`uname -s`
 
@@ -148,7 +148,14 @@ function apply_provided_velox_patch {
        echo "Failed to download the Velox patch from GitHub"
        exit 1
      }
-     (git apply --check $patch_name && git apply $patch_name) || {
+     local apply_cmd=(git apply)
+     if [[ "$UPSTREAM_VELOX_PR_ID" == "18598" ]]; then
+       # Fetch both commits and their parent to preserve the IBM-only include in VectorHasher.h.
+       git fetch --no-tags --depth=3 https://github.com/facebookincubator/velox.git \
+         "refs/pull/$UPSTREAM_VELOX_PR_ID/head"
+       apply_cmd+=(--3way)
+     fi
+     ("${apply_cmd[@]}" --check "$patch_name" && "${apply_cmd[@]}" "$patch_name") || {
        echo "Failed to apply the provided Velox patch"
        exit 1
      }
