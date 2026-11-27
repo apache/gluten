@@ -18,6 +18,7 @@ package org.apache.gluten.extension
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.{ColumnarPartialProjectExec, WholeStageTransformer}
+import org.apache.gluten.extension.columnar.FallbackTags
 import org.apache.gluten.utils.PlanUtil
 
 import org.apache.spark.sql.catalyst.rules.Rule
@@ -51,11 +52,17 @@ case class PartialProjectRule() extends Rule[SparkPlan] {
 
   private def tryAddColumnarPartialProjectExec(plan: ProjectExec): SparkPlan = {
     val transformer = ColumnarPartialProjectExec.create(plan)
-    if (
-      transformer.doValidate().ok() &&
-      transformer.child.asInstanceOf[ColumnarPartialProjectExec].doValidate().ok()
-    ) {
+    val partialProject = transformer.child.asInstanceOf[ColumnarPartialProjectExec]
+    val partialResult = partialProject.doValidate()
+    val result = if (partialResult.ok()) transformer.doValidate() else partialResult
+    if (result.ok()) {
       transformer
-    } else plan
+    } else {
+      if (partialProject.replacedAlias.nonEmpty) {
+        val reason = result.reason().trim.stripPrefix("- ")
+        FallbackTags.add(plan, s"Partial project rejected: $reason")
+      }
+      plan
+    }
   }
 }
