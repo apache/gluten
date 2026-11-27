@@ -881,4 +881,45 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
       }
     }
   }
+
+  test("semi and anti joins keep duplicate build rows only when their filter reads them") {
+    withTempView("probe", "build") {
+      withTempPath {
+        dir =>
+          Seq((1, 5), (2, 1), (3, 7), (4, 2)).toDF("k", "x").write.parquet(s"$dir/probe")
+          Seq[(Int, Option[Int])](
+            (1, Some(3)),
+            (1, Some(10)),
+            (2, None),
+            (2, Some(0)),
+            (3, Some(6)),
+            (3, None),
+            (5, Some(1)))
+            .toDF("k", "y")
+            .write
+            .parquet(s"$dir/build")
+          spark.read.parquet(s"$dir/probe").createOrReplaceTempView("probe")
+          spark.read.parquet(s"$dir/build").createOrReplaceTempView("build")
+          Seq(
+            // Reads a build column and is not null-intolerant: needs every build row of a key.
+            "EXISTS" -> "coalesce(build.y, 0) > probe.x" -> Seq((1, 5)),
+            "NOT EXISTS" -> "coalesce(build.y, 0) > probe.x" -> Seq((2, 1), (3, 7), (4, 2)),
+            // Reads a build column and is null-intolerant.
+            "NOT EXISTS" -> "build.y > probe.x" -> Seq((2, 1), (3, 7), (4, 2)),
+            // Reads no build column: one build row per key is enough.
+            "NOT EXISTS" -> "probe.x > 3" -> Seq((2, 1), (4, 2))
+          ).foreach {
+            case ((predicate, filter), rows) =>
+              val df = spark.sql(
+                s"SELECT k, x FROM probe WHERE $predicate " +
+                  s"(SELECT 1 FROM build WHERE probe.k = build.k AND $filter)")
+              checkAnswer(df, rows.map { case (k, x) => Row(k, x) })
+              val plan = df.queryExecution.executedPlan
+              assert(
+                collect(plan) { case j: BroadcastHashJoinExecTransformer => j }.size == 1,
+                plan)
+          }
+      }
+    }
+  }
 }
