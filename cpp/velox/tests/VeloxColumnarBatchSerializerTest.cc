@@ -1006,7 +1006,7 @@ TEST_F(VeloxColumnarBatchSerializerTest, framedSerializeWithStatsGolden) {
 // Sibling no-bounds branch coverage (emitSupported=0 path).
 //
 // All-null BIGINT col MUST hit the no-bounds branch (computeStats ->
-// hasLowerBound=hasUpperBound=false -> marshalStatsInto emits supported=0, no
+// hasLowerBound=hasUpperBound=false -> buildStatsBlob emits supported=0, no
 // lower/upper bytes).
 //
 // This is intentionally a FIELD-LEVEL test, NOT a byte-equal golden: Velox
