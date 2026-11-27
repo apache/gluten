@@ -252,19 +252,48 @@ class WindowTVFAggregationTest extends GlutenStreamingTestBase {
   }
 
   @Test
-  void testHopRejectedAtTranslation() {
-    // Window-type split: HOP lands in a follow-up PR; the translation
-    // rejects it loudly so nothing silently runs the TUMBLE math over a
-    // different window kind.
+  void testEventTimeHopMergeAndChain() {
     createBoundedSource(
         "srcHop",
         SCHEMA,
         Arrays.asList(
-            Row.of(1, 10L, "2026-01-01 00:00:01"), Row.of(2, 20L, "2026-01-01 00:00:02")));
-    TableException e = assertThrows(TableException.class, () -> runQuery(HOP_QUERY));
+            Row.of(1, 10L, "2026-01-01 00:00:01"),
+            Row.of(1, 20L, "2026-01-01 00:00:03"),
+            Row.of(1, 30L, "2026-01-01 00:00:05"),
+            Row.of(1, 40L, "2026-01-01 00:00:07"),
+            Row.of(2, 50L, "2026-01-01 00:00:03.5")));
+    // Windows overlap; every row lands in all containing windows (the burst runtime emits the
+    // k2 row into both of its windows); the fire chain continues through the windows whose
+    // first slice has data; the trailing windows fire on the end-of-input watermark.
+    assertThat(runQuerySorted(HOP_QUERY))
+        .isEqualTo(
+            sorted(
+                Arrays.asList(
+                    "+I[1, 2025-12-31T23:59:58.000, 2026-01-01T00:00:02.000, 1, 10]",
+                    "+I[1, 2026-01-01T00:00:00.000, 2026-01-01T00:00:04.000, 2, 30]",
+                    "+I[2, 2026-01-01T00:00:00.000, 2026-01-01T00:00:04.000, 1, 50]",
+                    "+I[1, 2026-01-01T00:00:02.000, 2026-01-01T00:00:06.000, 2, 50]",
+                    "+I[2, 2026-01-01T00:00:02.000, 2026-01-01T00:00:06.000, 1, 50]",
+                    "+I[1, 2026-01-01T00:00:04.000, 2026-01-01T00:00:08.000, 2, 70]",
+                    "+I[1, 2026-01-01T00:00:06.000, 2026-01-01T00:00:10.000, 1, 40]")));
+  }
+
+  @Test
+  void testCumulateRejectedAtTranslation() {
+    // Window-type split: CUMULATE lands in a follow-up PR; the
+    // translation rejects it loudly so nothing silently runs the
+    // aligned-window math over a cumulative window.
+    createBoundedSource(
+        "srcCumulate", SCHEMA, Arrays.asList(Row.of(1, 10L, "2026-01-01 00:00:01")));
+    String cumulateQuery =
+        "SELECT k, window_start, window_end, COUNT(*), SUM(price) FROM "
+            + "TABLE(CUMULATE(TABLE srcCumulate, DESCRIPTOR(ts), "
+            + "INTERVAL '5' SECOND, INTERVAL '1' SECOND)) "
+            + "GROUP BY k, window_start, window_end";
+    TableException e = assertThrows(TableException.class, () -> runQuery(cumulateQuery));
     assertTrue(
-        e.getMessage().contains("HOP"),
-        "expected the explicit HOP rejection, got: " + e.getMessage());
+        e.getMessage().contains("CUMULATE"),
+        "expected the explicit CUMULATE rejection, got: " + e.getMessage());
   }
 
   @Test
