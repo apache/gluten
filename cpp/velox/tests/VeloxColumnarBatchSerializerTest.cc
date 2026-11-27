@@ -1227,6 +1227,45 @@ TEST_F(VeloxColumnarBatchSerializerTest, framedSerializeWithStatsV3NonEmptyWrite
   test::assertEqualVectors(expectedProjected, projectedVector);
 }
 
+TEST_F(VeloxColumnarBatchSerializerTest, framedSerializeV3ComplexTypesRoundTrip) {
+  constexpr vector_size_t kNumRows = 5'000;
+  auto* arrowPool = getDefaultMemoryManager()->defaultArrowMemoryPool();
+  auto serializer = std::make_shared<VeloxColumnarBatchSerializer>(arrowPool, pool_, nullptr);
+  std::vector<VectorPtr> children = {
+      makeFlatVector<int64_t>(
+          kNumRows, [](vector_size_t row) { return row * 3; }, nullEvery(7)),
+      makeFlatVector<std::string>(
+          kNumRows,
+          [](vector_size_t row) { return "a string longer than inline " + std::to_string(row); },
+          nullEvery(5)),
+      makeArrayVector<int32_t>(
+          kNumRows, [](vector_size_t row) { return row % 4; }, [](vector_size_t idx) { return idx; }, nullEvery(9)),
+      makeMapVector<std::string, int64_t>(
+          kNumRows,
+          [](vector_size_t row) { return row % 3; },
+          [](vector_size_t idx) { return "key-" + std::to_string(idx); },
+          [](vector_size_t idx) { return idx * 10; }),
+      makeRowVector(
+          {"x", "y"},
+          {makeFlatVector<int32_t>(kNumRows, [](vector_size_t row) { return row; }),
+           makeFlatVector<std::string>(
+               kNumRows, [](vector_size_t row) { return std::to_string(row); }, nullEvery(4))},
+          nullEvery(11)),
+  };
+  auto vector = makeRowVector({"i", "s", "arr", "m", "st"}, children);
+  auto batch = std::make_shared<VeloxColumnarBatch>(vector);
+  ArrowSchema cSchema;
+  exportToArrow(vector, cSchema, ArrowUtils::getBridgeOptions());
+  auto deserializer = std::make_shared<VeloxColumnarBatchSerializer>(arrowPool, pool_, &cSchema);
+
+  for (const bool includeStats : {false, true}) {
+    auto framed = includeStats ? serializer->framedSerializeWithStatsV3(batch) : serializer->framedSerializeV3(batch);
+    assertV3WriterFrameLayout(framed, kNumRows, static_cast<uint32_t>(children.size()), includeStats);
+    auto result = deserializer->deserializeV3(framed.data(), static_cast<int32_t>(framed.size()), std::nullopt);
+    test::assertEqualVectors(vector, std::dynamic_pointer_cast<VeloxColumnarBatch>(result)->getRowVector());
+  }
+}
+
 TEST_F(VeloxColumnarBatchSerializerTest, deserializeV3ZeroProjectionNonEmptyNoStatsFrameFixture) {
   auto* arrowPool = getDefaultMemoryManager()->defaultArrowMemoryPool();
   auto deserializer = makeV3Deserializer(arrowPool);
