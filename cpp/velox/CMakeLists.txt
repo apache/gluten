@@ -280,6 +280,14 @@ if(ENABLE_GLUTEN_VCPKG AND NOT CMAKE_SYSTEM_NAME MATCHES "Darwin")
   target_link_options(
     velox PRIVATE -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/symbols.map)
 endif()
+if(NOT CMAKE_SYSTEM_NAME MATCHES "Darwin")
+  # Bind intra-library function references locally. libvelox exports every
+  # facebook::velox::* / gluten::* symbol, so without this each call from one
+  # Velox function to another exported (non-inlined) one goes through a PLT stub
+  # (e.g. DecodedVector::isNullAt@plt). Functions only: data symbols (static
+  # locals, STB_GNU_UNIQUE) keep normal interposition semantics.
+  target_link_options(velox PRIVATE -Wl,-Bsymbolic-functions)
+endif()
 if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
   # Make libvelox.dylib own the Velox mono archive. Test utilities can then
   # resolve Velox symbols from the dylib instead of linking a second copy.
