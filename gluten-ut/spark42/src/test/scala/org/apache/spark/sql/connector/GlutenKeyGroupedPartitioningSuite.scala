@@ -18,10 +18,14 @@ package org.apache.spark.sql.connector
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.execution.{ShuffledHashJoinExecTransformerBase, SortExecTransformer, SortMergeJoinExecTransformer}
+import org.apache.gluten.sql.shims.SparkShimLoader
+import org.apache.gluten.utils.BackendTestUtils
 
 import org.apache.spark.SparkConf
 import org.apache.spark.rdd.SortedMergeCoalescedRDD
 import org.apache.spark.sql.{DataFrame, GlutenSQLTestsBaseTrait, Row}
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.BoundReference
 import org.apache.spark.sql.catalyst.plans.physical.KeyedPartitioning
 import org.apache.spark.sql.connector.catalog.{Column, Identifier, InMemoryTableCatalog}
 import org.apache.spark.sql.connector.distributions.Distributions
@@ -1108,7 +1112,7 @@ class GlutenKeyGroupedPartitioningSuite
   }
 
   testGluten(
-    "GLUTEN-10992: KeyGroupedPartitioning shuffle falls back to vanilla Spark") {
+    "GLUTEN-10992: KeyGroupedPartitioning shuffle uses columnar exchange") {
     val items_partitions = Array(identity("id"))
     createTable(items, itemsColumns, items_partitions)
 
@@ -1124,31 +1128,66 @@ class GlutenKeyGroupedPartitioningSuite
         "(1, 42.0, cast('2020-01-01' as timestamp)), " +
         "(3, 19.5, cast('2020-02-01' as timestamp))")
 
-    // With V2 bucketing shuffle enabled and only one side reporting partitioning, Spark
-    // shuffles the other side with a ShuffleExchangeExec whose output partitioning is
-    // KeyGroupedPartitioning. Gluten native shuffle does not support it, so the exchange
-    // must fall back to vanilla Spark. Offloading it to ColumnarShuffleExchangeExec would
-    // crash with a scala.MatchError in ExecUtil.genShuffleDependency (GLUTEN-10992).
     withSQLConf(SQLConf.V2_BUCKETING_SHUFFLE_ENABLED.key -> "true") {
       val df = createJoinTestDF(Seq("id" -> "item_id"))
       val plan = df.queryExecution.executedPlan
 
-      val keyGroupedShuffles = collect(plan) {
+      val vanillaKeyGroupedShuffles = collect(plan) {
         case s: ShuffleExchangeExec
             if s.outputPartitioning.isInstanceOf[KeyedPartitioning] =>
           s
       }
-      assert(
-        keyGroupedShuffles.nonEmpty,
-        "KeyGroupedPartitioning shuffle should fall back to a vanilla ShuffleExchangeExec")
-
       val columnarKeyGroupedShuffles = collectAllColumnarShuffles(plan)
         .filter(_.outputPartitioning.isInstanceOf[KeyedPartitioning])
-      assert(
-        columnarKeyGroupedShuffles.isEmpty,
-        "KeyGroupedPartitioning must not be offloaded to ColumnarShuffleExchangeExec")
+      if (BackendTestUtils.isVeloxBackendLoaded()) {
+        assert(
+          vanillaKeyGroupedShuffles.isEmpty,
+          "KeyGroupedPartitioning should not fall back to a vanilla ShuffleExchangeExec")
+        assert(
+          columnarKeyGroupedShuffles.nonEmpty,
+          "KeyGroupedPartitioning should be offloaded to ColumnarShuffleExchangeExec")
+      } else {
+        assert(
+          vanillaKeyGroupedShuffles.nonEmpty,
+          "Unsupported backends should retain the vanilla ShuffleExchangeExec")
+        assert(
+          columnarKeyGroupedShuffles.isEmpty,
+          "Unsupported backends must not offload KeyGroupedPartitioning")
+      }
 
       checkAnswer(df, Seq(Row(1, "aa", 40.0, 42.0), Row(3, "bb", 10.0, 19.5)))
+    }
+  }
+
+  testGluten("KeyedPartitioning shuffle preserves an already sorted grouped layout") {
+    val expression = BoundReference(0, IntegerType, nullable = false)
+    val partitionValues = Seq(InternalRow(1), InternalRow(2))
+    val partitioning = KeyedPartitioning(Seq(expression), partitionValues)
+
+    val info = SparkShimLoader.getSparkShims.getKeyGroupedShuffleInfo(partitioning).get
+
+    assert(info.partitioning eq partitioning)
+    assert(info.partitionValues.map(_.getInt(0)) == Seq(1, 2))
+  }
+
+  testGluten("KeyedPartitioning shuffle rejects layouts whose key order would change") {
+    val expression = BoundReference(0, IntegerType, nullable = false)
+    val partitioning = KeyedPartitioning(Seq(expression), Seq(InternalRow(2), InternalRow(1)))
+
+    assert(partitioning.isGrouped)
+    assert(SparkShimLoader.getSparkShims.getKeyGroupedShuffleInfo(partitioning).isEmpty)
+  }
+
+  testGluten("KeyedPartitioning shuffle rejects ungrouped and empty layouts") {
+    val expression = BoundReference(0, IntegerType, nullable = false)
+    val ungrouped =
+      KeyedPartitioning(Seq(expression), Seq(InternalRow(1), InternalRow(1), InternalRow(2)))
+    val empty = KeyedPartitioning(Seq(expression), Seq.empty[InternalRow])
+
+    assert(!ungrouped.isGrouped)
+    Seq(ungrouped, empty).foreach {
+      partitioning =>
+        assert(SparkShimLoader.getSparkShims.getKeyGroupedShuffleInfo(partitioning).isEmpty)
     }
   }
 
@@ -2028,10 +2067,13 @@ class GlutenKeyGroupedPartitioningSuite
               val plan = df.queryExecution.executedPlan
               // 1 shuffle for SORT and 1 shuffle for JOIN are expected.
               assert(collectAllShuffles(plan).length === 2)
-              // The JOIN shuffle has KeyedPartitioning and falls back to vanilla Spark
-              // (GLUTEN-10992). The SORT shuffle is native.
-              assert(collectVanillaShuffles(plan).length === 1)
-              assert(collectAllColumnarShuffles(plan).length === 1)
+              if (BackendTestUtils.isVeloxBackendLoaded()) {
+                assert(collectVanillaShuffles(plan).isEmpty)
+                assert(collectAllColumnarShuffles(plan).length === 2)
+              } else {
+                assert(collectVanillaShuffles(plan).length === 1)
+                assert(collectAllColumnarShuffles(plan).length === 1)
+              }
               // 0 group partitions are expected because both sides of the join are clustered
               assert(collectAllGroupPartitions(plan).isEmpty)
             }

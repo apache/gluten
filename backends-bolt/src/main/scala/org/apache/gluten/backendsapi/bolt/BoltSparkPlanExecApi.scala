@@ -455,6 +455,12 @@ class BoltSparkPlanExecApi extends SparkPlanExecApi {
             }
           }
         }
+      case p if SparkShimLoader.getSparkShims.isKeyGroupedPartitioning(p) =>
+        FallbackTags.add(
+          shuffle,
+          ValidationResult.failed(
+            "Key grouped partitioning is not supported by Bolt native shuffle"))
+        shuffle.withNewChildren(child :: Nil)
       case _ =>
         ColumnarShuffleExchangeExec(shuffle, child, null)
     }
