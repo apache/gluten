@@ -258,6 +258,20 @@ gluten::createJniAllocationListener(const std::string& backend, JavaVM* vm, jobj
   return std::make_unique<SparkAllocationListener>(vm, listener);
 }
 
+bool SparkAllocationListener::reconcileUnreserve(int64_t bytes) {
+  // Velox and Arrow may share this listener. A positive Java balance is not proof
+  // of Arrow credit. Only retire the outstanding estimate when both accounts are drained.
+  if (usedBytes_ != bytes) {
+    return false;
+  }
+  JNIEnv* env;
+  attachCurrentThreadAsDaemonOrThrow(vm_, &env);
+  checkException(env);
+  const auto balance = env->CallLongMethod(jListenerGlobalRef_, balanceMethod_);
+  checkException(env);
+  return balance == 0 && usedBytes_.compare_exchange_strong(bytes, 0);
+}
+
 void SparkAllocationListener::repayWithPendingException(JNIEnv* env, Change& change) {
   const auto bytes = -change.diff;
   // Capacity was already given up, so return it, then restore the pending exception. Keep that

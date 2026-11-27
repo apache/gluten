@@ -20,7 +20,9 @@ public interface ReservationListener {
 
   long reserve(long size);
 
+  /** A thrown exception does not tell the caller how many bytes, if any, were repaid. */
   long unreserve(long size);
 
+  /** Returns the outstanding reservation without changing it. */
   long getUsedBytes();
 }

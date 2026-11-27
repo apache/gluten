@@ -30,6 +30,10 @@ class VeloxJniAllocationListener final : public SparkAllocationListener {
     wrapJavaException([&] { SparkAllocationListener::applyChange(change); }, &fallback_);
   }
 
+  bool reconcileUnreserve(int64_t bytes) override {
+    return wrapJavaException([&] { return SparkAllocationListener::reconcileUnreserve(bytes); }, &fallback_);
+  }
+
  private:
   const facebook::velox::VeloxException& fallback_;
 };

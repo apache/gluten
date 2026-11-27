@@ -417,6 +417,7 @@ class SparkAllocationListener : public gluten::AllocationListener {
     // Resolve JNI symbols on the creator thread to avoid first-touch initialization from IO threads.
     reserveMethod_ = reserveMemoryMethod(env);
     unreserveMethod_ = unreserveMemoryMethod(env);
+    balanceMethod_ = getMethodIdOrError(env, javaReservationListenerClass(env), "getUsedBytes", "()J");
   }
 
   SparkAllocationListener(const SparkAllocationListener&) = delete;
@@ -493,6 +494,8 @@ class SparkAllocationListener : public gluten::AllocationListener {
     return peakBytes_;
   }
 
+  bool reconcileUnreserve(int64_t bytes) override;
+
  private:
   void repayWithPendingException(JNIEnv* env, Change& change);
 
@@ -518,6 +521,7 @@ class SparkAllocationListener : public gluten::AllocationListener {
   jobject jListenerGlobalRef_;
   jmethodID reserveMethod_;
   jmethodID unreserveMethod_;
+  jmethodID balanceMethod_;
   std::atomic_int64_t usedBytes_{0L};
   std::atomic_int64_t peakBytes_{0L};
 };
@@ -535,6 +539,10 @@ class BacktraceAllocationListener final : public gluten::AllocationListener {
   void applyChange(Change& change) override {
     allocationBacktrace(change.diff);
     delegator_->applyChange(change);
+  }
+
+  bool reconcileUnreserve(int64_t bytes) override {
+    return delegator_->reconcileUnreserve(bytes);
   }
 
  private:

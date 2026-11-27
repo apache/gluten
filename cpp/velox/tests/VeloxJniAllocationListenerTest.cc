@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdarg>
 #include <stdexcept>
 #include <string_view>
@@ -52,8 +53,12 @@ class VeloxJniAllocationListenerTest : public ::testing::Test {
   static inline _jthrowable javaListener;
   static inline char reserveId;
   static inline char unreserveId;
+  static inline char balanceId;
   static inline jthrowable reserveError;
   static inline jthrowable unreserveError;
+  static inline jthrowable balanceError;
+  static inline jlong javaBalance;
+  static inline jlong repaidBeforeThrow;
   // Signed byte changes passed to Java, in call order.
   static inline std::vector<jlong> calls;
   static inline const JNINativeInterface_* originalFunctions;
@@ -63,17 +68,32 @@ class VeloxJniAllocationListenerTest : public ::testing::Test {
     originalFunctions = jni.env()->functions;
     functions = *originalFunctions;
     functions.GetMethodID = [](JNIEnv*, jclass, const char* name, const char*) {
+      if (std::string_view(name) == "getUsedBytes") {
+        return reinterpret_cast<jmethodID>(&balanceId);
+      }
       return reinterpret_cast<jmethodID>(std::string_view(name) == "reserve" ? &reserveId : &unreserveId);
     };
     functions.CallLongMethodV = [](JNIEnv* env, jobject, jmethodID method, va_list args) -> jlong {
       EXPECT_FALSE(env->ExceptionCheck()) << "Java callback entered with an exception pending";
+      if (method == reinterpret_cast<jmethodID>(&balanceId)) {
+        if (const auto error = std::exchange(balanceError, nullptr)) {
+          env->Throw(error);
+        }
+        return javaBalance;
+      }
       const auto bytes = va_arg(args, jlong);
       const bool reserve = method == reinterpret_cast<jmethodID>(&reserveId);
       calls.push_back(reserve ? bytes : -bytes);
       if (const auto error = std::exchange(reserve ? reserveError : unreserveError, nullptr)) {
+        if (!reserve) {
+          javaBalance -= std::exchange(repaidBeforeThrow, 0);
+        }
         env->Throw(error);
+        return 0;
       }
-      return bytes;
+      const auto applied = reserve ? bytes : std::min(bytes, javaBalance);
+      javaBalance += reserve ? applied : -applied;
+      return applied;
     };
     jni.env()->functions = jni.workerEnv()->functions = &functions;
     ASSERT_EQ(jni.env()->GetJavaVM(&vm), JNI_OK);
@@ -90,12 +110,13 @@ class VeloxJniAllocationListenerTest : public ::testing::Test {
 
   void SetUp() override {
     calls.clear();
+    javaBalance = repaidBeforeThrow = 0;
   }
 
   void TearDown() override {
     functions.NewGlobalRef = originalFunctions->NewGlobalRef;
     functions.DeleteLocalRef = originalFunctions->DeleteLocalRef;
-    reserveError = unreserveError = nullptr;
+    reserveError = unreserveError = balanceError = nullptr;
     jni.pending = nullptr;
     jni.failGlobalRef = false;
     jni.failThrow = false;
@@ -298,31 +319,78 @@ TEST_F(VeloxJniAllocationListenerTest, rollbackCaptureFailureCannotReplaceReserv
   jni.pending = nullptr;
 }
 
-TEST_F(VeloxJniAllocationListenerTest, arrowReusesTheChargeWhenJavaRejectsRepayment) {
+TEST_F(VeloxJniAllocationListenerTest, arrowChargesJavaAgainWhenUnreserveRepaysThenThrows) {
   auto listener = taskListener();
   auto* charged = listener.get();
   VeloxMemoryManager manager(
       kVeloxBackendKind, std::make_unique<BacktraceAllocationListener>(std::move(listener)), backendConf());
   auto* allocator = manager.allocator();
   void* buffer = nullptr;
-  const int64_t bytes = kMemoryReservationBlockSizeDefault + 64;
+  const int64_t bytes = kMemoryReservationBlockSizeDefault;
   ASSERT_TRUE(allocator->allocate(bytes, &buffer));
-  const auto reservation = charged->currentBytes();
-  ASSERT_GE(reservation, bytes);
+  ASSERT_EQ(javaBalance, bytes);
 
+  repaidBeforeThrow = bytes;
   unreserveError = &jni.original;
   EXPECT_FALSE(atJniBoundary(jni.env(), [&] { allocator->free(buffer, bytes); }));
   EXPECT_EQ(jni.pending, &jni.original);
   jni.pending = nullptr;
   EXPECT_EQ(allocator->getBytes(), 0);
-  EXPECT_EQ(charged->currentBytes(), reservation);
+  EXPECT_EQ(javaBalance, 0);
 
   calls.clear();
-  ASSERT_TRUE(allocator->allocate(64, &buffer));
-  EXPECT_TRUE(calls.empty());
-  allocator->free(buffer, 64);
-  EXPECT_EQ(calls, std::vector<jlong>{-reservation});
+  ASSERT_TRUE(allocator->allocate(bytes, &buffer));
+  EXPECT_EQ(calls, std::vector<jlong>{bytes});
+  EXPECT_EQ(javaBalance, bytes);
+  EXPECT_EQ(charged->currentBytes(), bytes);
+  allocator->free(buffer, bytes);
+  EXPECT_EQ(javaBalance, 0);
   EXPECT_EQ(charged->currentBytes(), 0);
+}
+
+TEST_F(VeloxJniAllocationListenerTest, arrowDoesNotSpendOrDoubleChargeAnUnconfirmedRepayment) {
+  const int64_t block = kMemoryReservationBlockSizeDefault;
+  for (const int64_t repaid : {int64_t{0}, block / 2}) {
+    SCOPED_TRACE(repaid);
+    VeloxMemoryManager manager(kVeloxBackendKind, taskListener(), backendConf());
+    auto* allocator = manager.allocator();
+    void* buffer = nullptr;
+    ASSERT_TRUE(allocator->allocate(block, &buffer));
+    repaidBeforeThrow = repaid;
+    unreserveError = &jni.original;
+    EXPECT_FALSE(atJniBoundary(jni.env(), [&] { allocator->free(buffer, block); }));
+    EXPECT_EQ(jni.pending, &jni.original);
+    jni.pending = nullptr;
+    ASSERT_EQ(javaBalance, block - repaid);
+
+    calls.clear();
+    const bool grew = atJniBoundary(jni.env(), [&] { EXPECT_TRUE(allocator->allocate(64, &buffer)); });
+    if (grew) {
+      allocator->free(buffer, 64);
+      FAIL() << "Allocated against a disputed Java charge";
+    }
+    EXPECT_EQ(jni.pending, &jni.fallback);
+    jni.pending = nullptr;
+    EXPECT_TRUE(calls.empty());
+    EXPECT_EQ(allocator->getBytes(), 0);
+    EXPECT_EQ(javaBalance, block - repaid);
+
+    // The owner settles the remainder; the next allocation must acquire a fresh block.
+    jni.env()->CallLongMethod(&javaListener, reinterpret_cast<jmethodID>(&unreserveId), javaBalance);
+    ASSERT_EQ(javaBalance, 0);
+    calls.clear();
+    balanceError = &jni.secondary;
+    EXPECT_FALSE(atJniBoundary(jni.env(), [&] { allocator->allocate(64, &buffer); }));
+    EXPECT_EQ(jni.pending, &jni.secondary);
+    EXPECT_TRUE(calls.empty());
+    jni.pending = nullptr;
+    ASSERT_TRUE(allocator->allocate(64, &buffer));
+    EXPECT_EQ(calls, std::vector<jlong>{block});
+    EXPECT_EQ(javaBalance, block);
+    EXPECT_EQ(manager.getListener()->currentBytes(), block);
+    allocator->free(buffer, 64);
+    EXPECT_EQ(javaBalance, 0);
+  }
 }
 
 TEST_F(VeloxJniAllocationListenerTest, failedPendingRestoreDoesNotReportSuccessfulShrink) {
