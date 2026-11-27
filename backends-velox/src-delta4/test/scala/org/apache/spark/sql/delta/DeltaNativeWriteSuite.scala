@@ -522,6 +522,78 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
     }
   }
 
+  test("native delta write keeps the case of nested field names") {
+    withNativeWriteOffloadConf {
+      withSQLConf(SQLConf.CASE_SENSITIVE.key -> "false") {
+        withTempDir {
+          dir =>
+            val path = dir.getCanonicalPath
+            spark
+              .range(3)
+              .selectExpr(
+                "id",
+                "named_struct('userId', id, 'homeAddr', named_struct('zipCode', id * 10)) AS Info",
+                "array(named_struct('itemId', id)) AS itemList",
+                "map(CAST(id AS STRING), named_struct('itemCount', id)) AS itemsByKey"
+              )
+              .write
+              .format("delta")
+              .save(path)
+
+            val nestedNames = Seq("userId", "homeAddr", "zipCode", "itemId", "itemCount")
+            val written = fileFooters(path)
+            assert(written.nonEmpty)
+            written.foreach {
+              case (file, createdBy, schema) =>
+                assert(!createdBy.startsWith("parquet-mr"), s"$file was not written by Velox")
+                val names = parquetFieldNames(schema)
+                assert(nestedNames.forall(names.contains), names)
+                assert(!nestedNames.map(_.toLowerCase).exists(names.contains), names)
+            }
+            // A case-sensitive reader finds the nested fields by their original names.
+            withSQLConf(SQLConf.CASE_SENSITIVE.key -> "true") {
+              val rows = spark.read
+                .format("delta")
+                .load(path)
+                .orderBy("id")
+                .selectExpr(
+                  "Info.userId",
+                  "Info.homeAddr.zipCode",
+                  "itemList[0].itemId",
+                  "itemsByKey")
+              assert(
+                rows.collect().toSeq ==
+                  (0L until 3L).map(i => Row(i, i * 10, i, Map(i.toString -> Row(i)))))
+            }
+        }
+      }
+    }
+  }
+
+  private def parquetFieldNames(t: org.apache.parquet.schema.Type): Seq[String] =
+    t.getName +: (if (t.isPrimitive) Nil
+                  else t.asGroupType.getFields.asScala.toSeq.flatMap(parquetFieldNames))
+
+  /** The writer and schema of each data file of the Delta table at `path`. */
+  private def fileFooters(path: String)
+      : Seq[(String, String, org.apache.parquet.schema.MessageType)] = {
+    val deltaLog = DeltaLog.forTable(spark, path)
+    val hadoopConf = deltaLog.newDeltaHadoopConf()
+    files(deltaLog).toSeq.map {
+      file =>
+        val reader = org.apache.parquet.hadoop.ParquetFileReader.open(
+          org.apache.parquet.hadoop.util.HadoopInputFile.fromPath(
+            org.apache.spark.sql.delta.util.DeltaFileOperations.absolutePath(path, file.path),
+            hadoopConf))
+        try {
+          val metadata = reader.getFooter.getFileMetaData
+          (file.path, metadata.getCreatedBy, metadata.getSchema)
+        } finally {
+          reader.close()
+        }
+    }
+  }
+
   private def appendRows(path: String, rows: (java.lang.Long, String)*): Unit = {
     rows.toDF("id", "s").write.format("delta").mode("append").save(path)
   }

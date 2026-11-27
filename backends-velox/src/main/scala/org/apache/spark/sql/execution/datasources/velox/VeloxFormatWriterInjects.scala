@@ -56,8 +56,13 @@ trait VeloxFormatWriterInjects extends GlutenFormatWriterInjectsBase {
       }
     }
 
-    val arrowSchema =
-      SparkArrowUtil.toArrowSchema(dataSchema, SQLConf.get.sessionLocalTimeZone)
+    // The native writer names the fields of the file after this schema, so it keeps the names of
+    // nested fields as the table has them. The batches it writes may carry the lower-case names of
+    // the Substrait plan; the writer matches their columns by position and type.
+    val arrowSchema = SparkArrowUtil.toArrowSchema(
+      dataSchema,
+      SQLConf.get.sessionLocalTimeZone,
+      normalizeFieldNames = false)
     val cSchema = ArrowSchema.allocateNew(ArrowBufferAllocators.contextInstance())
     var dsHandle = -1L
     val runtime = Runtimes.contextInstance(BackendsApiManager.getBackendName, "VeloxWriter")
