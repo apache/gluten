@@ -36,7 +36,7 @@ import java.util.concurrent.TimeUnit
 case class BroadcastHashTable(
     pointer: Long,
     relation: BuildSideRelation,
-    droppedDuplicates: Boolean)
+    buildKey: HashTableBuildKey)
 
 /**
  * `VeloxBroadcastBuildSideCache` is used for controlling to build bhj hash table once.
@@ -116,7 +116,7 @@ object VeloxBroadcastBuildSideCache
         (_: String) => {
           // The native side caches the table under the id of the context.
           val context = broadcastContext.copy(buildHashTableId = cacheKey)
-          val (pointer, relation, droppedDuplicates) = broadcast.value match {
+          val (pointer, relation, buildKey) = broadcast.value match {
             case columnar: ColumnarBuildSideRelation =>
               columnar.buildHashTable(context)
             case unsafe: UnsafeColumnarBuildSideRelation =>
@@ -126,7 +126,7 @@ object VeloxBroadcastBuildSideCache
           broadcastContext.hashTableMemorySizeMetric.foreach(
             _ += HashJoinBuilder.getHashTableMemoryUsage(pointer))
 
-          BroadcastHashTable(pointer, relation, droppedDuplicates)
+          BroadcastHashTable(pointer, relation, buildKey)
         }
       )
   }
@@ -150,9 +150,9 @@ object VeloxBroadcastBuildSideCache
       return cached
     }
 
-    def resetRelation(droppedDuplicates: Boolean): Unit = relation match {
-      case r: ColumnarBuildSideRelation => r.reset(droppedDuplicates)
-      case r: UnsafeColumnarBuildSideRelation => r.reset(droppedDuplicates)
+    def resetRelation(buildKey: HashTableBuildKey): Unit = relation match {
+      case r: ColumnarBuildSideRelation => r.reset(buildKey)
+      case r: UnsafeColumnarBuildSideRelation => r.reset(buildKey)
       case _ =>
     }
 
@@ -174,8 +174,8 @@ object VeloxBroadcastBuildSideCache
           "DriverBroadcastHashTableBuild"
         )
 
-        resetRelation(broadcastContext.droppedDuplicates)
-        val (hashTableHandle, _, droppedDuplicates) = relation match {
+        resetRelation(broadcastContext.hashTableBuildKey)
+        val (hashTableHandle, _, buildKey) = relation match {
           case r: ColumnarBuildSideRelation =>
             r.buildHashTableWithRuntime(broadcastContext, runtime)
           case r: UnsafeColumnarBuildSideRelation =>
@@ -191,7 +191,6 @@ object VeloxBroadcastBuildSideCache
               hashTableHandle,
               broadcastId,
               relation,
-              droppedDuplicates,
               numRows)
           val serializeTimeMs = System.currentTimeMillis() - startSerializeTime
 
@@ -208,7 +207,7 @@ object VeloxBroadcastBuildSideCache
           driverSerializedCache.put(broadcastId, result)
           result
         } finally {
-          resetRelation(droppedDuplicates)
+          resetRelation(buildKey)
         }
       }
     }
@@ -218,6 +217,7 @@ object VeloxBroadcastBuildSideCache
   def deserializeOnExecutor(
       serialized: SerializedBroadcastHashTable,
       broadcastHashTableId: String,
+      buildKey: HashTableBuildKey,
       deserializeHashTableTimeMetric: Option[org.apache.spark.sql.execution.metric.SQLMetric] =
         None): BroadcastHashTable = {
 
@@ -233,7 +233,7 @@ object VeloxBroadcastBuildSideCache
         BroadcastHashTable(
           hashTableHandle,
           serialized.buildSideRelation,
-          serialized.droppedDuplicates)
+          buildKey)
       }
     )
   }
@@ -270,9 +270,9 @@ object VeloxBroadcastBuildSideCache
       if (value.relation != null) {
         value.relation match {
           case columnar: ColumnarBuildSideRelation =>
-            columnar.reset(value.droppedDuplicates)
+            columnar.reset(value.buildKey)
           case unsafe: UnsafeColumnarBuildSideRelation =>
-            unsafe.reset(value.droppedDuplicates)
+            unsafe.reset(value.buildKey)
         }
       }
 

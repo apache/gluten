@@ -18,7 +18,6 @@
 #pragma once
 
 #include "GlutenDirectBufferedInput.h"
-#include "velox/common/file/FileIoContext.h"
 #include "velox/connectors/common/BufferedInputBuilder.h"
 #include "velox/connectors/hive/FileHandle.h"
 #include "velox/dwio/common/CachedBufferedInput.h"
@@ -48,7 +47,10 @@ class GlutenBufferedInputBuilder : public facebook::velox::connector::BufferedIn
           executor,
           readerOpts,
           facebook::velox::FileIoContext{
-              .fileOpts = fileReadOps, .cacheable = readerOpts.cacheable(), .pool = &readerOpts.memoryPool()});
+              .fileOpts = fileReadOps,
+              .cacheable = readerOpts.cacheable(),
+              .pool = &readerOpts.memoryPool(),
+          });
     }
     return std::make_unique<GlutenDirectBufferedInput>(
         fileHandle.file,
@@ -60,7 +62,10 @@ class GlutenBufferedInputBuilder : public facebook::velox::connector::BufferedIn
         std::move(ioStats),
         executor,
         readerOpts,
-        fileReadOps);
+        facebook::velox::FileIoContext{
+            .fileOpts = fileReadOps,
+            .pool = &readerOpts.memoryPool(),
+        });
   }
 };
 

@@ -42,6 +42,7 @@ case class VeloxSerializedBroadcastRDD(
     VeloxBroadcastBuildSideCache.deserializeOnExecutor(
       serialized,
       broadcastContext.buildHashTableId,
+      broadcastContext.hashTableBuildKey,
       broadcastContext.deserializeHashTableTimeMetric
     )
 

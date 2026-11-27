@@ -553,7 +553,7 @@ JNIEXPORT jboolean JNICALL Java_org_apache_gluten_vectorized_ColumnarBatchOutIte
     if (iter == nullptr) {
       inputIterators.push_back(nullptr);
     } else {
-      auto arrayIter = std::make_unique<JniColumnarBatchIterator>(env, iter, ctx, idx);
+      auto arrayIter = createJniInputIterator(env, iter, ctx, idx);
       auto resultIter = std::make_shared<ResultIterator>(std::move(arrayIter));
       inputIterators.push_back(std::move(resultIter));
     }
@@ -743,11 +743,12 @@ JNIEXPORT void JNICALL Java_org_apache_gluten_columnarbatch_ColumnarBatchJniWrap
     jclass,
     jlong batchHandle,
     jlong cSchema,
-    jlong cArray) {
+    jlong cArray,
+    jboolean exportToLargeVarTypes) {
   JNI_METHOD_START
   auto batch = ObjectStore::retrieve<ColumnarBatch>(batchHandle);
-  std::shared_ptr<ArrowSchema> exportedSchema = batch->exportArrowSchema();
-  std::shared_ptr<ArrowArray> exportedArray = batch->exportArrowArray();
+  std::shared_ptr<ArrowSchema> exportedSchema = batch->exportArrowSchema(exportToLargeVarTypes == JNI_TRUE);
+  std::shared_ptr<ArrowArray> exportedArray = batch->exportArrowArray(exportToLargeVarTypes == JNI_TRUE);
   ArrowSchemaMove(exportedSchema.get(), reinterpret_cast<struct ArrowSchema*>(cSchema));
   ArrowArrayMove(exportedArray.get(), reinterpret_cast<struct ArrowArray*>(cArray));
   JNI_METHOD_END()

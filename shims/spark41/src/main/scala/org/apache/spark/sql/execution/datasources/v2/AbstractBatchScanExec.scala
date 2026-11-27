@@ -61,7 +61,7 @@ abstract class AbstractBatchScanExec(
   @transient protected lazy val inputPartitionsShim: Seq[InputPartition] =
     batch.planInputPartitions()
 
-  @transient private lazy val filteredPartitions: Seq[Seq[InputPartition]] = {
+  @transient protected lazy val filteredPartitions: Seq[Seq[InputPartition]] = {
     val dataSourceFilters = runtimeFilters.flatMap {
       case DynamicPruningExpression(e) => DataSourceV2Strategy.translateRuntimeFilterV2(e)
       case _ => None

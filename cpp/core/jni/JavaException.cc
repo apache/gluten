@@ -152,22 +152,50 @@ void JavaException::throwToJava(JNIEnv* env) const noexcept {
   }
 }
 
-bool JavaException::throwNestedToJava(JNIEnv* env, const std::exception& error) noexcept {
-  const auto* nested = dynamic_cast<const std::nested_exception*>(&error);
-  if (nested == nullptr || nested->nested_ptr() == nullptr) {
-    return false;
+namespace {
+std::optional<JavaExceptionCause> findCause(const std::exception_ptr& cause, ExceptionUnwrapper unwrap) noexcept {
+  if (!cause) {
+    return std::nullopt;
   }
   try {
-    std::rethrow_exception(nested->nested_ptr());
-  } catch (const JavaException& original) {
-    original.throwToJava(env);
-    return true;
-  } catch (const std::exception& cause) {
-    return throwNestedToJava(env, cause);
+    std::rethrow_exception(cause);
+  } catch (const std::exception& e) {
+    return findJavaExceptionCause(e, unwrap);
+  } catch (const std::nested_exception& e) {
+    return findCause(e.nested_ptr(), unwrap);
   } catch (...) {
-    // Not a Java exception. Leave the enclosing native error to the existing JNI fallback.
-    return false;
+    return std::nullopt;
   }
+}
+} // namespace
+
+std::optional<JavaExceptionCause> findJavaExceptionCause(
+    const std::exception& error,
+    ExceptionUnwrapper unwrap) noexcept {
+  if (const auto* java = dynamic_cast<const JavaException*>(&error)) {
+    return JavaExceptionCause{*java, false};
+  }
+  const auto wrapped = unwrap ? unwrap(error) : nullptr;
+  if (auto cause = findCause(wrapped, unwrap)) {
+    cause->viaBackend = true;
+    return cause;
+  }
+  const auto* nested = dynamic_cast<const std::nested_exception*>(&error);
+  if (nested && nested->nested_ptr() != wrapped) {
+    return findCause(nested->nested_ptr(), unwrap);
+  }
+  return std::nullopt;
+}
+
+bool JavaException::throwNestedToJava(JNIEnv* env, const std::exception& error) noexcept {
+  const auto* nested = dynamic_cast<const std::nested_exception*>(&error);
+  if (nested) {
+    if (auto cause = findCause(nested->nested_ptr(), nullptr)) {
+      cause->exception.throwToJava(env);
+      return true;
+    }
+  }
+  return false;
 }
 
 void JavaException::check(JNIEnv* env) {

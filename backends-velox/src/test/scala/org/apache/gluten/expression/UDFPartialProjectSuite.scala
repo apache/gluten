@@ -17,7 +17,7 @@
 package org.apache.gluten.expression
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.execution.{ColumnarPartialProjectExec, SortExecTransformer, WholeStageTransformerSuite}
+import org.apache.gluten.execution.{ColumnarPartialProjectExec, GenerateExecTransformer, SortExecTransformer, WholeStageTransformerSuite}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.catalyst.optimizer.{ConstantFolding, NullPropagation}
@@ -171,8 +171,13 @@ class UDFPartialProjectSuite extends WholeStageTransformerSuite {
   }
 
   test("test concat with string") {
-    runQueryAndCompare("SELECT concat_concat(l_comment), hash(l_partkey) from lineitem") {
-      checkGlutenPlan[ColumnarPartialProjectExec]
+    Seq("false", "true").foreach {
+      useLargeVarTypes =>
+        withSQLConf("spark.sql.execution.arrow.useLargeVarTypes" -> useLargeVarTypes) {
+          runQueryAndCompare("SELECT concat_concat(l_comment), hash(l_partkey) from lineitem") {
+            checkGlutenPlan[ColumnarPartialProjectExec]
+          }
+        }
     }
   }
 
@@ -231,6 +236,23 @@ class UDFPartialProjectSuite extends WholeStageTransformerSuite {
       checkGlutenPlan[ColumnarPartialProjectExec]
     }
   }
+
+  test("GLUTEN-13655: posexplode ordinality with partial project") {
+    withSQLConf(
+      "spark.sql.ansi.enabled" -> "false",
+      GlutenConfig.EXPRESSION_BLACK_LIST.key -> "cast",
+      GlutenConfig.ENABLE_COLUMNAR_PARTIAL_PROJECT.key -> "true",
+      GlutenConfig.COLUMNAR_GENERATE_ENABLED.key -> "true"
+    ) {
+      // Blacklisting cast makes the JVM partial project read the native ordinality.
+      runQueryAndCompare("SELECT posexplode(array(l_orderkey, l_partkey)) FROM lineitem") {
+        df =>
+          checkGlutenPlan[GenerateExecTransformer](df)
+          checkGlutenPlan[ColumnarPartialProjectExec](df)
+      }
+    }
+  }
+
   // only SparkVersion >= 3.4 support columnar native writer
   testWithSpecifiedSparkVersion(
     "only the child and parent of the project both support Columnar," +

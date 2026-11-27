@@ -121,6 +121,7 @@ class VeloxCelebornColumnarShuffleWriter[K, V](
         dep.metrics("c2rTime").add(splitResult.getC2RTime)
     }
     dep.metrics("dataSize").add(splitResult.getRawPartitionLengths.sum)
+    dep.metrics("compressTime").add(splitResult.getTotalCompressTime)
     writeMetrics.incBytesWritten(splitResult.getBytesWritten)
     writeMetrics.incWriteTime(splitResult.getTotalWriteTime + splitResult.getTotalPushTime)
 

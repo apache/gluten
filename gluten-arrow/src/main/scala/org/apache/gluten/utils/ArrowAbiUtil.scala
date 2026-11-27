@@ -25,10 +25,12 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
 
 import org.apache.arrow.c.{ArrowArray, ArrowSchema, CDataDictionaryProvider, Data}
 import org.apache.arrow.memory.BufferAllocator
-import org.apache.arrow.vector.{VectorLoader, VectorSchemaRoot, VectorUnloader}
+import org.apache.arrow.vector.{BaseIntVector, FieldVector, VectorLoader, VectorSchemaRoot, VectorUnloader}
 import org.apache.arrow.vector.dictionary.DictionaryProvider
-import org.apache.arrow.vector.ipc.message.ArrowRecordBatch
-import org.apache.arrow.vector.types.pojo.{Field, Schema}
+import org.apache.arrow.vector.ipc.message.{ArrowFieldNode, ArrowRecordBatch}
+import org.apache.arrow.vector.types.pojo.{Field, FieldType, Schema}
+
+import scala.collection.JavaConverters._
 
 object ArrowAbiUtil {
 
@@ -53,8 +55,88 @@ object ArrowAbiUtil {
       allocator: BufferAllocator,
       cSchema: ArrowSchema,
       cArray: ArrowArray): ColumnarBatch = {
-    val vsr = importToVectorSchemaRoot(allocator, cSchema, cArray)
-    toSparkColumnarBatch(vsr)
+    val provider = new CDataDictionaryProvider
+    try {
+      val imported = Data.importVectorSchemaRoot(allocator, cArray, cSchema, provider)
+      val root = if (provider.getDictionaryIds.isEmpty) {
+        imported
+      } else {
+        try {
+          decodeDictionaries(imported, allocator, provider)
+        } finally {
+          imported.close()
+        }
+      }
+      try {
+        toSparkColumnarBatch(root)
+      } catch {
+        case t: Throwable =>
+          root.close()
+          throw t
+      }
+    } finally {
+      provider.close()
+    }
+  }
+
+  // Spark's Arrow column vectors read values directly, so expand C Data dictionary indices
+  // while the imported dictionary buffers are still open.
+  private def decodeDictionaries(
+      root: VectorSchemaRoot,
+      allocator: BufferAllocator,
+      provider: DictionaryProvider): VectorSchemaRoot = {
+    def dictionary(field: Field): FieldVector = {
+      provider.lookup(field.getDictionary.getId).getVector
+    }
+
+    def decodedField(field: Field): Field = {
+      val values = if (field.getDictionary == null) field else dictionary(field).getField
+      val children = values.getChildren.asScala.map(decodedField).asJava
+      new Field(
+        field.getName,
+        new FieldType(field.isNullable, values.getType, null, field.getMetadata),
+        children)
+    }
+
+    def decode(input: FieldVector, output: FieldVector): Unit = {
+      val rowCount = input.getValueCount
+      if (input.getField.getDictionary == null) {
+        output.loadFieldBuffers(
+          new ArrowFieldNode(rowCount, input.getNullCount),
+          input.getFieldBuffers)
+        input.getChildrenFromFields.asScala.zip(output.getChildrenFromFields.asScala).foreach {
+          case (childInput, childOutput) => decode(childInput, childOutput)
+        }
+      } else {
+        val indices = input.asInstanceOf[BaseIntVector]
+        val values = dictionary(input.getField)
+        output.setInitialCapacity(rowCount)
+        output.allocateNew()
+        for (i <- 0 until rowCount) {
+          if (input.isNull(i)) {
+            output.setNull(i)
+          } else {
+            output.copyFromSafe(Math.toIntExact(indices.getValueAsLong(i)), i, values)
+          }
+        }
+        output.setValueCount(rowCount)
+      }
+    }
+
+    val fields = root.getSchema.getFields.asScala.map(decodedField).asJava
+    val decoded =
+      VectorSchemaRoot.create(new Schema(fields, root.getSchema.getCustomMetadata), allocator)
+    try {
+      root.getFieldVectors.asScala.zip(decoded.getFieldVectors.asScala).foreach {
+        case (input, output) => decode(input, output)
+      }
+      decoded.setRowCount(root.getRowCount)
+      decoded
+    } catch {
+      case t: Throwable =>
+        decoded.close()
+        throw t
+    }
   }
 
   private def importToVectorSchemaRoot(

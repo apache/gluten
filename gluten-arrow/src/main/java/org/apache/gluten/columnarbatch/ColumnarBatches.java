@@ -28,8 +28,6 @@ import org.apache.gluten.vectorized.RefCountedArrowColumnVector;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.arrow.c.ArrowArray;
 import org.apache.arrow.c.ArrowSchema;
-import org.apache.arrow.c.CDataDictionaryProvider;
-import org.apache.arrow.c.Data;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.ValueVector;
@@ -37,6 +35,7 @@ import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.utils.SparkArrowUtil;
+import org.apache.spark.sql.utils.SparkSchemaUtil;
 import org.apache.spark.sql.vectorized.ArrowColumnVector;
 import org.apache.spark.sql.vectorized.ColumnVector;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
@@ -231,17 +230,14 @@ public final class ColumnarBatches {
     }
     IndicatorVector iv = (IndicatorVector) input.column(0);
     try (ArrowSchema cSchema = ArrowSchema.allocateNew(allocator);
-        ArrowArray cArray = ArrowArray.allocateNew(allocator);
-        ArrowSchema arrowSchema = ArrowSchema.allocateNew(allocator);
-        CDataDictionaryProvider provider = new CDataDictionaryProvider()) {
+        ArrowArray cArray = ArrowArray.allocateNew(allocator)) {
       ColumnarBatchJniWrapper.exportToArrow(
-          iv.handle(), cSchema.memoryAddress(), cArray.memoryAddress());
+          iv.handle(),
+          cSchema.memoryAddress(),
+          cArray.memoryAddress(),
+          SparkSchemaUtil.enableLargeVarTypes());
 
-      Data.exportSchema(
-          allocator, ArrowUtil.toArrowSchema(cSchema, allocator, provider), provider, arrowSchema);
-
-      ColumnarBatch output =
-          ArrowAbiUtil.importToSparkColumnarBatch(allocator, arrowSchema, cArray);
+      ColumnarBatch output = ArrowAbiUtil.importToSparkColumnarBatch(allocator, cSchema, cArray);
 
       // Follow input's reference count. This might be optimized using
       // automatic clean-up or once the extensibility of ColumnarBatch is enriched.
