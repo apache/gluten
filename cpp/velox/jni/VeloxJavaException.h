@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <new>
 #include <utility>
 
 #include "jni/JavaException.h"
@@ -24,21 +25,33 @@
 
 namespace gluten {
 
+inline facebook::velox::VeloxException makeVeloxJavaException(const std::exception_ptr& cause, const char* message) {
+  return facebook::velox::VeloxException(
+      cause,
+      message,
+      facebook::velox::error_source::kErrorSourceRuntime,
+      false,
+      facebook::velox::VeloxException::Type::kSystem,
+      facebook::velox::VeloxRuntimeError::kDefaultName);
+}
+
 template <typename F>
-decltype(auto) wrapJavaException(F&& callback) {
+decltype(auto) wrapJavaException(F&& callback, const facebook::velox::VeloxException* fallback = nullptr) {
   try {
     return std::forward<F>(callback)();
   } catch (const JavaException& error) {
     // Driver's std::exception catch keeps only what(); VeloxException keeps the exception_ptr.
     // Use a runtime error so TRY expressions cannot suppress a failed Java callback.
     // Standard nesting also lets other JNI boundaries recover the callback without knowing about Velox.
-    std::throw_with_nested(facebook::velox::VeloxException(
-        std::current_exception(),
-        error.what(),
-        facebook::velox::error_source::kErrorSourceRuntime,
-        false,
-        facebook::velox::VeloxException::Type::kSystem,
-        facebook::velox::VeloxRuntimeError::kDefaultName));
+    try {
+      std::throw_with_nested(makeVeloxJavaException(std::current_exception(), error.what()));
+    } catch (const std::bad_alloc&) {
+      if (fallback == nullptr) {
+        throw;
+      }
+    }
+    // Outside the bad_alloc handler, the nested cause is the original JavaException.
+    std::throw_with_nested(*fallback);
   }
 }
 

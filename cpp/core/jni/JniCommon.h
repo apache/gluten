@@ -197,6 +197,9 @@ inline JniCommonState* getJniCommonState() {
   return &jniCommonState;
 }
 
+// Returns null on a native worker without a Java return boundary.
+JNIEnv* envForCurrentJniEntry();
+
 Runtime* getRuntime(JNIEnv* env, jobject runtimeAware);
 
 using JniInputIteratorFactory = std::function<
@@ -206,6 +209,12 @@ void registerJniInputIteratorFactory(const std::string& runtimeKind, JniInputIte
 
 std::unique_ptr<ColumnarBatchIterator>
 createJniInputIterator(JNIEnv* env, jobject iterator, Runtime* runtime, int32_t iteratorIndex);
+
+using JniAllocationListenerFactory = std::function<std::unique_ptr<AllocationListener>(JavaVM*, jobject)>;
+
+void registerJniAllocationListenerFactory(const std::string& backend, JniAllocationListenerFactory factory);
+std::unique_ptr<AllocationListener>
+createJniAllocationListener(const std::string& backend, JavaVM* vm, jobject listener);
 
 // Safe version of JNI {Get|Release}<PrimitiveType>ArrayElements routines.
 // SafeNativeArray would release the managed array elements automatically
@@ -399,7 +408,7 @@ static inline gluten::CodecBackend getCodecBackend(JNIEnv* env, jstring codecBac
 NOTE: the class must be thread safe
  */
 
-class SparkAllocationListener final : public gluten::AllocationListener {
+class SparkAllocationListener : public gluten::AllocationListener {
  public:
   SparkAllocationListener(JavaVM* vm, jobject jListenerLocalRef) : vm_(vm) {
     JNIEnv* env;
@@ -427,11 +436,27 @@ class SparkAllocationListener final : public gluten::AllocationListener {
   }
 
   void allocationChanged(int64_t size) override {
-    if (size == 0) {
-      return;
+    if (size != 0) {
+      notifyJava(attachedEnv(), size);
     }
+  }
+
+  int64_t currentBytes() override {
+    return usedBytes_;
+  }
+
+  int64_t peakBytes() override {
+    return peakBytes_;
+  }
+
+ protected:
+  JNIEnv* attachedEnv() const {
     JNIEnv* env;
     attachCurrentThreadAsDaemonOrThrow(vm_, &env);
+    return env;
+  }
+
+  void notifyJava(JNIEnv* env, int64_t size) {
     if (size < 0) {
       env->CallLongMethod(jListenerGlobalRef_, unreserveMemoryMethod(env), -size);
       checkException(env);
@@ -451,14 +476,6 @@ class SparkAllocationListener final : public gluten::AllocationListener {
         break;
       }
     }
-  }
-
-  int64_t currentBytes() override {
-    return usedBytes_;
-  }
-
-  int64_t peakBytes() override {
-    return peakBytes_;
   }
 
  private:

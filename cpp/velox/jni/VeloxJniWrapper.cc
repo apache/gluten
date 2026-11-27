@@ -35,6 +35,7 @@
 #include "jni/JniError.h"
 #include "jni/JniFileSystem.h"
 #include "jni/JniHashTable.h"
+#include "jni/VeloxAllocationListener.h"
 #include "memory/AllocationListener.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "memory/VeloxMemoryManager.h"
@@ -146,7 +147,7 @@ JNIEXPORT void JNICALL Java_org_apache_gluten_init_NativeBackendInitializer_init
   auto safeArray = getByteArrayElementsSafe(env, conf);
   // Create a global allocation listener that reserves global off-heap memory from Java-side GlobalOffHeapMemory utility
   // class.
-  std::unique_ptr<AllocationListener> listener = std::make_unique<SparkAllocationListener>(vm, jListener);
+  auto listener = createVeloxJniAllocationListener(vm, jListener);
   auto sparkConf = parseConfMap(env, safeArray.elems(), safeArray.length());
   VeloxBackend::create(std::move(listener), sparkConf);
   JNI_METHOD_END()

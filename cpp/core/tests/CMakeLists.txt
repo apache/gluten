@@ -23,4 +23,4 @@ add_test_case(java_exception_test SOURCES JavaExceptionTest.cc)
 add_test_case(jni_class_name_test SOURCES JniClassNameTest.cc)
 add_test_case(jni_thread_exit_test SOURCES JniThreadExitTest.cc)
 add_test_case(java_exception_allocation_test SOURCES
-              JavaExceptionAllocationTest.cc)
+              JavaExceptionAllocationTest.cc utils/TestAllocationFailure.cc)

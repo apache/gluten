@@ -31,6 +31,16 @@ std::mutex& jniInputIteratorFactoriesMutex() {
   return mutex;
 }
 
+std::unordered_map<std::string, gluten::JniAllocationListenerFactory>& jniAllocationListenerFactories() {
+  static std::unordered_map<std::string, gluten::JniAllocationListenerFactory> factories;
+  return factories;
+}
+
+std::mutex& jniAllocationListenerFactoriesMutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
 class JavaInputStreamAdaptor final : public arrow::io::InputStream {
  public:
   JavaInputStreamAdaptor(JNIEnv* env, arrow::MemoryPool* pool, jobject jniIn) : pool_(pool) {
@@ -184,6 +194,18 @@ void gluten::JniCommonState::close() {
   closed_ = true;
 }
 
+JNIEnv* gluten::envForCurrentJniEntry() {
+  if (!JniEntryGuard::isActive()) {
+    return nullptr;
+  }
+  auto* vm = getJniCommonState()->getJavaVM();
+  JNIEnv* env = nullptr;
+  GLUTEN_CHECK(
+      vm != nullptr && vm->GetEnv(reinterpret_cast<void**>(&env), jniVersion) == JNI_OK,
+      "Unable to get the current JNI entry's environment");
+  return env;
+}
+
 gluten::Runtime* gluten::getRuntime(JNIEnv* env, jobject runtimeAware) {
   int64_t ctxHandle = env->CallLongMethod(runtimeAware, getJniCommonState()->runtimeAwareCtxHandle());
   checkException(env);
@@ -218,6 +240,30 @@ gluten::createJniInputIterator(JNIEnv* env, jobject iterator, Runtime* runtime, 
     return factory(env, iterator, runtime, iteratorIndex);
   }
   return std::make_unique<JniColumnarBatchIterator>(env, iterator, runtime, iteratorIndex);
+}
+
+void gluten::registerJniAllocationListenerFactory(const std::string& backend, JniAllocationListenerFactory factory) {
+  GLUTEN_CHECK(!backend.empty(), "JNI allocation listener factory backend must not be empty");
+  GLUTEN_CHECK(static_cast<bool>(factory), "JNI allocation listener factory must not be empty");
+  std::lock_guard<std::mutex> lock(jniAllocationListenerFactoriesMutex());
+  const bool inserted = jniAllocationListenerFactories().emplace(backend, std::move(factory)).second;
+  GLUTEN_CHECK(inserted, "JNI allocation listener factory already registered for " + backend);
+}
+
+std::unique_ptr<gluten::AllocationListener>
+gluten::createJniAllocationListener(const std::string& backend, JavaVM* vm, jobject listener) {
+  JniAllocationListenerFactory factory;
+  {
+    std::lock_guard<std::mutex> lock(jniAllocationListenerFactoriesMutex());
+    const auto it = jniAllocationListenerFactories().find(backend);
+    if (it != jniAllocationListenerFactories().end()) {
+      factory = it->second;
+    }
+  }
+  if (factory) {
+    return factory(vm, listener);
+  }
+  return std::make_unique<SparkAllocationListener>(vm, listener);
 }
 
 gluten::ShuffleStreamReader::ShuffleStreamReader(JNIEnv* env, jobject reader) {
