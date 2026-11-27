@@ -44,6 +44,7 @@ struct ShuffleTestParams {
   arrow::Compression::type compressionType;
   int32_t compressionThreshold{0};
   int32_t mergeBufferSize{0};
+  double mergeThreshold{kDefaultMergeBufferThreshold};
   int32_t diskWriteBufferSize{0};
   bool useRadixSort{false};
   bool enableDictionary{false};
@@ -56,7 +57,7 @@ struct ShuffleTestParams {
         << ", partitionWriterType = " << PartitionWriter::typeToString(partitionWriterType)
         << ", compressionType = " << arrow::util::Codec::GetCodecAsString(compressionType)
         << ", compressionThreshold = " << compressionThreshold << ", mergeBufferSize = " << mergeBufferSize
-        << ", compressionBufferSize = " << diskWriteBufferSize
+        << ", mergeThreshold = " << mergeThreshold << ", compressionBufferSize = " << diskWriteBufferSize
         << ", useRadixSort = " << (useRadixSort ? "true" : "false")
         << ", enableDictionary = " << (enableDictionary ? "true" : "false")
         << ", enableTypeAwareCompress = " << (enableTypeAwareCompress ? "true" : "false")
@@ -151,12 +152,32 @@ std::vector<ShuffleTestParams> getTestParams() {
         }
       }
 
-      // Rss.
-      params.push_back(ShuffleTestParams{
-          .shuffleWriterType = ShuffleWriterType::kHashShuffle,
-          .partitionWriterType = PartitionWriterType::kRss,
-          .compressionType = compression,
-          .compressionThreshold = compressionThreshold});
+      // Rss. `mergeBufferSize` is swept here as well: 0 keeps payloads being pushed one by one,
+      // anything larger routes them through `RssPayloadMerger` first. `mergeThreshold` has to be
+      // swept too, because a payload holding more than `mergeBufferSize * mergeThreshold` rows
+      // bypasses the accumulation path entirely - with the default 0.25 and the small buffer sizes
+      // used here the merger would never actually accumulate anything.
+      for (const auto mergeBufferSize : mergeBufferSizes) {
+        if (mergeBufferSize == 0) {
+          params.push_back(ShuffleTestParams{
+              .shuffleWriterType = ShuffleWriterType::kHashShuffle,
+              .partitionWriterType = PartitionWriterType::kRss,
+              .compressionType = compression,
+              .compressionThreshold = compressionThreshold,
+              .mergeBufferSize = mergeBufferSize,
+              .mergeThreshold = 0.0});
+          continue;
+        }
+        for (const auto mergeThreshold : {kDefaultMergeBufferThreshold, 1.0}) {
+          params.push_back(ShuffleTestParams{
+              .shuffleWriterType = ShuffleWriterType::kHashShuffle,
+              .partitionWriterType = PartitionWriterType::kRss,
+              .compressionType = compression,
+              .compressionThreshold = compressionThreshold,
+              .mergeBufferSize = mergeBufferSize,
+              .mergeThreshold = mergeThreshold});
+        }
+      }
     }
   }
 
@@ -172,7 +193,8 @@ std::shared_ptr<PartitionWriter> createPartitionWriter(
     int32_t mergeBufferSize,
     int32_t compressionThreshold,
     bool enableDictionary,
-    bool enableTypeAwareCompress = false) {
+    bool enableTypeAwareCompress = false,
+    double mergeThreshold = 0) {
   GLUTEN_ASSIGN_OR_THROW(auto codec, arrow::util::Codec::Create(compressionType));
   switch (partitionWriterType) {
     case PartitionWriterType::kLocal: {
@@ -186,6 +208,9 @@ std::shared_ptr<PartitionWriter> createPartitionWriter(
     }
     case PartitionWriterType::kRss: {
       auto options = std::make_shared<RssPartitionWriterOptions>();
+      options->mergeBufferSize = mergeBufferSize;
+      // Merging is opt-in, see `RssPartitionWriterOptions::mergeThreshold`.
+      options->mergeThreshold = mergeThreshold;
       auto rssClient = std::make_unique<LocalRssClient>(dataFile);
       return std::make_shared<RssPartitionWriter>(
           numPartitions, std::move(codec), getDefaultMemoryManager(), options, std::move(rssClient));
@@ -277,7 +302,8 @@ class VeloxShuffleWriterTest : public ::testing::TestWithParam<ShuffleTestParams
         params.mergeBufferSize,
         params.compressionThreshold,
         params.enableDictionary,
-        params.enableTypeAwareCompress);
+        params.enableTypeAwareCompress,
+        params.mergeThreshold);
 
     GLUTEN_ASSIGN_OR_THROW(
         auto shuffleWriter,

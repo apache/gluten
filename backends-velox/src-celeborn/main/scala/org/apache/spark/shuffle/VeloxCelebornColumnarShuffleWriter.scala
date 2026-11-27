@@ -121,6 +121,9 @@ class VeloxCelebornColumnarShuffleWriter[K, V](
         dep.metrics("c2rTime").add(splitResult.getC2RTime)
     }
     dep.metrics("dataSize").add(splitResult.getRawPartitionLengths.sum)
+    // Without this the metric stays at 0 for every celeborn shuffle, which makes the compression
+    // time indistinguishable from the split time it is subtracted from above.
+    dep.metrics("compressTime").add(splitResult.getTotalCompressTime)
     writeMetrics.incBytesWritten(splitResult.getBytesWritten)
     writeMetrics.incWriteTime(splitResult.getTotalWriteTime + splitResult.getTotalPushTime)
 
@@ -139,6 +142,8 @@ class VeloxCelebornColumnarShuffleWriter[K, V](
       compressionBufferSize,
       clientPushBufferMaxSize,
       clientPushSortMemoryThreshold,
+      nativeBufferSize,
+      GlutenConfig.get.columnarShuffleMergeThreshold,
       celebornPartitionPusher
     )
 

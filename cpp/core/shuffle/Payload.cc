@@ -251,18 +251,27 @@ arrow::Result<std::unique_ptr<BlockPayload>> BlockPayload::fromBuffers(
     const std::vector<bool>* isValidityBuffer,
     arrow::MemoryPool* pool,
     arrow::util::Codec* codec,
-    const std::vector<int8_t>* bufferTypes) {
+    const std::vector<int8_t>* bufferTypes,
+    std::shared_ptr<arrow::ResizableBuffer> reusableBuffer) {
   const uint32_t numBuffers = buffers.size();
 
   if (payloadType == Payload::Type::kCompressed) {
+    const bool reuseBuffer = reusableBuffer != nullptr;
     Timer compressionTime;
     compressionTime.start();
 
     // Compute max compressed length, accounting for type-aware compression where applicable.
     auto maxLength = maxCompressedLength(buffers, codec, bufferTypes);
 
-    std::shared_ptr<arrow::Buffer> compressedBuffer;
-    ARROW_ASSIGN_OR_RAISE(compressedBuffer, arrow::AllocateResizableBuffer(maxLength, pool));
+    std::shared_ptr<arrow::ResizableBuffer> compressedBuffer;
+    if (reuseBuffer) {
+      // Grow-only: `Resize` with `shrink_to_fit=false` forwards to `Reserve`, which is a no-op
+      // while the requested size already fits. Steady state costs no allocation at all.
+      RETURN_NOT_OK(reusableBuffer->Resize(maxLength, /*shrink_to_fit=*/false));
+      compressedBuffer = std::move(reusableBuffer);
+    } else {
+      ARROW_ASSIGN_OR_RAISE(compressedBuffer, arrow::AllocateResizableBuffer(maxLength, pool));
+    }
     auto* output = compressedBuffer->mutable_data();
 
     int64_t actualLength = 0;
@@ -286,11 +295,15 @@ arrow::Result<std::unique_ptr<BlockPayload>> BlockPayload::fromBuffers(
 
     ARROW_RETURN_IF(actualLength < 0, arrow::Status::Invalid("Writing compressed buffer out of bound."));
 
-    RETURN_NOT_OK(std::dynamic_pointer_cast<arrow::ResizableBuffer>(compressedBuffer)->Resize(actualLength));
+    // Trimming the buffer down to the compressed length reallocates and copies, so it is skipped
+    // when the caller supplied a buffer to be reused - which is the whole point of reusing it.
+    // Either way only the buffer's size matters to `serialize` and `serializedSize`. Callers that
+    // do not reuse keep the previous behavior and release the slack right away.
+    RETURN_NOT_OK(compressedBuffer->Resize(actualLength, /*shrink_to_fit=*/!reuseBuffer));
 
     compressionTime.stop();
     auto payload = std::unique_ptr<BlockPayload>(
-        new BlockPayload(Type::kCompressed, numRows, numBuffers, {compressedBuffer}, isValidityBuffer));
+        new BlockPayload(Type::kCompressed, numRows, numBuffers, {std::move(compressedBuffer)}, isValidityBuffer));
     payload->setCompressionTime(compressionTime.realTimeUsed());
 
     return payload;
@@ -401,6 +414,30 @@ int64_t BlockPayload::rawSize() {
   return getBufferSize(buffers_);
 }
 
+int64_t BlockPayload::serializedSize() const {
+  // Keep in sync with `BlockPayload::serialize`.
+  const int64_t bufferSizes = getBufferSize(buffers_);
+  const auto numBuffers = static_cast<int64_t>(buffers_.size());
+  // `kCompressed` and `kRaw` hold exactly one buffer and only that buffer is written.
+  const int64_t firstBufferSize = buffers_.empty() || !buffers_[0] ? 0 : buffers_[0]->size();
+  switch (type_) {
+    case Type::kUncompressed:
+      // | type | numRows | numBuffers | buffer1 size | buffer1 | ... |
+      return sizeof(Type) + 2 * static_cast<int64_t>(sizeof(uint32_t)) +
+          numBuffers * static_cast<int64_t>(sizeof(int64_t)) + bufferSizes;
+    case Type::kToBeCompressed:
+      // | numBuffers | buffer1 size | buffer1 | ... |
+      return static_cast<int64_t>(sizeof(uint32_t)) + numBuffers * static_cast<int64_t>(sizeof(int64_t)) + bufferSizes;
+    case Type::kCompressed:
+      // | type | numRows | numBuffers | compressed buffer |
+      return sizeof(Type) + 2 * static_cast<int64_t>(sizeof(uint32_t)) + firstBufferSize;
+    case Type::kRaw:
+      // | raw buffer |
+      return firstBufferSize;
+  }
+  return bufferSizes;
+}
+
 int64_t BlockPayload::maxCompressedLength(
     const std::vector<std::shared_ptr<arrow::Buffer>>& buffers,
     arrow::util::Codec* codec,
@@ -506,10 +543,111 @@ arrow::Result<std::unique_ptr<InMemoryPayload>> InMemoryPayload::merge(
       mergedRows, isValidityBuffer, source->schema(), std::move(merged), false, source->bufferTypes_);
 }
 
-arrow::Result<std::unique_ptr<BlockPayload>>
-InMemoryPayload::toBlockPayload(Payload::Type payloadType, arrow::MemoryPool* pool, arrow::util::Codec* codec) {
+arrow::Result<std::unique_ptr<InMemoryPayload>> InMemoryPayload::mergeAll(
+    std::vector<std::unique_ptr<InMemoryPayload>> payloads,
+    arrow::MemoryPool* pool) {
+  GLUTEN_CHECK(!payloads.empty(), "Cannot merge an empty list of payloads.");
+  if (payloads.size() == 1) {
+    return std::move(payloads[0]);
+  }
+
+  const auto numBuffers = payloads[0]->numBuffers();
+  const auto* isValidityBuffer = payloads[0]->isValidityBuffer();
+  auto schema = payloads[0]->schema();
+  const auto* bufferTypes = payloads[0]->bufferTypes_;
+  uint32_t mergedRows = 0;
+  for (const auto& payload : payloads) {
+    GLUTEN_DCHECK(payload->mergeable(), "Cannot merge payloads.");
+    ARROW_RETURN_IF(
+        payload->numBuffers() != numBuffers, arrow::Status::Invalid("Number of merging buffers doesn't match."));
+    mergedRows += payload->numRows();
+  }
+
+  std::vector<std::shared_ptr<arrow::Buffer>> merged;
+  merged.resize(numBuffers);
+  std::vector<std::shared_ptr<arrow::Buffer>> sources;
+  sources.resize(payloads.size());
+  for (uint32_t i = 0; i < numBuffers; ++i) {
+    // Takes ownership of the i-th buffer of every payload. Each source is released right after it
+    // has been copied, so the extra memory held during the merge stays bounded by the output size.
+    int64_t totalSize = 0;
+    bool allNull = true;
+    for (size_t p = 0; p < payloads.size(); ++p) {
+      ARROW_ASSIGN_OR_RAISE(sources[p], payloads[p]->readBufferAt(i));
+      if (sources[p] != nullptr) {
+        allNull = false;
+        totalSize += sources[p]->size();
+      } else if (!isValidityBuffer->at(i)) {
+        // Only a validity buffer may be absent, in which case it means "all rows valid". A missing
+        // data buffer would silently drop the rows of that payload from the output, so reject it.
+        return arrow::Status::Invalid(
+            "Cannot merge payloads: data buffer " + std::to_string(i) + " of payload " + std::to_string(p) +
+            " is null.");
+      }
+    }
+
+    if (isValidityBuffer->at(i)) {
+      if (allNull) {
+        merged[i] = nullptr;
+        continue;
+      }
+      // Validity buffers are bitmaps and must be concatenated bit-wise. A payload without a
+      // validity buffer means "all rows valid" for its own row range.
+      ARROW_ASSIGN_OR_RAISE(auto buffer, allocatePaddedBuffer(arrow::bit_util::BytesForBits(mergedRows), pool));
+      int64_t bitOffset = 0;
+      for (size_t p = 0; p < payloads.size(); ++p) {
+        const auto rows = payloads[p]->numRows();
+        if (sources[p] == nullptr) {
+          arrow::bit_util::SetBitsTo(buffer->mutable_data(), bitOffset, rows, true);
+        } else {
+          arrow::internal::CopyBitmap(sources[p]->data(), 0, rows, buffer->mutable_data(), bitOffset);
+          sources[p] = nullptr;
+        }
+        bitOffset += rows;
+      }
+      merged[i] = std::move(buffer);
+      continue;
+    }
+
+    if (totalSize == 0) {
+      // Nothing to concatenate. Keep the first buffer to preserve its (zero) length.
+      merged[i] = std::move(sources[0]);
+      for (auto& source : sources) {
+        source = nullptr;
+      }
+      continue;
+    }
+
+    ARROW_ASSIGN_OR_RAISE(auto buffer, allocatePaddedBuffer(totalSize, pool));
+    int64_t offset = 0;
+    for (auto& source : sources) {
+      if (source == nullptr || source->size() == 0) {
+        source = nullptr;
+        continue;
+      }
+      memcpy(buffer->mutable_data() + offset, source->data(), source->size());
+      offset += source->size();
+      source = nullptr;
+    }
+    merged[i] = std::move(buffer);
+  }
+  return std::make_unique<InMemoryPayload>(mergedRows, isValidityBuffer, schema, std::move(merged), false, bufferTypes);
+}
+
+arrow::Result<std::unique_ptr<BlockPayload>> InMemoryPayload::toBlockPayload(
+    Payload::Type payloadType,
+    arrow::MemoryPool* pool,
+    arrow::util::Codec* codec,
+    std::shared_ptr<arrow::ResizableBuffer> reusableBuffer) {
   return BlockPayload::fromBuffers(
-      payloadType, numRows_, std::move(buffers_), isValidityBuffer_, pool, codec, bufferTypes_);
+      payloadType,
+      numRows_,
+      std::move(buffers_),
+      isValidityBuffer_,
+      pool,
+      codec,
+      bufferTypes_,
+      std::move(reusableBuffer));
 }
 
 arrow::Status InMemoryPayload::serialize(arrow::io::OutputStream* outputStream) {

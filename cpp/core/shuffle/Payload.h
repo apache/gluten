@@ -82,7 +82,16 @@ class BlockPayload final : public Payload {
       const std::vector<bool>* isValidityBuffer,
       arrow::MemoryPool* pool,
       arrow::util::Codec* codec,
-      const std::vector<int8_t>* bufferTypes = nullptr);
+      const std::vector<int8_t>* bufferTypes = nullptr,
+      // Optional scratch buffer to compress into. When given, it is grown to the worst-case
+      // compressed length instead of a fresh buffer being allocated, and it is left at that
+      // capacity afterwards so that the next call can reuse it. Only meaningful for
+      // `kCompressed`, the only payload type that needs an output buffer at all. A caller that
+      // pushes the payload synchronously and then drops it can hand in the same buffer every time
+      // and pay no allocation per payload - see `RssPartitionWriter::doEvict`. Leaving it at
+      // `nullptr` keeps the default behavior: allocate from `pool` and release the slack
+      // immediately after compressing.
+      std::shared_ptr<arrow::ResizableBuffer> reusableBuffer = nullptr);
 
   static arrow::Result<std::vector<std::shared_ptr<arrow::Buffer>>> deserialize(
       arrow::io::InputStream* inputStream,
@@ -102,6 +111,10 @@ class BlockPayload final : public Payload {
   arrow::Result<std::shared_ptr<arrow::Buffer>> readBufferAt(uint32_t pos);
 
   int64_t rawSize() override;
+
+  /// Number of bytes `serialize()` will write to the output stream.
+  /// Must be called before `serialize()`, which releases the underlying buffers.
+  int64_t serializedSize() const;
 
  private:
   BlockPayload(
@@ -133,15 +146,34 @@ class InMemoryPayload final : public Payload {
         hasComplexType_(hasComplexType),
         bufferTypes_(bufferTypes) {}
 
+  /// Appends `append` to `source`, growing `source`'s buffers in place when they are resizable.
   static arrow::Result<std::unique_ptr<InMemoryPayload>>
   merge(std::unique_ptr<InMemoryPayload> source, std::unique_ptr<InMemoryPayload> append, arrow::MemoryPool* pool);
+
+  /// Concatenates `payloads` (in order) into a single payload in one pass: every output buffer is
+  /// allocated once, at its final size, and the sources are copied into it back to back and
+  /// released as they are consumed.
+  ///
+  /// Prefer this over folding a list of payloads pairwise with `merge` above: growing an
+  /// `arrow::ResizableBuffer` is never done in place here, because `PoolBuffer::Reserve` only
+  /// rounds the requested capacity up to a multiple of 64 bytes (no over-allocation) and gluten's
+  /// allocator implements `reallocateAligned` as allocate + full memcpy + free. Folding N payloads
+  /// pairwise therefore copies O(N^2) bytes and performs N-1 reservations against `pool`, each of
+  /// which can trigger a spill; this entry point copies O(N) bytes and reserves once per buffer.
+  static arrow::Result<std::unique_ptr<InMemoryPayload>> mergeAll(
+      std::vector<std::unique_ptr<InMemoryPayload>> payloads,
+      arrow::MemoryPool* pool);
 
   arrow::Status serialize(arrow::io::OutputStream* outputStream) override;
 
   arrow::Result<std::shared_ptr<arrow::Buffer>> readBufferAt(uint32_t index);
 
-  arrow::Result<std::unique_ptr<BlockPayload>>
-  toBlockPayload(Payload::Type payloadType, arrow::MemoryPool* pool, arrow::util::Codec* codec);
+  /// `reusableBuffer` is forwarded to `BlockPayload::fromBuffers`, see there.
+  arrow::Result<std::unique_ptr<BlockPayload>> toBlockPayload(
+      Payload::Type payloadType,
+      arrow::MemoryPool* pool,
+      arrow::util::Codec* codec,
+      std::shared_ptr<arrow::ResizableBuffer> reusableBuffer = nullptr);
 
   arrow::Status copyBuffers(arrow::MemoryPool* pool);
 
