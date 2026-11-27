@@ -98,6 +98,21 @@ TEST_F(VeloxRssSortShuffleWriterTest, calculateBatchesSize) {
   EXPECT_EQ(expectedSize, shuffleWriter->getInputColumnBytes());
 }
 
+TEST_F(VeloxRssSortShuffleWriterTest, calculateBatchesSizeAfterReclaim) {
+  auto shuffleWriter = std::dynamic_pointer_cast<VeloxRssSortShuffleWriter>(createShuffleWriter(10));
+
+  auto rowVector1 = makeRowVector({makeSharedStringVector(), makeSharedStringVector()});
+  ASSERT_NOT_OK(shuffleWriter->write(std::make_shared<VeloxColumnarBatch>(rowVector1), kMemLimit));
+  int64_t reclaimed = 0;
+  ASSERT_NOT_OK(shuffleWriter->reclaimFixedSize(kMemLimit, &reclaimed));
+  EXPECT_EQ(rowVector1->retainedSize() - strBuffer_->capacity(), reclaimed);
+
+  // strBuffer_ is still alive after the reclaim, so the next batch must count it again.
+  auto rowVector2 = makeRowVector({makeSharedStringVector(), makeSharedStringVector()});
+  ASSERT_NOT_OK(shuffleWriter->write(std::make_shared<VeloxColumnarBatch>(rowVector2), kMemLimit));
+  EXPECT_EQ(rowVector2->retainedSize() - strBuffer_->capacity(), shuffleWriter->getInputColumnBytes());
+}
+
 TEST_F(VeloxRssSortShuffleWriterTest, sharedStringInArray) {
   auto shuffleWriter = std::dynamic_pointer_cast<VeloxRssSortShuffleWriter>(createShuffleWriter(10));
 
