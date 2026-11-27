@@ -17,6 +17,8 @@
 
 #include "JniCommon.h"
 
+#include <glog/raw_logging.h>
+
 #include "utils/ArrowStatus.h"
 
 namespace {
@@ -27,6 +29,16 @@ std::unordered_map<std::string, gluten::JniInputIteratorFactory>& jniInputIterat
 }
 
 std::mutex& jniInputIteratorFactoriesMutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::unordered_map<std::string, gluten::JniAllocationListenerFactory>& jniAllocationListenerFactories() {
+  static std::unordered_map<std::string, gluten::JniAllocationListenerFactory> factories;
+  return factories;
+}
+
+std::mutex& jniAllocationListenerFactoriesMutex() {
   static std::mutex mutex;
   return mutex;
 }
@@ -218,6 +230,57 @@ gluten::createJniInputIterator(JNIEnv* env, jobject iterator, Runtime* runtime, 
     return factory(env, iterator, runtime, iteratorIndex);
   }
   return std::make_unique<JniColumnarBatchIterator>(env, iterator, runtime, iteratorIndex);
+}
+
+void gluten::registerJniAllocationListenerFactory(const std::string& backend, JniAllocationListenerFactory factory) {
+  GLUTEN_CHECK(!backend.empty(), "JNI allocation listener factory backend must not be empty");
+  GLUTEN_CHECK(static_cast<bool>(factory), "JNI allocation listener factory must not be empty");
+
+  std::lock_guard<std::mutex> lock(jniAllocationListenerFactoriesMutex());
+  const bool inserted = jniAllocationListenerFactories().emplace(backend, std::move(factory)).second;
+  GLUTEN_CHECK(inserted, "JNI allocation listener factory already registered for " + backend);
+}
+
+std::unique_ptr<gluten::AllocationListener>
+gluten::createJniAllocationListener(const std::string& backend, JavaVM* vm, jobject listener) {
+  JniAllocationListenerFactory factory;
+  {
+    std::lock_guard<std::mutex> lock(jniAllocationListenerFactoriesMutex());
+    const auto it = jniAllocationListenerFactories().find(backend);
+    if (it != jniAllocationListenerFactories().end()) {
+      factory = it->second;
+    }
+  }
+
+  if (factory) {
+    return factory(vm, listener);
+  }
+  return std::make_unique<SparkAllocationListener>(vm, listener);
+}
+
+void SparkAllocationListener::repayWithPendingException(JNIEnv* env, int64_t bytes) {
+  // Capacity was already given up, so return it, then restore the pending exception. Keep that
+  // exception as a local reference, because capturing a JavaException can fail when memory is short.
+  const auto pending = env->ExceptionOccurred();
+  env->ExceptionClear();
+  env->CallLongMethod(jListenerGlobalRef_, unreserveMethod_, bytes);
+  if (env->ExceptionCheck()) {
+    env->ExceptionClear();
+    RAW_LOG(
+        WARNING,
+        "Java unreserve of %lld bytes failed while another Java exception was pending",
+        static_cast<long long>(bytes));
+  } else {
+    usedBytes_ -= bytes;
+  }
+  if (env->Throw(pending) != JNI_OK) {
+    RAW_LOG(ERROR, "Unable to restore the pending Java exception after repaying memory");
+  }
+  env->DeleteLocalRef(pending);
+  if (!gluten::JniEntryGuard::isActive()) {
+    // A pool thread has no JNI return to consume the exception, so propagate it instead.
+    checkException(env);
+  }
 }
 
 gluten::ShuffleStreamReader::ShuffleStreamReader(JNIEnv* env, jobject reader) {

@@ -144,6 +144,16 @@ mechanism does not classify or translate native cast failures.
 Preserving the throwable does not merge Java and C++ frames into a hybrid stack
 trace (see [#9642](https://github.com/apache/gluten/issues/9642)).
 
+Java memory reservation callbacks use the same pattern. Velox supplies the JNI
+allocation listener for task and global memory managers, so a failed `reserve`
+or `unreserve` keeps its Java throwable through the driver. If returning
+reclaimed capacity also fails after a failed reservation, the reservation
+failure is kept and the second error is logged. The listener never calls Java
+while an exception is pending. Such an exception fails a reservation; an
+unreserve first returns the memory and then restores the exception. A guarded
+JNI entry leaves it pending for Java, while a native pool thread throws it as a
+native exception instead of keeping it.
+
 `gluten-arrow/src/test/java/org/apache/gluten/jni/JavaExceptionJniTest.java` runs
 these cases through JUnit and Maven Surefire without starting Spark or a backend.
 After configuring the native core, build its test-only bridge with

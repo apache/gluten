@@ -52,6 +52,7 @@
 #endif
 #include "jni/JniError.h"
 #include "jni/JniFileSystem.h"
+#include "jni/VeloxAllocationListener.h"
 #include "jni/VeloxInputIterator.h"
 #include "jni/VeloxJavaException.h"
 #include "memory/GlutenBufferedInputBuilder.h"
@@ -172,6 +173,7 @@ void VeloxBackend::init(
   ThreadManager::registerFactory(kVeloxBackendKind, veloxThreadManagerFactory, veloxThreadManagerReleaser);
   Runtime::registerFactory(kVeloxBackendKind, veloxRuntimeFactory, veloxRuntimeReleaser);
   registerJniInputIteratorFactory(kVeloxBackendKind, createVeloxJniInputIterator);
+  registerJniAllocationListenerFactory(kVeloxBackendKind, createVeloxJniAllocationListener);
   registerVeloxExceptionUnwrapper();
 
   if (backendConf_->get<bool>(kDebugModeEnabled, false)) {

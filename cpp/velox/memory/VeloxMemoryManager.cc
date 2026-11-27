@@ -173,7 +173,13 @@ class ListenableArbitrator : public velox::memory::MemoryArbitrator {
       VLOG(2) << "ListenableArbitrator growCapacityInternal failed, stacktrace: "
               << velox::process::StackTrace().toString();
       // if allocationChanged failed, we need to free the reclaimed bytes
-      listener_->allocationChanged(-reclaimedFreeBytes);
+      try {
+        listener_->allocationChanged(-reclaimedFreeBytes);
+      } catch (const std::exception& e) {
+        // Keep the reservation failure that caused this rollback.
+        LOG(WARNING) << "Failed to return " << reclaimedFreeBytes
+                     << " reclaimed bytes after a failed reservation: " << e.what();
+      }
       std::rethrow_exception(std::current_exception());
     }
     auto ret = growPool(pool, reclaimedFreeBytes + neededBytes, bytes);

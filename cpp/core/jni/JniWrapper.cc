@@ -266,7 +266,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_memory_NativeMemoryManagerJniWrap
   auto backendType = jStringToCString(env, jBackendType);
   auto safeArray = getByteArrayElementsSafe(env, sessionConf);
   auto sparkConf = parseConfMap(env, safeArray.elems(), safeArray.length());
-  std::unique_ptr<AllocationListener> listener = std::make_unique<SparkAllocationListener>(vm, jListener);
+  std::unique_ptr<AllocationListener> listener = createJniAllocationListener(backendType, vm, jListener);
   bool backtrace = sparkConf.at(kBacktraceAllocation) == "true";
   if (backtrace) {
     listener = std::make_unique<BacktraceAllocationListener>(std::move(listener));

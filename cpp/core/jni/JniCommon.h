@@ -207,6 +207,14 @@ void registerJniInputIteratorFactory(const std::string& runtimeKind, JniInputIte
 std::unique_ptr<ColumnarBatchIterator>
 createJniInputIterator(JNIEnv* env, jobject iterator, Runtime* runtime, int32_t iteratorIndex);
 
+using JniAllocationListenerFactory = std::function<std::unique_ptr<AllocationListener>(JavaVM* vm, jobject listener)>;
+
+void registerJniAllocationListenerFactory(const std::string& backend, JniAllocationListenerFactory factory);
+
+// Creates the listener for a Java ReservationListener.
+std::unique_ptr<AllocationListener>
+createJniAllocationListener(const std::string& backend, JavaVM* vm, jobject listener);
+
 // Safe version of JNI {Get|Release}<PrimitiveType>ArrayElements routines.
 // SafeNativeArray would release the managed array elements automatically
 // during destruction.
@@ -399,7 +407,7 @@ static inline gluten::CodecBackend getCodecBackend(JNIEnv* env, jstring codecBac
 NOTE: the class must be thread safe
  */
 
-class SparkAllocationListener final : public gluten::AllocationListener {
+class SparkAllocationListener : public gluten::AllocationListener {
  public:
   SparkAllocationListener(JavaVM* vm, jobject jListenerLocalRef) : vm_(vm) {
     JNIEnv* env;
@@ -407,8 +415,8 @@ class SparkAllocationListener final : public gluten::AllocationListener {
     jListenerGlobalRef_ = env->NewGlobalRef(jListenerLocalRef);
     GLUTEN_CHECK(jListenerGlobalRef_ != nullptr, "Failed to create global reference for reservation listener.");
     // Resolve JNI symbols on the creator thread to avoid first-touch initialization from IO threads.
-    (void)reserveMemoryMethod(env);
-    (void)unreserveMemoryMethod(env);
+    reserveMethod_ = reserveMemoryMethod(env);
+    unreserveMethod_ = unreserveMemoryMethod(env);
   }
 
   SparkAllocationListener(const SparkAllocationListener&) = delete;
@@ -432,11 +440,19 @@ class SparkAllocationListener final : public gluten::AllocationListener {
     }
     JNIEnv* env;
     attachCurrentThreadAsDaemonOrThrow(vm_, &env);
+    // Java must not run while an exception is pending, for example one left when memory was short.
+    if (env->ExceptionCheck()) {
+      if (size < 0) {
+        repayWithPendingException(env, -size);
+        return;
+      }
+      checkException(env); // The pending exception fails the reservation.
+    }
     if (size < 0) {
-      env->CallLongMethod(jListenerGlobalRef_, unreserveMemoryMethod(env), -size);
+      env->CallLongMethod(jListenerGlobalRef_, unreserveMethod_, -size);
       checkException(env);
     } else {
-      env->CallLongMethod(jListenerGlobalRef_, reserveMemoryMethod(env), size);
+      env->CallLongMethod(jListenerGlobalRef_, reserveMethod_, size);
       checkException(env);
     }
     usedBytes_ += size;
@@ -462,6 +478,8 @@ class SparkAllocationListener final : public gluten::AllocationListener {
   }
 
  private:
+  void repayWithPendingException(JNIEnv* env, int64_t bytes);
+
   jclass javaReservationListenerClass(JNIEnv* env) {
     static jclass javaReservationListenerClass =
         createGlobalClassReference(env, "org/apache/gluten/memory/listener/ReservationListener");
@@ -482,6 +500,8 @@ class SparkAllocationListener final : public gluten::AllocationListener {
 
   JavaVM* vm_;
   jobject jListenerGlobalRef_;
+  jmethodID reserveMethod_;
+  jmethodID unreserveMethod_;
   std::atomic_int64_t usedBytes_{0L};
   std::atomic_int64_t peakBytes_{0L};
 };
