@@ -23,7 +23,7 @@ import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 import org.apache.gluten.utils.FileIndexUtil
 
 import org.apache.spark.Partition
-import org.apache.spark.sql.catalyst.TableIdentifier
+import org.apache.spark.sql.catalyst.{FileSourceOptions, TableIdentifier}
 import org.apache.spark.sql.catalyst.csv.CSVExprUtils
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Expression, PlanExpression}
 import org.apache.spark.sql.catalyst.plans.QueryPlan
@@ -248,6 +248,9 @@ abstract class FileSourceScanExecTransformerBase(
   }
 
   override def getReadOptions: Map[String, String] = relation.options
+
+  override protected def ignoreCorruptFiles: Boolean =
+    new FileSourceOptions(getReadOptions).ignoreCorruptFiles
 
   override def getProperties: Map[String, String] = {
     this.fileFormat match {

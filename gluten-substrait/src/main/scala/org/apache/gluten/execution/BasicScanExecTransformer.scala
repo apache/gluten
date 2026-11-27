@@ -122,6 +122,15 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
   /** Returns the options given to this read, e.g. `spark.read.option(...)`. */
   def getReadOptions: Map[String, String] = Map.empty
 
+  /**
+   * Whether Spark's own scan would skip corrupt files. File sources do so when
+   * `spark.sql.files.ignoreCorruptFiles` or the `ignoreCorruptFiles` read option is set, and Hive
+   * tables by `spark.sql.files.ignoreCorruptFiles` since Spark 4.0, by the core conf
+   * `spark.files.ignoreCorruptFiles` before. Scans that honor neither, such as Iceberg's, keep the
+   * default.
+   */
+  protected def ignoreCorruptFiles: Boolean = false
+
   def getInputStats: Option[InputStats] = Option.empty
 
   protected def validateExistenceDefaults(readSchema: StructType): ValidationResult = {
@@ -204,6 +213,12 @@ trait BasicScanExecTransformer extends LeafTransformSupport with BaseDataSource 
       return ValidationResult.failed(
         s"The ignoreMissingFiles read option ($ignoreMissingFiles) is different from " +
           s"${SQLConf.IGNORE_MISSING_FILES.key} (${SQLConf.get.ignoreMissingFiles}).")
+    }
+
+    // The native scan fails on a corrupt file, where Spark skips it, so fall back.
+    if (ignoreCorruptFiles) {
+      return ValidationResult.failed(
+        "The native scan can't skip corrupt files, which ignoreCorruptFiles asks for.")
     }
 
     val validationResult = BackendsApiManager.getSettings

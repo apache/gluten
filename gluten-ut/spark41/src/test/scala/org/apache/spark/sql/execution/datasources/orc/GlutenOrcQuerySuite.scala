@@ -17,11 +17,13 @@
 package org.apache.spark.sql.execution.datasources.orc
 
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.{GlutenSQLTestsBaseTrait, Row}
+import org.apache.spark.sql.{GlutenIgnoreCorruptFilesTest, Row}
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.internal.SQLConf
 
-class GlutenOrcQuerySuite extends OrcQuerySuite with GlutenSQLTestsBaseTrait {
+class GlutenOrcQuerySuite extends OrcQuerySuite with GlutenIgnoreCorruptFilesTest {
+  ignoreCorruptFilesTest("orc")
+
   testGluten("Simple selection form ORC table") {
     val data = (1 to 10).map {
       i => Person(s"name_$i", i, (0 to 1).map(m => Contact(s"contact_$m", s"phone_$m")))

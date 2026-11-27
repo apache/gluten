@@ -24,7 +24,7 @@ import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 import org.apache.gluten.utils.FileIndexUtil
 
 import org.apache.spark.Partition
-import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.{FileSourceOptions, InternalRow}
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.physical.UnknownPartitioning
@@ -155,6 +155,11 @@ abstract class BatchScanExecTransformerBase(
       case orcScan: OrcScan => orcScan.options.asCaseSensitiveMap.asScala.toMap
       case _ => Map.empty
     }
+  }
+
+  override protected def ignoreCorruptFiles: Boolean = scan match {
+    case _: ParquetScan | _: OrcScan => new FileSourceOptions(getReadOptions).ignoreCorruptFiles
+    case _ => false
   }
 
   override def getRootPathsInternal: Seq[String] = {

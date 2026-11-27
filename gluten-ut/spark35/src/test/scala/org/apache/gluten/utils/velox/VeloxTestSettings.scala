@@ -317,14 +317,16 @@ class VeloxTestSettings extends BackendTestSettings {
     // Expected exception org.apache.spark.sql.AnalysisException to be thrown
     // , but no exception was thrown
     .exclude("SPARK-20728 Make ORCFileFormat configurable between sql/hive and sql/core")
-    // not supported ignoreCorruptFiles
+    // Checks the error of Spark's reader, which the native scan doesn't give. Replaced by
+    // the Gluten test from GlutenIgnoreCorruptFilesTest.
     .exclude("Enabling/disabling ignoreCorruptFiles")
     // Schema mismatch, From Kind: BIGINT, To Kind: VARCHAR
     .exclude("SPARK-39830: Reading ORC table that requires type promotion may throw AIOOBE")
     // Unsupported.
     .exclude("SPARK-37463: read/write Timestamp ntz to Orc with different time zone")
   enableSuite[GlutenOrcV2QuerySuite]
-// feature not supported
+    // Checks the error of Spark's reader, which the native scan doesn't give. Replaced by
+    // the Gluten test from GlutenIgnoreCorruptFilesTest.
     .exclude("Enabling/disabling ignoreCorruptFiles")
     // Schema mismatch, From Kind: BIGINT, To Kind: VARCHAR
     .exclude("SPARK-39830: Reading ORC table that requires type promotion may throw AIOOBE")
@@ -414,7 +416,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenParquetV1QuerySuite]
     // No fix needed: INT read as LONG is allowed.
     .exclude("row group skipping doesn't overflow when reading into larger type")
-    // Unsupport spark.sql.files.ignoreCorruptFiles.
+    // Checks the error of Spark's reader, which the native scan doesn't give. Replaced by
+    // the Gluten test from GlutenIgnoreCorruptFilesTest.
     .exclude("Enabling/disabling ignoreCorruptFiles")
     // No fix needed: narrowing the scale should not be allowed.
     .exclude("SPARK-34212 Parquet should read decimals correctly")
@@ -429,7 +432,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenParquetV2QuerySuite]
     // No fix needed: INT read as LONG is allowed.
     .exclude("row group skipping doesn't overflow when reading into larger type")
-    // Unsupport spark.sql.files.ignoreCorruptFiles.
+    // Checks the error of Spark's reader, which the native scan doesn't give. Replaced by
+    // the Gluten test from GlutenIgnoreCorruptFilesTest.
     .exclude("Enabling/disabling ignoreCorruptFiles")
     // No fix needed: narrowing the scale should not be allowed.
     .exclude("SPARK-34212 Parquet should read decimals correctly")
