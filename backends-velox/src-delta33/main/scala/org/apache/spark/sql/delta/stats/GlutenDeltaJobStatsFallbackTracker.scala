@@ -19,8 +19,11 @@ package org.apache.spark.sql.delta.stats
 import org.apache.gluten.execution.{PlaceholderRow, TerminalRow, VeloxColumnarToRowExec}
 
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.execution.{GlutenExplainUtils, SparkPlan}
 import org.apache.spark.sql.execution.datasources.{WriteJobStatsTracker, WriteTaskStats, WriteTaskStatsTracker}
 import org.apache.spark.sql.execution.metric.SQLMetric
+
+import scala.collection.mutable
 
 /**
  * A fallback stats tracker where a C2R converter converts all the incoming batches to rows then
@@ -40,6 +43,13 @@ private[stats] class GlutenDeltaJobStatsFallbackTracker(val delegate: WriteJobSt
 }
 
 private object GlutenDeltaJobStatsFallbackTracker {
+  def fallbackMessage(plan: SparkPlan): String = {
+    val reasons = mutable.LinkedHashSet.empty[String]
+    GlutenExplainUtils.visitFallbackNodes(plan, (_, reason) => reasons += reason)
+    "Gluten Delta: Statistics plan could not be fully offloaded. Falling back to " +
+      s"row-based Delta statistics with columnar-to-row conversion. ${reasons.mkString("; ")}"
+  }
+
   private class GlutenDeltaTaskStatsFallbackTracker(delegate: WriteTaskStatsTracker)
     extends WriteTaskStatsTracker {
     private val c2r = new VeloxColumnarToRowExec.Converter(new SQLMetric("convertTime"))
