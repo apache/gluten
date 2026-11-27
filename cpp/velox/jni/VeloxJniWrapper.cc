@@ -1067,8 +1067,8 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
       cb,
       executor == nullptr ? 1 : std::max(numThreads, 1),
       executor,
-      getDefaultMemoryManager()->getAggregateMemoryPool(),
-      defaultLeafVeloxMemoryPool());
+      VeloxBackend::get()->getBroadcastMemoryManager()->getAggregateMemoryPool(),
+      broadcastLeafVeloxMemoryPool());
   return gluten::getHashTableObjStore()->save(hashTable);
   JNI_METHOD_END(kInvalidObjectHandle)
 }
@@ -1083,7 +1083,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_cloneH
   auto hashTable = ObjectStore::retrieve<gluten::BroadcastHashTable>(tableHandler);
   auto* cache = facebook::velox::exec::HashTableCache::instance();
   if (!cache->exist(cacheKeyStr)) {
-    cache->add(cacheKeyStr, hashTable->hashTable(), hashTable->joinHasNullKeys(), defaultLeafVeloxMemoryPool());
+    cache->add(cacheKeyStr, hashTable->hashTable(), hashTable->joinHasNullKeys(), broadcastLeafVeloxMemoryPool());
   }
 
   return gluten::getHashTableObjStore()->save(hashTable);
@@ -1119,7 +1119,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_deseri
       static_cast<bool>(joinHasNullKeys));
   auto* cache = facebook::velox::exec::HashTableCache::instance();
   if (!cache->exist(cacheKeyStr)) {
-    cache->add(cacheKeyStr, hashTable->hashTable(), hashTable->joinHasNullKeys(), defaultLeafVeloxMemoryPool());
+    cache->add(cacheKeyStr, hashTable->hashTable(), hashTable->joinHasNullKeys(), broadcastLeafVeloxMemoryPool());
   }
   return gluten::getHashTableObjStore()->save(hashTable);
   JNI_METHOD_END(kInvalidObjectHandle)
