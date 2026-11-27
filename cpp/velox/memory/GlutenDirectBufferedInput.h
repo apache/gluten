@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "velox/common/file/FileIoContext.h"
 #include "velox/dwio/common/DirectBufferedInput.h"
 
 namespace gluten {
@@ -44,7 +45,7 @@ class GlutenDirectBufferedInput : public facebook::velox::dwio::common::DirectBu
             std::move(ioStats),
             executor,
             readerOptions,
-            std::move(fileReadOps)) {}
+            facebook::velox::FileIoContext{.fileOpts = std::move(fileReadOps), .pool = &readerOptions.memoryPool()}) {}
 
   ~GlutenDirectBufferedInput() override {
     requests_.clear();
