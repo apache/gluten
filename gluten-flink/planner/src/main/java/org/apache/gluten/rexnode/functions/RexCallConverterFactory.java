@@ -94,7 +94,7 @@ public class RexCallConverterFactory {
           Map.entry("AND", Arrays.asList(() -> new DefaultRexCallConverter("and"))),
           Map.entry("SPLIT_INDEX", Arrays.asList(() -> new SplitIndexRexCallConverter())),
           Map.entry("SEARCH", Arrays.asList(() -> new SearchRexCallConverter())),
-          Map.entry("DATE_FORMAT", Arrays.asList(() -> new DefaultRexCallConverter("date_format"))),
+          Map.entry("DATE_FORMAT", Arrays.asList(() -> new DateFormatRexCallConverter())),
           Map.entry("FROM_UNIXTIME", Arrays.asList(() -> new FromUnixtimeRexCallConverter())),
           Map.entry("UNIX_TIMESTAMP", Arrays.asList(() -> new UnixTimestampRexCallConverter())),
           Map.entry(
