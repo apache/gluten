@@ -405,4 +405,59 @@ class VeloxScanSuite extends VeloxWholeStageTransformerSuite {
         checkGlutenPlan[FileSourceScanExecTransformer](df)
     }
   }
+
+  test("fall back the scan when ignoreCorruptFiles is set") {
+    // Reads a parquet dir and a dir whose only data file isn't parquet.
+    def readWithCorruptFile(basePath: String, options: Map[String, String]): DataFrame = {
+      val good = new Path(basePath, "good")
+      val corrupt = new Path(basePath, "corrupt")
+      spark.range(1).toDF("a").write.parquet(good.toString)
+      spark.range(1, 2).toDF("a").write.parquet(corrupt.toString)
+      val fs = FileSystem.get(spark.sessionState.newHadoopConf())
+      fs.listStatus(corrupt)
+        .filter(f => f.isFile && !f.getPath.getName.startsWith("_"))
+        .foreach {
+          f =>
+            val out = fs.create(f.getPath, true)
+            try out.write("not a parquet file".getBytes)
+            finally out.close()
+        }
+      // The schema is given, so reading the footers to infer it doesn't hit the corrupt file.
+      spark.read.schema("a LONG").options(options).parquet(good.toString, corrupt.toString)
+    }
+
+    def isOffloaded(df: DataFrame): Boolean =
+      df.queryExecution.executedPlan.collect { case s: BasicScanExecTransformer => s }.nonEmpty
+
+    // (spark.sql.files.ignoreCorruptFiles, read options, expected to ignore the corrupt file)
+    val cases = Seq(
+      ("true", Map.empty[String, String], true),
+      ("false", Map("ignoreCorruptFiles" -> "true"), true),
+      ("false", Map.empty[String, String], false),
+      ("true", Map("ignoreCorruptFiles" -> "false"), false)
+    )
+    // "parquet" uses the V1 scan, "" uses the V2 scan.
+    Seq("parquet", "").foreach {
+      v1Sources =>
+        cases.foreach {
+          case (conf, options, ignored) =>
+            withTempDir {
+              dir =>
+                withSQLConf(
+                  SQLConf.USE_V1_SOURCE_LIST.key -> v1Sources,
+                  SQLConf.IGNORE_CORRUPT_FILES.key -> conf) {
+                  val df = readWithCorruptFile(dir.getCanonicalPath, options)
+                  if (ignored) {
+                    checkAnswer(df, Seq(Row(0)))
+                  } else {
+                    intercept[Exception](df.collect())
+                  }
+                  // The native scan fails on a corrupt file, so it must fall back when Spark
+                  // would skip the file, and only then.
+                  assert(isOffloaded(df) == !ignored)
+                }
+            }
+        }
+    }
+  }
 }

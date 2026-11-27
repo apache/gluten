@@ -22,6 +22,7 @@ import org.apache.gluten.metrics.{MetricsUpdater, ScanMetricsUtil}
 import org.apache.gluten.substrait.rel.LocalFilesNode.ReadFileFormat
 
 import org.apache.spark.Partition
+import org.apache.spark.internal.config.IGNORE_CORRUPT_FILES
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.catalog.{CatalogStorageFormat, HiveTableRelation}
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, AttributeSeq, Expression}
@@ -32,7 +33,7 @@ import org.apache.spark.sql.hive.HiveTableScanExecTransformer._
 import org.apache.spark.sql.hive.client.HiveClientImpl
 import org.apache.spark.sql.hive.execution.{AbstractHiveTableScanExec, HiveTableScanExec}
 import org.apache.spark.sql.types.StructType
-import org.apache.spark.util.Utils
+import org.apache.spark.util.{SparkVersionUtil, Utils}
 
 import org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
 import org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat
@@ -71,6 +72,16 @@ case class HiveTableScanExecTransformer(
   override def pushDownFilters: Option[Seq[Expression]] = None
 
   override def getMetadataColumns(): Seq[AttributeReference] = Seq.empty
+
+  // Spark reads a Hive table with a HadoopRDD, which skips a file that fails to read with an
+  // IOException. Since Spark 4.0 (SPARK-45316) it does so by spark.sql.files.ignoreCorruptFiles,
+  // before by the core conf spark.files.ignoreCorruptFiles.
+  override protected def ignoreCorruptFiles: Boolean =
+    if (SparkVersionUtil.gteSpark40) {
+      conf.ignoreCorruptFiles
+    } else {
+      sparkContext.conf.get(IGNORE_CORRUPT_FILES)
+    }
 
   override def getPartitions: Seq[Partition] = partitions
 
