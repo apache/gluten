@@ -17,16 +17,16 @@
 
 #include <gtest/gtest.h>
 
-#include <cstdlib>
 #include <new>
 #include <utility>
 
 #include "jni/JavaException.h"
+#include "tests/utils/TestAllocationFailure.h"
 #include "tests/utils/TestJniEnvironment.h"
 
-namespace {
-thread_local bool failNextAllocation = false;
+using gluten::test::failNextAllocation;
 
+namespace {
 struct RestoreJniFunctions {
   JNIEnv* env;
   const JNINativeInterface_* original;
@@ -36,25 +36,6 @@ struct RestoreJniFunctions {
   }
 };
 } // namespace
-
-// This executable isolates the replacement allocator from other core tests.
-void* operator new(std::size_t size) {
-  if (std::exchange(failNextAllocation, false)) {
-    throw std::bad_alloc();
-  }
-  if (auto* memory = std::malloc(size == 0 ? 1 : size)) {
-    return memory;
-  }
-  throw std::bad_alloc();
-}
-
-void operator delete(void* memory) noexcept {
-  std::free(memory);
-}
-
-void operator delete(void* memory, std::size_t) noexcept {
-  std::free(memory);
-}
 
 TEST(JavaExceptionAllocationTest, stateAllocationFailureRetainsOriginal) {
   gluten::TestJniEnvironment jni;

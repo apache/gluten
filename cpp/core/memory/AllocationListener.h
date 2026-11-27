@@ -40,6 +40,18 @@ class AllocationListener {
     return 0;
   }
 
+  struct Change {
+    const int64_t diff;
+    const bool afterFailedReservation{false};
+    // Set before propagating an error if the delegate has already applied the charge.
+    bool committed{false};
+  };
+
+  virtual void applyChange(Change& change) {
+    allocationChanged(change.diff);
+    change.committed = true;
+  }
+
  protected:
   AllocationListener() = default;
 };
@@ -52,19 +64,33 @@ class BlockAllocationListener final : public AllocationListener {
       : delegated_(delegated), blockSize_(blockSize) {}
 
   void allocationChanged(int64_t diff) override {
-    if (diff == 0) {
+    Change change{diff};
+    applyChange(change);
+  }
+
+  void applyChange(Change& change) override {
+    if (change.diff == 0) {
+      change.committed = true;
       return;
     }
-    int64_t granted = reserve(diff);
-    if (granted == 0) {
-      return;
-    }
+    Change charge{reserve(change.diff), change.afterFailedReservation};
     try {
-      delegated_->allocationChanged(granted);
-    } catch (const std::exception&) {
-      reserve(-diff);
+      if (charge.diff != 0) {
+        delegated_->applyChange(charge);
+      }
+    } catch (...) {
+      std::lock_guard<std::mutex> lock(mutex_);
+      // Growth never reached the allocator. A free or shrink already did.
+      if (change.diff > 0) {
+        usedBytes_ -= change.diff;
+      }
+      if (!charge.committed) {
+        blocksReserved_ -= charge.diff / blockSize_;
+      }
+      change.committed = change.diff < 0 && charge.committed;
       throw;
     }
+    change.committed = true;
   }
 
   int64_t currentBytes() override {
@@ -86,6 +112,10 @@ class BlockAllocationListener final : public AllocationListener {
       // ceil to get the required block number
       newBlockCount = (usedBytes_ - 1) / blockSize_ + 1;
     }
+    if (diff > 0) {
+      // Reuse blocks retained after a failed repayment. Growth must not initiate a refund.
+      newBlockCount = std::max(newBlockCount, blocksReserved_);
+    }
     int64_t bytesGranted = (newBlockCount - blocksReserved_) * blockSize_;
     blocksReserved_ = newBlockCount;
     peakBytes_ = std::max(peakBytes_, usedBytes_);
@@ -93,7 +123,7 @@ class BlockAllocationListener final : public AllocationListener {
   }
 
   AllocationListener* const delegated_;
-  const uint64_t blockSize_;
+  const int64_t blockSize_;
   int64_t blocksReserved_{0L};
   int64_t usedBytes_{0L};
   int64_t peakBytes_{0L};

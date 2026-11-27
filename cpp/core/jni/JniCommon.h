@@ -434,8 +434,15 @@ class SparkAllocationListener : public gluten::AllocationListener {
     env->DeleteGlobalRef(jListenerGlobalRef_);
   }
 
-  void allocationChanged(int64_t size) override {
+  void allocationChanged(int64_t size) final {
+    Change change{size};
+    applyChange(change);
+  }
+
+  void applyChange(Change& change) override {
+    const auto size = change.diff;
     if (size == 0) {
+      change.committed = true;
       return;
     }
     JNIEnv* env;
@@ -443,19 +450,28 @@ class SparkAllocationListener : public gluten::AllocationListener {
     // Java must not run while an exception is pending, for example one left when memory was short.
     if (env->ExceptionCheck()) {
       if (size < 0) {
-        repayWithPendingException(env, -size);
+        repayWithPendingException(env, change);
         return;
       }
       checkException(env); // The pending exception fails the reservation.
     }
     if (size < 0) {
       env->CallLongMethod(jListenerGlobalRef_, unreserveMethod_, -size);
-      checkException(env);
     } else {
       env->CallLongMethod(jListenerGlobalRef_, reserveMethod_, size);
+    }
+    try {
       checkException(env);
+    } catch (...) {
+      // The rollback started with JNI clear. A failure to capture *its* throwable must
+      // not leave a pending exception that masks the original reservation error.
+      if (change.afterFailedReservation) {
+        env->ExceptionClear();
+      }
+      throw;
     }
     usedBytes_ += size;
+    change.committed = true;
     while (true) {
       int64_t savedPeakBytes = peakBytes_;
       int64_t savedUsedBytes = usedBytes_;
@@ -478,7 +494,7 @@ class SparkAllocationListener : public gluten::AllocationListener {
   }
 
  private:
-  void repayWithPendingException(JNIEnv* env, int64_t bytes);
+  void repayWithPendingException(JNIEnv* env, Change& change);
 
   jclass javaReservationListenerClass(JNIEnv* env) {
     static jclass javaReservationListenerClass =
@@ -514,6 +530,11 @@ class BacktraceAllocationListener final : public gluten::AllocationListener {
   void allocationChanged(int64_t bytes) override {
     allocationBacktrace(bytes);
     delegator_->allocationChanged(bytes);
+  }
+
+  void applyChange(Change& change) override {
+    allocationBacktrace(change.diff);
+    delegator_->applyChange(change);
   }
 
  private:

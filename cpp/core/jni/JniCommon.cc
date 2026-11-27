@@ -258,7 +258,8 @@ gluten::createJniAllocationListener(const std::string& backend, JavaVM* vm, jobj
   return std::make_unique<SparkAllocationListener>(vm, listener);
 }
 
-void SparkAllocationListener::repayWithPendingException(JNIEnv* env, int64_t bytes) {
+void SparkAllocationListener::repayWithPendingException(JNIEnv* env, Change& change) {
+  const auto bytes = -change.diff;
   // Capacity was already given up, so return it, then restore the pending exception. Keep that
   // exception as a local reference, because capturing a JavaException can fail when memory is short.
   const auto pending = env->ExceptionOccurred();
@@ -272,14 +273,20 @@ void SparkAllocationListener::repayWithPendingException(JNIEnv* env, int64_t byt
         static_cast<long long>(bytes));
   } else {
     usedBytes_ -= bytes;
+    change.committed = true;
   }
-  if (env->Throw(pending) != JNI_OK) {
-    RAW_LOG(ERROR, "Unable to restore the pending Java exception after repaying memory");
-  }
+  const auto status = env->Throw(pending);
   env->DeleteLocalRef(pending);
+  if (status != JNI_OK && !env->ExceptionCheck()) {
+    throw gluten::GlutenException("Unable to restore the pending Java exception after repaying memory");
+  }
   if (!gluten::JniEntryGuard::isActive()) {
     // A pool thread has no JNI return to consume the exception, so propagate it instead.
     checkException(env);
+  }
+  if (!change.committed) {
+    // Leave the primary throwable pending for JNI and tell native accounting the repayment failed.
+    throw gluten::GlutenException("Java unreserve failed while another exception was pending");
   }
 }
 

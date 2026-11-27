@@ -29,6 +29,7 @@
 #include "jni/JniCommon.h"
 #include "jni/JniError.h"
 #include "jni/VeloxAllocationListener.h"
+#include "tests/utils/TestAllocationFailure.h"
 #include "tests/utils/TestJniEnvironment.h"
 
 namespace gluten {
@@ -92,10 +93,14 @@ class VeloxJniAllocationListenerTest : public ::testing::Test {
   }
 
   void TearDown() override {
+    functions.NewGlobalRef = originalFunctions->NewGlobalRef;
+    functions.DeleteLocalRef = originalFunctions->DeleteLocalRef;
     reserveError = unreserveError = nullptr;
     jni.pending = nullptr;
     jni.failGlobalRef = false;
+    jni.failThrow = false;
     jni.workerAttached = false;
+    test::failNextAllocation = false;
   }
 
   // The listener NativeMemoryManagerJniWrapper.create builds for a task.
@@ -236,9 +241,15 @@ TEST_F(VeloxJniAllocationListenerTest, javaIsNotCalledWithAnExceptionPending) {
   EXPECT_EQ(jni.pending, &jni.secondary);
   EXPECT_EQ(listener->currentBytes(), 0);
   jni.pending = nullptr;
+}
 
-  // An attached pool thread has no JNI return, so it must not keep the exception.
-  listener->allocationChanged(64);
+TEST_F(VeloxJniAllocationListenerTest, workerArrowFreeCommitsRepaymentBeforePropagating) {
+  VeloxMemoryManager manager(kVeloxBackendKind, taskListener(), backendConf());
+  auto* allocator = manager.allocator();
+  void* buffer = nullptr;
+  ASSERT_TRUE(allocator->allocate(64, &buffer));
+  const auto block = manager.getListener()->currentBytes();
+  ASSERT_GT(block, 0);
   calls.clear();
   jni.workerAttached = true;
   std::exception_ptr error;
@@ -246,18 +257,112 @@ TEST_F(VeloxJniAllocationListenerTest, javaIsNotCalledWithAnExceptionPending) {
     EXPECT_FALSE(JniEntryGuard::isActive());
     jni.workerEnv()->Throw(&jni.secondary);
     try {
-      listener->allocationChanged(-64);
+      allocator->free(buffer, 64);
     } catch (...) {
       error = std::current_exception();
     }
     EXPECT_EQ(jni.pending, nullptr);
   });
   worker.join();
-  EXPECT_EQ(calls, std::vector<jlong>{-64});
-  EXPECT_EQ(listener->currentBytes(), 0);
+  EXPECT_EQ(calls, std::vector<jlong>{-block});
+  EXPECT_EQ(allocator->getBytes(), 0);
+  EXPECT_EQ(manager.getListener()->currentBytes(), 0);
   ASSERT_NE(error, nullptr);
   EXPECT_FALSE(atJniBoundary(jni.env(), [&] { std::rethrow_exception(error); }));
   EXPECT_EQ(jni.pending, &jni.secondary);
+  jni.pending = nullptr;
+
+  calls.clear();
+  ASSERT_TRUE(allocator->allocate(64, &buffer));
+  EXPECT_EQ(calls, std::vector<jlong>{block});
+  EXPECT_EQ(manager.getListener()->currentBytes(), block);
+  allocator->free(buffer, 64);
+}
+
+TEST_F(VeloxJniAllocationListenerTest, rollbackCaptureFailureCannotReplaceReservationError) {
+  VeloxMemoryManager manager(
+      kVeloxBackendKind, std::make_unique<BacktraceAllocationListener>(taskListener()), backendConf());
+  const auto capacity = leaveFreeCapacity(manager);
+  reserveError = &jni.original;
+  unreserveError = &jni.fallback;
+  functions.NewGlobalRef = [](JNIEnv* env, jobject ref) -> jobject {
+    jni.failGlobalRef = ref == &jni.fallback;
+    auto global = originalFunctions->NewGlobalRef(env, ref);
+    jni.failGlobalRef = false;
+    return global;
+  };
+  EXPECT_FALSE(atJniBoundary(jni.env(), [&] { allocate(manager, capacity + 1); }));
+  ASSERT_EQ(calls.size(), 2u);
+  EXPECT_EQ(calls.back(), -capacity);
+  EXPECT_EQ(jni.pending, &jni.original);
+  jni.pending = nullptr;
+}
+
+TEST_F(VeloxJniAllocationListenerTest, arrowReusesTheChargeWhenJavaRejectsRepayment) {
+  auto listener = taskListener();
+  auto* charged = listener.get();
+  VeloxMemoryManager manager(
+      kVeloxBackendKind, std::make_unique<BacktraceAllocationListener>(std::move(listener)), backendConf());
+  auto* allocator = manager.allocator();
+  void* buffer = nullptr;
+  const int64_t bytes = kMemoryReservationBlockSizeDefault + 64;
+  ASSERT_TRUE(allocator->allocate(bytes, &buffer));
+  const auto reservation = charged->currentBytes();
+  ASSERT_GE(reservation, bytes);
+
+  unreserveError = &jni.original;
+  EXPECT_FALSE(atJniBoundary(jni.env(), [&] { allocator->free(buffer, bytes); }));
+  EXPECT_EQ(jni.pending, &jni.original);
+  jni.pending = nullptr;
+  EXPECT_EQ(allocator->getBytes(), 0);
+  EXPECT_EQ(charged->currentBytes(), reservation);
+
+  calls.clear();
+  ASSERT_TRUE(allocator->allocate(64, &buffer));
+  EXPECT_TRUE(calls.empty());
+  allocator->free(buffer, 64);
+  EXPECT_EQ(calls, std::vector<jlong>{-reservation});
+  EXPECT_EQ(charged->currentBytes(), 0);
+}
+
+TEST_F(VeloxJniAllocationListenerTest, failedPendingRestoreDoesNotReportSuccessfulShrink) {
+  VeloxMemoryManager manager(kVeloxBackendKind, taskListener(), backendConf());
+  const auto capacity = leaveFreeCapacity(manager);
+  jni.env()->Throw(&jni.original);
+  jni.failThrow = true;
+  EXPECT_FALSE(atJniBoundary(jni.env(), [&] { manager.shrink(0); }));
+  EXPECT_EQ(jni.pending, &jni.fallback);
+  EXPECT_EQ(calls, std::vector<jlong>{-capacity});
+  EXPECT_EQ(manager.getListener()->currentBytes(), 0);
+  jni.pending = nullptr;
+}
+
+TEST_F(VeloxJniAllocationListenerTest, wrapperAllocationFailureRetainsCapturedUnreserveError) {
+  VeloxMemoryManager manager(kVeloxBackendKind, taskListener(), backendConf());
+  const auto capacity = leaveFreeCapacity(manager);
+  unreserveError = &jni.original;
+  functions.DeleteLocalRef = [](JNIEnv* env, jobject ref) {
+    originalFunctions->DeleteLocalRef(env, ref);
+    if (ref == &jni.original) {
+      // JavaException::check has captured the throwable; fail the wrapper, not the capture.
+      test::failNextAllocation = true;
+    }
+  };
+  bool systemError = false;
+  const bool returned = atJniBoundary(jni.env(), [&] {
+    try {
+      manager.shrink(0);
+    } catch (const VeloxException& error) {
+      systemError = error.exceptionType() == VeloxException::Type::kSystem;
+      throw;
+    }
+  });
+  test::failNextAllocation = false;
+  EXPECT_FALSE(returned);
+  EXPECT_TRUE(systemError);
+  EXPECT_EQ(jni.pending, &jni.original);
+  EXPECT_EQ(calls, std::vector<jlong>{-capacity});
+  jni.pending = nullptr;
 }
 
 TEST_F(VeloxJniAllocationListenerTest, onlyVeloxJavaListenersAreWrapped) {

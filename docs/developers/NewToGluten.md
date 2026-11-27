@@ -152,7 +152,14 @@ failure is kept and the second error is logged. The listener never calls Java
 while an exception is pending. Such an exception fails a reservation; an
 unreserve first returns the memory and then restores the exception. A guarded
 JNI entry leaves it pending for Java, while a native pool thread throws it as a
-native exception instead of keeping it.
+native exception instead of keeping it. If JNI cannot restore it and leaves no
+exception pending, the operation fails rather than reporting a successful shrink.
+Arrow tracks the freed buffer separately from the Java reservation: a successful
+repayment releases the block even if an earlier exception still has to propagate;
+a rejected repayment leaves the block charged and available for reuse.
+
+If native memory runs out after a callback throwable has been captured, the
+memory listener nests that throwable in a preallocated Velox system-error wrapper.
 
 `gluten-arrow/src/test/java/org/apache/gluten/jni/JavaExceptionJniTest.java` runs
 these cases through JUnit and Maven Surefire without starting Spark or a backend.

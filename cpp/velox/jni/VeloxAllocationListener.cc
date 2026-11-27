@@ -23,17 +23,23 @@ namespace {
 
 class VeloxJniAllocationListener final : public SparkAllocationListener {
  public:
-  using SparkAllocationListener::SparkAllocationListener;
+  VeloxJniAllocationListener(JavaVM* vm, jobject listener, const facebook::velox::VeloxException& fallback)
+      : SparkAllocationListener(vm, listener), fallback_(fallback) {}
 
-  void allocationChanged(int64_t diff) override {
-    wrapJavaException([&] { SparkAllocationListener::allocationChanged(diff); });
+  void applyChange(Change& change) override {
+    wrapJavaException([&] { SparkAllocationListener::applyChange(change); }, &fallback_);
   }
+
+ private:
+  const facebook::velox::VeloxException& fallback_;
 };
 
 } // namespace
 
 std::unique_ptr<AllocationListener> createVeloxJniAllocationListener(JavaVM* vm, jobject listener) {
-  return std::make_unique<VeloxJniAllocationListener>(vm, listener);
+  // Allocate before any reservation callback. Copies share immutable state; the cause is nested per throw.
+  static const auto fallback = makeVeloxJavaException(nullptr, "Java memory reservation callback failed");
+  return std::make_unique<VeloxJniAllocationListener>(vm, listener, fallback);
 }
 
 } // namespace gluten
