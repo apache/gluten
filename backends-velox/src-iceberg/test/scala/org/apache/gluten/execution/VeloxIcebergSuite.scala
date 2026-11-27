@@ -23,13 +23,18 @@ import org.apache.gluten.utils.VeloxFileSystemValidationJniWrapper
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.connector.catalog.{Identifier, TableCatalog}
+import org.apache.spark.sql.execution.command.CommandResultExec
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.utils.GlutenSuiteUtils
 
+import org.apache.hadoop.fs.Path
 import org.apache.iceberg.{FileScanTask, UpdateSchema}
 import org.apache.iceberg.expressions.Literal
 import org.apache.iceberg.hadoop.HadoopCatalog
 import org.apache.iceberg.io.{ResolvingFileIO, StorageCredential}
+import org.apache.iceberg.shaded.org.apache.parquet.hadoop.ParquetFileReader
+import org.apache.iceberg.shaded.org.apache.parquet.hadoop.util.HadoopInputFile
+import org.apache.iceberg.shaded.org.apache.parquet.schema.{LogicalTypeAnnotation, Type => ParquetType}
 import org.apache.iceberg.spark.{ScanTaskSetManager, Spark3Util, SparkCatalog, SparkTableCache}
 import org.apache.iceberg.spark.source.{GlutenIcebergSourceUtil, SparkTable}
 import org.apache.iceberg.types.{Type, Types}
@@ -320,5 +325,72 @@ class VeloxIcebergSuite extends IcebergSuite {
           )
       }
     }
+  }
+
+  test("GLUTEN-13429: timestamptz columns written with isAdjustedToUTC=true") {
+    def verifyTimestampAdjustedToUtc(
+        tableName: String,
+        colsDdl: String,
+        insertValues: String,
+        selectCols: String,
+        fieldPath: Seq[String]): Unit = {
+      withTable(tableName) {
+        spark.sql(s"CREATE TABLE $tableName ($colsDdl) USING iceberg")
+
+        val df = spark.sql(s"INSERT INTO $tableName VALUES $insertValues")
+        assert(
+          df.queryExecution.executedPlan
+            .asInstanceOf[CommandResultExec]
+            .commandPhysicalPlan
+            .isInstanceOf[VeloxIcebergAppendDataExec],
+          "Iceberg write should be offloaded to Velox"
+        )
+
+        val files = spark.sql(s"SELECT file_path FROM default.$tableName.files").collect()
+        assert(files.nonEmpty)
+        files.foreach {
+          file =>
+            val reader = ParquetFileReader.open(
+              HadoopInputFile.fromPath(
+                new Path(file.getString(0)),
+                spark.sparkContext.hadoopConfiguration))
+            try {
+              val schema = reader.getFooter.getFileMetaData.getSchema
+              val tsField = fieldPath.foldLeft(schema.asGroupType().asInstanceOf[ParquetType]) {
+                (parent, name) => parent.asGroupType().getType(name)
+              }
+              val logicalType = tsField.getLogicalTypeAnnotation
+              assert(
+                logicalType.isInstanceOf[LogicalTypeAnnotation.TimestampLogicalTypeAnnotation],
+                s"Expected TimestampLogicalTypeAnnotation but got $logicalType")
+              val tsAnnotation =
+                logicalType.asInstanceOf[LogicalTypeAnnotation.TimestampLogicalTypeAnnotation]
+              assert(
+                tsAnnotation.isAdjustedToUTC,
+                s"Expected isAdjustedToUTC=true, got ${tsAnnotation.isAdjustedToUTC}")
+            } finally {
+              reader.close()
+            }
+        }
+
+        checkAnswer(
+          spark.sql(s"SELECT $selectCols FROM $tableName"),
+          Seq(Row(1, java.sql.Timestamp.valueOf("2026-11-19 12:00:00"))))
+      }
+    }
+
+    verifyTimestampAdjustedToUtc(
+      "iceberg_timestamptz_tbl",
+      "id INT, ts TIMESTAMP",
+      "(1, TIMESTAMP '2026-11-19 12:00:00')",
+      "id, ts",
+      Seq("ts"))
+    verifyTimestampAdjustedToUtc(
+      "iceberg_timestamptz_nested_tbl",
+      "id INT, nested STRUCT<ts: TIMESTAMP>",
+      "(1, named_struct('ts', TIMESTAMP '2026-11-19 12:00:00'))",
+      "id, nested.ts",
+      Seq("nested", "ts")
+    )
   }
 }

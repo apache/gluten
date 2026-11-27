@@ -26,6 +26,7 @@
 #include "utils/ConfigExtractor.h"
 #include "velox/connectors/hive/iceberg/IcebergDataSink.h"
 #include "velox/connectors/hive/iceberg/IcebergDeleteFile.h"
+#include "velox/dwio/parquet/common/ParquetConfig.h"
 
 using namespace facebook::velox;
 using namespace facebook::velox::connector::hive;
@@ -115,6 +116,16 @@ parquet::ParquetFieldId convertToIcebergNestedField(const gluten::IcebergNestedF
   return result;
 }
 
+std::unordered_map<std::string, std::string> createSerdeParameters(
+    const std::unordered_map<std::string, std::string>& sparkConfs) {
+  std::unordered_map<std::string, std::string> serdeParameters;
+  const std::string tzKey(parquet::ParquetConfig::kWriterSerdeTimestampTimezone);
+  if (auto it = sparkConfs.find(tzKey); it != sparkConfs.end()) {
+    serdeParameters[tzKey] = it->second;
+  }
+  return serdeParameters;
+}
+
 std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
     const RowTypePtr& outputRowType,
     const std::string& outputDirectoryPath,
@@ -125,7 +136,8 @@ std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
     const std::string& operationId,
     std::shared_ptr<const IcebergPartitionSpec> spec,
     const parquet::ParquetFieldId& nestedField,
-    facebook::velox::memory::MemoryPool* pool) {
+    facebook::velox::memory::MemoryPool* pool,
+    const std::unordered_map<std::string, std::string>& serdeParameters = {}) {
   std::vector<std::shared_ptr<const iceberg::IcebergColumnHandle>> columnHandles;
 
   std::vector<std::string> columnNames = outputRowType->names();
@@ -158,7 +170,6 @@ std::shared_ptr<IcebergInsertTableHandle> createIcebergInsertTableHandle(
   std::shared_ptr<const connector::hive::LocationHandle> locationHandle =
       std::make_shared<connector::hive::LocationHandle>(
           outputDirectoryPath, outputDirectoryPath, connector::hive::LocationHandle::TableType::kExisting);
-  const std::unordered_map<std::string, std::string> serdeParameters;
   auto writeKind = connector::hive::iceberg::IcebergInsertTableHandle::WriteKind::kData;
   return std::make_shared<connector::hive::iceberg::IcebergInsertTableHandle>(
       columnHandles,
@@ -243,7 +254,8 @@ IcebergWriter::IcebergWriter(
           operationId_,
           spec,
           field_,
-          pool_.get()),
+          pool_.get(),
+          createSerdeParameters(sparkConfs)),
       connectorQueryCtx_.get(),
       facebook::velox::connector::CommitStrategy::kNoCommit,
       connectorConfig_,
