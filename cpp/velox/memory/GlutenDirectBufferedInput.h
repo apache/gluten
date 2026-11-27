@@ -33,7 +33,7 @@ class GlutenDirectBufferedInput : public facebook::velox::dwio::common::DirectBu
       std::shared_ptr<facebook::velox::IoStats> ioStats,
       folly::Executor* executor,
       const facebook::velox::io::ReaderOptions& readerOptions,
-      folly::F14FastMap<std::string, std::string> fileReadOps = {})
+      facebook::velox::FileIoContext fileIoContext)
       : DirectBufferedInput(
             std::move(readFile),
             metricsLog,
@@ -44,7 +44,7 @@ class GlutenDirectBufferedInput : public facebook::velox::dwio::common::DirectBu
             std::move(ioStats),
             executor,
             readerOptions,
-            std::move(fileReadOps)) {}
+            std::move(fileIoContext)) {}
 
   ~GlutenDirectBufferedInput() override {
     requests_.clear();
