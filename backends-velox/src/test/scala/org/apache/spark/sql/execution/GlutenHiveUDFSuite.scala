@@ -30,7 +30,7 @@ import org.apache.spark.sql.catalyst.expressions.CodegenObjectFactoryMode
 import org.apache.spark.sql.catalyst.optimizer.ConvertToLocalRelation
 import org.apache.spark.sql.classic.ClassicTypes._
 import org.apache.spark.sql.functions.udf
-import org.apache.spark.sql.hive.HiveUtils
+import org.apache.spark.sql.hive.{HiveTableScanExecTransformer, HiveUtils}
 import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
 import org.apache.spark.sql.test.SQLTestUtils
 
@@ -462,6 +462,30 @@ class GlutenHiveUDFSuite extends GlutenQueryComparisonTest with SQLTestUtils {
                            |)
                            |""".stripMargin) {
         checkOperatorMatch[ColumnarPartialProjectExec]
+      }
+    }
+  }
+
+  test("input_file_name() next to computed columns over a hive table scan") {
+    withTable("hive_input_file") {
+      withSQLConf(
+        HiveUtils.CONVERT_METASTORE_PARQUET.key -> "false",
+        GlutenConfig.COLUMNAR_PROJECT_ENABLED.key -> "false") {
+        sql("CREATE TABLE hive_input_file (name STRING, id INT) STORED AS PARQUET")
+        sql("INSERT INTO hive_input_file VALUES ('a', 1), ('b', 2)")
+        // The project stays on Spark, and the hive scan can't produce its computed columns.
+        // Only the file name is compared: the native scan returns the path as file:///...
+        Seq(
+          "SELECT substring_index(input_file_name(), '/', -1) AS f, name, id + 1 AS i " +
+            "FROM hive_input_file",
+          "SELECT concat(substring_index(input_file_name(), '/', -1), name) AS f " +
+            "FROM hive_input_file"
+        ).foreach {
+          query =>
+            runQueryAndCompare(query, noFallBack = false) {
+              checkOperatorMatch[HiveTableScanExecTransformer]
+            }
+        }
       }
     }
   }
