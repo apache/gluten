@@ -171,7 +171,8 @@ class GlutenSQLQuerySuite
       SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true",
       SQLConf.ANSI_ENABLED.key -> "false",
       GlutenConfig.COLUMNAR_UNION_ENABLED.key -> "true",
-      GlutenConfig.COLUMNAR_SHUFFLE_ENABLED.key -> "true") {
+      GlutenConfig.COLUMNAR_SHUFFLE_ENABLED.key -> "true"
+    ) {
       val df = sql(
         """SELECT /*+ REBALANCE(1) */ *
           |FROM (
