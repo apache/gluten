@@ -74,11 +74,20 @@ std::exception_ptr unwrapBackendException(const std::exception& error) noexcept 
 
 std::optional<JniExceptionMetadata> describeBackendException(const std::exception& error) {
   auto& registry = metadataRegistry();
-  // Unregistering a backend must wait until its callback has returned.
+  // Unregistering a backend must wait until its callback has returned and any exception it threw, whose
+  // what() and destructor may be backend code, has been inspected and destroyed.
   std::lock_guard<std::mutex> lock(registry.mutex);
   for (auto describe : registry.callbacks) {
-    if (auto metadata = describe(error)) {
-      return metadata;
+    try {
+      if (auto metadata = describe(error)) {
+        return metadata;
+      }
+    } catch (const std::exception& failure) {
+      LOG(WARNING) << "Unable to describe native exception at JNI boundary: " << failure.what();
+      return std::nullopt;
+    } catch (...) {
+      LOG(WARNING) << "Unable to describe native exception at JNI boundary: unknown exception type";
+      return std::nullopt;
     }
   }
   return std::nullopt;
@@ -169,10 +178,8 @@ void handleJniException(JNIEnv* env, const std::exception& error) {
         throwMetadataException(env, *metadata);
       }
     } catch (const std::exception& failure) {
-      // Describing is best effort; keep the original diagnostic or a newer pending throwable.
-      LOG(WARNING) << "Unable to describe native exception at JNI boundary: " << failure.what();
-    } catch (...) {
-      LOG(WARNING) << "Unable to describe native exception at JNI boundary: unknown exception type";
+      // Raising the described exception is best effort; keep the original diagnostic or a newer pending throwable.
+      LOG(WARNING) << "Unable to throw described native exception at JNI boundary: " << failure.what();
     }
   }
   if (!env->ExceptionCheck()) {

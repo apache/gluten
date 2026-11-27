@@ -17,10 +17,13 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
 #include <new>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
 #include "jni/JavaException.h"
 #include "jni/JniError.h"
@@ -236,6 +239,48 @@ class JniExceptionMetadataTest : public ::testing::Test {
     boundaryJni.pending = &boundaryJni.secondary;
     throw ProviderFailure::kNonStandard;
   }
+
+  static inline std::atomic<bool> providerPaused{false};
+  static inline std::atomic<bool> providerReleased{false};
+  static inline std::atomic<bool> unregistered{false};
+  static inline std::atomic<bool> unregisteredWhilePaused{false};
+
+  static bool waitFor(const std::atomic<bool>& flag, std::chrono::milliseconds timeout) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (!flag && std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return flag;
+  }
+
+  // Stands for provider code that must stay loaded until the test releases it.
+  static void pauseProviderCode() {
+    providerPaused = true;
+    waitFor(providerReleased, std::chrono::seconds(10));
+    unregisteredWhilePaused = unregistered.load();
+  }
+
+  struct InspectedFailure : std::exception {
+    const char* what() const noexcept override {
+      pauseProviderCode();
+      return "provider failure";
+    }
+  };
+
+  // Not a std::exception, so only its destructor runs provider code.
+  struct DestroyedFailure {
+    ~DestroyedFailure() {
+      pauseProviderCode();
+    }
+  };
+
+  static std::optional<JniExceptionMetadata> failWithInspectedException(const std::exception&) {
+    throw InspectedFailure();
+  }
+
+  static std::optional<JniExceptionMetadata> failWithDestroyedException(const std::exception&) {
+    throw DestroyedFailure();
+  }
 };
 
 TEST_F(JniExceptionMetadataTest, metadataFailureKeepsThePendingThrowableOrOriginalDiagnostic) {
@@ -272,6 +317,35 @@ TEST_F(JniExceptionMetadataTest, nonStandardMetadataFailureKeepsThePendingThrowa
   EXPECT_EQ(jni.pending, &jni.secondary);
   EXPECT_EQ(descriptions, 2);
   jni.pending = nullptr;
+}
+
+TEST_F(JniExceptionMetadataTest, unregistrationWaitsForProviderExceptions) {
+  auto& jni = boundaryJni;
+  const std::runtime_error error("original native diagnostic");
+  for (const auto provider : {failWithInspectedException, failWithDestroyedException}) {
+    SCOPED_TRACE(provider == failWithInspectedException ? "what()" : "destructor");
+    providerPaused = false;
+    providerReleased = false;
+    unregistered = false;
+    unregisteredWhilePaused = false;
+    std::optional<JniExceptionMetadataRegistration> registration;
+    registration.emplace(provider);
+    std::thread boundary([&] { handleJniException(jni.env(), error); });
+    EXPECT_TRUE(waitFor(providerPaused, std::chrono::seconds(10)));
+    std::thread unregister([&] {
+      registration.reset();
+      unregistered = true;
+    });
+    // The provider's exception is still alive, so unregistering must keep waiting.
+    EXPECT_FALSE(waitFor(unregistered, std::chrono::milliseconds(300)));
+    providerReleased = true;
+    boundary.join();
+    unregister.join();
+    EXPECT_FALSE(unregisteredWhilePaused);
+    EXPECT_EQ(jni.pending, &jni.fallback);
+    EXPECT_EQ(jni.fallbackMessage, error.what());
+    jni.pending = nullptr;
+  }
 }
 
 TEST_F(JniExceptionMetadataTest, carriedJavaThrowableWinsAndRegistrationIsScoped) {
