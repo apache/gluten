@@ -93,12 +93,14 @@ jobs:
         if: github.repository_owner != 'apache'
         uses: ./.github/actions/squash-merge-upstream
         with:
-          # The `paths:` list above. Keep the two in sync.
+          # The `paths:` list above. Keep the two in sync, and the `.github` part of the
+          # `java` regex in detect-changes below, which lists the same files in the same order.
           paths: '^(\.github/workflows/velox_backend_arm\.yml$|\.github/actions/|pom\.xml$|build/mvn$|(backends-velox|gluten-(uniffle|celeborn|core|substrait|arrow|delta|iceberg|lance|hudi|paimon|ut)|package|shims|tools/gluten-it|ep/build-velox|cpp|dev)/)'
           paths-ignore: '^cpp/bolt/|^cpp/bolt\.CMakeLists\.cmake$'
 
   # Detect which parts of the codebase were modified so downstream jobs can
-  # skip work that is irrelevant to the change.
+  # skip work that is irrelevant to the change. `java` also covers the files under
+  # .github that this workflow uses, the same ones as in `paths` above.
   detect-changes:
     needs: merge-upstream
     runs-on: ubuntu-24.04
@@ -138,7 +140,7 @@ jobs:
           match() { echo "$changed" | grep -qE "$1" && echo true || echo false; }
 
           echo "cpp=$(match      '^(cpp/|ep/build-velox/|dev/)')"                                            >> $GITHUB_OUTPUT
-          echo "java=$(match     '^(\.github/(workflows|actions)/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|lance|hudi|paimon)/|gluten-ut/(common/|test/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
+          echo "java=$(match     '^(\.github/workflows/velox_backend_arm\.yml$|\.github/actions/|pom\.xml|backends-velox/|gluten-(uniffle|celeborn|ras|core|substrait|arrow|delta|iceberg|lance|hudi|paimon)/|gluten-ut/(common/|test/|pom\.xml)|package/|build/mvn)')" >> $GITHUB_OUTPUT
           echo "tools_it=$(match '^tools/gluten-it/')"                                                       >> $GITHUB_OUTPUT
 
   build-native-lib-centos-9:
