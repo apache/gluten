@@ -24,6 +24,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
@@ -47,6 +48,24 @@ public final class JavaExceptionJniTest {
     }
   }
 
+  private static final class MetadataException extends RuntimeException {
+    private final String reason;
+
+    private MetadataException(byte[] reason, byte[] diagnostic) {
+      super(new String(diagnostic, StandardCharsets.UTF_8));
+      this.reason = new String(reason, StandardCharsets.UTF_8);
+    }
+  }
+
+  private static final class FailingMetadataException extends RuntimeException {
+    private static final OutOfMemoryError FAILURE =
+        new OutOfMemoryError("injected constructor failure");
+
+    private FailingMetadataException(byte[] reason, byte[] diagnostic) {
+      throw FAILURE;
+    }
+  }
+
   private static native int roundTrip(Callback callback, boolean nested);
 
   private static native void roundTripWithFailedCapture(Callback callback, Throwable failure);
@@ -61,6 +80,8 @@ public final class JavaExceptionJniTest {
       Callback callback, boolean nested, Throwable failure);
 
   private static native void throwNativeException();
+
+  private static native void throwNativeMetadata(boolean failConstruction, boolean failThrow);
 
   private static native void close();
 
@@ -295,6 +316,38 @@ public final class JavaExceptionJniTest {
       Assert.assertSame(GlutenException.class, actual.getClass());
       Assert.assertNull(actual.getCause());
       Assert.assertEquals("native-only failure", actual.getMessage());
+    }
+  }
+
+  @Test
+  public void nativeMetadataRetainsEmbeddedNul() {
+    try {
+      throwNativeMetadata(false, false);
+      Assert.fail("Expected the described native exception");
+    } catch (MetadataException actual) {
+      Assert.assertEquals("a\0b", actual.reason);
+      Assert.assertEquals("native metadata diagnostic", actual.getMessage());
+    }
+  }
+
+  @Test
+  public void nativeMetadataConstructorFailureRemainsPending() {
+    try {
+      throwNativeMetadata(true, false);
+      Assert.fail("Expected the constructor's failure");
+    } catch (OutOfMemoryError actual) {
+      Assert.assertSame(FailingMetadataException.FAILURE, actual);
+    }
+  }
+
+  @Test
+  public void failedNativeMetadataThrowUsesOriginalDiagnostic() {
+    try {
+      throwNativeMetadata(false, true);
+      Assert.fail("Expected the native fallback");
+    } catch (GlutenException actual) {
+      Assert.assertSame(GlutenException.class, actual.getClass());
+      Assert.assertEquals("native metadata diagnostic", actual.getMessage());
     }
   }
 

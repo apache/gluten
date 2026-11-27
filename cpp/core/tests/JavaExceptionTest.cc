@@ -17,10 +17,13 @@
 
 #include <gtest/gtest.h>
 
+#include <new>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
 #include "jni/JavaException.h"
+#include "jni/JniError.h"
 #include "tests/utils/TestJniEnvironment.h"
 
 using namespace gluten;
@@ -193,4 +196,71 @@ TEST(JavaExceptionTest, nativeOnlyWrappersRetainExistingFallback) {
   }
   EXPECT_EQ(jni.pending, nullptr);
   EXPECT_EQ(jni.createdGlobalRefs, 0);
+}
+
+class JniExceptionMetadataTest : public ::testing::Test {
+ protected:
+  static inline TestJniEnvironment boundaryJni;
+  static inline int descriptions = 0;
+
+  static void SetUpTestSuite() {
+    getJniErrorState()->ensureInitialized(boundaryJni.env());
+  }
+
+  static void TearDownTestSuite() {
+    getJniErrorState()->close();
+    EXPECT_EQ(boundaryJni.createdGlobalRefs, boundaryJni.deletedGlobalRefs);
+  }
+
+  void SetUp() override {
+    descriptions = 0;
+  }
+
+  // Describes every error, but fails as if it could not allocate the metadata.
+  static std::optional<JniExceptionMetadata> failToDescribe(const std::exception&) {
+    ++descriptions;
+    throw std::bad_alloc();
+  }
+};
+
+TEST_F(JniExceptionMetadataTest, metadataFailureKeepsThePendingThrowableOrOriginalDiagnostic) {
+  auto& jni = boundaryJni;
+  const JniExceptionMetadataRegistration registration(failToDescribe);
+  const std::runtime_error error("original native diagnostic");
+
+  jni.pending = &jni.secondary;
+  handleJniException(jni.env(), error);
+  EXPECT_EQ(jni.pending, &jni.secondary);
+  EXPECT_EQ(descriptions, 0);
+
+  jni.pending = nullptr;
+  handleJniException(jni.env(), error);
+  EXPECT_EQ(jni.pending, &jni.fallback);
+  EXPECT_EQ(jni.fallbackMessage, error.what());
+  EXPECT_EQ(descriptions, 1);
+  jni.pending = nullptr;
+}
+
+TEST_F(JniExceptionMetadataTest, carriedJavaThrowableWinsAndRegistrationIsScoped) {
+  auto& jni = boundaryJni;
+  {
+    const JniExceptionMetadataRegistration registration(failToDescribe);
+    try {
+      throw JavaException(jni.env(), &jni.original);
+    } catch (...) {
+      try {
+        std::throw_with_nested(std::runtime_error("native wrapper"));
+      } catch (const std::exception& error) {
+        handleJniException(jni.env(), error);
+      }
+    }
+    EXPECT_EQ(jni.pending, &jni.original);
+    EXPECT_EQ(descriptions, 0);
+    jni.pending = nullptr;
+  }
+  handleJniException(jni.env(), std::runtime_error("native error"));
+  EXPECT_EQ(jni.pending, &jni.fallback);
+  EXPECT_EQ(jni.fallbackMessage, "native error");
+  EXPECT_EQ(descriptions, 0);
+  jni.pending = nullptr;
 }
