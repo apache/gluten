@@ -72,8 +72,12 @@ public class WindowUtils {
       }
       windowType = 1;
     } else if (windowSpec instanceof CumulativeWindowSpec) {
-      // Align with velox WindowType enum: HOP=0, TUMBLE=1, SESSION=2, CUMULATIVE=3
+      // Align with velox WindowType enum: HOP=0, TUMBLE=1, SESSION=2, CUMULATIVE=3.
+      // The velox CUMULATE path reads size = the group's max size and
+      // step = the step interval (Flink CumulativeWindowSpec).
       windowType = 3;
+      size = ((CumulativeWindowSpec) windowSpec).getMaxSize().toMillis();
+      slide = ((CumulativeWindowSpec) windowSpec).getStep().toMillis();
     } else if (windowSpec instanceof SessionWindowSpec) {
       windowType = 2;
       // The session gap rides the size field; step/offset stay unset

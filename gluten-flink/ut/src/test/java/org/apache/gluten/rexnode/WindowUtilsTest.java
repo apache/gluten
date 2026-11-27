@@ -79,15 +79,14 @@ public class WindowUtilsTest {
   }
 
   @Test
-  public void testCumulativeDeferred() {
-    // CUMULATE is deferred: the branch assigns the type code but extracts
-    // no parameters, so the velox operator rejects the plan fail loud
-    // through its L5 check before the size validation.
+  public void testCumulativeParameters() {
+    // CUMULATE: size = the group's max size, slide = the step interval
+    // (the native operator reads them for the cumulative step chain).
     final Tuple5<Long, Long, Long, Integer, Integer> out =
         WindowUtils.extractWindowParameters(
             timeStrategy(new CumulativeWindowSpec(ofMillis(4000), ofMillis(2000), null)));
-    assertEquals(0L, (long) out.f0);
-    assertEquals(0L, (long) out.f1);
+    assertEquals(4000L, (long) out.f0);
+    assertEquals(2000L, (long) out.f1);
     assertEquals(0L, (long) out.f2);
     assertEquals(1, (int) out.f3);
     assertEquals(3, (int) out.f4);

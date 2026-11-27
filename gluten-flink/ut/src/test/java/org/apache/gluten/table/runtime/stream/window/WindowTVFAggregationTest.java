@@ -144,6 +144,12 @@ class WindowTVFAggregationTest extends GlutenStreamingTestBase {
           + "TABLE(TUMBLE(TABLE srcTumble, DESCRIPTOR(ts), INTERVAL '5' SECOND)) "
           + "GROUP BY k, window_start, window_end";
 
+  private static final String CUMULATE_QUERY =
+      "SELECT k, window_start, window_end, COUNT(*), SUM(price) FROM "
+          + "TABLE(CUMULATE(TABLE srcCumulate, DESCRIPTOR(ts), "
+          + "INTERVAL '2' SECOND, INTERVAL '4' SECOND)) "
+          + "GROUP BY k, window_start, window_end";
+
   private static final String HOP_QUERY =
       "SELECT k, window_start, window_end, COUNT(*), SUM(price) FROM "
           + "TABLE(HOP(TABLE srcHop, DESCRIPTOR(ts), INTERVAL '2' SECOND, INTERVAL '4' SECOND)) "
@@ -279,24 +285,6 @@ class WindowTVFAggregationTest extends GlutenStreamingTestBase {
   }
 
   @Test
-  void testCumulateRejectedAtTranslation() {
-    // Window-type split: CUMULATE lands in a follow-up PR; the
-    // translation rejects it loudly so nothing silently runs the
-    // aligned-window math over a cumulative window.
-    createBoundedSource(
-        "srcCumulate", SCHEMA, Arrays.asList(Row.of(1, 10L, "2026-01-01 00:00:01")));
-    String cumulateQuery =
-        "SELECT k, window_start, window_end, COUNT(*), SUM(price) FROM "
-            + "TABLE(CUMULATE(TABLE srcCumulate, DESCRIPTOR(ts), "
-            + "INTERVAL '5' SECOND, INTERVAL '1' SECOND)) "
-            + "GROUP BY k, window_start, window_end";
-    TableException e = assertThrows(TableException.class, () -> runQuery(cumulateQuery));
-    assertTrue(
-        e.getMessage().contains("CUMULATE"),
-        "expected the explicit CUMULATE rejection, got: " + e.getMessage());
-  }
-
-  @Test
   void testSessionRejectedAtTranslation() {
     createBoundedSource("srcSession", SCHEMA, Arrays.asList(Row.of(1, 10L, "2026-01-01 00:00:01")));
     String sessionQuery =
@@ -368,5 +356,24 @@ class WindowTVFAggregationTest extends GlutenStreamingTestBase {
     assertTrue(
         e.getMessage() != null && e.getMessage().contains("update-stream"),
         "expected the explicit update-stream rejection, got: " + e.getMessage());
+  }
+
+  @Test
+  void testEventTimeCumulateStepwiseEmission() {
+    // CUMULATE(size=4s, step=2s): the group [0,4) fires [0,2) at 2s
+    // (the rows of the first step) then [0,4) at 4s (the cumulative
+    // group); the step slice folds into the group's first slice at
+    // each fire (Flink CumulativeSliceAssigner).
+    createBoundedSource(
+        "srcCumulate",
+        SCHEMA,
+        Arrays.asList(
+            Row.of(1, 10L, "2026-01-01 00:00:01"), Row.of(1, 20L, "2026-01-01 00:00:03")));
+    assertThat(runQuerySorted(CUMULATE_QUERY))
+        .isEqualTo(
+            sorted(
+                Arrays.asList(
+                    "+I[1, 2026-01-01T00:00:00.000, 2026-01-01T00:00:02.000, 1, 10]",
+                    "+I[1, 2026-01-01T00:00:00.000, 2026-01-01T00:00:04.000, 2, 30]")));
   }
 }
