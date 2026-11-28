@@ -56,10 +56,10 @@ object SparkMemoryUtil {
     // With dynamic off-heap sizing enabled, Gluten's global reservations are
     // charged to the ON-heap pools (see GlobalOffHeapMemoryTarget), so the
     // available figure must be read from the same pools. Read the flag the same
-    // way GlobalOffHeapMemoryTarget.mode does, so the two cannot pick different
+    // way GlobalOffHeapMemoryTarget does, so the two cannot pick different
     // pool families.
     val (smp, emp) =
-      if (GlutenCoreConfig.get.dynamicOffHeapSizingEnabled) {
+      if (GlutenCoreConfig.isDynamicOffHeapSizingEnabled) {
         (
           onHeapSmpField.get(mm).asInstanceOf[StorageMemoryPool],
           onHeapEmpField.get(mm).asInstanceOf[ExecutionMemoryPool])
@@ -156,6 +156,11 @@ object SparkMemoryUtil {
 
       override def visit(globalOffHeapMemoryTarget: GlobalOffHeapMemoryTarget): String = {
         prettyPrintStats("Global off-heap target stats: ", globalOffHeapMemoryTarget)
+      }
+
+      override def visit(
+          wrappedGlobalOffHeapMemoryTarget: WrappedGlobalOffHeapMemoryTarget): String = {
+        prettyPrintStats("Global off-heap target stats: ", wrappedGlobalOffHeapMemoryTarget)
       }
     })
   }

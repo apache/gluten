@@ -16,10 +16,11 @@
  */
 package org.apache.gluten.config
 
+import org.apache.spark.SparkEnv
 import org.apache.spark.internal.Logging
 import org.apache.spark.network.util.ByteUnit
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.internal.{SQLConf, SQLConfProvider}
+import org.apache.spark.sql.internal.{SparkConfigUtil, SQLConf, SQLConfProvider}
 
 class GlutenCoreConfig(conf: SQLConf) extends Logging {
   import GlutenCoreConfig._
@@ -64,6 +65,24 @@ class GlutenCoreConfig(conf: SQLConf) extends Logging {
 object GlutenCoreConfig extends ConfigRegistry {
   override def get: GlutenCoreConfig = {
     new GlutenCoreConfig(activeSQLConf)
+  }
+
+  /**
+   * Resolves [[DYNAMIC_OFFHEAP_SIZING_ENABLED]] for the memory accounting layer.
+   *
+   * Global memory operations may run without an active SQL session, e.g. in Arrow or native
+   * callbacks. Read this static option from the current SparkEnv so global reservations, task
+   * consumers and pool selection use the same application's configuration across threads and
+   * SparkContext restarts. Fall back to SQLConf only when SparkEnv is unavailable.
+   */
+  def isDynamicOffHeapSizingEnabled: Boolean = {
+    val env = SparkEnv.get
+    if (env != null) {
+      SparkConfigUtil.get(env.conf, DYNAMIC_OFFHEAP_SIZING_ENABLED)
+    } else {
+      // No SparkEnv around: test code, or an application that is not booted up yet.
+      get.dynamicOffHeapSizingEnabled
+    }
   }
 
   private[gluten] def activeSQLConf: SQLConf = {

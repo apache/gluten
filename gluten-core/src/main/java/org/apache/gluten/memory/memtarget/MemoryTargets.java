@@ -37,8 +37,18 @@ public final class MemoryTargets {
     // enclose factory ctor
   }
 
+  /**
+   * Creates the process-wide memory target that backs {@code GlobalOffHeapMemory}, i.e. the
+   * reservations that are not owned by any Spark task (Arrow's global allocator, the Velox global
+   * memory listener, ...). Those reservations are backed by real native memory, so with dynamic
+   * off-heap sizing on they must be booked in the same shared ledger as the task-level targets,
+   * which is what the global wrapper does. It checks the flag at borrow time and creates the
+   * dynamic-sizing delegate lazily because SparkContexts can change within the lifetime of this
+   * target. Global reservations must still be repaid before their originating SparkContext stops or
+   * its memory mode changes; the wrapper tracks ledger bookings, not Spark pool ownership.
+   */
   public static MemoryTarget global() {
-    return new GlobalOffHeapMemoryTarget();
+    return new WrappedGlobalOffHeapMemoryTarget(new GlobalOffHeapMemoryTarget());
   }
 
   public static MemoryTarget throwOnOom(MemoryTarget target) {
@@ -55,7 +65,7 @@ public final class MemoryTargets {
 
   @Experimental
   public static MemoryTarget dynamicOffHeapSizingIfEnabled(MemoryTarget memoryTarget) {
-    if (GlutenCoreConfig.get().dynamicOffHeapSizingEnabled()) {
+    if (GlutenCoreConfig.isDynamicOffHeapSizingEnabled()) {
       return new DynamicOffHeapSizingMemoryTarget(memoryTarget);
     }
 
@@ -65,7 +75,7 @@ public final class MemoryTargets {
   public static TreeMemoryTarget newConsumer(
       String name, Spiller spiller, Map<String, MemoryUsageStatsBuilder> virtualChildren) {
     final MemoryMode mode;
-    if (GlutenCoreConfig.get().dynamicOffHeapSizingEnabled()) {
+    if (GlutenCoreConfig.isDynamicOffHeapSizingEnabled()) {
       mode = MemoryMode.ON_HEAP;
     } else {
       mode = MemoryMode.OFF_HEAP;

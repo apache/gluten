@@ -41,4 +41,6 @@ public interface MemoryTargetVisitor<T> {
   T visit(RetryOnOomMemoryTarget retryOnOomMemoryTarget);
 
   T visit(GlobalOffHeapMemoryTarget globalOffHeapMemoryTarget);
+
+  T visit(WrappedGlobalOffHeapMemoryTarget wrappedGlobalOffHeapMemoryTarget);
 }
