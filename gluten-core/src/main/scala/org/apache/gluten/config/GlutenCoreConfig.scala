@@ -20,6 +20,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.network.util.ByteUnit
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.internal.{SQLConf, SQLConfProvider}
+import org.apache.spark.util.SparkResourceUtil
 
 class GlutenCoreConfig(conf: SQLConf) extends Logging {
   import GlutenCoreConfig._
@@ -42,7 +43,10 @@ class GlutenCoreConfig(conf: SQLConf) extends Logging {
   def taskOffHeapMemorySize: Long = getConf(COLUMNAR_TASK_OFFHEAP_SIZE_IN_BYTES)
 
   def conservativeTaskOffHeapMemorySize: Long =
-    getConf(COLUMNAR_CONSERVATIVE_TASK_OFFHEAP_SIZE_IN_BYTES)
+    SparkResourceUtil
+      .currentTaskOffHeapBudget()
+      .map(_.conservativeBytes)
+      .getOrElse(getConf(COLUMNAR_CONSERVATIVE_TASK_OFFHEAP_SIZE_IN_BYTES))
 
   def memoryIsolation: Boolean = getConf(COLUMNAR_MEMORY_ISOLATION)
 
