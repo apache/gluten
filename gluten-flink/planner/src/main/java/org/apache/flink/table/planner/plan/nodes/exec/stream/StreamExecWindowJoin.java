@@ -23,8 +23,6 @@ import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.util.PlanNodeIdGenerator;
 
 import io.github.zhztheplayer.velox4j.connector.ExternalStreamTableHandle;
-import io.github.zhztheplayer.velox4j.expression.FieldAccessTypedExpr;
-import io.github.zhztheplayer.velox4j.expression.TypedExpr;
 import io.github.zhztheplayer.velox4j.plan.EmptyNode;
 import io.github.zhztheplayer.velox4j.plan.HashPartitionFunctionSpec;
 import io.github.zhztheplayer.velox4j.plan.NestedLoopJoinNode;
@@ -56,18 +54,22 @@ import org.apache.flink.table.planner.plan.nodes.exec.spec.JoinSpec;
 import org.apache.flink.table.planner.plan.nodes.exec.utils.ExecNodeUtil;
 import org.apache.flink.table.planner.plan.utils.JoinUtil;
 import org.apache.flink.table.planner.plan.utils.KeySelectorUtil;
+import org.apache.flink.table.runtime.generated.GeneratedJoinCondition;
 import org.apache.flink.table.runtime.keyselector.RowDataKeySelector;
+import org.apache.flink.table.runtime.operators.join.FlinkJoinType;
+import org.apache.flink.table.runtime.operators.join.window.WindowJoinOperatorBuilder;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
+import org.apache.flink.table.types.logical.LocalZonedTimestampType;
 import org.apache.flink.table.types.logical.RowType;
 
 import org.apache.flink.shaded.guava31.com.google.common.collect.Lists;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonCreator;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonProperty;
 
-import java.util.Arrays;
+import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 import static org.apache.flink.util.Preconditions.checkArgument;
 import static org.apache.flink.util.Preconditions.checkNotNull;
@@ -150,6 +152,17 @@ public class StreamExecWindowJoin extends ExecNodeBase<RowData>
     }
   }
 
+  // Only the shapes the velox window join supports today offload to it:
+  // event-time non-LTZ attributes on both sides, any join type whose
+  // residual condition is empty (the key equality is enforced by the
+  // (key..., window end) state buckets; all six Flink join semantics are
+  // handled by the operator's per-type emit paths).
+  private boolean isOffloadable() {
+    return !(leftWindowing.getTimeAttributeType() instanceof LocalZonedTimestampType)
+        && !(rightWindowing.getTimeAttributeType() instanceof LocalZonedTimestampType)
+        && !joinSpec.getNonEquiCondition().isPresent();
+  }
+
   @Override
   @SuppressWarnings("unchecked")
   protected Transformation<RowData> translateToPlanInternal(
@@ -174,72 +187,137 @@ public class StreamExecWindowJoin extends ExecNodeBase<RowData>
     final InternalTypeInfo<RowData> leftTypeInfo = InternalTypeInfo.of(leftType);
     final InternalTypeInfo<RowData> rightTypeInfo = InternalTypeInfo.of(rightType);
 
-    // --- Begin Gluten-specific code changes ---
-    io.github.zhztheplayer.velox4j.type.RowType leftInputType =
-        (io.github.zhztheplayer.velox4j.type.RowType) LogicalTypeConverter.toVLType(leftType);
-    io.github.zhztheplayer.velox4j.type.RowType rightInputType =
-        (io.github.zhztheplayer.velox4j.type.RowType) LogicalTypeConverter.toVLType(rightType);
-    io.github.zhztheplayer.velox4j.type.RowType outputType =
-        (io.github.zhztheplayer.velox4j.type.RowType)
-            LogicalTypeConverter.toVLType(getOutputType());
-    rightInputType = Utils.substituteSameName(leftInputType, rightInputType, outputType);
-    List<FieldAccessTypedExpr> leftKeys =
-        Utils.analyzeJoinKeys(leftInputType, leftJoinKey, List.of());
-    List<FieldAccessTypedExpr> rightKeys =
-        Utils.analyzeJoinKeys(rightInputType, rightJoinKey, List.of());
-    TypedExpr joinCondition = Utils.generateJoinEqualCondition(leftKeys, rightKeys);
+    final TwoInputStreamOperator operator;
+    if (!isOffloadable()) {
+      // The stock Flink translation for the shapes the velox operator does
+      // not cover yet (non-INNER, residual conditions, TIMESTAMP_LTZ).
+      GeneratedJoinCondition generatedCondition =
+          JoinUtil.generateConditionFunction(
+              config, planner.getFlinkContext().getClassLoader(), joinSpec, leftType, rightType);
+      ZoneId shiftTimeZone = java.time.ZoneId.of("UTC");
+      operator =
+          WindowJoinOperatorBuilder.builder()
+              .leftSerializer(leftTypeInfo.toRowSerializer())
+              .rightSerializer(rightTypeInfo.toRowSerializer())
+              .generatedJoinCondition(generatedCondition)
+              .leftWindowEndIndex(leftWindowEndIndex)
+              .rightWindowEndIndex(rightWindowEndIndex)
+              .filterNullKeys(joinSpec.getFilterNulls())
+              .joinType(joinSpec.getJoinType())
+              .withShiftTimezone(shiftTimeZone)
+              .build();
+    } else {
+      // --- Begin Gluten-specific code changes ---
+      io.github.zhztheplayer.velox4j.type.RowType leftInputType =
+          (io.github.zhztheplayer.velox4j.type.RowType) LogicalTypeConverter.toVLType(leftType);
+      io.github.zhztheplayer.velox4j.type.RowType rightInputType =
+          (io.github.zhztheplayer.velox4j.type.RowType) LogicalTypeConverter.toVLType(rightType);
+      io.github.zhztheplayer.velox4j.type.RowType outputType =
+          (io.github.zhztheplayer.velox4j.type.RowType)
+              LogicalTypeConverter.toVLType(getOutputType());
+      rightInputType = Utils.substituteSameName(leftInputType, rightInputType, outputType);
 
-    PlanNode leftInput =
-        new TableScanNode(
-            PlanNodeIdGenerator.newId(),
-            leftInputType,
-            new ExternalStreamTableHandle("connector-external-stream"),
-            List.of());
-    PlanNode rightInput =
-        new TableScanNode(
-            PlanNodeIdGenerator.newId(),
-            rightInputType,
-            new ExternalStreamTableHandle("connector-external-stream"),
-            List.of());
-    List<Integer> leftKeyIndexes = Arrays.stream(leftJoinKey).boxed().collect(Collectors.toList());
-    List<Integer> rightKeyIndexes =
-        Arrays.stream(rightJoinKey).boxed().collect(Collectors.toList());
-    PartitionFunctionSpec leftPartFuncSpec =
-        new HashPartitionFunctionSpec(leftInputType, leftKeyIndexes);
-    PartitionFunctionSpec rightPartFuncSpec =
-        new HashPartitionFunctionSpec(rightInputType, rightKeyIndexes);
-    NestedLoopJoinNode probeNode =
-        new NestedLoopJoinNode(
-            PlanNodeIdGenerator.newId(),
-            Utils.toVLJoinType(joinSpec.getJoinType()),
-            joinCondition,
-            new EmptyNode(rightInputType),
-            new EmptyNode(leftInputType),
-            outputType);
-    PlanNode join =
-        new StreamWindowJoinNode(
-            PlanNodeIdGenerator.newId(),
-            leftInput,
-            rightInput,
-            leftPartFuncSpec,
-            rightPartFuncSpec,
-            probeNode,
-            outputType,
-            1024,
-            leftWindowEndIndex,
-            rightWindowEndIndex);
-    final TwoInputStreamOperator operator =
-        new GlutenTwoInputOperator(
-            new StatefulPlanNode(join.getId(), join),
-            leftInput.getId(),
-            rightInput.getId(),
-            leftInputType,
-            rightInputType,
-            Map.of(join.getId(), outputType),
-            RowData.class,
-            RowData.class,
-            "StreamExecWindowJoin");
-    // --- End Gluten-specific code changes ---
+      PlanNode leftInput =
+          new TableScanNode(
+              PlanNodeIdGenerator.newId(),
+              leftInputType,
+              new ExternalStreamTableHandle("connector-external-stream"),
+              List.of());
+      PlanNode rightInput =
+          new TableScanNode(
+              PlanNodeIdGenerator.newId(),
+              rightInputType,
+              new ExternalStreamTableHandle("connector-external-stream"),
+              List.of());
+      // The state key is the composite (equi key..., window end): the
+      // window end rides the key row, so the exchange, the state bucketing
+      // and the timer key all agree on one key.
+      List<Integer> leftKeyIndexes = new ArrayList<>();
+      for (int channel : leftJoinKey) {
+        leftKeyIndexes.add(channel);
+      }
+      if (!leftKeyIndexes.contains(leftWindowEndIndex)) {
+        leftKeyIndexes.add(leftWindowEndIndex);
+      }
+      List<Integer> rightKeyIndexes = new ArrayList<>();
+      for (int channel : rightJoinKey) {
+        rightKeyIndexes.add(channel);
+      }
+      if (!rightKeyIndexes.contains(rightWindowEndIndex)) {
+        rightKeyIndexes.add(rightWindowEndIndex);
+      }
+      PartitionFunctionSpec leftPartFuncSpec =
+          new HashPartitionFunctionSpec(leftInputType, leftKeyIndexes);
+      PartitionFunctionSpec rightPartFuncSpec =
+          new HashPartitionFunctionSpec(rightInputType, rightKeyIndexes);
+      // INNER with no residual condition: the state buckets already enforce
+      // every key-equality conjunct, so the probe condition drops and the
+      // native fast path (zero-copy dictionary cross product) takes over.
+      // The probe always carries INNER: NLJ rejects semi/anti and the
+      // operator handles all six semantics from the node's joinType field.
+      NestedLoopJoinNode probeNode =
+          new NestedLoopJoinNode(
+              PlanNodeIdGenerator.newId(),
+              Utils.toVLJoinType(FlinkJoinType.INNER),
+              null,
+              new EmptyNode(leftInputType),
+              new EmptyNode(rightInputType),
+              outputType);
+      // Velox JoinType ordinal: INNER=0, LEFT=1, RIGHT=2, FULL=3,
+      // LEFT_SEMI_FILTER=4, ANTI=5. The probe always carries INNER
+      // (NLJ rejects semi/anti); the actual semantics ride this field.
+      // Map by enum constant, not by toString(): FlinkJoinType.toString()
+      // returns descriptions like "LeftOuterJoin", so name comparisons never
+      // matched and every join silently degraded to INNER.
+      int veloxJoinType;
+      switch (joinSpec.getJoinType()) {
+        case LEFT:
+          veloxJoinType = 1;
+          break;
+        case RIGHT:
+          veloxJoinType = 2;
+          break;
+        case FULL:
+          veloxJoinType = 3;
+          break;
+        case SEMI:
+          veloxJoinType = 4;
+          break;
+        case ANTI:
+          veloxJoinType = 5;
+          break;
+        default:
+          veloxJoinType = 0; // INNER
+      }
+      PlanNode join =
+          new StreamWindowJoinNode(
+              PlanNodeIdGenerator.newId(),
+              leftInput,
+              rightInput,
+              leftPartFuncSpec,
+              rightPartFuncSpec,
+              probeNode,
+              outputType,
+              1024,
+              leftWindowEndIndex,
+              rightWindowEndIndex,
+              leftKeyIndexes,
+              rightKeyIndexes,
+              /* shiftTimeZone = */ 0,
+              /* joinType = */ veloxJoinType);
+      operator =
+          new GlutenTwoInputOperator(
+              new StatefulPlanNode(join.getId(), join),
+              leftInput.getId(),
+              rightInput.getId(),
+              leftInputType,
+              rightInputType,
+              Map.of(join.getId(), outputType),
+              RowData.class,
+              RowData.class,
+              "StreamExecWindowJoin");
+      // --- End Gluten-specific code changes ---
+    }
 
     final RowType returnType = (RowType) getOutputType();
     final TwoInputTransformation<RowData, RowData, RowData> transform =
