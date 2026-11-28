@@ -17,20 +17,17 @@
 package org.apache.flink.table.planner.plan.nodes.exec.stream;
 
 import org.apache.gluten.rexnode.AggregateCallConverter;
-import org.apache.gluten.rexnode.Utils;
-import org.apache.gluten.table.runtime.operators.GlutenOneInputOperator;
+import org.apache.gluten.table.runtime.operators.GlutenWindowOneInputOperator;
 import org.apache.gluten.util.LogicalTypeConverter;
 import org.apache.gluten.util.PlanNodeIdGenerator;
 
 import io.github.zhztheplayer.velox4j.aggregate.Aggregate;
-import io.github.zhztheplayer.velox4j.expression.FieldAccessTypedExpr;
 import io.github.zhztheplayer.velox4j.plan.GroupWindowAggregationNode;
 import io.github.zhztheplayer.velox4j.plan.GroupWindowAggsHandlerNode;
-import io.github.zhztheplayer.velox4j.plan.HashPartitionFunctionSpec;
-import io.github.zhztheplayer.velox4j.plan.PartitionFunctionSpec;
 import io.github.zhztheplayer.velox4j.plan.PlanNode;
 import io.github.zhztheplayer.velox4j.plan.StatefulPlanNode;
-import io.github.zhztheplayer.velox4j.plan.StreamWindowPartitionFunctionSpec;
+import io.github.zhztheplayer.velox4j.stateful.KeyedStateSpec;
+import io.github.zhztheplayer.velox4j.type.Type;
 
 import org.apache.flink.FlinkVersion;
 import org.apache.flink.api.dag.Transformation;
@@ -38,10 +35,10 @@ import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.api.operators.SimpleOperatorFactory;
 import org.apache.flink.streaming.api.transformations.OneInputTransformation;
-import org.apache.flink.table.api.TableException;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.planner.delegation.PlannerBase;
 import org.apache.flink.table.planner.plan.logical.LogicalWindow;
+import org.apache.flink.table.planner.plan.logical.SessionGroupWindow;
 import org.apache.flink.table.planner.plan.logical.SlidingGroupWindow;
 import org.apache.flink.table.planner.plan.logical.TumblingGroupWindow;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecEdge;
@@ -51,19 +48,20 @@ import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeContext;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeMetadata;
 import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
 import org.apache.flink.table.planner.plan.nodes.exec.utils.ExecNodeUtil;
-import org.apache.flink.table.planner.plan.utils.KeySelectorUtil;
 import org.apache.flink.table.planner.plan.utils.WindowEmitStrategy;
 import org.apache.flink.table.runtime.groupwindow.NamedWindowProperty;
-import org.apache.flink.table.runtime.keyselector.RowDataKeySelector;
+import org.apache.flink.table.runtime.groupwindow.WindowEnd;
+import org.apache.flink.table.runtime.groupwindow.WindowStart;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
+import org.apache.flink.table.types.logical.LocalZonedTimestampType;
+import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.RowType;
 
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonCreator;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonProperty;
 
 import org.apache.calcite.rel.core.AggregateCall;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.calcite.sql.SqlKind;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -73,6 +71,7 @@ import java.util.stream.Collectors;
 
 import static org.apache.flink.table.planner.plan.utils.AggregateUtil.hasRowIntervalType;
 import static org.apache.flink.table.planner.plan.utils.AggregateUtil.isRowtimeAttribute;
+import static org.apache.flink.table.planner.plan.utils.AggregateUtil.toDuration;
 import static org.apache.flink.util.Preconditions.checkArgument;
 import static org.apache.flink.util.Preconditions.checkNotNull;
 
@@ -96,14 +95,18 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
     minPlanVersion = FlinkVersion.v1_15,
     minStateVersion = FlinkVersion.v1_15)
 public class StreamExecGroupWindowAggregate extends StreamExecAggregateBase {
-
-  private static final Logger LOGGER =
-      LoggerFactory.getLogger(StreamExecGroupWindowAggregate.class);
-
   public static final String GROUP_WINDOW_AGGREGATE_TRANSFORMATION = "group-window-aggregate";
 
   public static final String FIELD_NAME_WINDOW = "window";
+
   public static final String FIELD_NAME_NAMED_WINDOW_PROPERTIES = "namedWindowProperties";
+
+  /** Values of the velox WindowType enum (experimental/stateful/window/Window.h). */
+  private static final int VELOX_WINDOW_TYPE_HOP = 0;
+
+  private static final int VELOX_WINDOW_TYPE_TUMBLE = 1;
+
+  private static final int VELOX_WINDOW_TYPE_SESSION = 2;
 
   @JsonProperty(FIELD_NAME_GROUPING)
   private final int[] grouping;
@@ -170,6 +173,10 @@ public class StreamExecGroupWindowAggregate extends StreamExecAggregateBase {
   @Override
   protected Transformation<RowData> translateToPlanInternal(
       PlannerBase planner, ExecNodeConfig config) {
+    // --- Gluten-specific code changes ---
+    // Fail-loud faces: row-count windows, non-default EMIT strategies,
+    // processing-time windows, TIMESTAMP_LTZ time attributes, and aggregate
+    // calls with a FILTER clause are out of scope.
     final boolean isCountWindow;
     if (window instanceof TumblingGroupWindow) {
       isCountWindow = hasRowIntervalType(((TumblingGroupWindow) window).size());
@@ -178,69 +185,117 @@ public class StreamExecGroupWindowAggregate extends StreamExecAggregateBase {
     } else {
       isCountWindow = false;
     }
-
-    if (isCountWindow && grouping.length > 0 && config.getStateRetentionTime() < 0) {
-      LOGGER.warn(
-          "No state retention interval configured for a query which accumulates state. "
-              + "Please provide a query configuration with valid retention interval to prevent "
-              + "excessive state size. You may specify a retention time of 0 to not clean up the state.");
+    checkArgument(
+        !isCountWindow,
+        "VELOX_UNSUPPORTED: group window aggregation does not support row-count windows "
+            + "(CountTumbling/CountSliding are out of scope)");
+    final WindowEmitStrategy emitStrategy = WindowEmitStrategy.apply(config, window);
+    checkArgument(
+        !emitStrategy.produceUpdates(),
+        "VELOX_UNSUPPORTED: group window aggregation does not support the produce-updates "
+            + "EMIT strategy (early-fire / late-fire with allowed lateness / update modes)");
+    checkArgument(
+        emitStrategy.getAllowLateness() <= 0,
+        "VELOX_UNSUPPORTED: group window aggregation does not support non-zero allowed "
+            + "lateness (table.exec.emit.allow-lateness)");
+    checkArgument(
+        isRowtimeAttribute(window.timeAttribute()),
+        "VELOX_UNSUPPORTED: group window aggregation requires a rowtime time attribute "
+            + "(processing-time windows are out of scope)");
+    checkArgument(
+        !(window.timeAttribute().getOutputDataType().getLogicalType()
+            instanceof LocalZonedTimestampType),
+        "VELOX_UNSUPPORTED: group window aggregation does not support TIMESTAMP_LTZ time "
+            + "attributes yet (the native operator aligns window boundaries on the UTC wall "
+            + "clock without the session-time-zone shift)");
+    checkArgument(
+        !config
+            .get(org.apache.flink.configuration.StateBackendOptions.STATE_BACKEND)
+            .equalsIgnoreCase("rocksdb"),
+        "VELOX_UNSUPPORTED: group window aggregation does not support the RocksDB state "
+            + "backend (configure the heap state backend: state.backend: hashmap); the job "
+            + "configuration is checked here, a runtime check covers the application-declared "
+            + "backends the planner cannot see");
+    for (AggregateCall call : aggCalls) {
+      checkArgument(
+          !call.hasFilter(),
+          "VELOX_UNSUPPORTED: group window aggregation does not support aggregate calls with "
+              + "a FILTER clause yet (the filter would be silently dropped; AGG(x) FILTER "
+              + "(WHERE ...) is rejected instead of aggregating every row)");
     }
+    if (!(window instanceof SessionGroupWindow
+        || window instanceof TumblingGroupWindow
+        || window instanceof SlidingGroupWindow)) {
+      throw new UnsupportedOperationException(
+          "VELOX_UNSUPPORTED: group window aggregation supports SESSION / TUMBLE / "
+              + "HOP windows only, window was: "
+              + window.toString());
+    }
+    // --- End of fail-loud faces ---
 
     final ExecEdge inputEdge = getInputEdges().get(0);
     final Transformation<RowData> inputTransform =
         (Transformation<RowData>) inputEdge.translateToPlan(planner);
-    final RowType inputRowType = (RowType) inputEdge.getOutputType();
+    final org.apache.flink.table.types.logical.RowType inputRowType =
+        (org.apache.flink.table.types.logical.RowType) inputEdge.getOutputType();
 
-    final int inputTimeFieldIndex;
-    if (isRowtimeAttribute(window.timeAttribute())) {
-      inputTimeFieldIndex = window.timeAttribute().getFieldIndex();
-      if (inputTimeFieldIndex < 0) {
-        throw new TableException(
-            "Group window must defined on a time attribute, "
-                + "but the time attribute can't be found.\n"
-                + "This should never happen. Please file an issue.");
-      }
-    } else {
-      inputTimeFieldIndex = -1;
-    }
+    final int inputTimeFieldIndex = window.timeAttribute().getFieldIndex();
+    checkArgument(
+        inputTimeFieldIndex >= 0,
+        "Group window must be defined on a time attribute, but the time attribute can't be "
+            + "found.\nThis should never happen. Please file an issue.");
 
-    WindowEmitStrategy emitStrategy = WindowEmitStrategy.apply(config, window);
-
-    // --- Begin Gluten-specific code changes ---
-    // TODO: velox window not equal to flink window.
     io.github.zhztheplayer.velox4j.type.RowType inputType =
         (io.github.zhztheplayer.velox4j.type.RowType) LogicalTypeConverter.toVLType(inputRowType);
     io.github.zhztheplayer.velox4j.type.RowType outputType =
         (io.github.zhztheplayer.velox4j.type.RowType)
             LogicalTypeConverter.toVLType(getOutputType());
-    List<FieldAccessTypedExpr> groupingKeys = Utils.generateFieldAccesses(inputType, grouping);
     List<Aggregate> aggregates = AggregateCallConverter.toAggregates(aggCalls, inputType);
-    checkArgument(outputType.getNames().size() >= grouping.length + aggCalls.length);
-    List<String> aggNames =
-        outputType.getNames().stream()
-            .skip(grouping.length)
-            .limit(aggCalls.length)
-            .collect(Collectors.toList());
-    List<Integer> keyIndexes = Arrays.stream(grouping).boxed().collect(Collectors.toList());
-    PartitionFunctionSpec keySelectorSpec = new HashPartitionFunctionSpec(inputType, keyIndexes);
-    // TODO: support more window types.
-    PartitionFunctionSpec sliceAssignerSpec =
-        new StreamWindowPartitionFunctionSpec(inputType, inputTimeFieldIndex, 0L, 0L, 0L, 1);
-    PlanNode aggregation = new GroupWindowAggsHandlerNode(PlanNodeIdGenerator.newId(), outputType);
+    PlanNode aggregation =
+        new GroupWindowAggsHandlerNode(
+            PlanNodeIdGenerator.newId(), outputType, aggregates, countStarIndexOf(aggCalls));
+    KeyedStateSpec keyedStateSpec = keyedStateSpec(grouping, inputRowType);
+    // Window parameters keyed by window kind, routed through the velox
+    // WindowType enum (experimental/stateful/window/Window.h: HOP=0,
+    // TUMBLE=1, SESSION=2, CUMULATIVE=3). SESSION carries the gap; TUMBLE
+    // the size; HOP the size and slide (the legacy group window planner
+    // exposes no user offset — it stays the fixed 0 on the velox side).
+    int windowType;
+    long gap = 0L;
+    long size = 0L;
+    long slide = 0L;
+    if (window instanceof SessionGroupWindow) {
+      windowType = VELOX_WINDOW_TYPE_SESSION;
+      gap = toDuration(((SessionGroupWindow) window).gap()).toMillis();
+    } else if (window instanceof TumblingGroupWindow) {
+      windowType = VELOX_WINDOW_TYPE_TUMBLE;
+      size = toDuration(((TumblingGroupWindow) window).size()).toMillis();
+    } else {
+      windowType = VELOX_WINDOW_TYPE_HOP;
+      size = toDuration(((SlidingGroupWindow) window).size()).toMillis();
+      slide = toDuration(((SlidingGroupWindow) window).slide()).toMillis();
+    }
     PlanNode windowAgg =
         new GroupWindowAggregationNode(
             PlanNodeIdGenerator.newId(),
             aggregation,
-            keySelectorSpec,
-            sliceAssignerSpec,
+            keyedStateSpec,
+            inputType,
+            // The EMIT fail-loud faces above pin these to the INSERT-only defaults.
             emitStrategy.getAllowLateness(),
             emitStrategy.produceUpdates(),
             inputTimeFieldIndex,
-            true, // TODO: get from window attributes
-            1, // TODO: get from window attributes
+            // Event time is guaranteed by the rowtime check above.
+            true,
+            windowType,
+            gap,
+            size,
+            slide,
+            windowStartIndex(namedWindowProperties, grouping.length, aggCalls.length),
+            windowEndIndex(namedWindowProperties, grouping.length, aggCalls.length),
             outputType);
     final OneInputStreamOperator windowOperator =
-        new GlutenOneInputOperator(
+        new GlutenWindowOneInputOperator(
             new StatefulPlanNode(windowAgg.getId(), windowAgg),
             PlanNodeIdGenerator.newId(),
             inputType,
@@ -259,15 +314,96 @@ public class StreamExecGroupWindowAggregate extends StreamExecAggregateBase {
             inputTransform.getParallelism(),
             false);
 
-    // set KeyType and Selector for state
-    final RowDataKeySelector selector =
-        KeySelectorUtil.getRowDataSelector(
-            planner.getFlinkContext().getClassLoader(),
-            grouping,
-            InternalTypeInfo.of(inputRowType));
-    transform.setStateKeySelector(selector);
-    transform.setStateKeyType(selector.getProducedType());
+    // The transformation stays non-keyed by design: the user key rides the
+    // plan's KeyedStateSpec into the velox keyed state backend, and a
+    // Flink-side state key selector would put the transformation into a
+    // keyed context the native backend does not share (routing through
+    // Flink keyed state fails with "Key group not in KeyGroupRange").
 
     return transform;
+  }
+
+  /** Index of the first no-argument COUNT(*) among the calls; -1 when absent. */
+  private static int countStarIndexOf(AggregateCall[] aggCalls) {
+    for (int i = 0; i < aggCalls.length; i++) {
+      AggregateCall call = aggCalls[i];
+      if (call.getAggregation().getKind() == SqlKind.COUNT
+          && call.getArgList().isEmpty()
+          && !call.hasFilter()) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * The user key as pure plan data: grouping channels and their input types, restricted to the
+   * fixed-width scalar and varchar/varbinary shapes the velox key equality supports.
+   */
+  private static KeyedStateSpec keyedStateSpec(
+      int[] grouping, org.apache.flink.table.types.logical.RowType inputRowType) {
+    List<Integer> keyChannels = Arrays.stream(grouping).boxed().collect(Collectors.toList());
+    for (int channel : grouping) {
+      LogicalType keyType = inputRowType.getTypeAt(channel);
+      switch (keyType.getTypeRoot()) {
+        case BOOLEAN:
+        case TINYINT:
+        case SMALLINT:
+        case INTEGER:
+        case BIGINT:
+        case FLOAT:
+        case DOUBLE:
+        case TIMESTAMP_WITHOUT_TIME_ZONE:
+        case VARCHAR:
+        case VARBINARY:
+          break;
+        default:
+          throw new IllegalArgumentException(
+              "VELOX_UNSUPPORTED: group window aggregation does not support a group key of "
+                  + "type "
+                  + keyType.asSummaryString());
+      }
+    }
+    List<Type> keyTypes =
+        keyChannels.stream()
+            .map(channel -> LogicalTypeConverter.toVLType(inputRowType.getTypeAt(channel)))
+            .collect(Collectors.toList());
+    return new KeyedStateSpec(keyChannels, keyTypes);
+  }
+
+  /**
+   * Output index of the window-start property: keys, aggregates, then properties.
+   *
+   * <p>Cross-repo contract: the native emit loop fills the trailing time-attribute columns in the
+   * fixed planner order [start, end, rowtime, proctime] (rowtime = window maxTimestamp, proctime =
+   * NULL), so any change in the Flink window-property order must be synchronized with the velox
+   * emit loop in GroupWindowAggregator.
+   */
+  private static int windowStartIndex(
+      NamedWindowProperty[] namedWindowProperties, int numKeys, int numAggs) {
+    for (int i = 0; i < namedWindowProperties.length; i++) {
+      if (namedWindowProperties[i].getProperty() instanceof WindowStart) {
+        return numKeys + numAggs + i;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * Output index of the window-end property: keys, aggregates, then properties.
+   *
+   * <p>Cross-repo contract: the native emit loop fills the trailing time-attribute columns in the
+   * fixed planner order [start, end, rowtime, proctime] (rowtime = window maxTimestamp, proctime =
+   * NULL), so any change in the Flink window-property order must be synchronized with the velox
+   * emit loop in GroupWindowAggregator.
+   */
+  private static int windowEndIndex(
+      NamedWindowProperty[] namedWindowProperties, int numKeys, int numAggs) {
+    for (int i = 0; i < namedWindowProperties.length; i++) {
+      if (namedWindowProperties[i].getProperty() instanceof WindowEnd) {
+        return numKeys + numAggs + i;
+      }
+    }
+    return -1;
   }
 }

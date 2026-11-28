@@ -68,6 +68,23 @@
       <artifactId>flink-streaming-java</artifactId>
       <version>${flink.version}</version>
     </dependency>
+    <!-- RocksDB fail-loud tests of GlutenWindowOneInputOperator; the RocksDB
+         backend is provided in flink-statebackend-rocksdb, so it needs an
+         explicit test entry here. -->
+    <dependency>
+      <groupId>org.apache.flink</groupId>
+      <artifactId>flink-statebackend-rocksdb</artifactId>
+      <version>${flink.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <!-- The OneInputStreamOperatorTestHarness initializeState API exchanges
+         OperatorSubtaskState from flink-runtime. -->
+    <dependency>
+      <groupId>org.apache.flink</groupId>
+      <artifactId>flink-runtime</artifactId>
+      <version>${flink.version}</version>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>org.apache.flink</groupId>
       <artifactId>flink-table-planner-loader</artifactId>
