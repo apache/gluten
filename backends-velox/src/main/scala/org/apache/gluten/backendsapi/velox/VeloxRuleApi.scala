@@ -108,6 +108,7 @@ object VeloxRuleApi {
     val rewrites =
       Seq(
         RewriteMultiChildrenCount,
+        RewriteWindowAggregateFilter,
         RewriteJoin,
         PullOutPreProject,
         PullOutPostProject,
