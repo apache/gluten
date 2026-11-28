@@ -33,6 +33,7 @@ import org.apache.flink.table.data.RowData;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -40,37 +41,50 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class GlutenStreamingFileWriterOperatorTest {
-  private static final ListStateDescriptor<String> CHECKPOINT_STATE_DESCRIPTOR =
-      new ListStateDescriptor<>("gluten-native-file-writer-checkpoint", String.class);
+  private static final ListStateDescriptor<byte[]> CHECKPOINT_STATE_DESCRIPTOR =
+      new ListStateDescriptor<>("gluten-native-file-writer-checkpoint", byte[].class);
 
   @Test
   void snapshotNativeStateStoresNativeCheckpointRecords() throws Exception {
     MockOperatorStateStore stateStore = new MockOperatorStateStore();
-    TestSerialTask task = new TestSerialTask(new String[] {"bucket-a", "bucket-b"});
+    TestSerialTask task =
+        new TestSerialTask(
+            new byte[][] {
+              "bucket-a".getBytes(StandardCharsets.UTF_8),
+              "bucket-b".getBytes(StandardCharsets.UTF_8)
+            });
     GlutenStreamingFileWriterOperator<RowData> operator = createOperator(task);
 
     operator.initializeNativeState(createInitializationContext(null, stateStore));
     operator.snapshotNativeState(new StateSnapshotContextSynchronousImpl(42L, 0L));
 
-    ListState<String> checkpointState = stateStore.getListState(CHECKPOINT_STATE_DESCRIPTOR);
+    ListState<byte[]> checkpointState = stateStore.getListState(CHECKPOINT_STATE_DESCRIPTOR);
     assertThat(task.snapshotCheckpointId).isEqualTo(42L);
-    assertThat(checkpointState.get()).containsExactly("bucket-a", "bucket-b");
+    List<byte[]> records = new java.util.ArrayList<>();
+    checkpointState.get().forEach(records::add);
+    assertThat(records).hasSize(2);
+    assertThat(new String(records.get(0), StandardCharsets.UTF_8)).isEqualTo("bucket-a");
+    assertThat(new String(records.get(1), StandardCharsets.UTF_8)).isEqualTo("bucket-b");
   }
 
   @Test
   void initializeNativeStateRestoresCheckpointRecordsToNativeTask() throws Exception {
     MockOperatorStateStore stateStore = new MockOperatorStateStore();
-    ListState<String> checkpointState = stateStore.getListState(CHECKPOINT_STATE_DESCRIPTOR);
-    checkpointState.add("bucket-a");
-    checkpointState.add("bucket-b");
-    TestSerialTask task = new TestSerialTask(new String[0]);
+    ListState<byte[]> checkpointState = stateStore.getListState(CHECKPOINT_STATE_DESCRIPTOR);
+    checkpointState.add("bucket-a".getBytes(StandardCharsets.UTF_8));
+    checkpointState.add("bucket-b".getBytes(StandardCharsets.UTF_8));
+    TestSerialTask task = new TestSerialTask(new byte[0][]);
     GlutenStreamingFileWriterOperator<RowData> operator = createOperator(task);
 
     operator.initializeNativeState(createInitializationContext(1L, stateStore));
 
     assertThat(task.initializeContext).isZero();
     assertThat(task.initializeParameters).isNull();
-    assertThat(task.restoredCheckpointRecords).containsExactly("bucket-a", "bucket-b");
+    assertThat(task.restoredCheckpointRecords.length).isEqualTo(2);
+    assertThat(new String(task.restoredCheckpointRecords[0], StandardCharsets.UTF_8))
+        .isEqualTo("bucket-a");
+    assertThat(new String(task.restoredCheckpointRecords[1], StandardCharsets.UTF_8))
+        .isEqualTo("bucket-b");
   }
 
   private static StateInitializationContext createInitializationContext(
@@ -95,26 +109,26 @@ class GlutenStreamingFileWriterOperatorTest {
   }
 
   private static class TestSerialTask extends SerialTask {
-    private final String[] checkpointRecords;
+    private final byte[][] checkpointRecords;
     private long snapshotCheckpointId = -1L;
     private long initializeContext = -1L;
     private KeyedStateBackendParameters initializeParameters;
-    private String[] restoredCheckpointRecords;
+    private byte[][] restoredCheckpointRecords;
 
-    private TestSerialTask(String[] checkpointRecords) {
+    private TestSerialTask(byte[][] checkpointRecords) {
       super(null, 0L);
       this.checkpointRecords = checkpointRecords;
     }
 
     @Override
-    public String[] snapshotState(long checkpointId) {
+    public byte[][] snapshotState(long checkpointId) {
       snapshotCheckpointId = checkpointId;
       return checkpointRecords;
     }
 
     @Override
     public void initializeState(
-        long context, KeyedStateBackendParameters parameters, String[] checkpointRecords) {
+        long context, KeyedStateBackendParameters parameters, byte[][] checkpointRecords) {
       initializeContext = context;
       initializeParameters = parameters;
       restoredCheckpointRecords = checkpointRecords;
