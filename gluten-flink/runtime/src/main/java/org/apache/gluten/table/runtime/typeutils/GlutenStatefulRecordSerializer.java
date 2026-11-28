@@ -60,20 +60,20 @@ public class GlutenStatefulRecordSerializer extends TypeSerializer<StatefulRecor
 
   @Override
   public void serialize(StatefulRecord record, DataOutputView target) throws IOException {
-    String vectorStr = record.getRowVector().serialize();
-    target.writeInt(vectorStr.getBytes().length);
-    target.write(vectorStr.getBytes());
+    byte[] vectorBytes = record.getRowVector().serialize();
+    target.writeInt(vectorBytes.length);
+    target.write(vectorBytes);
   }
 
   @Override
   public StatefulRecord deserialize(DataInputView source) throws IOException {
     int len = source.readInt();
-    byte[] str = new byte[len];
-    source.readFully(str);
+    byte[] bytes = new byte[len];
+    source.readFully(bytes);
     RowVector rowVector =
         GlutenTaskSessionContext.getSession(operatorId)
             .baseVectorOps()
-            .deserializeOne(new String(str))
+            .deserializeOne(bytes)
             .asRowVector();
     StatefulRecord record = new StatefulRecord(operatorId, rowVector.id(), 0, false, -1);
     record.setRowVector(rowVector);
@@ -139,10 +139,11 @@ public class GlutenStatefulRecordSerializer extends TypeSerializer<StatefulRecor
   /** {@link TypeSerializerSnapshot} for Gluten RowVector.. */
   public static final class RowVectorSerializerSnapshot
       implements TypeSerializerSnapshot<StatefulRecord> {
-    private static final int CURRENT_VERSION = 1;
+    private static final int CURRENT_VERSION = 2;
 
     private RowType rowType;
     private String operatorId;
+    private Integer readVersion;
 
     @SuppressWarnings("unused")
     public RowVectorSerializerSnapshot() {
@@ -164,16 +165,38 @@ public class GlutenStatefulRecordSerializer extends TypeSerializer<StatefulRecor
 
     @Override
     public void readSnapshot(int readVersion, DataInputView in, ClassLoader userCodeClassLoader)
-        throws IOException {}
+        throws IOException {
+      this.readVersion = readVersion;
+    }
 
     @Override
     public GlutenStatefulRecordSerializer restoreSerializer() {
+      // Fail loud on pre-v2 wire snapshots: their payloads are Base64 text
+      // that the byte[] wire format cannot decode, and no magic on the save
+      // stream can tell the two encodings apart, so silent misreads are the
+      // alternative. TODO L1: cross-version restore (migration) is a separate
+      // task; rolling back this change requires dropping v2 savepoints.
+      if (readVersion == null || readVersion < CURRENT_VERSION) {
+        throw new IllegalStateException(
+            "Cannot restore GlutenStatefulRecordSerializer from snapshot version "
+                + (readVersion == null ? "unknown" : readVersion)
+                + ": this build only restores version "
+                + CURRENT_VERSION
+                + "+ snapshots");
+      }
       return new GlutenStatefulRecordSerializer(rowType, operatorId);
     }
 
     @Override
     public TypeSerializerSchemaCompatibility<StatefulRecord> resolveSchemaCompatibility(
         TypeSerializerSnapshot<StatefulRecord> oldSerializerSnapshot) {
+      if (oldSerializerSnapshot instanceof RowVectorSerializerSnapshot) {
+        final RowVectorSerializerSnapshot oldSnapshot =
+            (RowVectorSerializerSnapshot) oldSerializerSnapshot;
+        if (oldSnapshot.readVersion == null || oldSnapshot.readVersion < CURRENT_VERSION) {
+          return TypeSerializerSchemaCompatibility.incompatible();
+        }
+      }
       return TypeSerializerSchemaCompatibility.compatibleAsIs();
     }
   }

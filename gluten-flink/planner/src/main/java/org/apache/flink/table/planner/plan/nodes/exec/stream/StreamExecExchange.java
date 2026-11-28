@@ -17,6 +17,7 @@
 package org.apache.flink.table.planner.plan.nodes.exec.stream;
 
 import org.apache.gluten.streaming.api.operators.GlutenOperator;
+import org.apache.gluten.streaming.api.operators.GlutenStreamSource;
 import org.apache.gluten.streaming.runtime.partitioner.GlutenKeyGroupStreamPartitioner;
 import org.apache.gluten.table.runtime.keyselector.GlutenKeySelector;
 import org.apache.gluten.table.runtime.operators.GlutenOneInputOperator;
@@ -38,6 +39,7 @@ import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.runtime.state.KeyGroupRangeAssignment;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
+import org.apache.flink.streaming.api.transformations.LegacySourceTransformation;
 import org.apache.flink.streaming.api.transformations.OneInputTransformation;
 import org.apache.flink.streaming.api.transformations.PartitionTransformation;
 import org.apache.flink.streaming.runtime.partitioner.GlobalPartitioner;
@@ -139,13 +141,24 @@ public class StreamExecExchange extends CommonExecExchange implements StreamExec
             KeySelectorUtil.getRowDataSelector(
                 planner.getFlinkContext().getClassLoader(), keys, inputType);
         // --- Begin Gluten-specific code changes ---
-        // The gluten exchange optimization below only applies when the input is
-        // already a gluten operator wrapped in a OneInputTransformation; other
-        // shapes (e.g. a SourceTransformation feeding the hash exchange in a
-        // plain GROUP BY) must take the vanilla Flink fallback instead of
-        // failing with a ClassCastException.
-        if (inputTransform instanceof OneInputTransformation
-            && ((OneInputTransformation) inputTransform).getOperator() instanceof GlutenOperator) {
+        // The gluten exchange optimization below applies when the input is
+        // a gluten operator wrapped in a OneInputTransformation. Other
+        // shapes (e.g. a vanilla SourceTransformation feeding the hash
+        // exchange in a plain GROUP BY) take the vanilla Flink fallback -
+        // with one carve-out: an offloaded gluten source emits
+        // StatefulRecord records on a source-direct edge, which the vanilla
+        // KeyGroupStreamPartitioner cannot key
+        // (ClassCastException: StatefulRecord cannot be cast to RowData in
+        // selectChannel), so those edges must route natively as well.
+        boolean glutenInput =
+            inputTransform instanceof OneInputTransformation
+                && ((OneInputTransformation) inputTransform).getOperator()
+                    instanceof GlutenOperator;
+        boolean offloadedSourceInput =
+            inputTransform instanceof LegacySourceTransformation
+                && ((LegacySourceTransformation) inputTransform).getOperator()
+                    instanceof GlutenStreamSource;
+        if (glutenInput || offloadedSourceInput) {
           // TODO: velox's parallelism need to be set here, as some nodes need it.
           // should set it when operator init.
           parallelism = inputTransform.getParallelism();
