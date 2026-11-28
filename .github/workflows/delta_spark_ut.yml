@@ -343,6 +343,47 @@ jobs:
           path: bundle-out/gluten-velox-bundle-spark*_*-linux_amd64-*.jar
           if-no-files-found: error
 
+  delta-spark35-streaming-test:
+    needs: build-native-lib-centos-8
+    runs-on: ubuntu-24.04
+    container: apache/gluten:centos-9-jdk17
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.DELTA_CHECKOUT_REF }}
+      - name: Download native artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: delta-spark-ut-native-lib-centos-8-${{ github.sha }}
+          path: ./cpp/build/
+      - name: Build Spark 3.5 Delta bundle and test upstream streaming sinks
+        run: |
+          set -euo pipefail
+          yum install -y java-17-openjdk-devel python3 which findutils gzip
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+          export PATH=$JAVA_HOME/bin:$PATH
+          ./build/mvn -ntp clean install \
+            -Pspark-3.5 -Pscala-2.12 -Pjava-17 -Pbackends-velox -Pdelta \
+            -DskipTests -Dmaven.compiler.release=17
+          bundles=(package/target/gluten-velox-bundle-spark3.5_2.12-linux_amd64-*.jar)
+          if [ "${#bundles[@]}" -ne 1 ] || [ ! -f "${bundles[0]}" ]; then
+            echo "ERROR: Expected one Spark 3.5 Gluten bundle" >&2
+            exit 1
+          fi
+          bash .github/workflows/util/delta-spark-ut/run-delta-streaming-tests.sh \
+            "${bundles[0]}" "$GITHUB_WORKSPACE/delta-streaming"
+        shell: bash
+      - name: Upload streaming sink test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: delta-spark35-streaming-reports
+          path: |
+            delta-streaming/spark/target/test-reports/*.xml
+            delta-streaming/delta-streaming-tests.log
+          if-no-files-found: warn
+
   delta-spark-test:
     needs: build-gluten-bundle
     # Explicit condition rather than relying on default skip propagation: it keeps

@@ -23,6 +23,8 @@ class VeloxDeltaConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
 
   def enableNativeWrite: Boolean = getConf(ENABLE_NATIVE_WRITE)
 
+  def enableNativeStreamingWrite: Boolean = getConf(ENABLE_NATIVE_STREAMING_WRITE)
+
   def enableNativeDmlRowIndexScan: Boolean = getConf(ENABLE_NATIVE_DML_ROW_INDEX_SCAN)
 
   def enableChangeDataFeedScan: Boolean = getConf(ENABLE_CHANGE_DATA_FEED_SCAN)
@@ -42,6 +44,16 @@ object VeloxDeltaConfig extends ConfigRegistry {
     buildConf("spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite")
       .experimental()
       .doc("Enable native Delta Lake write for Velox backend.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val ENABLE_NATIVE_STREAMING_WRITE: ConfigEntry[Boolean] =
+    buildConf("spark.gluten.sql.columnar.backend.velox.delta.enableNativeStreamingWrite")
+      .experimental()
+      .doc(
+        "Enable native Delta Lake streaming appends on Spark 3.5. Requires " +
+          "spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite=true. " +
+          "The setting is captured when the streaming query starts.")
       .booleanConf
       .createWithDefault(false)
 

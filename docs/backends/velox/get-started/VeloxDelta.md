@@ -216,7 +216,7 @@ Gluten's CI checks that a partitioned `save(path)` on 3.5 to 4.1 and OPTIMIZE on
 | `INSERT INTO ... SELECT`, `INSERT OVERWRITE`, `INSERT INTO ... REPLACE WHERE` | | PartialOffload | From code. To append natively, use `save(path)` in append mode. |
 | | `insertInto(t)`, `saveAsTable(t)` in append mode on an existing table, `writeTo(t).append()`, `overwrite(condition)`, `overwritePartitions()` | PartialOffload | From code. |
 | `MERGE INTO` | | PartialOffload | Scans, the DML target scan and joins can run in Velox. On Spark 3.5 and 4.0, Gluten's tests check that a deletion-vector MERGE runs a scan of the target table in Velox. The other cases are from code. Native MERGE write is in progress in [#13324](https://github.com/apache/gluten/pull/13324). |
-| | `writeStream.format("delta")` | PartialOffload | Inside `foreachBatch`, batch writes follow the rows above. From code. |
+| | `writeStream.format("delta")` | Experimental Offload on Spark 3.5 in append mode; otherwise PartialOffload | Requires both native write and native streaming write on. Column-mapped tables use Delta's writer. Row tracking is unvalidated and retains native scan limitations. Inside `foreachBatch`, batch writes follow the rows above. From code. |
 
 With native write on, `DESCRIBE HISTORY` operation metrics of `save(path)`, UPDATE, DELETE and `CREATE TABLE ... AS SELECT` match Delta Lake in `DescribeDeltaHistorySuite`. Seen on 4.1. Three unpartitioned tests in `DeleteMetricsSuite` and `UpdateMetricsSuite` expect two added files and get one. The job sets `spark.default.parallelism=1`, which plans the five small input files as one scan partition (from code).
 
@@ -225,7 +225,7 @@ With native write on, `DESCRIBE HISTORY` operation metrics of `save(path)`, UPDA
 | Feature | Status | Notes |
 |---|---|---|
 | Optimized write | Offload | In the commands marked Offload, the rebalancing shuffle runs in Velox. If it fails validation, Delta's shuffle is used. Both are from code. `OPTIMIZE` never uses it. |
-| Auto compaction | Offload after native writes, PartialOffload after other writes | Compacts natively written tables (seen on 4.1). The auto compaction tests that fail in the nightly job fail because its `spark.default.parallelism=1` makes their first write produce one file (from code). After a native write, the compaction runs in a Gluten transaction (from code). After INSERT, MERGE or streaming writes, Delta's writer compacts (from code). Delta Lake 2.4.0 has no auto compaction. |
+| Auto compaction | Offload after native writes, PartialOffload after other writes | Compacts natively written tables (seen on 4.1). The auto compaction tests that fail in the nightly job fail because its `spark.default.parallelism=1` makes their first write produce one file (from code). After a native write, the compaction runs in a Gluten transaction (from code). After INSERT, MERGE or streaming writes that use Delta's writer, Delta's writer compacts (from code). Delta Lake 2.4.0 has no auto compaction. |
 
 ## Reading
 ### Read data
@@ -454,8 +454,8 @@ These need native write on, unless a row says otherwise. On Spark 4.x, many of t
 | A generated partition column such as `DATE_FORMAT(ts, 'yyyy-MM')` stores `12345-07` for the year 12345. Spark stores `+12345-07`. Not checked with native write off. | ResultMismatch | Seen on 4.1 | |
 | The `compression` option set to brotli or lzo fails the write. So does `spark.sql.parquet.compression.codec` when the option is unset. The write fails even with the Hadoop codec class on the classpath. Without that class, Delta's writer fails too, and Spark does not ship it. | Exception | 3.5, from code. Spark 4.x falls back | |
 | The `compression` option or `spark.sql.parquet.compression.codec` set to lz4_raw writes Snappy data into a `.lz4raw.parquet` file. | ResultMismatch | 3.5, from code. Spark 4.x falls back | |
-| `maxRecordsPerFile` on an unpartitioned write counts rows but writes whole batches. When the limit is smaller than a batch, the whole batch goes into one file. The other files opened for that batch are 0-byte files that are not valid Parquet. | ResultMismatch | 3.5, from code. Spark 4.x falls back | |
-| An unpartitioned native write whose first task gets no rows, for example a write of an empty DataFrame, leaves a 0-byte file that is not valid Parquet. Reading the table directory as plain Parquet can then fail with `is not a Parquet file (length is too low: 0)`. With statistics on, the file stays on disk until `VACUUM`. With `spark.databricks.delta.stats.collect=false`, Delta commits it. The last two sentences are from code. | ResultMismatch | 3.5 and 4.x, seen on 4.1 | |
+| An unpartitioned write with a positive `maxRecordsPerFile` uses Delta's writer to enforce the file limit. Partitioned native writes split batches at file boundaries. | Fallback | 3.5 and 4.x, batch and streaming | |
+| An unpartitioned native write whose first task gets no rows, for example a write of an empty DataFrame, leaves a 0-byte file that is not valid Parquet. Reading the table directory as plain Parquet can then fail with `is not a Parquet file (length is too low: 0)`. With statistics on, the file stays on disk until `VACUUM`. With `spark.databricks.delta.stats.collect=false`, Delta commits it. The last two sentences are from code. | ResultMismatch | 3.5 and 4.x; seen on 3.5 and 4.1 | |
 | A statistics aggregation that Velox cannot offload fails the write with `ClassCastException`. With the default `spark.gluten.sql.columnar.backend.velox.enableTimestampNtzValidation=false`, the TIMESTAMP_NTZ case from the issue no longer fails on main. Tested on Spark 3.5, seen on 4.1, from code on 4.0. On Spark 3.5 with that option set to true, the TIMESTAMP_NTZ case still fails (from code). | Exception | 3.5 and 4.x, from code | [#12538](https://github.com/apache/gluten/issues/12538) |
 
 ### MERGE, UPDATE and DELETE problems
@@ -488,7 +488,8 @@ For errors raised on the JVM, the message of the exception raised in the task st
 
 | Gluten option | Default | Description |
 | --- | --- | --- |
-| spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite | false | Experimental. Velox writes the data files of the commands marked Offload in [Write commands](#write-commands). Spark 3.5 and 4.x. No effect on Spark 3.4. |
+| spark.gluten.sql.columnar.backend.velox.delta.enableNativeWrite | false | Experimental. Velox writes the data files of the commands marked Offload in [Write commands](#write-commands). Spark 3.5 and 4.x. Streaming appends also require `enableNativeStreamingWrite=true`. No effect on Spark 3.4. |
+| spark.gluten.sql.columnar.backend.velox.delta.enableNativeStreamingWrite | false | Experimental. Enables native streaming appends on Spark 3.5. Requires `enableNativeWrite=true`. |
 | spark.gluten.sql.columnar.backend.velox.delta.enableNativeDmlRowIndexScan | true | Experimental. When false, the DML target scan that reads row indexes for deletion vectors stays on Spark. Other scans still offload. Tested with DELETE on Spark 3.5 and 4.0. UPDATE, MERGE and Spark 4.1 are from code. Tested on Spark 3.5 and 4.0, from code on 4.1. On Spark 3.4, that scan falls back either way (from code). |
 | spark.gluten.sql.columnar.backend.velox.delta.enableChangeDataFeedScan | true | Experimental. When false, batch change data feed reads use Delta Lake's change data feed scan. |
 | spark.gluten.sql.columnar.filescan | true | When false, every V1 file source scan (`FileSourceScanExec`) falls back, Delta scans included. No Gluten option turns off Delta scans alone. From code. |
@@ -502,7 +503,7 @@ For errors raised on the JVM, the message of the exception raised in the task st
 | spark.gluten.sql.fallbackUnexpectedMetadataParquet | false | When true, Delta scans fall back if a sampled file is encrypted, carries legacy datetime rebase metadata, uses LZO or BROTLI, or has variant annotations. LZ4_RAW also counts on Spark 4.0 and 4.1. The variant check runs on Spark 4.1 only. The sample is the first `spark.gluten.sql.fallbackUnexpectedMetadataParquet.limit` files (default 10) under the table root. `_delta_log` files count. HDFS and S3 list files in name order, and `_delta_log` sorts before `part-` files and lowercase partition directories. On those stores, a table laid out that way gets no data file in the sample once `_delta_log` holds as many files as the limit. The check is skipped when `spark.gluten.sql.scan.fileSchemeValidation.enabled=false`. From code. |
 | spark.gluten.sql.scan.fileSchemeValidation.enabled | true | Scans on a file scheme Velox cannot read fall back. From code. |
 
-The three `spark.gluten.sql.columnar.backend.velox.delta.*` options are read per query, so `SET` changes them for the session.
+The `spark.gluten.sql.columnar.backend.velox.delta.*` options are read per query, so `SET` changes them for the session. Streaming queries capture their configuration at startup; restart the query to change its write flags.
 
 ### Catalogs
 
@@ -531,7 +532,8 @@ A blank cell means unknown.
 | spark.sql.catalog.spark_catalog | builtin on Spark 4.x, (unset) on 3.x | Set to `org.apache.spark.sql.delta.catalog.DeltaCatalog`. | ✅ |
 | spark.sql.ansi.enabled | true on Spark 4.x, false on 3.x | When true, every query falls back unless `spark.gluten.sql.ansiFallback.enabled=false`. From code. | ⚠️ |
 | spark.sql.parquet.compression.codec | snappy | Codec for native writes when the `compression` option is unset. On Spark 4.x, a codec Velox cannot write makes the write fall back (from code). | ⚠️ |
-| spark.sql.files.maxRecordsPerFile | 0 | Exact on partitioned native writes. On unpartitioned tables, Spark 4.x falls back (from code); for Spark 3.5, see [Write problems](#write-problems). | ⚠️ |
+| spark.sql.files.maxRecordsPerFile | 0 | Exact on partitioned native writes. Positive limits on unpartitioned tables use Delta's writer on Spark 3.5 and 4.x, for batch and streaming writes. | ⚠️ |
+| spark.sql.parquet.datetimeRebaseModeInWrite | EXCEPTION | DATE data columns use Delta's writer unless the mode is `CORRECTED`, including nested dates. Applies to batch and streaming on Spark 3.5 and 4.x. Spark 4.x also checks TIMESTAMP columns. | ⚠️ |
 | spark.sql.maxConcurrentOutputFileWriters | 0 | Above 0, partitioned native writes on Spark 3.5 sort by the partition columns, as with 0, and the table content is the same. On Spark 4.x they fall back. | ⚠️ |
 | spark.sql.files.ignoreMissingFiles | false | Passed to Velox. Native scans skip missing files when true. Tested on Spark 3.5 and 4.0, seen on 4.1, from code on 3.4. | ✅ |
 | spark.sql.parquet.mergeSchema | false | Spark's Parquet read option. When true, Delta scans fall back. Delta Lake's `mergeSchema` write option is a different setting (see [Write options](#write-options)). From code. | ❌ |
@@ -577,7 +579,7 @@ A blank cell means unknown.
 | Option | Default | Description | Gluten Support |
 | --- | --- | --- | --- |
 | compression | spark.sql.parquet.compression.codec | Native writes support the codecs in [Natively written files](#natively-written-files). On Spark 4.x, other codecs make the write fall back (from code). | ⚠️ |
-| maxRecordsPerFile | spark.sql.files.maxRecordsPerFile | Exact on partitioned native writes. On unpartitioned tables, Spark 4.x falls back (from code); for Spark 3.5, see [Write problems](#write-problems). | ⚠️ |
+| maxRecordsPerFile | spark.sql.files.maxRecordsPerFile | Exact on partitioned native writes. Positive limits on unpartitioned tables use Delta's writer on Spark 3.5 and 4.x, for batch and streaming writes. Overrides the session limit. | ⚠️ |
 | partitionOverwriteMode | spark.sql.sources.partitionOverwriteMode | `dynamic` works through `save(path)`. `INSERT OVERWRITE` and `insertInto` use Delta's writer (from code). | ✅ |
 | replaceWhere | (none) | A violating partitioned native write fails with a different error type (seen on 4.1) and commits nothing (from code). See [Error types](#error-types). | ⚠️ |
 | mergeSchema | spark.databricks.delta.schema.autoMerge.enabled | Delta applies the schema change before the write. With native write on, Velox writes the evolved schema through `save(path)` (see [Schema evolution](#schema-evolution)). | ✅ |
@@ -586,7 +588,7 @@ A blank cell means unknown.
 | txnAppId, txnVersion | (unset) | Idempotent writes. Commit only. | 🚫 |
 | userMetadata | (unset) | Stored in `commitInfo.userMetadata`. Commit only. | 🚫 |
 | dataChange | true | Sets `dataChange` on the file actions. Commit only. | 🚫 |
-| parquet.* Hadoop settings | | Native writes ignore `parquet.*` keys in the Hadoop configuration, such as `spark.hadoop.parquet.block.size`, which Delta's writer applies. Delta Lake drops `parquet.*` writer options before the write, so as writer options they have no effect with or without Gluten. Both are from code. Use `spark.gluten.sql.columnar.parquet.write.blockSize` for row groups. On Spark 4.x, `parquet.writer.version=v2` and `parquet.crypto.factory.class` make the write fall back (from code). | ❌ |
+| parquet.* Hadoop settings | | Native writes ignore Parquet tuning keys such as `spark.hadoop.parquet.block.size`; use `spark.gluten.sql.columnar.parquet.write.blockSize` for row groups. Setting `parquet.crypto.factory.class` in the effective Hadoop configuration, including table properties, uses Delta's writer on Spark 3.5 and 4.x for batch and streaming. `parquet.writer.version=v2` also falls back on Spark 4.x. Delta Lake drops `parquet.*` writer options before the write, so those options have no effect with or without Gluten. | ⚠️ |
 | File system schemes the native library cannot write | | On Spark 3.5, native writes fail at task time instead of falling back (from code). On Spark 4.x, the write falls back to Delta's writer: seen on 4.1 for a custom Hadoop file system scheme, from code for a missing connector. See [Write problems](#write-problems). | ⚠️ |
 | fs.* per-write options for supported stores | | Per-write options such as `fs.s3a.access.key` do not reach the native writer (from code). | ❌ |
 

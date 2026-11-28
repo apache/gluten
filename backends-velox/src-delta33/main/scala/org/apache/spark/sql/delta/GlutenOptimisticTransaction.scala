@@ -25,14 +25,17 @@ import org.apache.spark.sql.delta.constraints.{Constraint, Constraints, DeltaInv
 import org.apache.spark.sql.delta.files.{GlutenDeltaFileFormatWriter, TransactionalWrite}
 import org.apache.spark.sql.delta.hooks.AutoCompact
 import org.apache.spark.sql.delta.perf.{DeltaOptimizedWriterExec, GlutenDeltaOptimizedWriterExec}
-import org.apache.spark.sql.delta.schema.InnerInvariantViolationException
+import org.apache.spark.sql.delta.schema.{InnerInvariantViolationException, SchemaUtils}
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.execution.{SparkPlan, SQLExecution}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
 import org.apache.spark.sql.execution.datasources.{BasicWriteJobStatsTracker, FileFormatWriter, WriteJobStatsTracker}
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.DateType
 import org.apache.spark.sql.util.ScalaExtensions.OptionExt
 import org.apache.spark.util.SerializableConfiguration
+
+import org.apache.parquet.crypto.EncryptionPropertiesFactory
 
 import scala.collection.mutable.ListBuffer
 import scala.util.control.NonFatal
@@ -58,9 +61,40 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
           "falling back to the vanilla Delta write path.")
       return super.writeFiles(inputData, writeOptions, isOptimize, additionalConstraints)
     }
-    hasWritten = true
-
     val spark = inputData.sparkSession
+    // Check the current transaction metadata, including table properties added after stream startup.
+    // Use the same effective configuration as Delta's writer and the Delta 4.x native write gate.
+    // scalastyle:off deltahadoopconfiguration
+    val jobHadoopConf =
+      spark.sessionState.newHadoopConfWithOptions(metadata.configuration ++ deltaLog.options)
+    // scalastyle:on deltahadoopconfiguration
+    val encrypted =
+      jobHadoopConf.get(EncryptionPropertiesFactory.CRYPTO_FACTORY_CLASS_PROPERTY_NAME) != null
+    val maxRecordsPerFile = writeOptions
+      .flatMap(_.options.get(DeltaOptions.MAX_RECORDS_PER_FILE))
+      .map(_.toLong)
+      .getOrElse(spark.sessionState.conf.maxRecordsPerFile)
+    // Only the partitioned native writer can split a columnar batch across output files.
+    if (encrypted || (metadata.partitionColumns.isEmpty && maxRecordsPerFile > 0)) {
+      logInfo("Writing with vanilla Delta to honor Parquet encryption or maxRecordsPerFile.")
+      return super.writeFiles(inputData, writeOptions, isOptimize, additionalConstraints)
+    }
+    // Velox does not rebase dates or reject ancient dates. Check nested data columns too
+    // partition only dates are stored in directory names, not Parquet data columns.
+    val hasDateData = inputData.schema.fields.exists {
+      field =>
+        !metadata.partitionColumns.exists(spark.sessionState.conf.resolver(_, field.name)) &&
+        SchemaUtils.typeExistsRecursively(field.dataType)(_ == DateType)
+    }
+    if (
+      hasDateData &&
+      !spark.sessionState.conf.getConf(SQLConf.PARQUET_REBASE_MODE_IN_WRITE)
+        .equalsIgnoreCase("CORRECTED")
+    ) {
+      logInfo("Writing with vanilla Delta to honor the DATE rebase policy.")
+      return super.writeFiles(inputData, writeOptions, isOptimize, additionalConstraints)
+    }
+    hasWritten = true
 
     val (data, partitionSchema) = performCDCPartition(inputData)
     val outputPath = deltaLog.dataPath
@@ -190,10 +224,7 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
           ), // This is changed to Gluten's Delta format.
           committer = committer,
           outputSpec = outputSpec,
-          // scalastyle:off deltahadoopconfiguration
-          hadoopConf =
-            spark.sessionState.newHadoopConfWithOptions(metadata.configuration ++ deltaLog.options),
-          // scalastyle:on deltahadoopconfiguration
+          hadoopConf = jobHadoopConf,
           partitionColumns = partitioningColumns,
           bucketSpec = None,
           statsTrackers =

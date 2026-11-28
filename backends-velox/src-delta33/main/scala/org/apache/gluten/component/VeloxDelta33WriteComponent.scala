@@ -21,6 +21,7 @@ import org.apache.gluten.extension.columnar.heuristic.HeuristicTransform
 import org.apache.gluten.extension.columnar.validator.Validators
 import org.apache.gluten.extension.injector.Injector
 
+import org.apache.spark.sql.delta.sources.OffloadDeltaStreamingWrite
 import org.apache.spark.sql.execution.datasources.v2.OffloadDeltaCommand
 
 class VeloxDelta33WriteComponent extends Component {
@@ -29,6 +30,7 @@ class VeloxDelta33WriteComponent extends Component {
   override def dependencies(): Seq[Class[_ <: Component]] = classOf[VeloxDeltaComponent] :: Nil
 
   override def injectRules(injector: Injector): Unit = {
+    injector.spark.injectPostHocResolutionRule(_ => OffloadDeltaStreamingWrite())
     val legacy = injector.gluten.legacy
     legacy.injectTransform {
       c =>
