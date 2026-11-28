@@ -24,3 +24,4 @@ add_test_case(jni_class_name_test SOURCES JniClassNameTest.cc)
 add_test_case(jni_thread_exit_test SOURCES JniThreadExitTest.cc)
 add_test_case(java_exception_allocation_test SOURCES
               JavaExceptionAllocationTest.cc)
+add_test_case(compressed_input_stream_test SOURCES CompressedInputStreamTest.cc)

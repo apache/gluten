@@ -349,9 +349,7 @@ class CompressedInputStream : public arrow::io::InputStream {
   }
 
   arrow::Result<int64_t> Read(int64_t nbytes, void* out) override {
-    ScopedTimer timer(&decompressWallTime_);
     auto out_data = reinterpret_cast<uint8_t*>(out);
-
     int64_t total_read = 0;
     bool decompressor_has_data = true;
 
@@ -459,6 +457,10 @@ class CompressedInputStream : public arrow::io::InputStream {
 
   // Try to feed more data into the decompressed_ buffer.
   arrow::Status RefillDecompressed(bool* has_data) {
+    // Time refills rather than each row-size/payload read. Copies from the
+    // decompressed buffer need no clock reads; raw input time is subtracted by
+    // decompressTime() using the nested timer in EnsureCompressedData().
+    ScopedTimer timer(&decompressWallTime_);
     // First try to read data from the decompressor
     if (compressed_ && compressed_->size() != 0) {
       if (decompressor_->IsFinished()) {
