@@ -16,15 +16,45 @@
  */
 package org.apache.spark.util
 
-import org.apache.spark.{SparkConf, SparkMasterRegex}
+import org.apache.spark.{SparkConf, SparkEnv, SparkMasterRegex, TaskContext}
 import org.apache.spark.internal.Logging
-import org.apache.spark.internal.config.{EXECUTOR_MEMORY, EXECUTOR_MEMORY_OVERHEAD}
+import org.apache.spark.internal.config.{EXECUTOR_MEMORY, EXECUTOR_MEMORY_OVERHEAD, MEMORY_OFFHEAP_ENABLED, MEMORY_OFFHEAP_SIZE, MEMORY_STORAGE_FRACTION}
 import org.apache.spark.network.util.ByteUnit
 import org.apache.spark.sql.internal.SQLConf
 
 object SparkResourceUtil extends Logging {
   private val MEMORY_OVERHEAD_FACTOR = "spark.executor.memoryOverheadFactor"
   private val MIN_MEMORY_OVERHEAD = "spark.executor.minMemoryOverhead"
+
+  case class TaskOffHeapBudget(bytes: Long, conservativeBytes: Long)
+
+  def taskOffHeapBudget(
+      offHeapSize: Long,
+      taskSlots: Int,
+      storageFraction: Double): TaskOffHeapBudget = {
+    // Isolation reserves room for non-borrowable storage memory.
+    val executionSize = (offHeapSize * (1.0d - storageFraction)).toLong
+    TaskOffHeapBudget(offHeapSize / taskSlots, executionSize / taskSlots)
+  }
+
+  def currentTaskOffHeapBudget(): Option[TaskOffHeapBudget] = {
+    val task = TaskContext.get()
+    val env = SparkEnv.get
+    // Driver-side native validation can run with a synthetic task context.
+    if (task == null || task.taskAttemptId() < 0 || env == null) {
+      return None
+    }
+    val conf = env.conf
+    if (!conf.get(MEMORY_OFFHEAP_ENABLED)) {
+      return None
+    }
+    // Spark applies the resource profile to the executor conf before running tasks.
+    val taskSlots = Math.max(getExecutorCores(conf) / task.cpus(), 1)
+    Some(taskOffHeapBudget(
+      conf.get(MEMORY_OFFHEAP_SIZE),
+      taskSlots,
+      conf.get(MEMORY_STORAGE_FRACTION)))
+  }
 
   /** Get the total cores of the Spark application */
   def getTotalCores(sqlConf: SQLConf): Int = {

@@ -21,7 +21,7 @@ import org.apache.gluten.shuffle.SupportsColumnarShuffle
 
 import org.apache.spark.network.util.{ByteUnit, JavaUtils}
 import org.apache.spark.sql.internal.{GlutenConfigUtil, SQLConf}
-import org.apache.spark.util.SparkVersionUtil
+import org.apache.spark.util.{SparkResourceUtil, SparkVersionUtil}
 
 import org.apache.hadoop.security.UserGroupInformation
 
@@ -587,11 +587,17 @@ object GlutenConfig extends ConfigRegistry {
 
   /** Get dynamic configs. */
   def getNativeSessionConf(backendName: String, conf: Map[String, String]): Map[String, String] = {
-    val settings = backendSettings(backendName)
+    lazy val extraKeys = backendSettings(backendName).extraNativeSessionConfKeys()
     val nativeConfMap = mutable.Map[String, String](conf.filter {
       case (key, _) =>
-        nativeKeys.contains(key) || settings.extraNativeSessionConfKeys().contains(key)
+        nativeKeys.contains(key) || extraKeys.contains(key)
     }.toSeq: _*)
+    SparkResourceUtil.currentTaskOffHeapBudget().foreach {
+      budget =>
+        nativeConfMap.put(
+          GlutenCoreConfig.COLUMNAR_TASK_OFFHEAP_SIZE_IN_BYTES.key,
+          budget.bytes.toString)
+    }
 
     Seq(
       (SQLConf.CASE_SENSITIVE.key, SQLConf.CASE_SENSITIVE.defaultValueString),
