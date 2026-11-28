@@ -109,6 +109,10 @@ std::shared_ptr<VeloxColumnarBatch> VeloxColumnarBatch::compose(
   int32_t numRows = -1;
   for (const auto& batch : batches) {
     GLUTEN_CHECK(batch->getType() == kType, "At least one of the input batches is not in Velox format");
+    // The composed row vector has no row nulls, so reject row nulls in every input, including the first.
+    auto vb = std::dynamic_pointer_cast<VeloxColumnarBatch>(batch);
+    auto rv = vb->getRowVector();
+    GLUTEN_CHECK(rv->nulls() == nullptr, "Vectors to compose contain null bits");
     if (numRows == -1) {
       numRows = batch->numRows();
       continue;
@@ -116,9 +120,6 @@ std::shared_ptr<VeloxColumnarBatch> VeloxColumnarBatch::compose(
     if (batch->numRows() != numRows) {
       throw GlutenException("Mismatched row counts among the input batches during composing columnar batches");
     }
-    auto vb = std::dynamic_pointer_cast<VeloxColumnarBatch>(batch);
-    auto rv = vb->getRowVector();
-    GLUTEN_CHECK(rv->nulls() == nullptr, "Vectors to compose contain null bits");
   }
 
   GLUTEN_CHECK(numRows > 0, "Illegal state");
