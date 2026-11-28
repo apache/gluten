@@ -26,6 +26,8 @@ import org.apache.spark.sql.delta.util.DeltaFileOperations
 import org.apache.spark.sql.execution.{QueryExecution, SparkPlan}
 import org.apache.spark.sql.execution.command.ExecutedCommandExec
 import org.apache.spark.sql.execution.streaming.MemoryStream
+import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.streaming.StreamingQueryException
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types.{IntegerType, LongType, StructType}
 import org.apache.spark.sql.util.QueryExecutionListener
@@ -34,14 +36,16 @@ import org.apache.spark.util.SparkVersionUtil
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 import org.apache.parquet.crypto.{DecryptionPropertiesFactory, EncryptionPropertiesFactory, FileDecryptionProperties, FileEncryptionProperties}
+import org.apache.parquet.example.data.simple.convert.GroupRecordConverter
 import org.apache.parquet.hadoop.ParquetFileReader
 import org.apache.parquet.hadoop.api.WriteSupport.WriteContext
 import org.apache.parquet.hadoop.util.HadoopInputFile
+import org.apache.parquet.io.ColumnIOFactory
 import org.json4s.{JInt, JNothing}
 import org.json4s.jackson.JsonMethods.parse
 
 import java.nio.charset.StandardCharsets
-import java.nio.file.Files
+import java.nio.file.{Files, StandardCopyOption}
 import java.util.concurrent.ConcurrentLinkedQueue
 
 import scala.collection.JavaConverters._
@@ -418,6 +422,110 @@ class GlutenDeltaNativePartitionWriteSuite extends GlutenQueryTest with SharedSp
     }
   }
 
+  private val dateWriteCases =
+    (for {
+      mode <- Seq("EXCEPTION", "LEGACY", "CORRECTED")
+      collectStats <- Seq(false, true)
+      nativeStreaming <- Seq(false, true)
+    } yield ("date", mode, collectStats, nativeStreaming)) ++
+      Seq("struct", "array", "map", "partition").map((_, "EXCEPTION", false, true))
+
+  for ((shape, mode, collectStats, nativeStreaming) <- dateWriteCases) {
+    test(s"Delta streaming dates: shape=$shape, mode=$mode, stats=$collectStats, " +
+      s"nativeStreaming=$nativeStreaming") {
+      assume(BackendTestUtils.isVeloxBackendLoaded())
+      import testImplicits._
+      withSQLConf(
+        "spark.gluten.sql.columnar.backend.velox.delta.enableNativeStreamingWrite" ->
+          nativeStreaming.toString,
+        "spark.databricks.delta.stats.collect" -> collectStats.toString,
+        SQLConf.PARQUET_REBASE_MODE_IN_WRITE.key -> mode
+      ) {
+        withTempDir {
+          dir =>
+            val path = dir.getCanonicalPath + "/data"
+            val checkpoint = dir.getCanonicalPath + "/checkpoint"
+            val input = MemoryStream[Long](numPartitions = 1)(implicitly, spark.sqlContext)
+            val date = "DATE '1500-01-01'"
+            val expression = shape match {
+              case "struct" => s"named_struct('nested', $date)"
+              case "array" => s"array($date)"
+              case "map" => s"map('nested', $date)"
+              case _ => date
+            }
+            val writer = input.toDF().selectExpr("value AS id", s"$expression AS d")
+              .writeStream.format("delta").outputMode("append")
+              .option("checkpointLocation", checkpoint)
+            val query = (if (shape == "partition") writer.partitionBy("d") else writer)
+              .start(path)
+            val commitPath = new Path(checkpoint + "/commits/0")
+            val fs = commitPath.getFileSystem(spark.sessionState.newHadoopConf())
+            try {
+              input.addData(1L)
+              if (mode == "EXCEPTION" && shape != "partition") {
+                val error = intercept[StreamingQueryException](query.processAllAvailable())
+                val causes = Iterator.iterate(error: Throwable)(_.getCause).takeWhile(_ != null)
+                assert(
+                  causes.exists(
+                    t =>
+                      Option(t.getMessage)
+                        .exists(_.contains("WRITE_ANCIENT_DATETIME"))),
+                  error.toString)
+                assert(
+                  DeltaLog.forTable(spark, path).update().version == -1L,
+                  "The rejected batch committed a Delta version")
+                assert(fs.exists(new Path(checkpoint + "/offsets/0")))
+                assert(!fs.exists(commitPath), "The rejected batch advanced Spark's checkpoint")
+              } else {
+                query.processAllAvailable()
+                assert(DeltaLog.forTable(spark, path).update().version == 0L)
+                assert(fs.exists(commitPath))
+              }
+            } finally {
+              query.stop()
+            }
+            if (mode != "EXCEPTION" || shape == "partition") {
+              // Velox uses proleptic Gregorian days; Spark's legacy footer overrides this read mode.
+              withSQLConf(
+                GlutenConfig.GLUTEN_ENABLED.key -> "false",
+                SQLConf.PARQUET_REBASE_MODE_IN_READ.key -> "CORRECTED") {
+                val files = DeltaLog.forTable(spark, path).update().allFiles.collect()
+                assert(files.nonEmpty)
+                files.foreach {
+                  file =>
+                    val reader = ParquetFileReader.open(HadoopInputFile.fromPath(
+                      DeltaFileOperations.absolutePath(path, file.path),
+                      spark.sessionState.newHadoopConf()))
+                    try {
+                      val metadata = reader.getFooter.getFileMetaData
+                      val expectNative = nativeStreaming && mode != "LEGACY" &&
+                        SparkVersionUtil.compareMajorMinorVersion((3, 5)) == 0
+                      assert(metadata.getCreatedBy.startsWith("parquet-mr") == !expectNative)
+                      if (shape != "partition") {
+                        assert(metadata.getKeyValueMetaData
+                          .containsKey("org.apache.spark.legacyDateTime") == (mode == "LEGACY"))
+                        val columnIO = new ColumnIOFactory().getColumnIO(metadata.getSchema)
+                        val records = columnIO.getRecordReader(
+                          reader.readNextRowGroup(),
+                          new GroupRecordConverter(metadata.getSchema))
+                        val physicalDay = records.read().getInteger("d", 0)
+                        assert(physicalDay == (if (mode == "LEGACY") -171655 else -171664))
+                      }
+                    } finally {
+                      reader.close()
+                    }
+                }
+                checkAnswer(
+                  spark.read.format("delta").load(path)
+                    .selectExpr("id", "CAST(d AS STRING)"),
+                  Seq(Row(1L, "1500-01-01")))
+              }
+            }
+        }
+      }
+    }
+  }
+
   for (collectStats <- Seq(false, true)) {
     test(s"Delta streaming safeguards: replay committed epoch, stats=$collectStats") {
       assume(BackendTestUtils.isVeloxBackendLoaded())
@@ -430,9 +538,12 @@ class GlutenDeltaNativePartitionWriteSuite extends GlutenQueryTest with SharedSp
             assert(source.mkdir())
             def addInput(name: String, ids: Seq[Long]): Unit = {
               val json = ids.map(id => s"""{"id":$id}""").mkString("\n")
-              Files.write(
+              val staged = new java.io.File(dir, name).toPath
+              Files.write(staged, json.getBytes(StandardCharsets.UTF_8))
+              Files.move(
+                staged,
                 new java.io.File(source, name).toPath,
-                json.getBytes(StandardCharsets.UTF_8))
+                StandardCopyOption.ATOMIC_MOVE)
             }
             val path = dir.getCanonicalPath + "/data"
             val checkpoint = dir.getCanonicalPath + "/checkpoint"

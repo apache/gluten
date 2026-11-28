@@ -25,12 +25,13 @@ import org.apache.spark.sql.delta.constraints.{Constraint, Constraints, DeltaInv
 import org.apache.spark.sql.delta.files.{GlutenDeltaFileFormatWriter, TransactionalWrite}
 import org.apache.spark.sql.delta.hooks.AutoCompact
 import org.apache.spark.sql.delta.perf.{DeltaOptimizedWriterExec, GlutenDeltaOptimizedWriterExec}
-import org.apache.spark.sql.delta.schema.InnerInvariantViolationException
+import org.apache.spark.sql.delta.schema.{InnerInvariantViolationException, SchemaUtils}
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.execution.{SparkPlan, SQLExecution}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
 import org.apache.spark.sql.execution.datasources.{BasicWriteJobStatsTracker, FileFormatWriter, WriteJobStatsTracker}
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.DateType
 import org.apache.spark.sql.util.ScalaExtensions.OptionExt
 import org.apache.spark.util.SerializableConfiguration
 
@@ -76,6 +77,21 @@ class GlutenOptimisticTransaction(delegate: OptimisticTransaction)
     // Only the partitioned native writer can split a columnar batch across output files.
     if (encrypted || (metadata.partitionColumns.isEmpty && maxRecordsPerFile > 0)) {
       logInfo("Writing with vanilla Delta to honor Parquet encryption or maxRecordsPerFile.")
+      return super.writeFiles(inputData, writeOptions, isOptimize, additionalConstraints)
+    }
+    // Velox does not rebase dates or reject ancient dates. Check nested data columns too
+    // partition only dates are stored in directory names, not Parquet data columns.
+    val hasDateData = inputData.schema.fields.exists {
+      field =>
+        !metadata.partitionColumns.exists(spark.sessionState.conf.resolver(_, field.name)) &&
+        SchemaUtils.typeExistsRecursively(field.dataType)(_ == DateType)
+    }
+    if (
+      hasDateData &&
+      !spark.sessionState.conf.getConf(SQLConf.PARQUET_REBASE_MODE_IN_WRITE)
+        .equalsIgnoreCase("CORRECTED")
+    ) {
+      logInfo("Writing with vanilla Delta to honor the DATE rebase policy.")
       return super.writeFiles(inputData, writeOptions, isOptimize, additionalConstraints)
     }
     hasWritten = true
