@@ -1294,17 +1294,6 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
   }
   const std::optional<std::string> rowNumberColumnName = std::nullopt;
 
-  if (sortingKeys.empty()) {
-    // Handle if all sorting keys are also used as partition keys.
-
-    return std::make_shared<core::RowNumberNode>(
-        nextPlanNodeId(),
-        partitionKeys,
-        rowNumberColumnName,
-        static_cast<int32_t>(windowGroupLimitRel.limit()),
-        childNode);
-  }
-
   auto windowFunc = core::TopNRowNumberNode::RankFunction::kRowNumber;
   if (windowGroupLimitRel.has_advanced_extension()) {
     if (SubstraitParser::checkWindowFunction(windowGroupLimitRel.advanced_extension(), "rank")) {
@@ -1312,6 +1301,27 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
     } else if (SubstraitParser::checkWindowFunction(windowGroupLimitRel.advanced_extension(), "dense_rank")) {
       windowFunc = core::TopNRowNumberNode::RankFunction::kDenseRank;
     }
+  }
+
+  if (sortingKeys.empty()) {
+    if (windowFunc != core::TopNRowNumberNode::RankFunction::kRowNumber && windowGroupLimitRel.limit() > 0) {
+      // All rows tie at rank 1. Keep a pass-through node for operator metrics.
+      std::vector<core::TypedExprPtr> expressions;
+      expressions.reserve(inputType->size());
+      for (column_index_t i = 0; i < inputType->size(); ++i) {
+        expressions.emplace_back(
+            std::make_shared<core::FieldAccessTypedExpr>(inputType->childAt(i), inputType->nameOf(i)));
+      }
+      return std::make_shared<core::ProjectNode>(
+          nextPlanNodeId(), inputType->names(), std::move(expressions), childNode);
+    }
+
+    return std::make_shared<core::RowNumberNode>(
+        nextPlanNodeId(),
+        partitionKeys,
+        rowNumberColumnName,
+        static_cast<int32_t>(windowGroupLimitRel.limit()),
+        childNode);
   }
 
   return std::make_shared<core::TopNRowNumberNode>(
