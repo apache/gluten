@@ -37,7 +37,7 @@ class GlutenDeltaInvariantCheckerSuite extends SparkFunSuite {
     // Delta resolves column names case-insensitively.
     assert(GlutenDeltaInvariantChecker.create(output, Seq(NotNull(Seq("B")))).isDefined)
 
-    // Any other constraint keeps Delta's DeltaInvariantCheckerExec for the whole write.
+    // Any other constraint is checked with Delta's checks on the columns it references.
     val check = Check("positive", Literal(true))
     assert(GlutenDeltaInvariantChecker.create(output, Seq(NotNull(Seq("a")), check)).isEmpty)
     assert(GlutenDeltaInvariantChecker.create(output, Seq(NotNull(Seq("a", "x")))).isEmpty)

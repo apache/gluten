@@ -22,18 +22,21 @@ import org.apache.gluten.execution.SortExecTransformer
 
 import org.apache.spark.sql.{Column, DataFrame, Row}
 import org.apache.spark.sql.catalyst.TableIdentifier
+import org.apache.spark.sql.catalyst.expressions.Empty2Null
 import org.apache.spark.sql.delta.actions.AddFile
 import org.apache.spark.sql.delta.commands.optimize.OptimizeMetrics
 import org.apache.spark.sql.delta.constraints.{DeltaInvariantCheckerExec, GlutenDeltaInvariantCheckerExec}
 import org.apache.spark.sql.delta.files.GlutenDeltaFileFormatWriter
+import org.apache.spark.sql.delta.perf.GlutenDeltaOptimizedWriterExec
 import org.apache.spark.sql.delta.schema.InvariantViolationException
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.delta.test.DeltaSQLCommandTest
+import org.apache.spark.sql.execution.{ProjectExec, SparkPlan}
 import org.apache.spark.sql.execution.QueryExecution
-import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.command.ExecutedCommandExec
 import org.apache.spark.sql.execution.datasources.v2.{GlutenDeltaLeafRunnableCommand, GlutenDeltaLeafV2CommandExec, GlutenDeltaRunnableCommand}
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.{IntegerType, LongType, MetadataBuilder, StringType, StructType}
 import org.apache.spark.sql.util.QueryExecutionListener
 
 import java.util.concurrent.{CopyOnWriteArrayList, TimeUnit}
@@ -522,6 +525,194 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
     }
   }
 
+  test("native delta write checks the constraints of an optimized write natively") {
+    withNativeWriteOffloadConf {
+      withSQLConf(DeltaSQLConf.DELTA_OPTIMIZE_WRITE_ENABLED.key -> "true") {
+        withTempDir {
+          dir =>
+            val path = dir.getCanonicalPath
+            sql(
+              s"CREATE TABLE delta.`$path` (id BIGINT NOT NULL, s STRING) USING delta " +
+                "PARTITIONED BY (s) TBLPROPERTIES ('delta.constraints.positive' = 'id > 0')")
+            GlutenDeltaFileFormatWriter.clearExecutedPlanForTesting()
+            appendRows(path, (1L, "a"), (2L, "b"))
+            assertConstraintsCheckedOnVeloxBatches()
+            // The rebalancing shuffle runs in Velox, after the checks.
+            assert(
+              writerPlan.find(_.isInstanceOf[GlutenDeltaOptimizedWriterExec]).isDefined,
+              writerPlan)
+            def violate(): Unit = appendRows(path, (3L, "a"), (-4L, "b"))
+            val nativeMessage = violationMessage(nativeWrite = true)(violate())
+            assert(nativeMessage == violationMessage(nativeWrite = false)(violate()))
+            assert(nativeMessage.contains(" - id : -4"))
+        }
+      }
+    }
+  }
+
+  test("native delta write checks the constraints of replaceWhere, UPDATE and OPTIMIZE natively") {
+    withNativeWriteOffloadConf {
+      withTempDir {
+        dir =>
+          val path = dir.getCanonicalPath
+          sql(
+            s"CREATE TABLE delta.`$path` (id BIGINT NOT NULL, s STRING) USING delta " +
+              "PARTITIONED BY (s) TBLPROPERTIES ('delta.constraints.positive' = 'id > 0')")
+          appendRows(path, (1L, "a"), (2L, "b"), (3L, "a"))
+
+          def replaceWhere(id: Long, s: String): Unit = Seq((id, s))
+            .toDF("id", "s")
+            .write
+            .format("delta")
+            .mode("overwrite")
+            .option("replaceWhere", "s = 'a'")
+            .save(path)
+          GlutenDeltaFileFormatWriter.clearExecutedPlanForTesting()
+          replaceWhere(4L, "a")
+          assertConstraintsCheckedOnVeloxBatches()
+          // replaceWhere adds a CHECK that the written rows match its predicate. Delta reports a
+          // violation of any check of the write as DELTA_REPLACE_WHERE_MISMATCH, with the violation
+          // as its cause.
+          def replaceWhereMessage(nativeWrite: Boolean)(write: => Unit): String = {
+            var message = ""
+            withSQLConf(VeloxDeltaConfig.ENABLE_NATIVE_WRITE.key -> nativeWrite.toString) {
+              val e = intercept[DeltaAnalysisException](write)
+              assert(e.getCause.isInstanceOf[InvariantViolationException], e)
+              message = e.getMessage
+            }
+            message
+          }
+          val outside = replaceWhereMessage(nativeWrite = true)(replaceWhere(5L, "b"))
+          assert(outside == replaceWhereMessage(nativeWrite = false)(replaceWhere(5L, "b")))
+          assert(outside.contains("(s = 'a')"))
+          val negative = replaceWhereMessage(nativeWrite = true)(replaceWhere(-5L, "a"))
+          assert(negative == replaceWhereMessage(nativeWrite = false)(replaceWhere(-5L, "a")))
+          assert(negative.contains(" - id : -5"))
+
+          GlutenDeltaFileFormatWriter.clearExecutedPlanForTesting()
+          sql(s"UPDATE delta.`$path` SET id = id + 10 WHERE s = 'b'")
+          assertConstraintsCheckedOnVeloxBatches()
+          def updateToNegative(): Unit = sql(s"UPDATE delta.`$path` SET id = -1 WHERE s = 'b'")
+          val updateMessage = violationMessage(nativeWrite = true)(updateToNegative())
+          assert(updateMessage == violationMessage(nativeWrite = false)(updateToNegative()))
+          assert(updateMessage.contains(" - id : -1"))
+
+          // Two more files in partition `a` for OPTIMIZE to compact.
+          appendRows(path, (5L, "a"))
+          appendRows(path, (6L, "a"))
+          GlutenDeltaFileFormatWriter.clearExecutedPlanForTesting()
+          sql(s"OPTIMIZE delta.`$path`")
+          assertConstraintsCheckedOnVeloxBatches()
+          assert(
+            spark.read.format("delta").load(path).orderBy("id").collect().toSeq ==
+              Seq(Row(4L, "a"), Row(5L, "a"), Row(6L, "a"), Row(12L, "b")))
+      }
+    }
+  }
+
+  test("native delta write checks legacy column invariants natively") {
+    withNativeWriteOffloadConf {
+      withTempDir {
+        dir =>
+          val path = dir.getCanonicalPath
+          val invariant = new MetadataBuilder()
+            .putString("delta.invariants", """{"expression":{"expression":"value < 3"}}""")
+            .build()
+          val schema = new StructType()
+            .add("id", LongType)
+            .add("value", IntegerType, nullable = true, invariant)
+          def write(id: Long, value: Int): Unit = spark
+            .createDataFrame(java.util.Arrays.asList(Row(id, value)), schema)
+            .write
+            .format("delta")
+            .mode("append")
+            .save(path)
+          write(1L, 1)
+          GlutenDeltaFileFormatWriter.clearExecutedPlanForTesting()
+          write(2L, 2)
+          assertConstraintsCheckedOnVeloxBatches()
+          val nativeMessage = violationMessage(nativeWrite = true)(write(3L, 5))
+          assert(nativeMessage == violationMessage(nativeWrite = false)(write(3L, 5)))
+          assert(nativeMessage.contains(" - value : 5"))
+      }
+    }
+  }
+
+  test("native delta write finds a violation in a later batch of a task") {
+    withNativeWriteOffloadConf {
+      withSQLConf(GlutenConfig.COLUMNAR_MAX_BATCH_SIZE.key -> "4") {
+        withTempDir {
+          dir =>
+            val path = dir.getCanonicalPath
+            sql(
+              s"CREATE TABLE delta.`$path` (id BIGINT NOT NULL, s STRING) USING delta " +
+                "TBLPROPERTIES ('delta.constraints.positive' = 'id > 0')")
+            GlutenDeltaFileFormatWriter.clearExecutedPlanForTesting()
+            appendRows(path, (1L, "a"))
+            assertConstraintsCheckedOnVeloxBatches()
+            // One task of 12 rows in batches of 4; the bad row is the 10th.
+            def violate(): Unit = spark
+              .range(0, 12, 1, 1)
+              .selectExpr("IF(id = 9, -id, id + 1) AS id", "CAST(id % 2 AS STRING) AS s")
+              .write
+              .format("delta")
+              .mode("append")
+              .save(path)
+            val nativeMessage = violationMessage(nativeWrite = true)(violate())
+            assert(nativeMessage == violationMessage(nativeWrite = false)(violate()))
+            assert(nativeMessage.contains(" - id : -9"))
+            assert(spark.read.format("delta").load(path).count() == 1)
+        }
+      }
+    }
+  }
+
+  test("native delta write checks CHECK constraints on decimal, temporal, array and map columns") {
+    withNativeWriteOffloadConf {
+      withTempDir {
+        dir =>
+          val path = dir.getCanonicalPath
+          sql(
+            s"CREATE TABLE delta.`$path` (id BIGINT, dec DECIMAL(10, 2), ntz TIMESTAMP_NTZ, " +
+              "d DATE, arr ARRAY<INT>, m MAP<STRING, INT>) USING delta TBLPROPERTIES (" +
+              "'delta.constraints.c_dec' = 'dec > 0', " +
+              "'delta.constraints.c_ntz' = \"ntz > TIMESTAMP_NTZ'2000-01-01 00:00:00'\", " +
+              "'delta.constraints.c_d' = 'd <= current_date()', " +
+              "'delta.constraints.c_arr' = 'size(arr) > 0', " +
+              "'delta.constraints.c_m' = 'cardinality(m) > 0')")
+          def write(dec: String, ntz: String, d: String, arr: String, m: String): Unit = spark
+            .sql(
+              s"SELECT 1L AS id, CAST($dec AS DECIMAL(10, 2)) AS dec, TIMESTAMP_NTZ'$ntz' AS ntz, " +
+                s"DATE'$d' AS d, CAST($arr AS ARRAY<INT>) AS arr, CAST($m AS MAP<STRING, INT>) AS m")
+            .write
+            .format("delta")
+            .mode("append")
+            .save(path)
+          val good = Seq("1.5", "2026-01-01 00:00:00", "2026-01-01", "array(1)", "map('k', 1)")
+          GlutenDeltaFileFormatWriter.clearExecutedPlanForTesting()
+          write(good(0), good(1), good(2), good(3), good(4))
+          assertConstraintsCheckedOnVeloxBatches()
+          // An array or map value prints as its object. A map's hash code differs per run.
+          def withoutHashCodes(message: String): String = message.replaceAll("@[0-9a-f]+", "@")
+          Seq(
+            0 -> "-1.5" -> "c_dec",
+            1 -> "1990-01-01 00:00:00" -> "c_ntz",
+            2 -> "2999-01-01" -> "c_d",
+            3 -> "array()" -> "c_arr",
+            4 -> "map()" -> "c_m").foreach {
+            case ((column, value), constraint) =>
+              val values = good.updated(column, value)
+              def violate(): Unit = write(values(0), values(1), values(2), values(3), values(4))
+              val nativeMessage = withoutHashCodes(violationMessage(nativeWrite = true)(violate()))
+              assert(
+                nativeMessage == withoutHashCodes(violationMessage(nativeWrite = false)(violate())))
+              assert(nativeMessage.contains(s"CHECK constraint $constraint "), nativeMessage)
+          }
+          assert(spark.read.format("delta").load(path).count() == 1)
+      }
+    }
+  }
+
   private def appendRows(path: String, rows: (java.lang.Long, String)*): Unit = {
     rows.toDF("id", "s").write.format("delta").mode("append").save(path)
   }
@@ -570,20 +761,206 @@ class DeltaNativeWriteSuite extends DeltaSQLCommandTest {
     }
   }
 
-  test("native delta write keeps DeltaInvariantCheckerExec for CHECK constraints") {
+  /** The message of the violation that `write` raises, with the native write on or off. */
+  private def violationMessage(nativeWrite: Boolean)(write: => Unit): String = {
+    var message = ""
+    withSQLConf(VeloxDeltaConfig.ENABLE_NATIVE_WRITE.key -> nativeWrite.toString) {
+      message = intercept[InvariantViolationException](write).getMessage
+    }
+    message
+  }
+
+  /** Creates a table with a NOT NULL field in a nullable struct and a generated date partition. */
+  private def createGeneratedColumnTable(path: String, changeDataFeed: Boolean = false): Unit = {
+    // Inside this package, DeltaTable is Delta's internal object.
+    val builder = io.delta.tables.DeltaTable
+      .create(spark)
+      .location(path)
+      .addColumn("id", "BIGINT")
+      .addColumn(
+        io.delta.tables.DeltaTable
+          .columnBuilder(spark, "meta")
+          .dataType(new StructType().add("tracking", StringType, nullable = false))
+          .build())
+      .addColumn("ts", "TIMESTAMP")
+      .addColumn(
+        io.delta.tables.DeltaTable
+          .columnBuilder(spark, "d")
+          .dataType("STRING")
+          .generatedAlwaysAs("date_format(ts, 'yyyy-MM-dd')")
+          .build())
+      .partitionedBy("d")
+    if (changeDataFeed) {
+      builder.property("delta.enableChangeDataFeed", "true").execute()
+    } else {
+      builder.execute()
+    }
+  }
+
+  /** Asserts that the last write by the Velox writer checked its constraints on Velox batches. */
+  private def assertConstraintsCheckedOnVeloxBatches(): Unit = {
+    assert(writerPlan.find(_.isInstanceOf[GlutenDeltaInvariantCheckerExec]).isDefined, writerPlan)
+    assert(writerPlan.find(_.isInstanceOf[DeltaInvariantCheckerExec]).isEmpty, writerPlan)
+    // Delta's Empty2Null projection of the string partition columns runs natively too.
+    assert(
+      writerPlan.find {
+        case p: ProjectExec => p.projectList.exists(_.exists(_.isInstanceOf[Empty2Null]))
+        case _ => false
+      }.isEmpty,
+      writerPlan)
+    // No batch is converted to rows. (A local relation's rows are converted to batches first.)
+    assert(!writerPlan.treeString.contains("ColumnarToRow"), writerPlan)
+  }
+
+  test("native delta write checks CHECK constraints on the Velox batches") {
+    for (partitioned <- Seq(false, true)) {
+      withNativeWriteOffloadConf {
+        withTempDir {
+          dir =>
+            val path = dir.getCanonicalPath
+            sql(
+              s"CREATE TABLE delta.`$path` (id BIGINT NOT NULL, s STRING) USING delta " +
+                (if (partitioned) "PARTITIONED BY (s) " else "") +
+                "TBLPROPERTIES ('delta.constraints.positive' = 'id > 0')")
+            GlutenDeltaFileFormatWriter.clearExecutedPlanForTesting()
+            appendRows(path, (1L, "a"))
+            assertConstraintsCheckedOnVeloxBatches()
+
+            // On a partitioned table the writer's native sort pulls the checked batches, which
+            // keeps only the text of an exception. The write still fails with Delta's own error.
+            def violate(): Unit = appendRows(path, (2L, "b"), (-3L, "c"))
+            val nativeMessage = violationMessage(nativeWrite = true)(violate())
+            assert(nativeMessage == violationMessage(nativeWrite = false)(violate()))
+            assert(nativeMessage.contains("CHECK constraint positive (id > 0) violated by row"))
+            assert(nativeMessage.contains(" - id : -3"))
+            // A task of a later input partition finds the violation while it checks whether it
+            // has rows to write.
+            def violateInLastPartition(): Unit = spark
+              .range(0, 1000, 1, 4)
+              .selectExpr("IF(id = 999, -id, id + 1) AS id", "CAST(id % 3 AS STRING) AS s")
+              .write
+              .format("delta")
+              .mode("append")
+              .save(path)
+            val lastPartitionMessage =
+              violationMessage(nativeWrite = true)(violateInLastPartition())
+            assert(lastPartitionMessage == violationMessage(nativeWrite =
+              false)(violateInLastPartition()))
+            assert(lastPartitionMessage.contains(" - id : -999"))
+            assert(spark.read.format("delta").load(path).collect().toSeq == Seq(Row(1L, "a")))
+        }
+      }
+    }
+  }
+
+  test("native delta write turns an empty partition string into NULL before the checks") {
     withNativeWriteOffloadConf {
       withTempDir {
         dir =>
           val path = dir.getCanonicalPath
           sql(
-            s"CREATE TABLE delta.`$path` (id BIGINT NOT NULL, s STRING) USING delta " +
-              "TBLPROPERTIES ('delta.constraints.positive' = 'id > 0')")
+            s"CREATE TABLE delta.`$path` (id BIGINT NOT NULL, s STRING NOT NULL) USING delta " +
+              "PARTITIONED BY (s) TBLPROPERTIES ('delta.constraints.positive' = 'id > 0')")
           GlutenDeltaFileFormatWriter.clearExecutedPlanForTesting()
           appendRows(path, (1L, "a"))
-          assert(writerPlan.find(_.isInstanceOf[DeltaInvariantCheckerExec]).isDefined, writerPlan)
+          assertConstraintsCheckedOnVeloxBatches()
+
+          // Delta writes an empty partition string as NULL, which breaks NOT NULL on `s`.
+          def emptyPartition(): Unit = appendRows(path, (3L, ""))
+          val nativeMessage = violationMessage(nativeWrite = true)(emptyPartition())
+          assert(nativeMessage == violationMessage(nativeWrite = false)(emptyPartition()))
+          assert(nativeMessage.contains("NOT NULL constraint violated for column: s"))
+          assert(spark.read.format("delta").load(path).collect().toSeq == Seq(Row(1L, "a")))
+      }
+    }
+  }
+
+  test("native delta write checks nested NOT NULL and generated column constraints natively") {
+    withNativeWriteOffloadConf {
+      withTempDir {
+        dir =>
+          val path = dir.getCanonicalPath
+          createGeneratedColumnTable(path)
+          // Writing the generated column adds a CHECK that it matches its expression.
+          def append(id: Long, tracking: String, ts: String, d: String): Unit = {
+            Seq((id, tracking, ts, d))
+              .toDF("id", "tracking", "ts", "d")
+              .selectExpr(
+                "id",
+                "named_struct('tracking', tracking) AS meta",
+                "CAST(ts AS TIMESTAMP) AS ts",
+                "d")
+              .write
+              .format("delta")
+              .mode("append")
+              .save(path)
+          }
+          GlutenDeltaFileFormatWriter.clearExecutedPlanForTesting()
+          append(1L, "t1", "2026-04-01 10:00:00", "2026-04-01")
+          assertConstraintsCheckedOnVeloxBatches()
+
+          def nullTracking(): Unit = append(2L, null, "2026-04-01 11:00:00", "2026-04-01")
+          val notNullMessage = violationMessage(nativeWrite = true)(nullTracking())
+          assert(notNullMessage == violationMessage(nativeWrite = false)(nullTracking()))
+          assert(notNullMessage.contains("NOT NULL constraint violated for column: meta.tracking"))
+
+          // A NULL struct breaks the NOT NULL constraint of its field too, as in Delta.
+          def nullMeta(): Unit = Seq((4L, "2026-04-01 13:00:00", "2026-04-01"))
+            .toDF("id", "ts", "d")
+            .selectExpr(
+              "id",
+              "CAST(NULL AS STRUCT<tracking: STRING>) AS meta",
+              "CAST(ts AS TIMESTAMP) AS ts",
+              "d")
+            .write
+            .format("delta")
+            .mode("append")
+            .save(path)
+          val nullMetaMessage = violationMessage(nativeWrite = true)(nullMeta())
+          assert(nullMetaMessage == violationMessage(nativeWrite = false)(nullMeta()))
           assert(
-            writerPlan.find(_.isInstanceOf[GlutenDeltaInvariantCheckerExec]).isEmpty,
-            writerPlan)
+            nullMetaMessage.contains("NOT NULL constraint violated for column: meta.tracking"))
+
+          def wrongDate(): Unit = append(3L, "t3", "2026-04-01 12:00:00", "2026-04-02")
+          val generatedMessage = violationMessage(nativeWrite = true)(wrongDate())
+          assert(generatedMessage == violationMessage(nativeWrite = false)(wrongDate()))
+          assert(generatedMessage.contains("CHECK constraint Generated Column"))
+          assert(generatedMessage.contains(" - d : 2026-04-02"))
+
+          val rows = spark.read.format("delta").load(path).selectExpr("id", "meta.tracking", "d")
+          assert(rows.collect().toSeq == Seq(Row(1L, "t1", "2026-04-01")))
+      }
+    }
+  }
+
+  test("native delta DELETE with change data feed checks generated columns natively") {
+    withNativeWriteOffloadConf {
+      withTempDir {
+        dir =>
+          val path = dir.getCanonicalPath
+          createGeneratedColumnTable(path, changeDataFeed = true)
+          spark
+            .range(0, 100, 1, 1)
+            .selectExpr(
+              "id",
+              "named_struct('tracking', CAST(id AS STRING)) AS meta",
+              "CAST('2026-04-01 10:00:00' AS TIMESTAMP) AS ts")
+            .write
+            .format("delta")
+            .mode("append")
+            .save(path)
+          // The DELETE rewrites the file with the generated column, so Delta adds its CHECK.
+          GlutenDeltaFileFormatWriter.clearExecutedPlanForTesting()
+          sql(s"DELETE FROM delta.`$path` WHERE id % 10 = 0")
+          assertConstraintsCheckedOnVeloxBatches()
+          assert(spark.read.format("delta").load(path).count() == 90)
+          val deleted = spark.read
+            .format("delta")
+            .option("readChangeFeed", "true")
+            .option("startingVersion", "2")
+            .load(path)
+            .where("_change_type = 'delete'")
+          assert(deleted.count() == 10)
       }
     }
   }
