@@ -23,7 +23,8 @@ import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.execution.{ColumnarToRowExec, SparkPlan}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
-import org.apache.spark.sql.execution.columnar.{InMemoryTableScanExec, SparkCacheUtil}
+import org.apache.spark.sql.execution.columnar.{InMemoryTableScanExec, InMemoryTableScanExecTransformer, SparkCacheUtil}
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{LongType, Metadata, MetadataBuilder, StructType}
 import org.apache.spark.storage.StorageLevel
 
@@ -241,6 +242,69 @@ class VeloxColumnarCacheSuite extends VeloxWholeStageTransformerSuite with Adapt
           assert(find(cachedPlan) {
             _.isInstanceOf[ProjectExecTransformer]
           }.isEmpty)
+      }
+    }
+  }
+  private def tableCacheScanMetrics(plan: SparkPlan): Map[String, Long] = {
+    val scans = collect(plan) { case s: InMemoryTableScanExecTransformer => s }
+    assert(scans.size == 1, plan)
+    scans.head.metrics.map { case (name, metric) => name -> metric.value }
+  }
+
+  test("Table cache scan reports read metrics") {
+    Seq("true", "false").foreach {
+      aqe =>
+        withSQLConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> aqe) {
+          val cached = spark.table("lineitem").cache()
+          try {
+            val df = spark.sql("SELECT SUM(l_quantity) FROM lineitem")
+            df.collect()
+            val m = tableCacheScanMetrics(df.queryExecution.executedPlan)
+            assert(m("numOutputRows") == 60175, s"aqe=$aqe $m")
+            assert(m("numCachedBatches") > 0, s"aqe=$aqe $m")
+            assert(m("numCachedBatchesRead") == m("numCachedBatches"), s"aqe=$aqe $m")
+            assert(m("cachedBytesRead") > 0, s"aqe=$aqe $m")
+            assert(m("readTime") > 0, s"aqe=$aqe $m")
+            // Columnar output: no columnar to row conversion in the scan.
+            assert(m("numInputBatches") == 0, s"aqe=$aqe $m")
+            assert(m("convertTime") == 0, s"aqe=$aqe $m")
+          } finally {
+            cached.unpersist()
+          }
+        }
+    }
+  }
+
+  test("Table cache scan reports columnar to row metrics for a vanilla consumer") {
+    val cached = spark.table("lineitem").cache()
+    withSQLConf(GlutenConfig.COLUMNAR_HASHAGG_ENABLED.key -> "false") {
+      try {
+        val df = spark.sql("SELECT l_returnflag, SUM(l_quantity) FROM lineitem GROUP BY 1")
+        df.collect()
+        val m = tableCacheScanMetrics(df.queryExecution.executedPlan)
+        assert(m("numOutputRows") == 60175, m)
+        assert(m("numCachedBatchesRead") > 0, m)
+        assert(m("numInputBatches") == m("numCachedBatchesRead"), m)
+        // convertTime is in milliseconds and may round to 0 on this small table.
+        assert(m("convertTime") >= 0, m)
+      } finally {
+        cached.unpersist()
+      }
+    }
+  }
+
+  test("Table cache scan reports batches pruned by partition stats") {
+    withSQLConf(GlutenConfig.COLUMNAR_TABLE_CACHE_PARTITION_STATS_ENABLED.key -> "true") {
+      val cached = spark.table("lineitem").cache()
+      try {
+        cached.count()
+        val df = spark.sql("SELECT SUM(l_quantity) FROM lineitem WHERE l_orderkey < 0")
+        checkAnswer(df, Row(null))
+        val m = tableCacheScanMetrics(df.queryExecution.executedPlan)
+        assert(m("numCachedBatches") > 0, m)
+        assert(m("numCachedBatchesRead") < m("numCachedBatches"), m)
+      } finally {
+        cached.unpersist()
       }
     }
   }
